@@ -42,7 +42,7 @@ export function MultipartEditor(props: {
       {
         name: picked.fileName,
         fileName: picked.fileName,
-        filePath: picked.filePath,
+        fileToken: picked.fileToken,
       },
     ]);
   }
@@ -60,7 +60,7 @@ export function MultipartEditor(props: {
       </Typography>
       {files.map((file, index) => (
         <Box
-          key={`${file.filePath}:${index}`}
+          key={`${file.fileToken}:${index}`}
           sx={{
             alignItems: "center",
             border: 1,
@@ -77,7 +77,7 @@ export function MultipartEditor(props: {
             noWrap
             variant="body2"
             sx={{ flex: 1, fontSize: 13, minWidth: 0 }}
-            title={`${file.name} — ${file.filePath}`}
+            title={file.name}
           >
             {file.name}
           </Typography>

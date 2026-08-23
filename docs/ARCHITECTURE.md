@@ -221,6 +221,7 @@ CSP 策略：
 - `host_pattern.rs`：域名模式匹配的共用实现（精确域名 / `*.example.com` 后缀 / CIDR / `*`），由上游代理绕行列表与 SSL 代理 include/exclude 列表共同使用。
 - `http_io.rs`：HTTP I/O 工具模块，含 `OwnedPrefixedStream`（首包回注 + WS relay）、`read_header_only()` 返回的 consumed/leftover 字节通过该工具回注给后续 IO。
 - `upstream_pool.rs`：上游 h2 连接池，按 `(host, port)` 键复用 h2 连接，跨多个请求共享同一上游连接。通过 `watch::Receiver` 通道实现雷鸣群体（thundering herd）防护：首次请求建立连接时持有单次写锁检查+插入，后续并发请求等待同一 channel 复用结果。内建空闲连接驱逐定时器，在代理启动时 spawn 后台任务定期清理过期连接。根据 ALPN 协商结果自动回退 h2/h1 协议。
+- `timeouts.rs`：代理生命周期超时矩阵的唯一定义点。所有客户端读取、上游请求、隧道、断点等待、WebSocket 和响应体空闲超时都通过 `TimeoutKind` 集中声明；测试 override 也收敛到同一模块，避免生产常量散落和字符串化配置漂移。
 - `forward_request()` 使用 `hyper` 替代 `reqwest`，通过自定义 `TimingConnector` 采集全部 7 个 timing 阶段（dns / connect / tls / request_send / waiting / response_read / total） — `已实现`
 - `send_direct_request()`（Compose）继续使用 `reqwest`，仅提供部分 timing 阶段（totalMs / waitingMs / responseReadMs）
 

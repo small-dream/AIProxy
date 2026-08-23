@@ -461,6 +461,8 @@ export const enMessages = {
       attachFile: "Attach file",
       fileName: "File name",
       hint: "Attached files are read from disk when the request is sent; the app never uploads file contents to the renderer. Only files under Downloads, Pictures, Videos, Desktop or Documents can be attached.",
+      importRequiresReattach:
+        "Imported cURL file parts were kept as text for review. Reattach each file before sending.",
       removeFile: "Remove file",
     },
     importCurl: "Import cURL",

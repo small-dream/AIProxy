@@ -9,13 +9,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 /// frames. Without this a half-open MITM connection (peer vanished behind a
 /// dropped NAT mapping, laptop asleep, middlebox silently discarding the flow)
 /// is never detected: hyper keeps the connection open indefinitely and the
-/// per-connection resources stay pinned.
-const H2_SERVER_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
-
-/// How long an inbound h2 client may ignore our PINGs before hyper closes the
-/// connection as dead.
-const H2_SERVER_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(20);
-
+/// per-connection resources stay pinned. The interval and timeout are defined
+/// in the centralized timeout matrix.
 /// Why a client refused the certificate we presented.
 ///
 /// The distinction matters for log severity: one case is a configuration
@@ -101,7 +96,7 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     // (H4). On timeout we reply 504 Gateway Timeout, matching the
     // connect-failure path established in M4.
     let connect_result = timeout(
-        connect_tunnel_connect_timeout(),
+        crate::timeout_for(crate::TimeoutKind::ConnectTunnelConnect),
         crate::upstream_proxy::dial_target(upstream_proxy.as_deref(), host, port, dns_override_ip),
     )
     .await;
@@ -135,12 +130,12 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
                 event = "connect_tunnel_upstream_timeout",
                 host = %host,
                 port = port,
-                timeout_secs = connect_tunnel_connect_timeout().as_secs(),
+                timeout_secs = crate::timeout_for(crate::TimeoutKind::ConnectTunnelConnect).as_secs(),
                 "connect_tunnel_upstream_timeout"
             );
             let message = format!(
                 "timed out connecting to upstream {host}:{port} after {}s",
-                connect_tunnel_connect_timeout().as_secs()
+                crate::timeout_for(crate::TimeoutKind::ConnectTunnelConnect).as_secs()
             );
             write_plain_text_response(&mut client_stream, StatusCode::GATEWAY_TIMEOUT, &message)
                 .await
@@ -180,11 +175,11 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     //   - Idle deadline elapsed with NO activity in either direction since the
     //     last reset: break (hung/half-open peer; reclaim the permit).
     //
-    // The idle deadline is reset to `now + tunnel_idle_timeout()` whenever ANY
+    // The idle deadline is reset to `now + crate::timeout_for(crate::TimeoutKind::TunnelIdle)` whenever ANY
     // non-zero chunk is relayed in EITHER direction. Default 10 min, so a truly
     // silent tunnel ends within that window instead of holding the connection
     // permit forever (max 1024 concurrent) and rejecting all new connections.
-    let idle = tunnel_idle_timeout();
+    let idle = crate::timeout_for(crate::TimeoutKind::TunnelIdle);
     let result = idle_reset_relay(client_stream, upstream, idle).await;
 
     match result {
@@ -432,7 +427,11 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
     // P1-3: bound the MITM TLS handshake. A client that completes the CONNECT
     // but then never sends the TLS ClientHello would otherwise hold this
     // future (and its connection permit) forever.
-    let tls_stream = match timeout(client_header_read_timeout(), tls_acceptor.accept(stream)).await
+    let tls_stream = match timeout(
+        crate::timeout_for(crate::TimeoutKind::ClientHeaderRead),
+        tls_acceptor.accept(stream),
+    )
+    .await
     {
         Ok(Ok(stream)) => stream,
         Ok(Err(error)) => {
@@ -490,12 +489,12 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
                 event = "tls_handshake_timed_out",
                 host = %host,
                 port = port,
-                timeout_secs = client_header_read_timeout().as_secs(),
+                timeout_secs = crate::timeout_for(crate::TimeoutKind::ClientHeaderRead).as_secs(),
                 "client did not complete the TLS handshake in time"
             );
             return Err(ProxyError::TlsError(format!(
                 "TLS handshake timed out after {}s for {host}:{port}",
-                client_header_read_timeout().as_secs()
+                crate::timeout_for(crate::TimeoutKind::ClientHeaderRead).as_secs()
             )));
         }
     };
@@ -578,8 +577,12 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
         let executor = hyper_util::rt::TokioExecutor::new();
         hyper::server::conn::http2::Builder::new(executor)
             .timer(hyper_util::rt::TokioTimer::new())
-            .keep_alive_interval(H2_SERVER_KEEP_ALIVE_INTERVAL)
-            .keep_alive_timeout(H2_SERVER_KEEP_ALIVE_TIMEOUT)
+            .keep_alive_interval(crate::timeout_for(
+                crate::TimeoutKind::Http2KeepAliveInterval,
+            ))
+            .keep_alive_timeout(crate::timeout_for(
+                crate::TimeoutKind::Http2KeepAliveTimeout,
+            ))
             .serve_connection(io, service)
             .await
             .map_err(|e| {
@@ -601,7 +604,7 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
         // request on the kept-alive connection.
         hyper::server::conn::http1::Builder::new()
             .timer(hyper_util::rt::TokioTimer::new())
-            .header_read_timeout(client_header_read_timeout())
+            .header_read_timeout(crate::timeout_for(crate::TimeoutKind::ClientHeaderRead))
             .serve_connection(io, service)
             .with_upgrades()
             .await

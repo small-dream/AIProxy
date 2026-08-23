@@ -89,18 +89,16 @@ describe("parseCurlCommand", () => {
     expect(parsed?.body).toBe("hello");
   });
 
-  it("parses -F text fields and file parts with @path", () => {
+  it("parses -F text fields and file sources without send authorization", () => {
     const parsed = parseCurlCommand(
       `curl -X POST https://example.com/upload -F 'note=hello' -F 'file=@/tmp/a.txt'`,
     );
     expect(parsed?.bodyType).toBe("formdata");
     expect(parsed?.formDataEntries).toEqual([{ name: "note", value: "hello" }]);
-    expect(parsed?.formFiles).toEqual([
-      { name: "file", fileName: "a.txt", filePath: "/tmp/a.txt" },
-    ]);
+    expect(parsed?.formFiles).toEqual([{ name: "file", fileName: "a.txt", source: "/tmp/a.txt" }]);
   });
 
-  it("parses -F ;filename= and ;type= options without corrupting the file path", () => {
+  it("parses -F ;filename= and ;type= options without corrupting the file source", () => {
     const parsed = parseCurlCommand(
       `curl -X POST https://example.com/upload -F 'file=@/tmp/a.txt;filename=photo.png;type=image/png' -F 'note=hello'`,
     );
@@ -109,7 +107,7 @@ describe("parseCurlCommand", () => {
       {
         name: "file",
         fileName: "photo.png",
-        filePath: "/tmp/a.txt",
+        source: "/tmp/a.txt",
         contentType: "image/png",
       },
     ]);

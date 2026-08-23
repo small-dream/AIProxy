@@ -280,16 +280,16 @@ fn try_parse_ws_frame(buf: &[u8]) -> Result<Option<(WsFrame, usize)>, ProxyError
 /// P1-1 timeout semantics, preserved from the previous `read_exact`-based
 /// parser: while the buffer is EMPTY we are between frames — heartbeat gaps
 /// and quiet push connections are normal, so the wait is bounded by
-/// `ws_frame_idle_timeout()` (minutes-level). Once any byte of the frame is
+/// `crate::timeout_for(crate::TimeoutKind::WsFrameIdle)` (minutes-level). Once any byte of the frame is
 /// staged the frame is in flight and every further wait is bounded by
-/// `ws_frame_read_timeout()` so a stalled peer cannot drag a half-delivered
+/// `crate::timeout_for(crate::TimeoutKind::WsFrameRead)` so a stalled peer cannot drag a half-delivered
 /// frame forever.
 pub async fn read_ws_frame<R: AsyncReadExt + Unpin>(
     reader: &mut R,
     buf: &mut Vec<u8>,
 ) -> Result<WsFrame, ProxyError> {
-    let read_timeout = crate::ws_frame_read_timeout();
-    let idle_timeout = crate::ws_frame_idle_timeout();
+    let read_timeout = crate::timeout_for(crate::TimeoutKind::WsFrameRead);
+    let idle_timeout = crate::timeout_for(crate::TimeoutKind::WsFrameIdle);
 
     loop {
         if let Some((frame, used)) = try_parse_ws_frame(buf)? {
@@ -762,7 +762,7 @@ fn close_frame(code: u16) -> WsFrame {
 /// Close handling (H9):
 /// - When either side sends a Close frame, the relay forwards it, shuts down
 ///   the peer's writer (so a compliant peer sees the close and echoes one
-///   back), and arms a close-grace deadline (`ws_close_grace_timeout()`).
+///   back), and arms a close-grace deadline (`crate::timeout_for(crate::TimeoutKind::WsCloseGrace)`).
 /// - If the peer never echoes a Close (non-compliant server, packet loss,
 ///   half-closed connection) the grace deadline fires and the relay force-
 ///   terminates, preventing an unbounded `parse_ws_frame` wait and TCP leak.
@@ -803,7 +803,7 @@ pub async fn relay_websocket_frames<C, U>(
     // peer that never closebacks would otherwise leave the relay blocked on
     // `parse_ws_frame` forever (TCP leak). When the grace elapses we force the
     // loop to terminate.
-    let close_grace = crate::ws_close_grace_timeout();
+    let close_grace = crate::timeout_for(crate::TimeoutKind::WsCloseGrace);
     let mut close_grace_deadline: Option<tokio::time::Instant> = None;
 
     loop {
@@ -1569,9 +1569,14 @@ mod tests {
         // read (including the header wait) used the 100ms timeout, so this
         // test would have lost the second frame.
         let _ws_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
-        let _idle = crate::override_ws_frame_idle_timeout_for_test(Duration::from_millis(500));
-        let _frame_read =
-            crate::override_ws_frame_read_timeout_for_test(Duration::from_millis(100));
+        let _idle = crate::override_timeout_for_test(
+            crate::TimeoutKind::WsFrameIdle,
+            Duration::from_millis(500),
+        );
+        let _frame_read = crate::override_timeout_for_test(
+            crate::TimeoutKind::WsFrameRead,
+            Duration::from_millis(100),
+        );
 
         let (mut client_outer, client_inner) = tokio::io::duplex(64);
         let (upstream_outer, upstream_inner) = tokio::io::duplex(64);
@@ -1628,9 +1633,14 @@ mod tests {
         // goes quiet; the relay must end quickly (frame-read timeout + close
         // grace), not hang for the idle ceiling.
         let _ws_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
-        let _frame_read =
-            crate::override_ws_frame_read_timeout_for_test(Duration::from_millis(150));
-        let _grace = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(200));
+        let _frame_read = crate::override_timeout_for_test(
+            crate::TimeoutKind::WsFrameRead,
+            Duration::from_millis(150),
+        );
+        let _grace = crate::override_timeout_for_test(
+            crate::TimeoutKind::WsCloseGrace,
+            Duration::from_millis(200),
+        );
 
         let (mut client_outer, mut client_inner) = tokio::io::duplex(64);
         let (upstream_outer, mut upstream_inner) = tokio::io::duplex(64);
@@ -1720,7 +1730,10 @@ mod tests {
         // close-grace slot, so the two serialize on the WS timeout lock
         // instead of fighting over it when run in parallel.
         let _ws_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
-        let _guard = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(300));
+        let _guard = crate::override_timeout_for_test(
+            crate::TimeoutKind::WsCloseGrace,
+            Duration::from_millis(300),
+        );
 
         let (client_outer, mut client_inner) = tokio::io::duplex(64);
         let (mut upstream_outer, mut upstream_inner) = tokio::io::duplex(64);

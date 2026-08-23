@@ -21,7 +21,6 @@
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
@@ -44,9 +43,8 @@ const MAX_CONNECT_RESPONSE_HEAD_BYTES: usize = 8 * 1024;
 
 /// Bound on the whole proxy negotiation (TCP connect + TLS + protocol
 /// handshake). A proxy that accepts the TCP connection but then stalls must not
-/// hold a connection permit indefinitely.
-const UPSTREAM_PROXY_DIAL_TIMEOUT: Duration = Duration::from_secs(20);
-
+/// hold a connection permit indefinitely. The value is defined in the
+/// centralized timeout matrix.
 // SOCKS5 wire constants (RFC 1928).
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_NONE: u8 = 0x00;
@@ -338,7 +336,8 @@ pub(crate) async fn dial_target(
     };
 
     let dial = dial_via_proxy(proxy, &target, target_port);
-    match tokio::time::timeout(UPSTREAM_PROXY_DIAL_TIMEOUT, dial).await {
+    let dial_timeout = crate::timeout_for(crate::TimeoutKind::UpstreamProxyDial);
+    match tokio::time::timeout(dial_timeout, dial).await {
         Ok(Ok(stream)) => {
             tracing::debug!(
                 event = "upstream_proxy_tunnel_established",
@@ -370,7 +369,7 @@ pub(crate) async fn dial_target(
                 proxy.host,
                 proxy.port,
                 proxy.protocol.as_str(),
-                UPSTREAM_PROXY_DIAL_TIMEOUT.as_secs()
+                dial_timeout.as_secs()
             );
             tracing::warn!(
                 event = "upstream_proxy_dial_timeout",
@@ -894,11 +893,9 @@ pub async fn probe_upstream_proxy(
     };
 
     let started = std::time::Instant::now();
-    let outcome = tokio::time::timeout(
-        UPSTREAM_PROXY_DIAL_TIMEOUT,
-        dial_via_proxy(config, &target, probe_port),
-    )
-    .await;
+    let dial_timeout = crate::timeout_for(crate::TimeoutKind::UpstreamProxyDial);
+    let outcome =
+        tokio::time::timeout(dial_timeout, dial_via_proxy(config, &target, probe_port)).await;
     let elapsed_ms = started.elapsed().as_millis();
 
     match outcome {
@@ -919,7 +916,7 @@ pub async fn probe_upstream_proxy(
             elapsed_ms,
             error: Some(format!(
                 "timed out after {}s waiting for upstream proxy {}:{}",
-                UPSTREAM_PROXY_DIAL_TIMEOUT.as_secs(),
+                dial_timeout.as_secs(),
                 config.host,
                 config.port
             )),

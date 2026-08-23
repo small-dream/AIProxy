@@ -25,7 +25,7 @@ export type MultipartFilePart = {
   kind: "file";
   name: string;
   fileName: string;
-  filePath: string;
+  fileToken: string;
   contentType?: string;
 };
 
@@ -35,7 +35,8 @@ export type MultipartEntry = MultipartTextPart | MultipartFilePart;
 export type FormFileEntry = {
   name: string;
   fileName: string;
-  filePath: string;
+  /** Backend-issued one-time capability; never a filesystem path. */
+  fileToken: string;
   contentType?: string;
 };
 
@@ -63,7 +64,7 @@ export function isComposedRequestInput(value: unknown): value is ComposedRequest
             (entry.kind === "file" &&
               typeof entry.name === "string" &&
               typeof entry.fileName === "string" &&
-              typeof entry.filePath === "string"),
+              typeof entry.fileToken === "string"),
         )))
   );
 }

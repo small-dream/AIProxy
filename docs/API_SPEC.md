@@ -1049,14 +1049,14 @@ type MultipartEntry =
       kind: "file";
       name: string;
       fileName: string;
-      filePath: string;
+      fileToken: string;
       contentType?: string;
     };
 
 type FormFileEntry = {
   name: string;
   fileName: string;
-  filePath: string;
+  fileToken: string;
   contentType?: string;
 };
 ```
@@ -2087,13 +2087,16 @@ type PickAttachmentFileInput = { title: string };
 ```ts
 type AttachmentFileOutput = {
   fileName: string;
-  filePath: string;  // canonicalize 后的路径
+  fileToken: string; // 后端签发的短生命周期附件能力
   sizeBytes: number;
 } | null;
 ```
 
-约束：renderer 只拿到元数据，文件字节在发送时由 Rust 侧读取（D1）；
-canonicalize + 64 MB 上限与 multipart 发送路径一致。
+约束：renderer 不接收路径和文件内容；后端在选取时 canonicalize、
+限制允许目录、校验 64 MB 上限并签发短生命周期 token。发送时只能提交该
+token；token 在 15 分钟内可重复用于重试和 Collection 重放，过期后必须重新
+附加。token 注册表由后端持久化以支持应用重启后的短窗口重试。cURL 导入中的
+`@path` 仅作为待确认引用展示，不能直接发送；发送前必须重新附加。
 
 ### `save_response_files`
 

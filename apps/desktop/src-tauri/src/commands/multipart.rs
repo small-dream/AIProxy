@@ -14,7 +14,7 @@ pub enum MultipartEntry {
     File {
         name: String,
         file_name: String,
-        file_path: String,
+        file_token: String,
         content_type: Option<String>,
     },
 }
@@ -49,58 +49,38 @@ fn resolve_part_content_type(content_type: Option<&str>) -> Result<String, Strin
 fn read_attachment_bytes(entry: &MultipartEntry) -> Result<Vec<u8>, String> {
     let MultipartEntry::File {
         file_name,
-        file_path,
+        file_token,
         ..
     } = entry
     else {
         return Ok(Vec::new());
     };
 
-    // Canonicalize to resolve symlinks at send time (D1, aligns with the
-    // HAR/rules import trust model: the renderer-supplied path is treated like
-    // a MapRule local targetValue).
-    let canonical = std::fs::canonicalize(file_path).map_err(|error| {
-        format!(
-            "attachment '{}' ({}) cannot be resolved: {error}",
-            file_name, file_path
-        )
+    // The token authorizes only the originally selected location. Re-resolve
+    // and re-check it here so a post-pick symlink replacement cannot redirect
+    // the read outside the approved media roots.
+    let issued_path = super::files::resolve_attachment_token(file_token)
+        .map_err(|error| format!("attachment '{file_name}': {error}"))?;
+    let canonical = std::fs::canonicalize(&issued_path).map_err(|error| {
+        format!("attachment '{file_name}' cannot be resolved at send time: {error}")
     })?;
-    // P0-6: a composed request can carry arbitrary renderer-supplied paths,
-    // so reading must stay inside the same roots as media saves — otherwise
-    // any file readable by the user could be exfiltrated in a body. The same
-    // shared policy already gated picking, so this is defense in depth.
-    super::files::ensure_attachment_path_allowed(
-        &canonical,
-        &format!("{file_name} ({file_path})"),
-    )?;
+    super::files::ensure_attachment_path_allowed(&canonical, file_name)?;
     if !canonical.is_file() {
-        return Err(format!(
-            "attachment '{}' ({}) is not a file",
-            file_name, file_path
-        ));
+        return Err(format!("attachment '{file_name}' is not a file"));
     }
 
-    let metadata = std::fs::metadata(&canonical).map_err(|error| {
-        format!(
-            "attachment '{}' ({}) cannot be read: {error}",
-            file_name, file_path
-        )
-    })?;
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|error| format!("attachment '{file_name}' cannot be read: {error}"))?;
     if metadata.len() > MAX_MULTIPART_FILE_BYTES as u64 {
         return Err(format!(
-            "attachment '{}' ({}) exceeds the {} MB limit",
+            "attachment '{}' exceeds the {} MB limit",
             file_name,
-            file_path,
             MAX_MULTIPART_FILE_BYTES / (1024 * 1024)
         ));
     }
 
-    std::fs::read(&canonical).map_err(|error| {
-        format!(
-            "attachment '{}' ({}) cannot be read: {error}",
-            file_name, file_path
-        )
-    })
+    std::fs::read(&canonical)
+        .map_err(|error| format!("attachment '{file_name}' cannot be read: {error}"))
 }
 
 /// Build the raw multipart/form-data body bytes for a composed request (C3).
@@ -213,12 +193,15 @@ mod tests {
         };
         let path = dir.join("a.bin");
         std::fs::write(&path, b"file-bytes").unwrap();
+        let token = super::super::files::issue_attachment_token(path.canonicalize().unwrap())
+            .map_err(|error| app_error(ERR_INVALID_INPUT, error))
+            .unwrap();
 
         let body = build_multipart_body_bytes(
             &[MultipartEntry::File {
                 name: "upload".to_string(),
                 file_name: "a.bin".to_string(),
-                file_path: path.display().to_string(),
+                file_token: token,
                 content_type: Some("application/octet-stream".to_string()),
             }],
             "BOUNDARY",
@@ -234,52 +217,54 @@ mod tests {
     }
 
     #[test]
-    fn missing_file_failure_includes_name_and_path() {
-        let missing = scratch_dir_under_allowed_root("missing")
-            .map(|dir| dir.join("gone.txt"))
-            .unwrap_or_else(|| "/definitely/missing/aiproxy-file.txt".into());
+    fn missing_file_failure_includes_file_name() {
         let err = build_multipart_body_bytes(
             &[MultipartEntry::File {
                 name: "upload".to_string(),
                 file_name: "gone.txt".to_string(),
-                file_path: missing.display().to_string(),
+                file_token: "missing-token".to_string(),
                 content_type: None,
             }],
             "BOUNDARY",
         )
         .unwrap_err();
         assert!(err.contains("gone.txt"), "got: {err}");
-        assert!(
-            err.contains("cannot be resolved") || err.contains("outside"),
-            "got: {err}"
-        );
+        assert!(err.contains("expired"), "got: {err}");
     }
 
     #[test]
-    fn rejects_attachments_outside_allowed_roots() {
-        // temp_dir is deliberately outside Downloads/Pictures/Videos/Desktop/
-        // Documents: reading arbitrary renderer-chosen paths must fail even
-        // though the file exists (P0-6).
-        let dir = std::env::temp_dir();
-        let path = dir.join(format!("aiproxy-outside-{}.txt", std::process::id()));
-        std::fs::write(&path, b"secret").unwrap();
-
+    fn rejects_unknown_or_replayed_tokens() {
         let err = build_multipart_body_bytes(
             &[MultipartEntry::File {
                 name: "upload".to_string(),
                 file_name: "secret.txt".to_string(),
-                file_path: path.display().to_string(),
+                file_token: "unknown-token".to_string(),
                 content_type: None,
             }],
             "BOUNDARY",
         )
         .unwrap_err();
-        assert!(
-            err.contains("outside the allowed directories"),
-            "got: {err}"
-        );
+        assert!(err.contains("expired"), "got: {err}");
+    }
 
-        std::fs::remove_file(&path).ok();
+    #[test]
+    fn issued_token_can_be_reused_for_retries() {
+        let Some(dir) = scratch_dir_under_allowed_root("reuse") else {
+            return;
+        };
+        let path = dir.join("retry.txt");
+        std::fs::write(&path, b"retry-bytes").unwrap();
+        let token =
+            super::super::files::issue_attachment_token(path.canonicalize().unwrap()).unwrap();
+        let entry = MultipartEntry::File {
+            name: "upload".to_string(),
+            file_name: "retry.txt".to_string(),
+            file_token: token,
+            content_type: None,
+        };
+        assert!(build_multipart_body_bytes(std::slice::from_ref(&entry), "B").is_ok());
+        assert!(build_multipart_body_bytes(&[entry], "B").is_ok());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -288,8 +273,7 @@ mod tests {
             &[MultipartEntry::File {
                 name: "upload".to_string(),
                 file_name: "a.bin".to_string(),
-                // The path is never read: header validation must fail first.
-                file_path: "/definitely/missing/aiproxy-file.bin".to_string(),
+                file_token: "/definitely/missing/aiproxy-file.bin".to_string(),
                 content_type: Some("text/plain\r\nX-Injected: 1".to_string()),
             }],
             "BOUNDARY",
@@ -308,7 +292,7 @@ mod tests {
                 &[MultipartEntry::File {
                     name: "upload".to_string(),
                     file_name: "a.bin".to_string(),
-                    file_path: "/definitely/missing/aiproxy-file.bin".to_string(),
+                    file_token: "/definitely/missing/aiproxy-file.bin".to_string(),
                     content_type: Some(value.to_string()),
                 }],
                 "BOUNDARY",
@@ -327,15 +311,15 @@ mod tests {
             &[MultipartEntry::File {
                 name: "upload".to_string(),
                 file_name: "a.bin".to_string(),
-                file_path: "/definitely/missing/aiproxy-file.bin".to_string(),
+                file_token: "/definitely/missing/aiproxy-file.bin".to_string(),
                 content_type: Some("  ".to_string()),
             }],
             "BOUNDARY",
         );
-        // The blank content type resolves to the default before the (missing)
-        // path is ever touched, so the failure must be the path error.
+        // The blank content type resolves to the default before an invalid
+        // attachment token can affect encoding.
         let err = body.unwrap_err();
-        assert!(err.contains("cannot be resolved"), "got: {err}");
+        assert!(err.contains("expired"), "got: {err}");
     }
 
     #[test]

@@ -9,8 +9,6 @@ use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use httparse::{Request, Status, EMPTY_HEADER};
 use reqwest::{redirect::Policy, Client};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-#[cfg(test)]
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::{
     collections::{HashMap, HashSet},
     env,
@@ -34,77 +32,6 @@ use uuid::Uuid;
 const MAX_HEADER_BYTES: usize = 64 * 1024;
 const READ_BUFFER_BYTES: usize = 8 * 1024;
 const MAX_CONCURRENT_CONNECTIONS: usize = 1024;
-// Client request-header deadline, covering three layers (P1-3): the initial
-// header-only CONNECT/CA probe, hyper's per-request header-read ceiling on
-// kept-alive connections, and the MITM TLS handshake wait. Without it a
-// client that connects and never sends data pins one of the connection
-// permits indefinitely.
-const CLIENT_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(30);
-#[cfg(test)]
-static TEST_CLIENT_HEADER_READ_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
-const UPSTREAM_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
-#[cfg(test)]
-static TEST_UPSTREAM_REQUEST_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
-// CONNECT blind tunnel: TCP connect to upstream must be bounded so a slow/
-// unreachable target cannot hold a connection permit indefinitely. Shorter
-// than the full upstream request timeout — establishing a TCP connection
-// should be fast; anything beyond this is a stuck/unreachable target.
-const CONNECT_TUNNEL_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-// CONNECT blind tunnel relay idle ceiling. Long enough to not disturb legit
-// long-lived idle tunnels (e.g. SSH-over-CONNECT keepalive gaps), short
-// enough to reclaim the connection permit from a truly dead peer and avoid
-// unbounded permit-pool exhaustion (max 1024 concurrent connections).
-const TUNNEL_IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-#[cfg(test)]
-static TEST_TUNNEL_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
-// Long enough for real debugging sessions, short enough to avoid leaking a
-// pending entry + upstream connection forever if the frontend disconnects or
-// the breakpoint-hit emitter (fire-and-forget) fails to deliver.
-const BREAKPOINT_WAIT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-#[cfg(test)]
-static TEST_BREAKPOINT_WAIT_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
-// WebSocket relay close-grace ceiling. Once a Close frame has been seen from
-// either peer the relay starts a grace timer: long enough for a compliant
-// peer to echo a Close back, short enough that a non-compliant / half-closed
-// / packet-losing peer cannot keep the relay (and the TCP connection) alive
-// forever. See `ws::relay_websocket_frames`.
-const WS_CLOSE_GRACE_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg(test)]
-static TEST_WS_CLOSE_GRACE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
-// WebSocket relay frame-boundary idle ceiling (P1-1). Waiting for the FIRST
-// byte of the next frame header is a normal silence period for push/market-
-// data connections whose heartbeat interval may exceed any short timeout, so
-// it gets a minutes-level ceiling instead of the per-read frame timeout. Once
-// the first byte arrives the frame has started; every subsequent read of that
-// frame is bounded by `WS_FRAME_READ_TIMEOUT_SECS` so a stalled peer cannot
-// drag a half-delivered frame forever. See `ws::read_ws_frame`.
-const WS_FRAME_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-#[cfg(test)]
-static TEST_WS_FRAME_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
-// WebSocket relay per-read ceiling for the bytes of an IN-FLIGHT frame
-// (header tail, extended length, mask key, payload). Deliberately much
-// shorter than the frame-boundary idle ceiling: once a peer starts sending a
-// frame it must finish delivering it.
-const WS_FRAME_READ_TIMEOUT: Duration = Duration::from_secs(30);
-#[cfg(test)]
-static TEST_WS_FRAME_READ_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
-// Upstream response-body per-chunk idle ceiling (P1-5). The total upstream
-// request timeout only bounds dial + send + response-head arrival; a body
-// that keeps producing chunks may take arbitrarily long (large download,
-// slow SSE), while a body that goes silent is abandoned after this ceiling.
-// See `upstream::read_hyper_response_body_with_limit`.
-const RESPONSE_BODY_READ_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-#[cfg(test)]
-static TEST_RESPONSE_BODY_READ_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
-// WebSocket upgrade non-101 body: per-read idle ceiling. A non-101 refusal on
-// an HTTP/1.1 keep-alive connection with no Content-Length would otherwise
-// block on upstream.read() forever — the peer keeps the connection open and
-// never sends EOF. Each read is bounded so the client always receives the
-// (possibly partial) refusal body instead of hanging indefinitely. See
-// `ws_upgrade::read_full_response_body`.
-const WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
-#[cfg(test)]
-static TEST_WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0";
 const DEFAULT_HTTPS_PORT: u16 = 443;
 const MAX_REQUEST_HEADERS: usize = 64;
@@ -125,6 +52,7 @@ mod server;
 mod ssl_proxying;
 mod ssl_proxying_defaults;
 mod stream;
+mod timeouts;
 mod timing_connector;
 mod types;
 mod upstream;
@@ -173,158 +101,9 @@ pub use ws::{
     WsMessageData, WsOpcode,
 };
 
-pub(crate) fn upstream_request_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        let timeout_ms = TEST_UPSTREAM_REQUEST_TIMEOUT_MS.load(Ordering::SeqCst);
-        if timeout_ms > 0 {
-            return Duration::from_millis(timeout_ms);
-        }
-    }
-
-    UPSTREAM_REQUEST_TIMEOUT
-}
-
-/// Client request-header / TLS-handshake deadline. See
-/// `CLIENT_HEADER_READ_TIMEOUT`.
-pub(crate) fn client_header_read_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        let timeout_ms = TEST_CLIENT_HEADER_READ_TIMEOUT_MS.load(Ordering::SeqCst);
-        if timeout_ms > 0 {
-            return Duration::from_millis(timeout_ms);
-        }
-    }
-
-    CLIENT_HEADER_READ_TIMEOUT
-}
-
-/// CONNECT blind-tunnel TCP connect timeout. Bounded so a slow/unreachable
-/// upstream cannot hold a connection permit indefinitely.
-pub(crate) fn connect_tunnel_connect_timeout() -> Duration {
-    CONNECT_TUNNEL_CONNECT_TIMEOUT
-}
-
-/// CONNECT blind-tunnel relay idle ceiling. Bounded so an upstream that
-/// accepts the TCP connection but then stays silent (dead peer, half-open)
-/// cannot hold a permit forever and exhaust the connection pool.
-pub(crate) fn tunnel_idle_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        let timeout_ms = TEST_TUNNEL_IDLE_TIMEOUT_MS.load(Ordering::SeqCst);
-        if timeout_ms > 0 {
-            return Duration::from_millis(timeout_ms);
-        }
-    }
-
-    TUNNEL_IDLE_TIMEOUT
-}
-
-/// WebSocket relay close-grace ceiling. Once a Close frame has been seen the
-/// relay arms this deadline and force-terminates when it elapses, so a peer
-/// that never echoes a Close cannot leak the relay/TCP connection.
-pub(crate) fn ws_close_grace_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        let timeout_ms = TEST_WS_CLOSE_GRACE_TIMEOUT_MS.load(Ordering::SeqCst);
-        if timeout_ms > 0 {
-            return Duration::from_millis(timeout_ms);
-        }
-    }
-
-    WS_CLOSE_GRACE_TIMEOUT
-}
-
-/// WebSocket relay frame-boundary idle ceiling: how long the relay tolerates
-/// complete silence between frames before ending the connection. See
-/// `WS_FRAME_IDLE_TIMEOUT`.
-pub(crate) fn ws_frame_idle_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        let timeout_ms = TEST_WS_FRAME_IDLE_TIMEOUT_MS.load(Ordering::SeqCst);
-        if timeout_ms > 0 {
-            return Duration::from_millis(timeout_ms);
-        }
-    }
-
-    WS_FRAME_IDLE_TIMEOUT
-}
-
-/// WebSocket relay per-read ceiling for bytes of an in-flight frame. See
-/// `WS_FRAME_READ_TIMEOUT`.
-pub(crate) fn ws_frame_read_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        let timeout_ms = TEST_WS_FRAME_READ_TIMEOUT_MS.load(Ordering::SeqCst);
-        if timeout_ms > 0 {
-            return Duration::from_millis(timeout_ms);
-        }
-    }
-
-    WS_FRAME_READ_TIMEOUT
-}
-
-/// Upstream response-body per-chunk idle ceiling. See
-/// `RESPONSE_BODY_READ_IDLE_TIMEOUT`.
-pub(crate) fn response_body_read_idle_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        let timeout_ms = TEST_RESPONSE_BODY_READ_IDLE_TIMEOUT_MS.load(Ordering::SeqCst);
-        if timeout_ms > 0 {
-            return Duration::from_millis(timeout_ms);
-        }
-    }
-
-    RESPONSE_BODY_READ_IDLE_TIMEOUT
-}
-
-/// WebSocket upgrade non-101 body: per-read idle ceiling. Bounds each read of
-/// a refused upstream response body so a keep-alive peer without a
-/// Content-Length cannot block the proxy forever.
-pub(crate) fn ws_upstream_body_read_idle_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        let timeout_ms = TEST_WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT_MS.load(Ordering::SeqCst);
-        if timeout_ms > 0 {
-            return Duration::from_millis(timeout_ms);
-        }
-    }
-
-    WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT
-}
-
 #[cfg(test)]
-pub(crate) fn override_upstream_request_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
-    TEST_UPSTREAM_REQUEST_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: &TEST_UPSTREAM_REQUEST_TIMEOUT_MS,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn override_client_header_read_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
-    TEST_CLIENT_HEADER_READ_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: &TEST_CLIENT_HEADER_READ_TIMEOUT_MS,
-    }
-}
-
-/// RAII guard that resets exactly the test timeout slot it armed on drop.
-/// Each slot is independent, so concurrent tests (cargo test runs threads in
-/// parallel) cannot clobber each other's overrides — finishing one test must
-/// not zero a different slot that another in-flight test still depends on,
-/// which would silently drop it back to the slow default (e.g. 120s).
-#[cfg(test)]
-pub(crate) struct TestTimeoutGuard {
-    slot: &'static AtomicU64,
-}
-
-#[cfg(test)]
-impl Drop for TestTimeoutGuard {
-    fn drop(&mut self) {
-        self.slot.store(0, Ordering::SeqCst);
-    }
-}
+pub(crate) use timeouts::override_timeout_for_test;
+pub(crate) use timeouts::{timeout as timeout_for, TimeoutKind};
 
 /// Serializes tests that arm WebSocket timeout override slots.
 ///
@@ -345,78 +124,6 @@ pub(crate) static WS_TIMEOUT_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mu
 #[cfg(test)]
 pub(crate) static BREAKPOINT_WAIT_TEST_LOCK: tokio::sync::Mutex<()> =
     tokio::sync::Mutex::const_new(());
-
-pub(crate) fn breakpoint_wait_timeout() -> Duration {
-    #[cfg(test)]
-    {
-        let timeout_ms = TEST_BREAKPOINT_WAIT_TIMEOUT_MS.load(Ordering::SeqCst);
-        if timeout_ms > 0 {
-            return Duration::from_millis(timeout_ms);
-        }
-    }
-
-    BREAKPOINT_WAIT_TIMEOUT
-}
-
-#[cfg(test)]
-pub(crate) fn override_breakpoint_wait_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
-    TEST_BREAKPOINT_WAIT_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: &TEST_BREAKPOINT_WAIT_TIMEOUT_MS,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn override_tunnel_idle_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
-    TEST_TUNNEL_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: &TEST_TUNNEL_IDLE_TIMEOUT_MS,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn override_ws_close_grace_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
-    TEST_WS_CLOSE_GRACE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: &TEST_WS_CLOSE_GRACE_TIMEOUT_MS,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn override_ws_frame_idle_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
-    TEST_WS_FRAME_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: &TEST_WS_FRAME_IDLE_TIMEOUT_MS,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn override_ws_frame_read_timeout_for_test(timeout: Duration) -> TestTimeoutGuard {
-    TEST_WS_FRAME_READ_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: &TEST_WS_FRAME_READ_TIMEOUT_MS,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn override_response_body_read_idle_timeout_for_test(
-    timeout: Duration,
-) -> TestTimeoutGuard {
-    TEST_RESPONSE_BODY_READ_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: &TEST_RESPONSE_BODY_READ_IDLE_TIMEOUT_MS,
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn override_ws_upstream_body_read_idle_timeout_for_test(
-    timeout: Duration,
-) -> TestTimeoutGuard {
-    TEST_WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT_MS.store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: &TEST_WS_UPSTREAM_BODY_READ_IDLE_TIMEOUT_MS,
-    }
-}
 
 #[cfg(test)]
 pub(crate) use breakpoints::apply_request_resolution;

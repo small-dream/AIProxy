@@ -2133,8 +2133,10 @@ mod tests {
         let _bp_lock = crate::BREAKPOINT_WAIT_TEST_LOCK.lock().await;
         // Long breakpoint wait so the resolution (Mock) is what drives the
         // stage, not a timeout.
-        let _wait_guard =
-            crate::override_breakpoint_wait_timeout_for_test(std::time::Duration::from_secs(30));
+        let _wait_guard = crate::override_timeout_for_test(
+            crate::TimeoutKind::BreakpointWait,
+            std::time::Duration::from_secs(30),
+        );
 
         // Breakpoint manager with one matching rule (matches example.com).
         let breakpoint_manager = Arc::new(BreakpointManager::new());

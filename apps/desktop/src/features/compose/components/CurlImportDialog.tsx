@@ -40,11 +40,17 @@ export function CurlImportDialog(props: { onClose: () => void; open: boolean }) 
             value,
           }))
         : [];
+    // Imported file references are display-only: they have no backend-issued
+    // token, so they must not enter the send-capable file list.
+    if (parsed.formFiles.length > 0) {
+      setError(t("composePage.formFile.importRequiresReattach"));
+      return;
+    }
     store.loadFromSession({
       bodyType: parsed.bodyType,
       body: parsed.body ?? "",
       formDataEntries: parsed.formDataEntries,
-      formFiles: parsed.formFiles,
+      formFiles: [],
       headers: parsed.headers,
       method: parsed.method,
       rawLanguage:

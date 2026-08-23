@@ -26,7 +26,7 @@ fn direct_http_client() -> Result<Client, String> {
     // send_direct_request via tokio::time::timeout (which respects the test
     // override), so we only set connect_timeout here to keep the static client
     // reusable across runs.
-    let connect_timeout = crate::upstream_request_timeout();
+    let connect_timeout = crate::timeout_for(crate::TimeoutKind::UpstreamRequest);
     let client = Client::builder()
         .redirect(Policy::none())
         .no_proxy()
@@ -65,8 +65,8 @@ pub async fn start_proxy_server(
     {
         let pool = Arc::clone(&upstream_pool);
         pool.start_eviction_timer(
-            std::time::Duration::from_secs(60),
-            std::time::Duration::from_secs(120),
+            crate::timeout_for(crate::TimeoutKind::UpstreamPoolEvictionInterval),
+            crate::timeout_for(crate::TimeoutKind::UpstreamPoolEvictionMaxIdle),
         );
     }
 
@@ -482,7 +482,7 @@ async fn handle_connection(
     // it explicitly to stay in lockstep with the pre-hyper probe above.
     hyper::server::conn::http1::Builder::new()
         .timer(hyper_util::rt::TokioTimer::new())
-        .header_read_timeout(client_header_read_timeout())
+        .header_read_timeout(crate::timeout_for(crate::TimeoutKind::ClientHeaderRead))
         .serve_connection(io, service)
         .with_upgrades()
         .await
@@ -512,9 +512,12 @@ async fn read_header_only<S: AsyncReadExt + AsyncWriteExt + Unpin>(
     let mut buffer = Vec::with_capacity(READ_BUFFER_BYTES);
     let mut chunk = vec![0_u8; READ_BUFFER_BYTES];
     let header_end = loop {
-        let read_result = timeout(client_header_read_timeout(), stream.read(&mut chunk))
-            .await
-            .map_err(|_| "timed out waiting for client request headers".to_string())?;
+        let read_result = timeout(
+            crate::timeout_for(crate::TimeoutKind::ClientHeaderRead),
+            stream.read(&mut chunk),
+        )
+        .await
+        .map_err(|_| "timed out waiting for client request headers".to_string())?;
 
         let bytes_read =
             read_result.map_err(|error| format!("failed to read from client stream: {error}"))?;
@@ -704,8 +707,8 @@ pub async fn send_direct_request_bytes(
 
     // Bound the upstream send + response so a hanging upstream (TCP open but
     // no response, or a slow body) cannot block the Compose/Replay command
-    // forever. The test override flows through upstream_request_timeout().
-    let upstream_timeout = crate::upstream_request_timeout();
+    // forever. The test override flows through the centralized timeout matrix.
+    let upstream_timeout = crate::timeout_for(crate::TimeoutKind::UpstreamRequest);
     let timeout_secs = upstream_timeout.as_secs();
 
     let waiting_started_at = Instant::now();

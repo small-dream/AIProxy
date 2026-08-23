@@ -660,7 +660,7 @@ Rules Page
 
 - 顶栏新增环境选择器（compact）、cURL 导入、保存到 Collection 按钮
 - multipart 编辑器下半区支持附件行（attach / remove + 信任模型 hint）；
-  附件只存元数据，发送时由 Rust 读取文件字节并编码
+  附件只存元数据和后端短生命周期 token，发送时由 Rust 重新校验并读取文件字节编码
 
 ### 编辑区结构
 

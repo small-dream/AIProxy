@@ -4,7 +4,7 @@ export type ParsedCurlCommand = {
   body?: string;
   bodyType: "formdata" | "raw" | "urlencoded";
   formDataEntries: HeaderEntry[];
-  formFiles: Array<{ name: string; fileName: string; filePath: string; contentType?: string }>;
+  formFiles: Array<{ name: string; fileName: string; source: string; contentType?: string }>;
   headers: HeaderEntry[];
   method: string;
   url: string;
@@ -204,11 +204,11 @@ export function parseCurlCommand(command: string): ParsedCurlCommand | null {
     const formFiles: ParsedCurlCommand["formFiles"] = [];
     for (const part of formParts) {
       if (part.isFile) {
-        const filePath = part.value.slice(1);
+        const source = part.value.slice(1);
         formFiles.push({
           name: part.name,
-          fileName: part.fileName ?? filePath.split(/[\\/]/).pop() ?? filePath,
-          filePath,
+          fileName: part.fileName ?? source.split(/[\\/]/).pop() ?? source,
+          source,
           ...(part.contentType ? { contentType: part.contentType } : {}),
         });
       } else {

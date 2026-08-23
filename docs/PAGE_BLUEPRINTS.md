@@ -485,7 +485,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 -> 顶栏：环境选择器（compact，与 Collections 共享 aiproxy.activeEnvironmentId）、
    cURL 导入（parseCurlCommand -> loadFromSession）、保存到 Collection（复用 SaveToCollectionDialog）
 -> 发送与 cURL 导出共用 encodeComposedRequest：内联替换 {{var}}，编辑器保留模板原文
--> multipart 编辑器下半区附件行；附件只存元数据（D1），发送时 Rust 读取文件并构建字节，
+-> multipart 编辑器下半区附件行；附件只存文件名、大小和后端短生命周期 token（D1），发送时 Rust 重新校验路径并构建字节，
    支持 multipartEntries -> send_direct_request_bytes
 ```
 

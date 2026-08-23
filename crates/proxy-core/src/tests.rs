@@ -7,15 +7,12 @@ use super::server::is_ssl_blind_tunnel;
 use super::{
     apply_request_resolution, apply_response_resolution, build_raw_http_head, build_request_path,
     build_upstream_headers_from_entries, find_header_end, infer_protocol_metadata,
-    override_client_header_read_timeout_for_test,
-    override_response_body_read_idle_timeout_for_test, override_tunnel_idle_timeout_for_test,
-    override_upstream_request_timeout_for_test,
-    override_ws_upstream_body_read_idle_timeout_for_test, resolve_target_url, send_direct_request,
-    start_proxy_server, BreakpointActionKind, BreakpointResolution, MapManager, MapRule,
-    ParsedProxyRequest, ProxyBodyReference, ProxyConfig, ProxyHeaderEntry, ProxyManagers,
-    ProxyRuntimeConfig, ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown,
-    RewriteManager, RewriteRule, RewriteRuleMatch, StartedProxyServer, ThrottleManager,
-    ThrottleProfileData, UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
+    override_timeout_for_test, resolve_target_url, send_direct_request, start_proxy_server,
+    BreakpointActionKind, BreakpointResolution, MapManager, MapRule, ParsedProxyRequest,
+    ProxyBodyReference, ProxyConfig, ProxyHeaderEntry, ProxyManagers, ProxyRuntimeConfig,
+    ProxySessionDetail, ProxySessionSummary, ProxyTimingBreakdown, RewriteManager, RewriteRule,
+    RewriteRuleMatch, StartedProxyServer, ThrottleManager, ThrottleProfileData, TimeoutKind,
+    UpstreamResponse, MAX_CAPTURED_BODY_BYTES,
 };
 use http::header::{HeaderMap, HeaderValue};
 use http::{Method, StatusCode};
@@ -2536,7 +2533,8 @@ async fn forwards_plain_http_requests_and_emits_a_session_detail() {
 
 #[tokio::test]
 async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session() {
-    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(100));
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(100));
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
     let upstream_task = tokio::spawn(async move {
@@ -2612,7 +2610,8 @@ async fn plain_http_upstream_timeout_emits_a_completed_gateway_timeout_session()
 /// wrapper aborted such transfers with a 504 partway through the body.
 #[tokio::test]
 async fn slow_dripping_response_body_survives_a_short_upstream_request_timeout() {
-    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(200));
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(200));
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
     let upstream_task = tokio::spawn(async move {
@@ -2704,7 +2703,10 @@ async fn slow_dripping_response_body_survives_a_short_upstream_request_timeout()
 /// failure can only come from the idle ceiling.
 #[tokio::test]
 async fn silent_response_body_fails_within_the_body_idle_ceiling() {
-    let _idle_guard = override_response_body_read_idle_timeout_for_test(Duration::from_millis(200));
+    let _idle_guard = override_timeout_for_test(
+        TimeoutKind::ResponseBodyReadIdle,
+        Duration::from_millis(200),
+    );
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
     let upstream_task = tokio::spawn(async move {
@@ -2802,7 +2804,8 @@ async fn h1_conn_driver_is_aborted_after_request_timeout() {
     use crate::upstream::h1_active_conn_drivers_for_test;
 
     let baseline = h1_active_conn_drivers_for_test();
-    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(100));
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(100));
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -3386,7 +3389,8 @@ async fn ws_upgrade_upstream_connect_failure_emits_502_not_499() {
 // and surface as a 502 session, like the CONNECT blind-tunnel path.
 #[tokio::test]
 async fn ws_upgrade_hanging_upstream_times_out_and_emits_502() {
-    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(400));
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(400));
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -3791,7 +3795,10 @@ async fn ws_upgrade_non_101_no_content_length_does_not_hang() {
     // bounds each body read with an idle timeout and returns the refusal body.
     // Shrink the idle ceiling so a regression fails fast instead of waiting
     // the full default 10s.
-    let _guard = override_ws_upstream_body_read_idle_timeout_for_test(Duration::from_millis(300));
+    let _guard = override_timeout_for_test(
+        TimeoutKind::WsUpstreamBodyReadIdle,
+        Duration::from_millis(300),
+    );
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -4036,7 +4043,10 @@ async fn ws_upgrade_non_101_chunked_body_idle_timeout_returns_partial_body() {
     // — instead of surfacing the idle timeout as a hard error that drops the
     // refusal body and synthesizes a 502. Mirrors the read-until-close path
     // (`ws_upgrade_non_101_no_content_length_does_not_hang`).
-    let _guard = override_ws_upstream_body_read_idle_timeout_for_test(Duration::from_millis(300));
+    let _guard = override_timeout_for_test(
+        TimeoutKind::WsUpstreamBodyReadIdle,
+        Duration::from_millis(300),
+    );
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -4632,7 +4642,8 @@ async fn blind_tunnel_returns_200_when_upstream_accepts() {
 
 #[tokio::test]
 async fn direct_request_times_out_on_hanging_upstream() {
-    let _timeout_guard = override_upstream_request_timeout_for_test(Duration::from_millis(200));
+    let _timeout_guard =
+        override_timeout_for_test(TimeoutKind::UpstreamRequest, Duration::from_millis(200));
 
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -4679,7 +4690,8 @@ async fn direct_request_times_out_on_hanging_upstream() {
 
 #[tokio::test]
 async fn blind_tunnel_idle_upstream_times_out_and_releases_permit() {
-    let _idle_guard = override_tunnel_idle_timeout_for_test(Duration::from_millis(200));
+    let _idle_guard =
+        override_timeout_for_test(TimeoutKind::TunnelIdle, Duration::from_millis(200));
 
     // Upstream accepts the proxied TCP connection but then sleeps forever —
     // i.e. it never sends or receives any application bytes (idle tunnel).
@@ -4780,7 +4792,8 @@ async fn blind_tunnel_idle_upstream_times_out_and_releases_permit() {
 
 #[tokio::test]
 async fn blind_tunnel_active_long_lived_survives_idle_timeout() {
-    let _idle_guard = override_tunnel_idle_timeout_for_test(Duration::from_millis(200));
+    let _idle_guard =
+        override_timeout_for_test(TimeoutKind::TunnelIdle, Duration::from_millis(200));
 
     // Upstream: accepts the proxied connection, then echoes back every byte it
     // receives at 100ms intervals for ~600ms. This keeps the tunnel alive well
@@ -5059,7 +5072,7 @@ async fn ws_relay_terminates_after_close_without_peer_closeback() {
     // the client read. With H9 it must terminate within the grace window and
     // the registry must reach a terminal state.
     let _ws_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
-    let _guard = crate::override_ws_close_grace_timeout_for_test(Duration::from_millis(300));
+    let _guard = override_timeout_for_test(TimeoutKind::WsCloseGrace, Duration::from_millis(300));
 
     let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let upstream_port = upstream_listener.local_addr().unwrap().port();
@@ -5905,7 +5918,8 @@ fn client_handshake_rejection_separates_pinning_from_untrusted_root() {
 
 #[tokio::test]
 async fn silent_client_connections_are_reaped_within_the_header_read_ceiling() {
-    let _header_guard = override_client_header_read_timeout_for_test(Duration::from_millis(300));
+    let _header_guard =
+        override_timeout_for_test(TimeoutKind::ClientHeaderRead, Duration::from_millis(300));
 
     let proxy_port = allocate_unused_port();
     let started_proxy = start_proxy_server(
@@ -5995,7 +6009,8 @@ async fn silent_client_connections_are_reaped_within_the_header_read_ceiling() {
 
 #[tokio::test]
 async fn stalled_keepalive_client_is_reaped_within_the_header_read_ceiling() {
-    let _header_guard = override_client_header_read_timeout_for_test(Duration::from_millis(300));
+    let _header_guard =
+        override_timeout_for_test(TimeoutKind::ClientHeaderRead, Duration::from_millis(300));
 
     // Upstream answers with a keep-alive response (no `Connection: close`),
     // so hyper keeps the client connection open for a follow-up request.

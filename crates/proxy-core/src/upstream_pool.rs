@@ -114,7 +114,7 @@ impl UpstreamConnectionPool {
         Self {
             connections: tokio::sync::RwLock::new(HashMap::new()),
             pending: RwLock::new(HashMap::new()),
-            idle_timeout: Duration::from_secs(60),
+            idle_timeout: crate::timeout_for(crate::TimeoutKind::UpstreamPoolIdle),
         }
     }
 

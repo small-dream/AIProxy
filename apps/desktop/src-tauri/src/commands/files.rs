@@ -1,5 +1,9 @@
 use super::common::*;
 use base64::Engine as _;
+use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,14 +56,129 @@ pub struct PickAttachmentFileInput {
 }
 
 /// Output of [`pick_attachment_file`]: metadata only — the renderer never
-/// receives file contents (D1/H3). The path is canonicalized so a symlink
-/// target is resolved before the renderer stores it.
+/// receives file contents or a filesystem path (D1/H3). The one-time token is
+/// the only capability that can authorize a later multipart send. Tokens are
+/// reusable during their short lifetime so saved collections and retries work.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentFileOutput {
     pub file_name: String,
-    pub file_path: String,
+    pub file_token: String,
     pub size_bytes: u64,
+}
+
+const ATTACHMENT_TOKEN_LIFETIME_SECS: u64 = 15 * 60;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct IssuedAttachment {
+    canonical_path: PathBuf,
+    /// Unix seconds are persisted so a collection can be reused after restart.
+    expires_at_unix: u64,
+}
+
+fn attachment_token_store() -> &'static Mutex<HashMap<String, IssuedAttachment>> {
+    static STORE: OnceLock<Mutex<HashMap<String, IssuedAttachment>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(load_attachment_tokens()))
+}
+
+fn attachment_token_registry_path() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|dir| dir.join("AIProxy").join("attachment-tokens.json"))
+}
+
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+fn load_attachment_tokens() -> HashMap<String, IssuedAttachment> {
+    let Some(path) = attachment_token_registry_path() else {
+        return HashMap::new();
+    };
+    let Ok(bytes) = std::fs::read(path) else {
+        return HashMap::new();
+    };
+    let Ok(tokens) = serde_json::from_slice::<HashMap<String, IssuedAttachment>>(&bytes) else {
+        return HashMap::new();
+    };
+    let now = now_unix_secs();
+    tokens
+        .into_iter()
+        .filter(|(_, attachment)| attachment.expires_at_unix > now)
+        .collect()
+}
+
+fn persist_attachment_tokens(tokens: &HashMap<String, IssuedAttachment>) -> Result<(), String> {
+    let Some(path) = attachment_token_registry_path() else {
+        return Ok(());
+    };
+    let parent = path
+        .parent()
+        .ok_or_else(|| app_error(ERR_INTERNAL, "attachment token registry has no parent"))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("create attachment registry: {error}")))?;
+    let bytes = serde_json::to_vec(tokens).map_err(|error| {
+        app_error(
+            ERR_INTERNAL,
+            format!("serialize attachment registry: {error}"),
+        )
+    })?;
+    let temp = path.with_extension("json.tmp");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&temp)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("open attachment registry: {error}")))?;
+    file.write_all(&bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|error| app_error(ERR_INTERNAL, format!("write attachment registry: {error}")))?;
+    std::fs::rename(&temp, &path)
+        .map_err(|error| app_error(ERR_INTERNAL, format!("commit attachment registry: {error}")))
+}
+
+pub(super) fn issue_attachment_token(canonical_path: PathBuf) -> Result<String, String> {
+    let token = uuid::Uuid::new_v4().simple().to_string();
+    let now_unix = now_unix_secs();
+    let expires_at_unix = now_unix.saturating_add(ATTACHMENT_TOKEN_LIFETIME_SECS);
+    let mut store = attachment_token_store()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "attachment token store is unavailable"))?;
+    store.retain(|_, attachment| attachment.expires_at_unix > now_unix);
+    store.insert(
+        token.clone(),
+        IssuedAttachment {
+            canonical_path,
+            expires_at_unix,
+        },
+    );
+    if let Err(error) = persist_attachment_tokens(&store) {
+        store.remove(&token);
+        return Err(error);
+    }
+    Ok(token)
+}
+
+pub(super) fn resolve_attachment_token(token: &str) -> Result<PathBuf, String> {
+    let now = now_unix_secs();
+    let mut store = attachment_token_store()
+        .lock()
+        .map_err(|_| app_error(ERR_INTERNAL, "attachment token store is unavailable"))?;
+    let removed_expired = store.len();
+    store.retain(|_, attachment| attachment.expires_at_unix > now);
+    let changed = removed_expired != store.len();
+    let attachment = store.get(token).ok_or_else(|| {
+        app_error(
+            ERR_INVALID_INPUT,
+            "Attachment is missing or expired. Re-attach the file.",
+        )
+    })?;
+    let path = attachment.canonical_path.clone();
+    if changed {
+        persist_attachment_tokens(&store)?;
+    }
+    Ok(path)
 }
 
 /// Validate that `name` is a plain file basename safe to join under the
@@ -282,8 +401,8 @@ pub async fn pick_and_read_rules_file(
 }
 
 /// Backend-owned attachment picker (C3): returns only the picked file's name,
-/// canonicalized path, and size — the send path re-reads the file server-side
-/// (single multipart-encoding authority, D1).
+/// capability token, and size — the send path re-reads and re-validates the
+/// file server-side (single multipart-encoding authority, D1).
 #[tauri::command]
 pub async fn pick_attachment_file(
     app: tauri::AppHandle,
@@ -316,9 +435,6 @@ pub async fn pick_attachment_file(
     };
     let canonical = std::fs::canonicalize(&path_buf)
         .map_err(|_| app_error(ERR_INVALID_INPUT, "Attachment file cannot be resolved."))?;
-    // Same-root policy as the send path (multipart read_attachment_bytes):
-    // reject here, at pick time, instead of letting the failure surface only
-    // when the user hits send.
     let file_name = path_buf
         .file_name()
         .and_then(|n| n.to_str())
@@ -338,9 +454,10 @@ pub async fn pick_attachment_file(
         ));
     }
 
+    let token = issue_attachment_token(canonical).map_err(|e| app_error(ERR_INTERNAL, e))?;
     Ok(Some(AttachmentFileOutput {
         file_name,
-        file_path: canonical.display().to_string(),
+        file_token: token,
         size_bytes: metadata.len(),
     }))
 }

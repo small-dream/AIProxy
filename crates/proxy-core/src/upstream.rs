@@ -136,7 +136,7 @@ async fn bound_head_phase<F, T>(fut: F) -> Result<T, ProxyError>
 where
     F: std::future::Future<Output = T>,
 {
-    let deadline = crate::upstream_request_timeout();
+    let deadline = crate::timeout_for(crate::TimeoutKind::UpstreamRequest);
     match tokio::time::timeout(deadline, fut).await {
         Ok(value) => Ok(value),
         Err(_) => {
@@ -709,7 +709,7 @@ pub(crate) async fn read_response_body_with_limit(
     // that keeps producing chunks may legitimately take arbitrarily long
     // (large download, slow SSE); a body that goes silent mid-stream is
     // abandoned after the ceiling.
-    let idle_ceiling = crate::response_body_read_idle_timeout();
+    let idle_ceiling = crate::timeout_for(crate::TimeoutKind::ResponseBodyReadIdle);
     loop {
         // chunk() yields Result<Option<Bytes>>; timeout wraps it with the idle
         // ceiling (P1-5).
@@ -809,7 +809,7 @@ async fn read_hyper_response_body_with_limit(
 
     // P1-5: per-chunk idle ceiling instead of a total-duration cap — same
     // contract as the reqwest reader above.
-    let idle_ceiling = crate::response_body_read_idle_timeout();
+    let idle_ceiling = crate::timeout_for(crate::TimeoutKind::ResponseBodyReadIdle);
     loop {
         let frame = match tokio::time::timeout(idle_ceiling, body_stream.frame()).await {
             Ok(Some(frame_result)) => {

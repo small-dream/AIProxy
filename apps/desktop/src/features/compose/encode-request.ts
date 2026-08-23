@@ -67,7 +67,7 @@ export function encodeComposedRequest(
           kind: "file",
           name: substitute(entry.name),
           fileName: entry.fileName,
-          filePath: entry.filePath,
+          fileToken: entry.fileToken,
           ...(entry.contentType ? { contentType: entry.contentType } : {}),
         }));
       const entries = [...textEntries, ...fileEntries];

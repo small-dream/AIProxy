@@ -269,7 +269,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
     // `upstream_request_timeout` semantics. The post-101 relay keeps its own
     // idle/grace timeouts; the non-101 body read below keeps
     // `ws_upstream_body_read_idle_timeout`.
-    let upgrade_deadline = crate::upstream_request_timeout();
+    let upgrade_deadline = crate::timeout_for(crate::TimeoutKind::UpstreamRequest);
     let established = tokio::time::timeout(upgrade_deadline, async {
         // Connect upstream — TCP (or an upstream-proxy tunnel), optionally TLS
         // for wss://. On failure, send a 502 session and return Ok(502) — not
@@ -673,7 +673,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
 /// delimited per `framing` (Content-Length / chunked / read-until-close).
 ///
 /// All three framings are bounded by a per-read idle timeout
-/// (`crate::ws_upstream_body_read_idle_timeout()`) and a byte ceiling
+/// (`crate::timeout_for(crate::TimeoutKind::WsUpstreamBodyReadIdle)`) and a byte ceiling
 /// (`MAX_CAPTURED_BODY_BYTES`). The idle timeout is essential for the
 /// read-until-close case on an HTTP/1.1 keep-alive connection: without it a
 /// peer that keeps the connection open (e.g. a 403 error page with no
@@ -712,7 +712,7 @@ async fn read_length_delimited_body(
     while body.len() < total {
         let target = std::cmp::min(chunk.len(), total - body.len());
         let n = match timeout(
-            crate::ws_upstream_body_read_idle_timeout(),
+            crate::timeout_for(crate::TimeoutKind::WsUpstreamBodyReadIdle),
             upstream.read(&mut chunk[..target]),
         )
         .await
@@ -744,7 +744,7 @@ async fn read_until_close_body(
             break;
         }
         let n = match timeout(
-            crate::ws_upstream_body_read_idle_timeout(),
+            crate::timeout_for(crate::TimeoutKind::WsUpstreamBodyReadIdle),
             upstream.read(&mut chunk),
         )
         .await
@@ -846,7 +846,7 @@ async fn refill_stream(
     }
     let mut tmp = [0u8; READ_BUFFER_BYTES];
     let n = match timeout(
-        crate::ws_upstream_body_read_idle_timeout(),
+        crate::timeout_for(crate::TimeoutKind::WsUpstreamBodyReadIdle),
         upstream.read(&mut tmp),
     )
     .await
