@@ -172,7 +172,10 @@ function buildInlineBodyReference(bodyText: string, mimeType: string | undefined
   return {
     inlineText: bodyText,
     ...(mimeType ? { mimeType } : {}),
-    sizeBytes: bodyText.length,
+    // P2 4.3-8: sizeBytes is a byte count everywhere else. `string.length`
+    // counts UTF-16 code units, which underestimates multi-byte UTF-8 payloads
+    // and skewed large-body handling thresholds.
+    sizeBytes: new TextEncoder().encode(bodyText).length,
   };
 }
 
