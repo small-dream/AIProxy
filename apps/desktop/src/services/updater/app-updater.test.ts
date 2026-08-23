@@ -91,4 +91,28 @@ describe("app-updater", () => {
     await second;
     expect(download.fn).toHaveBeenCalledTimes(2);
   });
+
+  // Review follow-up (P2 4.3-6): the awaited promise must be the guarded
+  // handle — awaiting only the raw install leaves installInFlight rejected
+  // with no handler when there are no concurrent joiners, surfacing as an
+  // unhandled rejection.
+  it("propagates an install failure and keeps the guard reusable", async () => {
+    const failing = vi.fn(async () => {
+      throw new Error("download aborted");
+    }) as unknown as DownloadAndInstall;
+    vi.mocked(check).mockResolvedValue(makePendingUpdate(failing));
+    await checkForAppUpdate();
+
+    await expect(installPendingAppUpdate()).rejects.toThrow("download aborted");
+
+    // The single-flight guard cleared even on the failure path, so the next
+    // attempt starts a fresh download instead of joining a dead promise.
+    const retry = deferredDownload();
+    vi.mocked(check).mockResolvedValue(makePendingUpdate(retry.fn));
+    await checkForAppUpdate();
+    const next = installPendingAppUpdate();
+    retry.resolve();
+    await next;
+    expect(retry.fn).toHaveBeenCalledTimes(1);
+  });
 });

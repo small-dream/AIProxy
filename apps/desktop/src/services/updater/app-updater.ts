@@ -101,5 +101,9 @@ export async function installPendingAppUpdate(
     installInFlight = null;
   });
 
-  await install;
+  // Await the guarded handle, not the raw install: the derived promise is what
+  // concurrent joiners receive, and awaiting it here guarantees it always has
+  // a handler — otherwise a failed install with no joiner would surface as an
+  // unhandled rejection.
+  await installInFlight;
 }
