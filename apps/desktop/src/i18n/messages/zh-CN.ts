@@ -831,6 +831,8 @@ export const zhCNMessages: Messages = {
       adbClearingProxy: "正在通过 ADB 清除代理...",
       adbErrorTitle: "ADB 安装失败",
       adbDeviceLoadErrorTitle: "ADB 设备检测失败",
+      adbDevicePickerTitleClear: "选择要清除代理的 Android 设备",
+      adbDevicePickerTitleSet: "选择要设置代理的 Android 设备",
       adbDevicePlaceholder: "请选择设备",
       adbDeviceSelectorLabel: "ADB 设备",
       adbDeviceStateHint:

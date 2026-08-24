@@ -861,6 +861,8 @@ CertificatesPage
 
 > 移动端设备扫描（`IosQuickActionsPanel` / `AndroidQuickActionsPanel` / `HarmonyQuickActionsPanel`）为**静默自动探测**：进入面板时立即自动发起设备/模拟器查询。各面板用 `userRefreshed` 标志区分「自动/后台探测」与「用户主动刷新」：探测失败（未安装对应工具链 Xcode simctl / adb / hdc 等）时**静默降级**——只显示中性「点击刷新设备」提示，不弹红色「设备检测失败」，避免打扰未安装工具链或无该平台抓包需求（如纯网页抓包）的用户；只有用户主动点击「刷新」后查询仍失败，才在面板内显示错误。
 
+> 全局 Tools 菜单的「通过 ADB 设置代理 / 清除代理」快捷操作（`adb_set_proxy` / `adb_clear_proxy`）在多台设备连接时弹出设备选择对话框（`AndroidAdbDevicePickerDialog`），选定设备后直接执行对应动作；单设备时直接执行，不弹对话框。证书页内的 `AndroidQuickActionsPanel` 仍保留设备下拉选择。
+
 ### 7.4 页面状态模型
 
 ```ts

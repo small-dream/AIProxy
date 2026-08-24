@@ -16,6 +16,7 @@ import {
 } from "@mui/material";
 
 import { SectionCard } from "@/components/shared/SectionCard";
+import { formatAdbDeviceLabel } from "@/features/certificate-center/adb-devices.helpers";
 import {
   useAndroidAdbDevices,
   useClearAndroidProxyViaAdb,
@@ -30,17 +31,6 @@ type Props = {
   proxyPort: number;
   proxyRunning: boolean;
 };
-
-function formatAdbDeviceLabel(device: {
-  serial: string;
-  state: string;
-  model?: string;
-  product?: string;
-  device?: string;
-}) {
-  const primaryLabel = device.model ?? device.product ?? device.device ?? device.serial;
-  return `${primaryLabel} (${device.serial}) - ${device.state}`;
-}
 
 export function AndroidQuickActionsPanel({ hasCert, localIp, proxyPort, proxyRunning }: Props) {
   const { t } = useI18n();

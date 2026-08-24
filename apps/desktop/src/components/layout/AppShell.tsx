@@ -6,8 +6,10 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { AppShellActivityBar } from "@/components/layout/AppShellActivityBar";
+import { AndroidAdbDevicePickerDialog } from "@/components/layout/AndroidAdbDevicePickerDialog";
 import { AppShellDialogs } from "@/components/layout/AppShellDialogs";
 import { AppShellStatusBar } from "@/components/layout/AppShellStatusBar";
+import type { AdbProxyAction } from "@/components/layout/hooks/use-adb-actions";
 import {
   AppShellTopControls,
   NON_MACOS_TOP_CONTROLS_HEIGHT,
@@ -118,16 +120,32 @@ export function AppShell() {
   } = useProxyLifecycle({ onSnackbarMessage: setMenuSnackbarMessage });
 
   // --- ADB actions ---
-  const { handleAdbSetProxy, handleAdbClearProxy } = useAdbActions({
-    port,
-    proxyStatus,
-    onMultipleDevices: () => {
-      navigate("/certificates?tab=mobile&panel=android", {
-        state: { menuActionAt: Date.now() },
-      });
-    },
-    onSnackbarMessage: setMenuSnackbarMessage,
-  });
+  const [adbPickerOpen, setAdbPickerOpen] = useState(false);
+  const [adbPickerAction, setAdbPickerAction] = useState<AdbProxyAction | null>(null);
+  const { adbMenuActionPending, handleAdbSetProxy, handleAdbClearProxy, handleAdbProxyForDevice } =
+    useAdbActions({
+      port,
+      proxyStatus,
+      onMultipleDevices: (action) => {
+        setAdbPickerAction(action);
+        setAdbPickerOpen(true);
+      },
+      onSnackbarMessage: setMenuSnackbarMessage,
+    });
+
+  function handleAdbPickerCancel() {
+    setAdbPickerOpen(false);
+    setAdbPickerAction(null);
+  }
+
+  async function handleAdbPickerConfirm(deviceSerial: string) {
+    if (!adbPickerAction) return;
+    const succeeded = await handleAdbProxyForDevice(adbPickerAction, deviceSerial);
+    if (succeeded) {
+      setAdbPickerOpen(false);
+      setAdbPickerAction(null);
+    }
+  }
 
   // --- Window controls ---
   const { runWindowCommand } = useWindowControls();
@@ -282,6 +300,16 @@ export function AppShell() {
           proxyStatus={proxyStatus}
         />
       </Box>
+
+      <AndroidAdbDevicePickerDialog
+        open={adbPickerOpen}
+        action={adbPickerAction}
+        pending={adbMenuActionPending}
+        onCancel={handleAdbPickerCancel}
+        onConfirm={(deviceSerial) => {
+          void handleAdbPickerConfirm(deviceSerial);
+        }}
+      />
 
       <AppShellDialogs
         isBusy={isBusy}

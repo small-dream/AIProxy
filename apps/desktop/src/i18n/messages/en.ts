@@ -865,6 +865,8 @@ export const enMessages = {
       adbClearingProxy: "Clearing proxy via ADB...",
       adbErrorTitle: "ADB Install Failed",
       adbDeviceLoadErrorTitle: "ADB Device Detection Failed",
+      adbDevicePickerTitleClear: "Choose an Android device to clear the proxy",
+      adbDevicePickerTitleSet: "Choose an Android device to set the proxy",
       adbDevicePlaceholder: "Select a device",
       adbDeviceSelectorLabel: "ADB Device",
       adbDeviceStateHint:
