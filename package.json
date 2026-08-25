@@ -1,6 +1,6 @@
 {
   "name": "aiproxy",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "private": true,
   "description": "A modern, cross-platform proxy debugging tool for developers",
   "license": "MIT",

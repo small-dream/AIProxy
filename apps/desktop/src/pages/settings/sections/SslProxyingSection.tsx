@@ -127,47 +127,59 @@ function SslProxyListEditor({
           {emptyText}
         </Typography>
       ) : (
-        entries.map((entry, index) => (
-          <Box
-            key={entry.pattern}
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              py: 0.25,
-            }}
-          >
-            <Typography
-              variant="body2"
-              sx={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", lineHeight: 1.4 }}
-            >
-              {entry.pattern}
-            </Typography>
-            <Switch
-              size="small"
-              checked={entry.enabled}
-              onChange={(event) =>
-                onChange(
-                  entries.map((current, i) =>
-                    i === index ? { ...current, enabled: event.target.checked } : current,
-                  ),
-                )
-              }
-              slotProps={{
-                input: {
-                  "aria-label": `${entry.enabled ? t("sslProxying.disable") : t("sslProxying.enable")} ${entry.pattern}`,
-                },
+        <Box
+          sx={{
+            maxHeight: 240,
+            overflowY: "auto",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 1,
+            px: 1.5,
+            py: 0.5,
+          }}
+        >
+          {entries.map((entry, index) => (
+            <Box
+              key={entry.pattern}
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                py: 0.25,
               }}
-            />
-            <IconButton
-              size="small"
-              aria-label={`${t("sslProxying.remove")} ${entry.pattern}`}
-              onClick={() => onChange(entries.filter((_, i) => i !== index))}
             >
-              <DeleteRoundedIcon fontSize="small" />
-            </IconButton>
-          </Box>
-        ))
+              <Typography
+                variant="body2"
+                sx={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", lineHeight: 1.4 }}
+              >
+                {entry.pattern}
+              </Typography>
+              <Switch
+                size="small"
+                checked={entry.enabled}
+                onChange={(event) =>
+                  onChange(
+                    entries.map((current, i) =>
+                      i === index ? { ...current, enabled: event.target.checked } : current,
+                    ),
+                  )
+                }
+                slotProps={{
+                  input: {
+                    "aria-label": `${entry.enabled ? t("sslProxying.disable") : t("sslProxying.enable")} ${entry.pattern}`,
+                  },
+                }}
+              />
+              <IconButton
+                size="small"
+                aria-label={`${t("sslProxying.remove")} ${entry.pattern}`}
+                onClick={() => onChange(entries.filter((_, i) => i !== index))}
+              >
+                <DeleteRoundedIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          ))}
+        </Box>
       )}
     </Stack>
   );
