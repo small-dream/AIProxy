@@ -805,7 +805,7 @@ Settings Page 负责应用级默认配置与代理预设管理，不再提供独
 - 外观偏好：`Follow System / Light / Dark`
 - 代理预设：列表选择、创建、编辑、应用
 - 上游代理：协议/地址/端口/认证/绕行列表配置与连通性测试
-- SSL 代理：逐域名的 include / exclude 解密策略，含「恢复推荐列表」与证书绑定说明
+- SSL 代理：逐域名的 include / exclude 解密策略，每个列表带总开关、每条规则带独立开关，含「恢复推荐列表」与证书绑定说明
 - 语言与外观偏好均为应用级持久化设置
 
 ### 页面结构树
@@ -850,7 +850,7 @@ Settings Page
   - 启用时常驻一条 info `Alert` 说明「代理不可用时请求直接失败、不回退直连」
   - 填写密码时追加 warning `Alert` 说明凭据以明文存储于本地数据库
   - 切换协议时仅在当前端口仍是某个协议的默认值时才改写端口，手填端口不被静默覆盖
-- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`，提供 include / exclude 两个多行输入、恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`，空 include 表示解密全部未排除域名。
+- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各带总开关（`includeEnabled` / `excludeEnabled`）与条目列表（每条 pattern + 独立开关 + 删除 + 新增输入框），另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。
 
 ## 9.9 Compare Page — `已实现发布硬化版`
 

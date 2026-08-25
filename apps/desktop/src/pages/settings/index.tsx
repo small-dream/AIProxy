@@ -1,5 +1,6 @@
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import InfoRoundedIcon from "@mui/icons-material/InfoRounded";
 import NetworkCheckRoundedIcon from "@mui/icons-material/NetworkCheckRounded";
 import RestartAltRoundedIcon from "@mui/icons-material/RestartAltRounded";
@@ -12,6 +13,7 @@ import {
   Divider,
   FormControl,
   FormControlLabel,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
@@ -27,6 +29,7 @@ import {
   DEFAULT_PROXY_PORT,
   DEFAULT_WORKSPACE_ID,
   type SaveAiSettingsInput,
+  type SslProxyEntry,
   type SslProxyingSettings,
   type UpstreamProxyProbeResult,
   type UpstreamProxyProtocol,
@@ -844,27 +847,142 @@ const EMPTY_PATTERNS: string[] = [];
 function createSslProxyingDraft(
   workspace?: Workspace | null,
   fallbackExclude: string[] = EMPTY_PATTERNS,
-) {
+): SslProxyingSettings {
   const settings = workspace?.sslProxying;
   return {
-    includeText: (settings?.include ?? []).join("\n"),
+    includeEnabled: settings?.includeEnabled ?? false,
+    excludeEnabled: settings?.excludeEnabled ?? true,
+    include: settings?.include ?? [],
     // A workspace that never configured a policy shows the recommended
-    // exclusions, matching what the backend would actually apply.
-    excludeText: (settings?.exclude ?? fallbackExclude).join("\n"),
-  };
-}
-
-type SslProxyingDraft = ReturnType<typeof createSslProxyingDraft>;
-
-function sslProxyingDraftToSettings(draft: SslProxyingDraft): SslProxyingSettings {
-  return {
-    include: parseBypassPatterns(draft.includeText),
-    exclude: parseBypassPatterns(draft.excludeText),
+    // exclusions (enabled), matching what the backend would actually apply.
+    exclude: settings?.exclude ?? fallbackExclude.map((pattern) => ({ pattern, enabled: true })),
   };
 }
 
 function sslProxyingSettingsKey(settings: SslProxyingSettings): string {
-  return JSON.stringify([settings.include, settings.exclude]);
+  return JSON.stringify([
+    settings.includeEnabled,
+    settings.excludeEnabled,
+    // Map to [pattern, enabled] tuples instead of stringifying the entry
+    // objects: object key order is an implicit contract that only holds while
+    // every construction site happens to write pattern first.
+    settings.include.map((entry) => [entry.pattern, entry.enabled]),
+    settings.exclude.map((entry) => [entry.pattern, entry.enabled]),
+  ]);
+}
+
+/**
+ * A single rule list with per-entry switches and an add box, shared by the
+ * include and exclude lists so both feel identical. Disabled entries are kept
+ * around but do not apply, so switching scope never requires deleting rules.
+ */
+function SslProxyListEditor({
+  entries,
+  onChange,
+  addLabel,
+  addPlaceholder,
+  emptyText,
+}: {
+  entries: SslProxyEntry[];
+  onChange: (next: SslProxyEntry[]) => void;
+  addLabel: string;
+  addPlaceholder: string;
+  emptyText: string;
+}) {
+  const { t } = useI18n();
+  const [draftPattern, setDraftPattern] = useState("");
+
+  function handleAdd() {
+    const pattern = draftPattern.trim();
+    if (pattern.length === 0) return;
+    // The matcher is case-insensitive, so dedupe case-insensitively too —
+    // otherwise API.example.com and api.example.com would both be kept.
+    const normalized = pattern.toLowerCase();
+    if (!entries.some((entry) => entry.pattern.toLowerCase() === normalized)) {
+      onChange([...entries, { pattern, enabled: true }]);
+    }
+    setDraftPattern("");
+  }
+
+  return (
+    <Stack spacing={1}>
+      <Stack direction="row" spacing={1}>
+        <TextField
+          size="small"
+          fullWidth
+          hiddenLabel
+          value={draftPattern}
+          placeholder={addPlaceholder}
+          onChange={(event) => setDraftPattern(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              handleAdd();
+            }
+          }}
+          slotProps={{ htmlInput: { "aria-label": addLabel } }}
+          sx={compactFieldSx}
+        />
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={handleAdd}
+          disabled={draftPattern.trim().length === 0}
+          sx={{ minHeight: 34, flexShrink: 0 }}
+        >
+          {t("sslProxying.add")}
+        </Button>
+      </Stack>
+
+      {entries.length === 0 ? (
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          {emptyText}
+        </Typography>
+      ) : (
+        entries.map((entry, index) => (
+          <Box
+            key={entry.pattern}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              py: 0.25,
+            }}
+          >
+            <Typography
+              variant="body2"
+              sx={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", lineHeight: 1.4 }}
+            >
+              {entry.pattern}
+            </Typography>
+            <Switch
+              size="small"
+              checked={entry.enabled}
+              onChange={(event) =>
+                onChange(
+                  entries.map((current, i) =>
+                    i === index ? { ...current, enabled: event.target.checked } : current,
+                  ),
+                )
+              }
+              slotProps={{
+                input: {
+                  "aria-label": `${entry.enabled ? t("sslProxying.disable") : t("sslProxying.enable")} ${entry.pattern}`,
+                },
+              }}
+            />
+            <IconButton
+              size="small"
+              aria-label={`${t("sslProxying.remove")} ${entry.pattern}`}
+              onClick={() => onChange(entries.filter((_, i) => i !== index))}
+            >
+              <DeleteRoundedIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        ))
+      )}
+    </Stack>
+  );
 }
 
 function SslProxyingSection() {
@@ -911,22 +1029,25 @@ function SslProxyingSection() {
     setFeedback(null);
   }, [feedbackResetKey, recommendedExclusions]);
 
-  function patchDraft(patch: Partial<SslProxyingDraft>) {
+  function patchDraft(patch: Partial<SslProxyingSettings>) {
     setDraft((previous) => ({ ...previous, ...patch }));
     setFeedback(null);
   }
 
-  const currentSettings = useMemo(() => sslProxyingDraftToSettings(draft), [draft]);
   const savedSettings = currentWorkspace?.sslProxying;
   const hasChanges = savedSettings
-    ? sslProxyingSettingsKey(savedSettings) !== sslProxyingSettingsKey(currentSettings)
-    : sslProxyingSettingsKey({ include: [], exclude: recommendedExclusions }) !==
-      sslProxyingSettingsKey(currentSettings);
+    ? sslProxyingSettingsKey(savedSettings) !== sslProxyingSettingsKey(draft)
+    : sslProxyingSettingsKey({
+        includeEnabled: false,
+        excludeEnabled: true,
+        include: [],
+        exclude: recommendedExclusions.map((pattern) => ({ pattern, enabled: true })),
+      }) !== sslProxyingSettingsKey(draft);
 
   // Interception has to be on for the policy to mean anything; saying so is
   // better than letting the user tune a list that is currently inert.
   const isSslDisabled = currentWorkspace ? !currentWorkspace.sslEnabled : false;
-  const isAllowlistMode = currentSettings.include.length > 0;
+  const isAllowlistMode = draft.includeEnabled;
 
   async function handleSave() {
     if (isWorkspacesError || !currentWorkspace) return;
@@ -935,7 +1056,7 @@ function SslProxyingSection() {
 
     try {
       await updateWorkspaceMutation.mutateAsync({
-        sslProxying: currentSettings,
+        sslProxying: draft,
         workspaceId: currentWorkspace.id,
       });
 
@@ -1013,7 +1134,12 @@ function SslProxyingSection() {
               size="small"
               variant="outlined"
               startIcon={<RestartAltRoundedIcon />}
-              onClick={() => patchDraft({ excludeText: recommendedExclusions.join("\n") })}
+              onClick={() =>
+                patchDraft({
+                  exclude: recommendedExclusions.map((pattern) => ({ pattern, enabled: true })),
+                  excludeEnabled: true,
+                })
+              }
               disabled={isBusy || recommendedExclusions.length === 0}
               sx={{ minHeight: 34, px: 1.75 }}
             >
@@ -1035,42 +1161,46 @@ function SslProxyingSection() {
         </Stack>
 
         <SettingsRow
-          label={t("sslProxying.include")}
-          description={t("sslProxying.includeDescription")}
+          label={t("sslProxying.includeEnabledLabel")}
+          description={t("sslProxying.includeEnabledDescription")}
           stacked
         >
-          <TextField
+          <Switch
             size="small"
-            multiline
-            fullWidth
-            minRows={2}
-            maxRows={6}
-            hiddenLabel
-            placeholder={t("sslProxying.includePlaceholder")}
-            value={draft.includeText}
-            onChange={(event) => patchDraft({ includeText: event.target.value })}
-            slotProps={{ htmlInput: { "aria-label": t("sslProxying.include") } }}
-            sx={{ ...compactFieldSx, width: "100%" }}
+            checked={draft.includeEnabled}
+            onChange={(event) => patchDraft({ includeEnabled: event.target.checked })}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t("sslProxying.include")} stacked>
+          <SslProxyListEditor
+            entries={draft.include}
+            onChange={(include) => patchDraft({ include })}
+            addLabel={t("sslProxying.include")}
+            addPlaceholder={t("sslProxying.includeAddPlaceholder")}
+            emptyText={t("sslProxying.includeEmpty")}
           />
         </SettingsRow>
 
         <SettingsRow
-          label={t("sslProxying.exclude")}
-          description={t("sslProxying.excludeDescription")}
+          label={t("sslProxying.excludeEnabledLabel")}
+          description={t("sslProxying.excludeEnabledDescription")}
           stacked
         >
-          <TextField
+          <Switch
             size="small"
-            multiline
-            fullWidth
-            minRows={3}
-            maxRows={10}
-            hiddenLabel
-            placeholder={t("sslProxying.excludePlaceholder")}
-            value={draft.excludeText}
-            onChange={(event) => patchDraft({ excludeText: event.target.value })}
-            slotProps={{ htmlInput: { "aria-label": t("sslProxying.exclude") } }}
-            sx={{ ...compactFieldSx, width: "100%" }}
+            checked={draft.excludeEnabled}
+            onChange={(event) => patchDraft({ excludeEnabled: event.target.checked })}
+          />
+        </SettingsRow>
+
+        <SettingsRow label={t("sslProxying.exclude")} stacked>
+          <SslProxyListEditor
+            entries={draft.exclude}
+            onChange={(exclude) => patchDraft({ exclude })}
+            addLabel={t("sslProxying.exclude")}
+            addPlaceholder={t("sslProxying.excludeAddPlaceholder")}
+            emptyText={t("sslProxying.excludeEmpty")}
           />
         </SettingsRow>
 
@@ -1087,7 +1217,6 @@ function SslProxyingSection() {
     </SectionCard>
   );
 }
-
 export function UpdatesSection() {
   const { t } = useI18n();
   const availableUpdate = useAppShellStore((s) => s.availableUpdate);

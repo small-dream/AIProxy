@@ -353,15 +353,23 @@ export const enMessages = {
     description:
       "Choose which hosts get decrypted. A host that is not proxied is still relayed, just without visibility into its traffic.",
     modeAllExceptExcluded: "Decrypting everything except the excluded hosts.",
-    modeIncludeList: "Decrypting only the hosts listed under Include.",
+    modeIncludeList: "Decrypting only the enabled hosts under Include.",
+    includeEnabledLabel: "Intercept only the Include list",
+    includeEnabledDescription:
+      "When on, only hosts matching an enabled Include entry are decrypted and the rest are relayed blind. When off, every host that is not excluded is decrypted.",
+    excludeEnabledLabel: "Enable the Exclude list",
+    excludeEnabledDescription:
+      "Excluded hosts are never decrypted, even when matched by Include. Turning this off may break apps that pin their certificates (TikTok, iCloud, ...).",
     include: "Include",
-    includePlaceholder: "One pattern per line — leave empty to decrypt everything",
-    includeDescription:
-      "Leave empty to decrypt every host that is not excluded. Add patterns to decrypt only those hosts and relay the rest untouched.",
+    includeAddPlaceholder: "Type a host pattern and press Enter to add",
+    includeEmpty: "No entries yet — with the switch above on, nothing is captured.",
     exclude: "Exclude",
-    excludePlaceholder: "One pattern per line (e.g. *.example.com, 192.168.0.0/16)",
-    excludeDescription:
-      "Never decrypted, even when matched by Include. Supports exact hostnames, *.example.com suffixes, and CIDR ranges (literal IP targets only).",
+    excludeAddPlaceholder: "Type a host pattern and press Enter to add",
+    excludeEmpty: "No exclusions.",
+    add: "Add",
+    enable: "Enable",
+    disable: "Disable",
+    remove: "Remove",
     restoreRecommended: "Restore Recommended",
     recommendationsUnavailable:
       "The recommended exclusions could not be loaded yet. Saving stays disabled for workspaces that have not configured SSL proxying, so the built-in protections cannot be dropped by accident.",

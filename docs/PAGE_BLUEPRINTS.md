@@ -930,8 +930,10 @@ type CertificatesPageState = {
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [SSL Proxying]                      (Restore Recommended) (Save)            │
 │ Mode Hint (all-except-excluded / include-list)                              │
-│ Include (multiline)                                                         │
-│ Exclude (multiline)                                                         │
+│ Intercept only the Include list                       [ Switch ]            │
+│ Include (rule list: pattern + per-entry Switch + delete + add box)          │
+│ Enable the Exclude list                                 [ Switch ]          │
+│ Exclude (rule list: pattern + per-entry Switch + delete + add box)          │
 │ Pinning Hint / SSL-Disabled Hint                                            │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │ [General]  (macOS 风格分组行，Divider 分隔，控件右对齐)                       │
@@ -970,9 +972,11 @@ SettingsPage
 │  ├─ TestConnectionButton
 │  └─ ProbeResultAlert / NoFallbackAlert / CredentialStorageAlert
 ├─ SslProxyingSection
-│  ├─ IncludeTextarea
-│  ├─ ExcludeTextarea
-│  ├─ RestoreRecommendedButton
+│  ├─ ModeHint / RestoreRecommendedButton / SaveButton
+│  ├─ IncludeEnabledSwitch
+│  ├─ IncludeListEditor (SslProxyListEditor: add box + per-entry Switch + delete)
+│  ├─ ExcludeEnabledSwitch
+│  ├─ ExcludeListEditor (SslProxyListEditor)
 │  └─ PinningHint / SslDisabledHint
 ├─ SectionCard "General"
 │  └─ SettingsGroup (Divider 分隔)
@@ -1158,7 +1162,9 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` �
 ### 关键设计约束
 
 - **exclude 优先于 include**：exclude 是 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
-- **默认保持历史行为**：`include` 为空 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
+- **默认保持历史行为**：`includeEnabled` 默认关闭 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
+- **总开关 + 条目开关**：每个列表一个总开关（`includeEnabled` / `excludeEnabled`），每条规则带独立 `enabled` 开关；关闭的条目保留但不生效。「只看一个域名」= 打开 include 总开关并只启用该条目，「看全部」= 关闭 include 总开关，全程无需删除/重加规则。
+- **旧数据迁移**：升级前保存的 `{ include: string[], exclude: string[] }` 在 Rust 反序列化时自动迁移为条目形式（`includeEnabled = include 非空`、`excludeEnabled = true`、条目均 `enabled`），行为保持不变。
 - **「从未配置」≠「两个空列表」**：DB 列为空串时回退到内置推荐排除表，因此已有 workspace 升级后能直接获得保护，而不必手动配置。
 - **未解密仍然转发**：被排除的域名走 `tunnel_blind_relay`，与 `ssl_enabled=false` 是同一条代码路径，App 功能不受影响。
 - **仅在 `ssl_enabled` 为 true 时生效**：拦截关闭时没有可缩放的范围，此时运行时策略为 `None`。
@@ -1172,12 +1178,12 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` �
 
 | 层级 | 文件 | 职责 |
 | --- | --- | --- |
-| 页面 | `pages/settings/index.tsx` — `SslProxyingSection` | include / exclude 表单 + 恢复推荐 + 保存/重启 |
+| 页面 | `pages/settings/index.tsx` — `SslProxyingSection` | 总开关 + 条目列表（含每条 Switch/删除/新增）+ 恢复推荐 + 保存/重启 |
 | Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`sslProxying` 入参） |
 | 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `loadDefaultSslProxyingExclusions` |
-| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` 及其校验/解析函数 |
+| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` / `SslProxyEntry` 及其校验函数 |
 | Rust 命令 | `src-tauri/src/commands/proxy.rs` | `default_ssl_proxying_exclusions`；`start_proxy` 中解析 workspace 策略 |
-| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`、推荐排除表 |
+| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`（总开关 + 条目开关判定）、旧格式迁移反序列化、推荐排除表 |
 | Rust 领域 | `crates/proxy-core/src/host_pattern.rs` | 域名模式匹配（与上游代理绕行列表共用） |
 | Rust 分流 | `crates/proxy-core/src/server.rs` | CONNECT 时按域名决定 MITM 还是盲转发 |
 | 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.ssl_proxying` JSON 列 |

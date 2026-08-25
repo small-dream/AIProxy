@@ -50,13 +50,45 @@ export type UpstreamProxyProbeResult = {
  */
 export type SslProxyingSettings = {
   /**
-   * Hosts to intercept. Empty means "intercept everything not excluded", which
-   * is the behavior of workspaces created before this setting existed.
+   * Master switch for the include list. When on, only hosts matching an
+   * enabled include entry are decrypted (allowlist mode); when off, everything
+   * not excluded is decrypted. Kept independent of whether `include` is empty
+   * so entries can be retained but toggled off without deleting them.
    */
-  include: string[];
+  includeEnabled: boolean;
+  /**
+   * Master switch for the exclude list. The exclude list is the escape hatch
+   * for pinning clients, so this defaults to on; switching it off is only for
+   * users who understand the apps may break.
+   */
+  excludeEnabled: boolean;
+  /**
+   * Hosts to intercept. Only entries with `enabled: true` take effect, and
+   * only when `includeEnabled` is on.
+   */
+  include: SslProxyEntry[];
   /** Hosts never intercepted, regardless of `include`. */
-  exclude: string[];
+  exclude: SslProxyEntry[];
 };
+
+/**
+ * A single SSL proxying rule: a host pattern plus an enable switch. Retaining
+ * a disabled entry keeps the pattern around without applying it, so switching
+ * between "just this domain" and "everything" does not require deleting and
+ * re-adding patterns.
+ */
+export type SslProxyEntry = {
+  pattern: string;
+  enabled: boolean;
+};
+
+export function isSslProxyEntry(value: unknown): value is SslProxyEntry {
+  if (typeof value !== "object" || value === null) return false;
+
+  const candidate = value as Partial<SslProxyEntry>;
+
+  return typeof candidate.pattern === "string" && typeof candidate.enabled === "boolean";
+}
 
 export function isSslProxyingSettings(value: unknown): value is SslProxyingSettings {
   if (typeof value !== "object" || value === null) return false;
@@ -64,10 +96,12 @@ export function isSslProxyingSettings(value: unknown): value is SslProxyingSetti
   const candidate = value as Partial<SslProxyingSettings>;
 
   return (
+    typeof candidate.includeEnabled === "boolean" &&
+    typeof candidate.excludeEnabled === "boolean" &&
     Array.isArray(candidate.include) &&
-    candidate.include.every((entry) => typeof entry === "string") &&
+    candidate.include.every(isSslProxyEntry) &&
     Array.isArray(candidate.exclude) &&
-    candidate.exclude.every((entry) => typeof entry === "string")
+    candidate.exclude.every(isSslProxyEntry)
   );
 }
 

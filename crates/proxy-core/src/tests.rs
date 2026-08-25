@@ -5217,8 +5217,13 @@ async fn ssl_proxying_policy_routes_excluded_connect_to_blind_relay() {
                 upstream_proxy: None,
                 ssl_proxying: Some(Arc::new(
                     crate::ssl_proxying::SslProxyingSettings {
+                        include_enabled: false,
+                        exclude_enabled: true,
                         include: Vec::new(),
-                        exclude: vec!["127.0.0.1".to_string()],
+                        exclude: vec![crate::ssl_proxying::SslProxyEntry {
+                            pattern: "127.0.0.1".to_string(),
+                            enabled: true,
+                        }],
                     }
                     .to_runtime_config(),
                 )),
@@ -6039,6 +6044,13 @@ fn h2_request_uri_is_absolute_without_userinfo_or_fragment() {
 // SSL proxying policy
 // ---------------------------------------------------------------------------
 
+fn ssl_entry(pattern: &str, enabled: bool) -> crate::ssl_proxying::SslProxyEntry {
+    crate::ssl_proxying::SslProxyEntry {
+        pattern: pattern.to_string(),
+        enabled,
+    }
+}
+
 #[test]
 fn ssl_proxying_intercepts_everything_when_unconfigured() {
     use crate::ssl_proxying::SslProxyingSettings;
@@ -6046,6 +6058,8 @@ fn ssl_proxying_intercepts_everything_when_unconfigured() {
     // Two empty lists must behave exactly like the pre-feature proxy, or
     // enabling the setting would silently stop capturing traffic.
     let policy = SslProxyingSettings {
+        include_enabled: false,
+        exclude_enabled: false,
         include: Vec::new(),
         exclude: Vec::new(),
     }
@@ -6066,8 +6080,10 @@ fn ssl_proxying_exclude_wins_over_include() {
     // The exclude list is the escape hatch a user reaches for when an app
     // breaks; a broad include pattern must not be able to defeat it.
     let policy = SslProxyingSettings {
-        include: vec!["*".to_string()],
-        exclude: vec!["*.pinned.com".to_string()],
+        include_enabled: true,
+        exclude_enabled: true,
+        include: vec![ssl_entry("*", true)],
+        exclude: vec![ssl_entry("*.pinned.com", true)],
     }
     .to_runtime_config();
 
@@ -6084,7 +6100,12 @@ fn ssl_proxying_include_list_switches_to_allowlist_mode() {
     use crate::ssl_proxying::SslProxyingSettings;
 
     let policy = SslProxyingSettings {
-        include: vec!["*.example.com".to_string(), "single.test".to_string()],
+        include_enabled: true,
+        exclude_enabled: false,
+        include: vec![
+            ssl_entry("*.example.com", true),
+            ssl_entry("single.test", true),
+        ],
         exclude: Vec::new(),
     }
     .to_runtime_config();
@@ -6098,11 +6119,124 @@ fn ssl_proxying_include_list_switches_to_allowlist_mode() {
 }
 
 #[test]
+fn ssl_proxying_include_master_switch_off_ignores_retained_entries() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // The whole point of the master switch: patterns stay in the list, but
+    // flipping it off restores "decrypt everything not excluded" without the
+    // user deleting or re-adding anything.
+    let policy = SslProxyingSettings {
+        include_enabled: false,
+        exclude_enabled: false,
+        include: vec![ssl_entry("*.example.com", true)],
+        exclude: Vec::new(),
+    }
+    .to_runtime_config();
+
+    assert!(policy.should_intercept("api.example.com"));
+    assert!(policy.should_intercept("other.com"));
+}
+
+#[test]
+fn ssl_proxying_disabled_entries_are_ignored() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // A retained-but-disabled entry must not capture anything.
+    let policy = SslProxyingSettings {
+        include_enabled: true,
+        exclude_enabled: false,
+        include: vec![
+            ssl_entry("*.example.com", true),
+            ssl_entry("*.disabled.com", false),
+        ],
+        exclude: Vec::new(),
+    }
+    .to_runtime_config();
+
+    assert!(policy.should_intercept("api.example.com"));
+    assert!(!policy.should_intercept("api.disabled.com"));
+    assert!(!policy.should_intercept("other.com"));
+}
+
+#[test]
+fn ssl_proxying_exclude_master_switch_off_disarms_escape_hatch() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // Turning the exclude master switch off means even a matching pinned host
+    // is intercepted. Deliberately dangerous, so the default stays on; the
+    // test just pins down the semantics.
+    let policy = SslProxyingSettings {
+        include_enabled: true,
+        exclude_enabled: false,
+        include: vec![ssl_entry("*", true)],
+        exclude: vec![ssl_entry("*.pinned.com", true)],
+    }
+    .to_runtime_config();
+
+    assert!(policy.should_intercept("api.pinned.com"));
+}
+
+#[test]
+fn ssl_proxying_legacy_json_migrates_to_entry_switches() {
+    // Workspaces saved before the per-entry switches existed stored plain
+    // string arrays. A non-empty include was an allowlist and the exclude list
+    // was always in effect; deserialization must preserve both.
+    let settings: crate::ssl_proxying::SslProxyingSettings =
+        serde_json::from_str(r#"{"include":["*.example.com"],"exclude":["*.tiktokv.com"]}"#)
+            .unwrap();
+
+    assert!(settings.include_enabled);
+    assert!(settings.exclude_enabled);
+    assert_eq!(settings.include, vec![ssl_entry("*.example.com", true)]);
+    assert_eq!(settings.exclude, vec![ssl_entry("*.tiktokv.com", true)]);
+}
+
+#[test]
+fn ssl_proxying_legacy_empty_include_json_stays_decrypt_all() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // An empty legacy include meant "decrypt everything not excluded"; it must
+    // not come back as an allowlist with no entries.
+    let settings: SslProxyingSettings =
+        serde_json::from_str(r#"{"include":[],"exclude":["*.pinned.com"]}"#).unwrap();
+    let policy = settings.to_runtime_config();
+
+    assert!(!settings.include_enabled);
+    assert!(settings.exclude_enabled);
+    assert!(policy.should_intercept("example.com"));
+    assert!(!policy.should_intercept("api.pinned.com"));
+}
+
+#[test]
+fn ssl_proxying_new_json_round_trips_master_switches() {
+    // The current shape (entry arrays plus master switches) must survive a
+    // save/load round trip unchanged.
+    let settings: crate::ssl_proxying::SslProxyingSettings = serde_json::from_str(
+        r#"{
+                "includeEnabled": true,
+                "excludeEnabled": true,
+                "include": [{"pattern": "*.example.com", "enabled": true}],
+                "exclude": [{"pattern": "*.pinned.com", "enabled": false}]
+            }"#,
+    )
+    .unwrap();
+
+    let encoded = serde_json::to_string(&settings).unwrap();
+    let decoded: crate::ssl_proxying::SslProxyingSettings = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, settings);
+}
+
+#[test]
 fn ssl_proxying_runtime_default_keeps_recommended_exclusions() {
     // The runtime config's Default must mirror SslProxyingSettings::default(),
     // not derive empty/empty — otherwise a caller resolving "unconfigured"
     // through the config type silently intercepts the known-pinning hosts.
     let policy = crate::ssl_proxying::SslProxyingConfig::default();
+    assert!(!policy.include_enabled, "default is not an allowlist");
+    assert!(
+        policy.exclude_enabled,
+        "default keeps the exclude escape hatch on"
+    );
     assert!(
         policy.include.is_empty(),
         "default must not be an allowlist"
@@ -6122,8 +6256,10 @@ fn ssl_proxying_exact_ipv6_patterns_match_bracketed_connect_hosts() {
     // the `[...]` brackets of an IPv6 authority. An exact pattern spelled the
     // way a user (or the defaults) would type it must still take effect.
     let policy = SslProxyingSettings {
+        include_enabled: false,
+        exclude_enabled: true,
         include: Vec::new(),
-        exclude: vec!["2001:db8::5".to_string()],
+        exclude: vec![ssl_entry("2001:db8::5", true)],
     }
     .to_runtime_config();
 
@@ -6134,7 +6270,9 @@ fn ssl_proxying_exact_ipv6_patterns_match_bracketed_connect_hosts() {
     assert!(policy.should_intercept("[2001:db8::6]"));
 
     let allowlist = SslProxyingSettings {
-        include: vec!["2001:db8::5".to_string()],
+        include_enabled: true,
+        exclude_enabled: false,
+        include: vec![ssl_entry("2001:db8::5", true)],
         exclude: Vec::new(),
     }
     .to_runtime_config();
@@ -6190,11 +6328,13 @@ fn ssl_proxying_normalizes_blank_pattern_entries() {
     // A textarea round-trip leaves blank lines and stray whitespace behind; a
     // blank pattern must not become a match-everything rule.
     let policy = SslProxyingSettings {
+        include_enabled: false,
+        exclude_enabled: true,
         include: Vec::new(),
         exclude: vec![
-            "  ".to_string(),
-            String::new(),
-            "  *.example.com  ".to_string(),
+            ssl_entry("  ", true),
+            ssl_entry("", true),
+            ssl_entry("  *.example.com  ", true),
         ],
     }
     .to_runtime_config();

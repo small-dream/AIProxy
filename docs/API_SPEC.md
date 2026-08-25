@@ -128,11 +128,23 @@ type Workspace = {
   sslProxying?: SslProxyingSettings;
 };
 
+type SslProxyEntry = {
+  // 域名模式：精确域名、*.example.com / .example.com 后缀（含 apex）、CIDR（仅对 IP 字面量目标生效）、*。
+  // 关闭的条目保留但不生效。
+  pattern: string;
+  enabled: boolean;
+};
+
 type SslProxyingSettings = {
-  // 为空表示「解密所有未被排除的域名」，即该设置存在之前的历史行为。
-  include: string[];
-  // 始终不解密，优先级高于 include。
-  exclude: string[];
+  // include 总开关：开启 = 仅解密 include 中已启用的条目（白名单模式）；
+  // 关闭 = 解密所有未被排除的域名（默认，保持历史行为）。
+  includeEnabled: boolean;
+  // exclude 总开关：默认开启（逃生舱）；关闭可能使证书绑定的 App 无法使用。
+  excludeEnabled: boolean;
+  // 候选解密条目，仅 enabled 且在 includeEnabled 开启时生效。
+  include: SslProxyEntry[];
+  // 始终不解密（当 excludeEnabled 开启时），优先级高于 include。
+  exclude: SslProxyEntry[];
 };
 
 type UpstreamProxyProtocol = "http" | "https" | "socks5";
@@ -888,7 +900,9 @@ type UpstreamProxyProbeResult = {
 > **SSL 代理行为说明**：
 >
 > - **判定顺序**：`exclude` 优先于 `include`。exclude 是用户在 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
-> - **两种模式**：`include` 为空 ⇒ 解密所有未被排除的域名（默认，保持历史行为）；`include` 非空 ⇒ 仅解密列出的域名，其余原样盲转发。
+> - **总开关 + 条目开关**：`includeEnabled` / `excludeEnabled` 是两个列表的总开关；每条规则带独立的 `enabled` 开关，关闭的条目保留但不生效。
+> - **两种模式**：`includeEnabled=false` ⇒ 解密所有未被排除的域名（默认，保持历史行为）；`includeEnabled=true` ⇒ 仅解密 include 中已启用的条目，其余原样盲转发。
+> - **旧数据迁移**：升级前保存的 `{ include: string[], exclude: string[] }` 在反序列化时自动迁移为条目形式（`includeEnabled = include 非空`、`excludeEnabled = true`、条目均 `enabled`），行为保持不变。
 > - **模式匹配语法**与上游代理绕行列表一致（`crates/proxy-core/src/host_pattern.rs` 共用实现）：精确域名、`*.example.com` / `.example.com` 后缀（含 apex）、CIDR（仅对 IP 字面量目标生效）、`*` 通配全部。IPv6 字面量在规则与目标两侧都接受带/不带方括号、带/不带尾点 FQDN 点的写法并归一后比较。
 > - **未解密 ≠ 未转发**：被排除的域名走盲转发（`tunnel_blind_relay`），App 功能不受影响，只是看不到明文。这与 `ssl_enabled=false` 的全局关闭是同一条代码路径。
 > - **仅在 `ssl_enabled` 为 true 时生效**：拦截本身关闭时没有可缩放的范围，此时 `ProxyRuntimeConfig.ssl_proxying` 为 `None`。

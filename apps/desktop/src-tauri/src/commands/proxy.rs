@@ -338,11 +338,14 @@ async fn start_proxy_impl(
             component = "desktop.commands",
             event = "ssl_proxying_configured",
             workspace_id = %input.workspace_id,
+            include_enabled = config.include_enabled,
+            exclude_enabled = config.exclude_enabled,
             include_len = config.include.len(),
             exclude_len = config.exclude.len(),
-            // An empty include list means "everything not excluded", which is a
-            // materially different posture from an allowlist.
-            mode = if config.include.is_empty() { "all_except_excluded" } else { "include_list" },
+            // The include master switch decides the posture, not whether the
+            // list happens to be empty: retained-but-disabled patterns must not
+            // flip the behavior.
+            mode = if config.include_enabled { "include_list" } else { "all_except_excluded" },
             "ssl_proxying_configured"
         );
         Some(std::sync::Arc::new(config))
