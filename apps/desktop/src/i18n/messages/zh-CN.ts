@@ -127,8 +127,7 @@ export const zhCNMessages: Messages = {
   },
   appShell: {
     appSubtitle: "桌面代理工作台",
-    updateAvailableAction: "更新 {{version}}",
-    updateAvailableTooltip: "AIProxy 有新版本可用",
+    updateAvailableAction: "更新",
     breakpointsPending: "{{count}} 个断点{{suffix}}",
     breakpointsPendingTitle: "有待处理断点，点击打开规则页面",
     changePortTitle: "修改代理端口",
