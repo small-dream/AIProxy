@@ -895,7 +895,7 @@ type CertificatesPageState = {
 
 **通知开关：** Settings 页新增 breakpoint system notifications 开关，开启时会 best-effort 请求系统权限；权限被拒绝只静默降级，不打断面板内通知链路。
 
-## 8. Settings Page — `基础设置与代理预设已实现`
+## 8. Settings Page — `目录导航与搜索已实现`
 
 ### 8.1 页面目标
 
@@ -909,124 +909,65 @@ type CertificatesPageState = {
 - 在「General」区统一管理语言、主题、界面字体、内容字体与字号偏好
 - 管理危险操作确认开关（Clear All Sessions 确认可关闭并在此恢复）
 - 支持 `system` 级别的自动解析与持久化
+- 通过页面内二级目录在 Proxy Presets、Upstream Proxy、SSL / TLS、AI Model、Appearance & Language、Notifications & Confirmations、Software Updates 与 About 之间切换
+- 通过设置搜索定位具体设置项；结果按当前界面语言匹配标签、描述和补充关键词，并支持分区深链 `/settings?section=<sectionId>`
 
 ### 8.2 低保真线框
 
 ```text
 [Settings Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Title: Settings                                                             │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [Proxy Presets]                                                             │
-│ Preset List                  (New Preset) (Apply) (Save)                    │
-│ Name / Port / SSL Editor                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [Upstream Proxy]                          (Test Connection) (Save)          │
-│ Route through an upstream proxy  [ Toggle ]                                 │
-│ Protocol [HTTP v]  Host [__________]  Port [_____]                          │
-│ Username [__________]  Password [__________]                                │
-│ Bypass List (multiline)                                                     │
-│ Probe Result / No-Fallback Hint / Credential Storage Hint                   │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [SSL Proxying]                      (Restore Recommended) (Save)            │
-│ Mode Hint (all-except-excluded / include-list)                              │
-│ Intercept only the Include list                       [ Switch ]            │
-│ Include (rule list: pattern + per-entry Switch + delete + add box)          │
-│ Enable the Exclude list                                 [ Switch ]          │
-│ Exclude (rule list: pattern + per-entry Switch + delete + add box)          │
-│ Pinning Hint / SSL-Disabled Hint                                            │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [General]  (macOS 风格分组行，Divider 分隔，控件右对齐)                       │
-│ Display Language                        [Follow System v]                   │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│ Appearance Theme                        [Follow System v]                   │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│ Interface Font                          [System Default v]                  │
-│ (custom 时追加 Custom Font 行)                                               │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│ Content & Code Font                     [System Monospace v]                │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│ Font Size                               [14px v]                            │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [Dangerous Action Confirmations]                                            │
-│ Ask before clearing all sessions                    [========○]             │
-│ Info Hint                                                                   │
-└──────────────────────────────────────────────────────────────────────────────┘
+│ [Search settings.................]                                           │
+├───────────────┬──────────────────────────────────────────────────────────────┤
+│ Directory     │ Title: Settings                                              │
+│ Proxy         ├──────────────────────────────────────────────────────────────┤
+│ Upstream      │ Active section content                                       │
+│ SSL / TLS     │ (Proxy / Upstream / SSL / AI / Appearance / Behavior /       │
+│ AI Model      │  Updates / About)                                            │
+│ Appearance    │                                                              │
+│ Behavior      │ Search result click => switch section => scroll/highlight    │
+│ Updates       │ target row                                                   │
+│ About         │                                                              │
+└───────────────┴──────────────────────────────────────────────────────────────┘
 ```
+
+目录状态使用 `section` query 参数表示；`/settings` 默认显示 `proxy`。搜索输入非空时替换目录为结果列表；清空后恢复目录。结果匹配当前语言的标签、描述与静态关键词，不复制第二套用户可见文案。
 
 ### 8.3 React 组件树
 
 ```text
 SettingsPage
-├─ PageHeader
-├─ ProxyPresetsSection
-│  ├─ PresetList
-│  ├─ PresetActions
-│  ├─ PresetEditor
-│  └─ SuccessAlert
-├─ UpstreamProxySection
-│  ├─ EnableToggle
-│  ├─ ProtocolSelect / HostField / PortField
-│  ├─ CredentialFields
-│  ├─ BypassTextarea
-│  ├─ TestConnectionButton
-│  └─ ProbeResultAlert / NoFallbackAlert / CredentialStorageAlert
-├─ SslProxyingSection
-│  ├─ ModeHint / RestoreRecommendedButton / SaveButton
-│  ├─ IncludeEnabledSwitch
-│  ├─ IncludeListEditor (SslProxyListEditor: add box + per-entry Switch + delete)
-│  ├─ ExcludeEnabledSwitch
-│  ├─ ExcludeListEditor (SslProxyListEditor)
-│  └─ PinningHint / SslDisabledHint
-├─ SectionCard "General"
-│  └─ SettingsGroup (Divider 分隔)
-│     ├─ SettingsRow LanguagePreferenceSelect
-│     ├─ SettingsRow ThemePreferenceSelect
-│     ├─ SettingsRow FontFamilyPreferenceSelect (+ custom 行)
-│     ├─ SettingsRow ContentFontPreferenceSelect (+ custom 行)
-│     └─ SettingsRow FontSizeSelect
-├─ SectionCard "Dangerous Action Confirmations"
-│  ├─ Description
-│  └─ ClearSessionsConfirmSwitch (bound to !skipClearSessionsConfirm)
-├─ SectionCard "Notifications"
-│  ├─ Description
-│  └─ BreakpointSystemNotificationsSwitch
+├─ SettingsSearchField
+├─ SectionDirectory | SearchResultList
+├─ SectionHeader
+└─ ActiveSettingsSection
+   ├─ ProxySettingsSection
+   ├─ UpstreamProxySection
+   ├─ SslProxyingSection
+   ├─ AiModelSettingsSection
+   ├─ AppearanceSettingsSection
+   ├─ BehaviorSettingsSection
+   ├─ UpdatesSection
+   └─ AboutSection
 ```
-
 **行组件约定：** `SettingsRow`（label/description 左、控件右，`stacked` 用于 TLS hosts 等宽输入）、`SettingsGroup`（Divider 分隔行列表）、`SettingsFooter`（hint 左、动作右）是 Settings 页统一的行级布局原语，各 Section 内部一律复用，不再手写行布局。
 
 ### 8.4 页面状态模型
 
 ```ts
 type SettingsPageState = {
-  presets: {
-    activePresetId?: string;
-    selectedPresetId?: string | null;
-    isCreatingPreset: boolean;
-  };
-  upstreamProxy: {
-    // 表单草稿；bypass 以换行分隔文本编辑，保存时解析为数组
-    draft: {
-      enabled: boolean;
-      protocol: "http" | "https" | "socks5";
-      host: string;
-      port: number;
-      username: string;
-      password: string;
-      bypassText: string;
-    };
-    // 一次性连通性探测结果，任何字段变更都会清空
-    testResult: UpstreamProxyProbeResult | null;
-    isTesting: boolean;
-  };
-  preferences: {
-    languagePreference: "system" | "zh-CN" | "en";
-    themePreference: "system" | "light" | "dark";
-    skipClearSessionsConfirm: boolean; // "don't ask again" from the Clear All Sessions dialog
-  };
-  derived: {
-    resolvedLocale: "zh-CN" | "en";
-    resolvedTheme: "light" | "dark";
+  navigation: {
+    sectionId:
+      | "proxy"
+      | "upstream"
+      | "ssl"
+      | "ai"
+      | "appearance"
+      | "behavior"
+      | "updates"
+      | "about";
+    searchText: string;
+    activeItemId: string | null;
   };
 };
 ```

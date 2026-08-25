@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import { SettingsPage } from "@/pages/settings";
@@ -9,17 +10,16 @@ describe("AppProviders", () => {
   it("renders the settings page with English copy by default", () => {
     render(
       <AppProviders>
-        <SettingsPage />
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsPage />
+        </MemoryRouter>
       </AppProviders>,
     );
 
     expect(screen.getByText("Settings")).toBeInTheDocument();
-    expect(screen.getByText("General")).toBeInTheDocument();
-    expect(screen.getByText("Display Language")).toBeInTheDocument();
-    expect(screen.getAllByText("Follow System")).toHaveLength(2);
-    expect(screen.getByText("Appearance Theme")).toBeInTheDocument();
-    expect(screen.getByText("Interface Font")).toBeInTheDocument();
-    expect(screen.getByText("Content & Code Font")).toBeInTheDocument();
-    expect(screen.getByText("Font Size")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Proxy Presets" })).toHaveClass("Mui-selected");
+    expect(screen.getByLabelText("Search settings")).toBeInTheDocument();
+    expect(screen.getByText("Proxy Settings")).toBeInTheDocument();
+    expect(screen.getByText("Proxy Port")).toBeInTheDocument();
   });
 });
