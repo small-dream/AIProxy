@@ -68,9 +68,8 @@ Recommended match:
 
 ```ts
 export function onRequest(ctx) {
-  const url = new URL(ctx.request.url);
-
-  if (url.searchParams.get("mock") !== "1") {
+  // The sandbox provides no URL global — inspect the URL as a plain string.
+  if (!ctx.request.url.includes("mock=1")) {
     return;
   }
 

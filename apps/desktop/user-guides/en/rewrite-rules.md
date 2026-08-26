@@ -23,6 +23,10 @@ Rewrite is not a text-generation capability — it's an automatic packet-rewriti
 
 You can also right-click a request in the Sessions list and choose **Create Rewrite Rule** — AIProxy generates an editable Rewrite draft from the current request.
 
+## Import & export rules
+
+The **Rules** page header has **Export** / **Import** buttons (available on every tab). Export downloads a single `aiproxy-rules-YYYY-MM-DD.json` containing all rule kinds — Rewrite, Map Local / Map Remote, DNS mappings, Script, Breakpoints, and Throttling rules + profiles (`aiproxy.rules` format, version 1). Import opens a native `.json` picker followed by a preview dialog with per-kind checkboxes and counts; imported rules get fresh ids, arrive **disabled**, and land in the default workspace — nothing is overwritten.
+
 ## Current capabilities
 
 This version supports:
@@ -31,6 +35,7 @@ This version supports:
 - Query rewrite: add / override / remove request URL query params
 - Body rewrite: replace the whole request or response body, or modify/delete specific fields by JSON Path, and set `Content-Type`
 - Redirect rewrite: forward a request to another target URL, optionally keeping the original path / query
+- Multiple ordered actions per rule: chain Header / Query / Body / Redirect steps that run top to bottom
 - URL Pattern, HTTP Method, and Stage matching
 - Priority and enable/disable control
 - Common templates
@@ -102,6 +107,10 @@ Examples:
 | Regex | `api\..*\.com/v[12]/` | `api.example.com/v1/users`, `api.staging.com/v2/items` |
 
 ## Rewrite actions
+
+A rule can chain multiple ordered actions — e.g. set a header, then replace the body, then redirect. Each action appears as a numbered card with its own type dropdown (Header / Query / Body / Redirect) and payload editor; use the arrows on a card to move it up or down and **+ Add action** to append. Actions run strictly top to bottom; rules themselves still run by priority, and later rules see earlier mutations.
+
+If one action fails (e.g. the body isn't valid JSON in Fields mode), the remaining actions still run and each failure shows as an error row in Automation — the rule only fails outright when every action failed. An action whose target doesn't fit the current stage is recorded as skipped.
 
 ### Header Rewrite
 
@@ -278,18 +287,24 @@ Upstream / Local Response -> Response Rewrite -> Script(onResponse) -> Breakpoin
 Notes:
 
 - When `Map Local` returns a local response directly, the request-stage Script doesn't run, but response-stage Rewrite / Script can still process that returned content
-- When the response body exceeds the capture limit, AIProxy skips response Body rewrites to avoid performance issues with large files
+- When the response body exceeds the capture limit (currently 20 MiB), AIProxy skips response Body rewrites to avoid performance issues with large files
+- HTTP/2 requests currently skip Body rewrites (recorded as a skipped trace entry)
+
+## Managing rules
+
+- **Bulk operations**: tick row checkboxes to reveal a batch bar with **Enable / Disable / Delete / Done**; delete asks for confirmation and reports partial failures via toast.
+- **Drag to reorder**: rows have a drag handle; dropping a row elsewhere recomputes priorities so list order equals execution order (top = highest priority).
+- **Unsaved-draft guard**: leaving the Rules page, switching tabs, selecting another rule, creating a rule, or applying a template while the editor is dirty asks "Unsaved changes … discard?" before proceeding.
+- Field-level validation errors render under each offending field after the first save attempt; alerts are reserved for save errors and cross-field warnings.
 
 ## Invalid-combination guards
 
-This version blocks or warns about these easily-misunderstood combinations:
+This version refuses to save these easily-misunderstood combinations — Save does nothing until you fix the Stage or Target, and a warning explains why:
 
 - Query Rewrite at the response stage
 - Redirect Rewrite at the response stage
 - A request-stage rule that picks a response Header / Body target
 - A response-stage rule that picks a request Header / Body target
-
-If you see a warning, adjust the Stage or Target as suggested.
 
 ## FAQ
 
@@ -310,7 +325,7 @@ Query and Redirect modify the request URL about to go upstream. By the time the 
 
 ### Q: How do multiple Rewrite rules execute?
 
-Within the same stage, matched Rewrite rules run in priority order, high to low. A later rule may see the request or response as modified by an earlier rule.
+Within the same stage, matched Rewrite rules run in priority order, high to low. A later rule may see the request or response as modified by an earlier rule. Within one rule, its actions run strictly top to bottom.
 
 ### Q: What's the difference between Rewrite and Script?
 

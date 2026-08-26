@@ -1,12 +1,12 @@
 # Settings Guide
 
-The Settings page centralizes proxy parameters, the AI model, appearance, language, and software updates. For certificate install and capture-ready flow, see [Certificate Setup & Capture Troubleshooting](./certificate-setup.md); this page is for everyday config tweaks.
+The Settings page centralizes proxy parameters, upstream proxying, SSL proxy policy, the AI model, appearance and language, notifications and confirmations, and software updates. For certificate install and capture-ready flow, see [Certificate Setup & Capture Troubleshooting](./certificate-setup.md); this page is for everyday config tweaks.
 
 ## Where to find it
 
 1. Click **Settings** in the left nav
 
-The page is divided top-to-bottom into: proxy settings, AI model, software updates, about, display language, appearance.
+The page is organized into **Proxy Presets**, **Upstream Proxy**, **SSL / TLS**, **AI Model**, **Appearance & Language**, **Notifications & Confirmations**, **Updates**, and **About**. Use the section navigator on the left to jump directly. The top **search settings** field supports localized keywords and jumps to — and briefly highlights — the matching section row.
 
 > The system-proxy **on/off** toggle is not on this page — it's in the top control bar. This page only configures the proxy's own parameters.
 
@@ -17,6 +17,8 @@ The page is divided top-to-bottom into: proxy settings, AI model, software updat
 | Proxy Port | The port the proxy listens on, 1–65535 | `8888` |
 | SSL Enabled | Whether to decrypt HTTPS; off means forward-only with no plaintext capture | on |
 | HTTP/2 Support | Whether captured connections use HTTP/2; off falls back all to HTTP/1.1 | on |
+| Verify Upstream TLS | Verify upstream server certificates against the OS root store on new HTTPS/WSS connections. Off (default), the proxy accepts any upstream certificate — convenient for interception but insecure. A warning hint is shown while it's off | off |
+| TLS Verify Hosts | One host per line (shown while Verify Upstream TLS is on). Listed hosts are always verified even when the global switch is off — handy for pinning down specific upstreams without turning verification on everywhere | — |
 
 Click **Save** to apply:
 
@@ -45,9 +47,34 @@ Actions:
 
 > Third-party OpenAI-compatible services (self-hosted gateways, Azure-compatible endpoints) just need the Base URL swapped. Session Compare redacts sensitive fields before sending; you can **Preview AI Payload** on the compare page to confirm.
 
+## Upstream proxy
+
+When **forward via upstream proxy** is enabled, AIProxy still intercepts and decrypts traffic; outbound requests are handed to another HTTP CONNECT, HTTPS, or SOCKS5 proxy. This is useful when a phone/client connects to AIProxy first and then chains through another rules proxy.
+
+- Configure the protocol, host, and port; add a username and password if authentication is required
+- Use **Test Connection** to verify that a tunnel can be established
+- Hosts matching the **bypass list** connect directly. Exact domains, `*.example.com` suffix wildcards, and CIDR ranges are supported (CIDR applies only to IP-literal targets)
+- If the upstream is unavailable, requests fail instead of silently falling back to direct connections
+
+The password is stored in plaintext in the current workspace's local database. Do not save sensitive credentials on shared or untrusted machines.
+
+## SSL / TLS
+
+In addition to the master SSL switch in Proxy Presets, this section controls which hosts are decrypted:
+
+| Control | Description | Default |
+|---|---|---|
+| Intercept only the Include list | When on, only hosts matching an enabled Include entry are decrypted and the rest are relayed blind; when off, every host that is not excluded is decrypted | off |
+| Include list / Exclude list | Each host rule has its own enable switch and a remove icon. Disabled rules remain visible but do not affect matching | — |
+| Enable the Exclude list | Excluded hosts are never decrypted, even when matched by Include. Turning this off may break apps that pin their certificates (TikTok, iCloud, …) | on |
+
+A caption under the title reflects the active mode ("Decrypting everything except the excluded hosts." / "Decrypting only the enabled hosts under Include."). If SSL decryption is off in Proxy Presets, an informational notice appears instead and this policy stays inactive until SSL is back on.
+
+The exclude list ships with recommended entries for services that commonly use certificate binding (for example iCloud and TikTok). Workspaces that never configured SSL proxying start with those recommendations enabled, and **Save** stays disabled until the recommendations have loaded — so built-in protections can't be dropped by accident. Click **Restore Recommended** to restore them (it also re-enables the exclude list). Long lists scroll inside a fixed-height container. Click **Save** to apply; a running proxy restarts automatically.
+
 ## Software updates
 
-- **Check for Updates**: manually check GitHub Releases for a new version
+- **Check for Updates**: manually check GitHub Releases for a new version — also reachable from the update icon button in the top bar and **Help → Check for Updates** (Windows/Linux menu)
 - With a new version available, click **Install & Restart** to download a signed update and auto-restart; download progress is shown
 
 ## About
@@ -75,6 +102,13 @@ Switching takes **effect immediately** — no restart.
 | Custom font name | Fill in when "Custom" is chosen, e.g. `LXGW WenKai`, `IBM Plex Sans` | — |
 
 All appearance settings take **effect immediately**.
+
+## Notifications & confirmations
+
+| Switch | Description |
+|---|---|
+| Confirm before clearing sessions | Whether clearing all sessions shows a confirmation dialog |
+| Breakpoint system notifications | Whether breakpoint hits raise an OS notification |
 
 <a id="keyboard-shortcuts"></a>
 

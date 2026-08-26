@@ -20,6 +20,7 @@ Use cases:
 - Single-file `JS / TS`
 - In-app editing
 - One-time import from a local `.js / .mjs / .ts / .mts` file
+- `async` hook functions (`await` works inside them)
 - Per-session log and extraction viewing; the Automation tab shows both Rewrite hit records and Script traces
 
 `v1` does not support:
@@ -58,13 +59,18 @@ Once saved, the rule takes effect immediately.
 | Field | Description | Example |
 |---|---|---|
 | Rule Name | A name for search and recognition | `Add debug header to API` |
-| Enabled | Whether the rule is active | on |
-| Priority | Higher wins | `100` |
-| URL Pattern | A URL substring match pattern | `api.example.com/v1/` |
+| Enabled | Whether the rule is active (also toggleable inline in the list) | on |
+| Priority | Higher wins; drag rows in the list to reorder — priorities renumber automatically | `100` |
+| URL Pattern | Matches against the request URL, interpreted per Match Type | `api.example.com/v1/` |
+| Match Type | Contains (default) / Wildcard / Exact / Regex | Contains |
 | HTTP Methods | Match only these methods; empty = all | `GET, POST` |
 | Match Stage | `request`, `response`, `either` | `request` |
 | Language | `TypeScript` or `JavaScript` | `TypeScript` |
 | Script Source | The script body | see examples below |
+
+## Managing script rules
+
+Tick row checkboxes for bulk **Enable / Disable / Delete**, and drag row handles to reorder — priorities renumber so list order equals precedence. Script rules are included in the Rules-page [import / export](./rewrite-rules.md#import--export-rules).
 
 ## Import a local script file
 
@@ -336,9 +342,11 @@ This prevents one script rule from stalling the whole proxy chain.
 To keep the proxy stable, scripts are bounded:
 
 - Max single-script source size: `128 KB`
-- Max single-hook execution timeout: `50 ms`
+- Max single-hook execution timeout: `500 ms`
 - Max log / extract entries per run: `50`
 - Max serialization size per log entry or extract value: `8 KB`
+- Per-run memory cap: `16 MB` — exceeding it fails that hook, fail-open
+- Up to 64 hooks run concurrently; excess runs wait for a free slot and are skipped when one doesn't free up in time
 
 Recommendations:
 

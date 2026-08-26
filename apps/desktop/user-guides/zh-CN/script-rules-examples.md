@@ -68,9 +68,8 @@ export function onRequest(ctx) {
 
 ```ts
 export function onRequest(ctx) {
-  const url = new URL(ctx.request.url);
-
-  if (url.searchParams.get("mock") !== "1") {
+  // 沙箱不提供 URL 全局对象——请把 URL 当普通字符串解析。
+  if (!ctx.request.url.includes("mock=1")) {
     return;
   }
 
