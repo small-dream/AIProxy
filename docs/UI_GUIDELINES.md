@@ -426,6 +426,17 @@ Sessions Page
 - 媒体预览区（图片）右键提供 `Copy Image`（复制图片到剪贴板）、`Save Image As...`（图片另存为）、`Copy Image URL`（复制图片地址）、`Open in Browser`（在浏览器中打开）
 - 媒体预览区（音频/视频）右键提供 `Save As...`（另存为）、`Copy URL`（复制地址）、`Open in Browser`（在浏览器中打开）
 
+#### `Domain Context Menu`
+
+- 触发方式：右键 Host 分组节点或 host 分支
+- 定位方式：与其他上下文菜单一致，以鼠标指针位置为锚点弹出
+- 提供 `Save All Files...`（该 host 下所有响应体落盘）、`Export Host`（导出 HAR）
+- Host 视图状态：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`（与会话叶子菜单一致）
+- SSL 解密策略：
+  - `Add to Include list`：把 host 加入 `Workspace.sslProxying.include`（启用条目并打开 `includeEnabled`，同时从 `sslBlindHosts` 移除该 host），代理运行时自动重启使白名单生效
+  - `Disable / Enable SSL Decryption`：写 `Workspace.sslBlindHosts` 并重启代理生效
+- Host 级 SSL 策略只出现在 `DomainContextMenu`，会话叶子菜单不再重复提供
+
 #### `Session Folder Context Menu`
 
 - 触发方式：右键会话树中的 URL 路径分支节点（即树里的「目录」）
@@ -454,7 +465,7 @@ Sessions Page
   - 媒体预览（音频/视频）：`Save As...`、`Copy URL`、`Open in Browser`
   - 处理：`Save Response...`、`Compose`、`Repeat`
   - 会话范围：`Export Session...`、`Clear Others`
-  - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`、`Disable / Enable SSL Decryption for Host`（写 `Workspace.sslBlindHosts` 并重启代理生效）
+  - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`
   - 跳转：`Breakpoints...`、`Map Rules...`、`Map Local…`（携带请求的 host/method/path/url 预填 Mapping 规则）
 - 菜单动作完成后应自动关闭
 - 复制类动作必须给出 `Snackbar` 成功反馈
@@ -851,7 +862,7 @@ Settings Page
   - 启用时常驻一条 info `Alert` 说明「代理不可用时请求直接失败、不回退直连」
   - 填写密码时追加 warning `Alert` 说明凭据以明文存储于本地数据库
   - 切换协议时仅在当前端口仍是某个协议的默认值时才改写端口，手填端口不被静默覆盖
-- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各带总开关（`includeEnabled` / `excludeEnabled`）与条目列表（每条 pattern + 独立开关 + 删除 + 新增输入框），另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。
+- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各为一块列表（每条 pattern + 独立开关 + 删除 + 新增输入框），**总开关（`includeEnabled` / `excludeEnabled`）内联在各自列表标题行右侧**，与所控制的列表紧贴呈现；另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。
 
 ## 9.9 Compare Page — `已实现发布硬化版`
 

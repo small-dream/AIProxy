@@ -146,8 +146,8 @@ SessionsPage
 | `features/sessions/components/SessionFilterChips.tsx` | 列表上方的单行可移除过滤 chips：每个 focused/ignored host 一枚（点 × 取消），同一类别超过 3 个 host 时聚合为"Focus/Ignored (N)"总 chip（菜单内可逐项移除/全部清除），throttled 过滤一枚总开关；被 ignore 的 host 从数据滤除后右键菜单不可达，此行是唯一取消入口 |
 | `features/sessions/components/SessionInspectorWorkspace.tsx` | 请求 / 响应详情工作区，支持搜索与 Repeat 摘要动作 |
 | `features/sessions/components/SessionInspectorMediaPreview.tsx` | 响应体多媒体预览（图片/音频/视频），按 MIME 类型动态显示，支持右键复制图片/另存为/复制地址/在浏览器中打开 |
-| `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作（含按 host 停用/启用 SSL 解密）、规则跳转（含 Map Local 直达） |
-| `features/sessions/components/DomainContextMenu.tsx` | Host 节点右键菜单：保存该 host 下所有文件、导出 HAR、Focus / Ignore |
+| `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作、规则跳转（含 Map Local 直达） |
+| `features/sessions/components/DomainContextMenu.tsx` | Host 节点右键菜单：保存该 host 下所有文件、导出 HAR、Focus / Ignore、加入包含列表、停用/启用 SSL 解密 |
 | `features/sessions/components/SessionFolderContextMenu.tsx` | URL 路径目录节点右键菜单，当前承载「保存所有文件」 |
 | `features/sessions/components/SaveResponseFilesDialog.tsx` | 保存抓包文件的策略对话框（同名冲突：只保留最后一次 / 全部保留），无冲突时不出现 |
 | `features/sessions/session-save-files.helpers.ts` | 可保存会话过滤（排除 WebSocket）与同名冲突检测 |
@@ -223,7 +223,7 @@ Sessions polling returns captured sessions
 
 **键盘与多选（P1）：** 会话树支持 `↑/↓`、`Home/End`、`Esc`；`⌘/Ctrl+点击` 多选、`Shift+点击` 范围选择（按树可见顺序，`collectVisibleSessionIds` 与键盘导航共用同一顺序源）；多选批量条支持导出 / 保存响应 / 删除（删除需确认）。
 
-**SSL 按 host 解密（P1）：** 右键菜单可对会话 host 停用/启用 SSL 解密，写入 `Workspace.sslBlindHosts`（DB `ssl_blind_hosts` 列），代理运行时对列表内 host 直接盲通（`is_ssl_blind_tunnel` / `host_in_allowlist`），修改后自动重启代理生效。
+**SSL 按 host 解密（P1）：** host 右键菜单可对 host 停用/启用 SSL 解密，写入 `Workspace.sslBlindHosts`（DB `ssl_blind_hosts` 列），代理运行时对列表内 host 直接盲通（`is_ssl_blind_tunnel` / `host_in_allowlist`），修改后自动重启代理生效。host 右键的 `Add to Include list` 会把 host 加入 `Workspace.sslProxying.include`（启用条目、打开 `includeEnabled`、并移除其 `sslBlindHosts` 盲通项），同样在代理运行时自动重启生效。
 
 ### 4.7 上下文菜单事件流
 
@@ -240,12 +240,27 @@ User right clicks a session leaf node
    clear all other sessions
    focus or unfocus host
    ignore or stop ignoring host
-   disable / enable SSL decryption for host (updates Workspace.sslBlindHosts,
-     restarts the proxy when running)
    create rewrite rule / map local rule (seeds Rules page with request fields)
    go to Breakpoints / Rules page
 -> actions that need body/raw payload fetch detail on demand
 -> copy actions show Snackbar feedback
+-> menu closes after action
+```
+
+```text
+User right clicks a host node
+-> SessionsPage stores pointer anchorPosition + target host
+-> DomainContextMenu opens at cursor position
+-> menu action executes one of:
+   save all files under the host
+   export host (HAR)
+   focus or unfocus host
+   ignore or stop ignoring host
+   add host to the Include list (writes Workspace.sslProxying.include,
+     enables includeEnabled, drops the host from sslBlindHosts, restarts the
+     proxy when running)
+   disable / enable SSL decryption (updates Workspace.sslBlindHosts,
+     restarts the proxy when running)
 -> menu closes after action
 ```
 
@@ -1104,7 +1119,7 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` �
 
 - **exclude 优先于 include**：exclude 是 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
 - **默认保持历史行为**：`includeEnabled` 默认关闭 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
-- **总开关 + 条目开关**：每个列表一个总开关（`includeEnabled` / `excludeEnabled`），每条规则带独立 `enabled` 开关；关闭的条目保留但不生效。「只看一个域名」= 打开 include 总开关并只启用该条目，「看全部」= 关闭 include 总开关，全程无需删除/重加规则。
+- **总开关 + 条目开关**：每个列表一个总开关（`includeEnabled` / `excludeEnabled`），每条规则带独立 `enabled` 开关；关闭的条目保留但不生效。总开关内联在对应列表标题行右侧，与列表紧贴。「只看一个域名」= 打开 include 总开关并只启用该条目，「看全部」= 关闭 include 总开关，全程无需删除/重加规则。
 - **旧数据迁移**：升级前保存的 `{ include: string[], exclude: string[] }` 在 Rust 反序列化时自动迁移为条目形式（`includeEnabled = include 非空`、`excludeEnabled = true`、条目均 `enabled`），行为保持不变。
 - **「从未配置」≠「两个空列表」**：DB 列为空串时回退到内置推荐排除表，因此已有 workspace 升级后能直接获得保护，而不必手动配置。
 - **未解密仍然转发**：被排除的域名走 `tunnel_blind_relay`，与 `ssl_enabled=false` 是同一条代码路径，App 功能不受影响。
