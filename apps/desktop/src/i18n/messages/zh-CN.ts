@@ -316,6 +316,7 @@ export const zhCNMessages: Messages = {
     updatesRestarting: "更新已安装，正在重启 AIProxy...",
     updateDialogChangelog: "更新内容",
     updateDialogCheckFailed: "检查更新失败，请检查网络后重试。",
+    updateDialogCurrentVersion: "当前版本：{{currentVersion}}",
     updateDialogLater: "稍后",
     updateDialogNoChangelog: "此版本暂无更新说明。",
     updateDialogNoUpdate: "AIProxy 已是最新版本。",
