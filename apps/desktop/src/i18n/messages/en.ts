@@ -1184,6 +1184,9 @@ export const enMessages = {
     sslDecryptDisabled: "SSL decryption disabled for {{host}}",
     sslDecryptEnabled: "SSL decryption enabled for {{host}}",
     sslDecryptToggleFailed: "Failed to update SSL decryption setting",
+    addedToIncludeList:
+      "Added {{host}} to the Include list — only matching hosts are now decrypted.",
+    addedToIncludeListFailed: "Failed to add host to the Include list",
     compareBaseSet: "Compare base set to {{method}} {{path}}.",
     filterAllSessions: "All Sessions",
     filterThrottled: "Throttled",
@@ -1752,6 +1755,7 @@ export const enMessages = {
     notificationBody: "{{method}} {{target}} is waiting for your action.",
   },
   contextMenu: {
+    addToIncludeList: "Add to Include list",
     clearOthers: "Clear Others",
     compose: "Compose",
     copy: "Copy",
@@ -1778,8 +1782,8 @@ export const enMessages = {
     saveResponse: "Save Response...",
     saveResponseFiles: "Save All Files...",
     setCompareBase: "Set as Compare Base",
-    sslDecryptDisable: "Disable SSL Decryption for Host",
-    sslDecryptEnable: "Enable SSL Decryption for Host",
+    sslDecryptDisable: "Disable SSL Decryption",
+    sslDecryptEnable: "Enable SSL Decryption",
     stopIgnoringHost: "Stop Ignoring",
     unfocusHost: "Remove Focus",
   },

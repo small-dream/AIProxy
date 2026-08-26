@@ -60,6 +60,7 @@ import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import {
   isCapturedSessionNotFoundError,
+  loadDefaultSslProxyingExclusions,
   setFocusedHosts as syncFocusedHosts,
 } from "@/services/commands";
 import { logDevWarn } from "@/services/logger/dev-logger";
@@ -668,10 +669,9 @@ export function SessionsPage() {
   );
 
   const handleToggleSslDecrypt = useCallback(
-    async (session: SessionSummary) => {
-      if (!currentWorkspace || !session.host) return;
+    async (host: string) => {
+      if (!currentWorkspace || !host) return;
 
-      const host = session.host;
       const currentList = currentWorkspace.sslBlindHosts ?? [];
       const isDisabling = !currentList.includes(host);
       const nextList = isDisabling
@@ -703,6 +703,68 @@ export function SessionsPage() {
         );
       } catch {
         showSnackbar(t("sessionsPage.sslDecryptToggleFailed"));
+      }
+    },
+    [currentWorkspace, proxyStatus, showSnackbar, startProxyMutation, t, updateWorkspaceMutation],
+  );
+
+  const handleAddToIncludeList = useCallback(
+    async (host: string) => {
+      if (!currentWorkspace || !host) return;
+
+      try {
+        // A workspace that never configured SSL proxying falls back to the
+        // recommended exclusions (matching the settings section), so saving a
+        // policy from the context menu must not silently drop those built-in
+        // protections.
+        const current = currentWorkspace.sslProxying ?? {
+          includeEnabled: false,
+          excludeEnabled: true,
+          include: [],
+          exclude: (await loadDefaultSslProxyingExclusions()).map((pattern) => ({
+            pattern,
+            enabled: true,
+          })),
+        };
+
+        const normalized = host.toLowerCase();
+        const alreadyListed = current.include.some(
+          (entry) => entry.pattern.toLowerCase() === normalized,
+        );
+        const include = alreadyListed
+          ? current.include
+          : [...current.include, { pattern: host, enabled: true }];
+        // A host on the blind list is relayed blind regardless of the
+        // proxying policy, so adding it to Include would silently do nothing
+        // unless it is removed here.
+        const sslBlindHosts = (currentWorkspace.sslBlindHosts ?? []).filter(
+          (candidate) => candidate !== host,
+        );
+
+        await updateWorkspaceMutation.mutateAsync({
+          workspaceId: currentWorkspace.id,
+          sslBlindHosts,
+          sslProxying: {
+            ...current,
+            include,
+            includeEnabled: true,
+          },
+        });
+
+        // The policy is captured when the proxy starts, so a running proxy
+        // has to be restarted before the allowlist change takes effect.
+        if (proxyStatus?.running) {
+          await startProxyMutation.mutateAsync({
+            enableHttp2: proxyStatus.http2Enabled ?? true,
+            enableSsl: proxyStatus.sslEnabled,
+            port: proxyStatus.port,
+            workspaceId: currentWorkspace.id,
+          });
+        }
+
+        showSnackbar(t("sessionsPage.addedToIncludeList", { host }));
+      } catch {
+        showSnackbar(t("sessionsPage.addedToIncludeListFailed"));
       }
     },
     [currentWorkspace, proxyStatus, showSnackbar, startProxyMutation, t, updateWorkspaceMutation],
@@ -1037,11 +1099,6 @@ export function SessionsPage() {
         anchorPosition={contextMenuAnchor}
         isHostFocused={contextMenuSession ? focusedHosts.has(contextMenuSession.host) : false}
         isHostIgnored={contextMenuSession ? ignoredHosts.has(contextMenuSession.host) : false}
-        isHostSslDecryptDisabled={
-          contextMenuSession
-            ? (currentWorkspace?.sslBlindHosts ?? []).includes(contextMenuSession.host)
-            : false
-        }
         onClose={handleContextMenuClose}
         onClearOthers={handleClearOthers}
         onCompose={handleCompose}
@@ -1063,7 +1120,6 @@ export function SessionsPage() {
         onSaveToCollection={handleSaveToCollection}
         onSetCompareBase={handleSetCompareBase}
         onStopIgnoringHost={handleStopIgnoringHost}
-        onToggleSslDecrypt={handleToggleSslDecrypt}
         onUnfocusHost={handleUnfocusHost}
         session={contextMenuSession}
       />
@@ -1109,12 +1165,19 @@ export function SessionsPage() {
         host={contextMenuHost}
         isHostFocused={contextMenuHost ? focusedHosts.has(contextMenuHost) : false}
         isHostIgnored={contextMenuHost ? ignoredHosts.has(contextMenuHost) : false}
+        isHostSslDecryptDisabled={
+          contextMenuHost
+            ? (currentWorkspace?.sslBlindHosts ?? []).includes(contextMenuHost)
+            : false
+        }
         onClose={handleHostContextMenuClose}
+        onAddToIncludeList={handleAddToIncludeList}
         onExportHost={handleExportHost}
         onFocusHost={handleFocusDomain}
         onIgnoreHost={handleIgnoreDomain}
         onSaveHostFiles={handleSaveHostFiles}
         onStopIgnoringHost={handleStopIgnoringDomain}
+        onToggleSslDecrypt={handleToggleSslDecrypt}
         onUnfocusHost={handleUnfocusDomain}
       />
 

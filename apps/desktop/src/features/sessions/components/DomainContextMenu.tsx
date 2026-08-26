@@ -1,5 +1,8 @@
 import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
+import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
+import LockRoundedIcon from "@mui/icons-material/LockRounded";
+import PlaylistAddRoundedIcon from "@mui/icons-material/PlaylistAddRounded";
 import RemoveCircleOutlineRoundedIcon from "@mui/icons-material/RemoveCircleOutlineRounded";
 import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
@@ -20,12 +23,15 @@ type DomainContextMenuProps = {
   host: string | null;
   isHostFocused: boolean;
   isHostIgnored: boolean;
+  isHostSslDecryptDisabled: boolean;
   onClose: () => void;
+  onAddToIncludeList: (host: string) => void;
   onExportHost: (host: string) => void;
   onFocusHost: (host: string) => void;
   onIgnoreHost: (host: string) => void;
   onSaveHostFiles: (host: string) => void;
   onStopIgnoringHost: (host: string) => void;
+  onToggleSslDecrypt: (host: string) => void;
   onUnfocusHost: (host: string) => void;
 };
 
@@ -34,12 +40,15 @@ export function DomainContextMenu({
   host,
   isHostFocused,
   isHostIgnored,
+  isHostSslDecryptDisabled,
   onClose,
+  onAddToIncludeList,
   onExportHost,
   onFocusHost,
   onIgnoreHost,
   onSaveHostFiles,
   onStopIgnoringHost,
+  onToggleSslDecrypt,
   onUnfocusHost,
 }: DomainContextMenuProps) {
   const { t } = useI18n();
@@ -148,6 +157,44 @@ export function DomainContextMenu({
           <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.ignoreHost")}</ListItemText>
         </MenuItem>
       )}
+
+      <Divider sx={dividerSx} />
+
+      <MenuItem
+        onClick={() => {
+          onAddToIncludeList(host);
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
+        <ListItemIcon sx={iconSx}>
+          <PlaylistAddRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>
+          {t("contextMenu.addToIncludeList")}
+        </ListItemText>
+      </MenuItem>
+
+      <MenuItem
+        onClick={() => {
+          onToggleSslDecrypt(host);
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
+        <ListItemIcon sx={iconSx}>
+          {isHostSslDecryptDisabled ? (
+            <LockOpenRoundedIcon fontSize="small" />
+          ) : (
+            <LockRoundedIcon fontSize="small" />
+          )}
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>
+          {isHostSslDecryptDisabled
+            ? t("contextMenu.sslDecryptEnable")
+            : t("contextMenu.sslDecryptDisable")}
+        </ListItemText>
+      </MenuItem>
     </Menu>
   );
 }

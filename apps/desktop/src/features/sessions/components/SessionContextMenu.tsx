@@ -9,8 +9,6 @@ import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import FolderCopyRoundedIcon from "@mui/icons-material/FolderCopyRounded";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
-import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
-import LockRoundedIcon from "@mui/icons-material/LockRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import RemoveCircleOutlineRoundedIcon from "@mui/icons-material/RemoveCircleOutlineRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
@@ -33,7 +31,6 @@ type SessionContextMenuProps = {
   anchorPosition: { left: number; top: number } | undefined;
   isHostFocused: boolean;
   isHostIgnored: boolean;
-  isHostSslDecryptDisabled: boolean;
   session: SessionSummary | null;
   onClose: () => void;
   onClearOthers: (session: SessionSummary) => void;
@@ -56,7 +53,6 @@ type SessionContextMenuProps = {
   onSaveToCollection: (session: SessionSummary) => void;
   onSetCompareBase: (session: SessionSummary) => void;
   onStopIgnoringHost: (session: SessionSummary) => void;
-  onToggleSslDecrypt: (session: SessionSummary) => void;
   onUnfocusHost: (session: SessionSummary) => void;
 };
 
@@ -64,7 +60,6 @@ export function SessionContextMenu({
   anchorPosition,
   isHostFocused,
   isHostIgnored,
-  isHostSslDecryptDisabled,
   session,
   onClose,
   onClearOthers,
@@ -87,7 +82,6 @@ export function SessionContextMenu({
   onSaveToCollection,
   onSetCompareBase,
   onStopIgnoringHost,
-  onToggleSslDecrypt,
   onUnfocusHost,
 }: SessionContextMenuProps) {
   const { t } = useI18n();
@@ -255,23 +249,6 @@ export function SessionContextMenu({
           <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.ignoreHost")}</ListItemText>
         </MenuItem>
       )}
-
-      <Divider sx={dividerSx} />
-
-      <MenuItem onClick={handleClick(onToggleSslDecrypt)} sx={menuItemSx}>
-        <ListItemIcon sx={iconSx}>
-          {isHostSslDecryptDisabled ? (
-            <LockOpenRoundedIcon fontSize="small" />
-          ) : (
-            <LockRoundedIcon fontSize="small" />
-          )}
-        </ListItemIcon>
-        <ListItemText {...contextMenuItemTextProps}>
-          {isHostSslDecryptDisabled
-            ? t("contextMenu.sslDecryptEnable")
-            : t("contextMenu.sslDecryptDisable")}
-        </ListItemText>
-      </MenuItem>
 
       <Divider sx={dividerSx} />
 

@@ -12,12 +12,15 @@ function renderMenu(overrides: Partial<ComponentProps<typeof DomainContextMenu>>
     host: "api.example.com",
     isHostFocused: false,
     isHostIgnored: false,
+    isHostSslDecryptDisabled: false,
     onClose: vi.fn(),
+    onAddToIncludeList: vi.fn(),
     onExportHost: vi.fn(),
     onFocusHost: vi.fn(),
     onIgnoreHost: vi.fn(),
     onSaveHostFiles: vi.fn(),
     onStopIgnoringHost: vi.fn(),
+    onToggleSslDecrypt: vi.fn(),
     onUnfocusHost: vi.fn(),
     ...overrides,
   };
@@ -47,5 +50,30 @@ describe("DomainContextMenu", () => {
 
     expect(onSaveHostFiles).toHaveBeenCalledWith("api.example.com");
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("offers adding the host to the Include list", () => {
+    const { onAddToIncludeList, onClose } = renderMenu();
+
+    fireEvent.click(screen.getByText("Add to Include list"));
+
+    expect(onAddToIncludeList).toHaveBeenCalledWith("api.example.com");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("offers disabling SSL decryption for a decrypted host", () => {
+    const { onToggleSslDecrypt } = renderMenu({ isHostSslDecryptDisabled: false });
+
+    fireEvent.click(screen.getByText("Disable SSL Decryption"));
+
+    expect(onToggleSslDecrypt).toHaveBeenCalledWith("api.example.com");
+  });
+
+  it("offers re-enabling SSL decryption for a blinded host", () => {
+    const { onToggleSslDecrypt } = renderMenu({ isHostSslDecryptDisabled: true });
+
+    fireEvent.click(screen.getByText("Enable SSL Decryption"));
+
+    expect(onToggleSslDecrypt).toHaveBeenCalledWith("api.example.com");
   });
 });
