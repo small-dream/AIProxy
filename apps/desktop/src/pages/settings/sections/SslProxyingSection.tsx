@@ -14,6 +14,7 @@ import {
 } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 
 import {
   DEFAULT_WORKSPACE_ID,
@@ -28,7 +29,7 @@ import { useProxyStatus, useStartProxy } from "@/features/proxy-status/use-proxy
 import { useUpdateWorkspace, useWorkspaces } from "@/features/workspace-manager/use-workspaces";
 import { useI18n } from "@/i18n";
 import { loadDefaultSslProxyingExclusions } from "@/services/commands";
-import { compactAlertSx, compactFieldSx, SettingsRow } from "../SettingsLayoutParts";
+import { compactAlertSx, compactFieldSx } from "../SettingsLayoutParts";
 
 const EMPTY_PATTERNS: string[] = [];
 
@@ -122,23 +123,24 @@ function SslProxyListEditor({
         </Button>
       </Stack>
 
-      {entries.length === 0 ? (
-        <Typography variant="caption" sx={{ color: "text.secondary" }}>
-          {emptyText}
-        </Typography>
-      ) : (
-        <Box
-          sx={{
-            maxHeight: 240,
-            overflowY: "auto",
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 1,
-            px: 1.5,
-            py: 0.5,
-          }}
-        >
-          {entries.map((entry, index) => (
+      <Box
+        sx={{
+          maxHeight: 240,
+          overflowY: "auto",
+          scrollbarGutter: "stable",
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 1,
+          px: 1.5,
+          py: 0.5,
+        }}
+      >
+        {entries.length === 0 ? (
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {emptyText}
+          </Typography>
+        ) : (
+          entries.map((entry, index) => (
             <Box
               key={entry.pattern}
               sx={{
@@ -178,10 +180,67 @@ function SslProxyListEditor({
                 <DeleteRoundedIcon fontSize="small" />
               </IconButton>
             </Box>
-          ))}
-        </Box>
-      )}
+          ))
+        )}
+      </Box>
     </Stack>
+  );
+}
+
+/**
+ * A named rule list with its master switch in the header row, so the switch is
+ * visually attached to the list it controls. The settings search scrolls to
+ * these blocks through `itemId`.
+ */
+function SslProxyListBlock({
+  itemId,
+  label,
+  description,
+  enabled,
+  onEnabledChange,
+  children,
+}: {
+  itemId?: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  onEnabledChange: (next: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <Box
+      id={itemId ? `settings-item-${itemId}` : undefined}
+      data-settings-item={itemId}
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 0.75,
+        scrollMarginTop: 24,
+        py: 1,
+      }}
+    >
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.45 }}>
+            {label}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{ display: "block", color: "text.secondary", lineHeight: 1.5, mt: 0.25 }}
+          >
+            {description}
+          </Typography>
+        </Box>
+        <Switch
+          size="small"
+          checked={enabled}
+          onChange={(event) => onEnabledChange(event.target.checked)}
+          slotProps={{ input: { "aria-label": label } }}
+          sx={{ flexShrink: 0 }}
+        />
+      </Box>
+      {children}
+    </Box>
   );
 }
 
@@ -247,7 +306,6 @@ export function SslProxyingSection() {
   // Interception has to be on for the policy to mean anything; saying so is
   // better than letting the user tune a list that is currently inert.
   const isSslDisabled = currentWorkspace ? !currentWorkspace.sslEnabled : false;
-  const isAllowlistMode = draft.includeEnabled;
 
   async function handleSave() {
     if (isWorkspacesError || !currentWorkspace) return;
@@ -320,15 +378,9 @@ export function SslProxyingSection() {
           spacing={1.5}
           sx={{
             alignItems: { md: "center", xs: "stretch" },
-            justifyContent: "space-between",
+            justifyContent: "flex-end",
           }}
         >
-          <Typography variant="caption" sx={{ color: "text.secondary" }}>
-            {isAllowlistMode
-              ? t("sslProxying.modeIncludeList")
-              : t("sslProxying.modeAllExceptExcluded")}
-          </Typography>
-
           <Stack direction="row" spacing={1}>
             <Button
               size="small"
@@ -360,19 +412,13 @@ export function SslProxyingSection() {
           </Stack>
         </Stack>
 
-        <SettingsRow
+        <SslProxyListBlock
+          itemId="ssl-include"
           label={t("sslProxying.includeEnabledLabel")}
           description={t("sslProxying.includeEnabledDescription")}
-          stacked
+          enabled={draft.includeEnabled}
+          onEnabledChange={(includeEnabled) => patchDraft({ includeEnabled })}
         >
-          <Switch
-            size="small"
-            checked={draft.includeEnabled}
-            onChange={(event) => patchDraft({ includeEnabled: event.target.checked })}
-          />
-        </SettingsRow>
-
-        <SettingsRow label={t("sslProxying.include")} stacked>
           <SslProxyListEditor
             entries={draft.include}
             onChange={(include) => patchDraft({ include })}
@@ -380,21 +426,15 @@ export function SslProxyingSection() {
             addPlaceholder={t("sslProxying.includeAddPlaceholder")}
             emptyText={t("sslProxying.includeEmpty")}
           />
-        </SettingsRow>
+        </SslProxyListBlock>
 
-        <SettingsRow
+        <SslProxyListBlock
+          itemId="ssl-exclude"
           label={t("sslProxying.excludeEnabledLabel")}
           description={t("sslProxying.excludeEnabledDescription")}
-          stacked
+          enabled={draft.excludeEnabled}
+          onEnabledChange={(excludeEnabled) => patchDraft({ excludeEnabled })}
         >
-          <Switch
-            size="small"
-            checked={draft.excludeEnabled}
-            onChange={(event) => patchDraft({ excludeEnabled: event.target.checked })}
-          />
-        </SettingsRow>
-
-        <SettingsRow label={t("sslProxying.exclude")} stacked>
           <SslProxyListEditor
             entries={draft.exclude}
             onChange={(exclude) => patchDraft({ exclude })}
@@ -402,7 +442,7 @@ export function SslProxyingSection() {
             addPlaceholder={t("sslProxying.excludeAddPlaceholder")}
             emptyText={t("sslProxying.excludeEmpty")}
           />
-        </SettingsRow>
+        </SslProxyListBlock>
 
         <Alert severity="info" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
           {t("sslProxying.pinningHint")}
