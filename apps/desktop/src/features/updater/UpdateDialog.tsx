@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Box,
   Button,
@@ -10,11 +11,13 @@ import {
 } from "@mui/material";
 
 import { useAppShellStore } from "@/app/store/app-shell.store";
+import { MarkdownRenderer } from "@/components/shared/MarkdownRenderer";
 import { useI18n } from "@/i18n";
+import { pickLocalizedChangelog } from "@/features/updater/release-notes";
 import { installUpdateAndStore } from "@/features/updater/update-status";
 
 export function UpdateDialog() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const availableUpdate = useAppShellStore((s) => s.availableUpdate);
   const isChecking = useAppShellStore((s) => s.isChecking);
   const isInstalling = useAppShellStore((s) => s.isInstalling);
@@ -43,6 +46,8 @@ export function UpdateDialog() {
         ? t("settingsPage.updateDialogTitle", { version: availableUpdate.version })
         : t("settingsPage.updateDialogNoUpdate");
 
+  const changelog = pickLocalizedChangelog(availableUpdate?.body, locale);
+
   async function handleUpdate() {
     try {
       await installUpdateAndStore();
@@ -69,14 +74,20 @@ export function UpdateDialog() {
             <Typography variant="body2">{t("settingsPage.updatesInstalling")}</Typography>
           </Box>
         ) : null}
-        {availableUpdate?.body ? (
+        {availableUpdate ? (
           <Box sx={{ mt: isChecking ? 2 : 0 }}>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               {t("settingsPage.updateDialogChangelog")}
             </Typography>
-            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-              {availableUpdate.body}
-            </Typography>
+            {changelog ? (
+              <MarkdownRenderer density="compact" onExternalLink={openUrl}>
+                {changelog}
+              </MarkdownRenderer>
+            ) : (
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                {t("settingsPage.updateDialogNoChangelog")}
+              </Typography>
+            )}
           </Box>
         ) : null}
         {isInstalling && progressText ? (

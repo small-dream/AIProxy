@@ -321,6 +321,7 @@ export const enMessages = {
     updateDialogChangelog: "What's new",
     updateDialogCheckFailed: "Could not check for updates. Check your connection and try again.",
     updateDialogLater: "Later",
+    updateDialogNoChangelog: "No release notes are available for this version.",
     updateDialogNoUpdate: "AIProxy is up to date.",
     updateDialogTitle: "New version {{version}} is available",
     updateDialogUpdateNow: "Update now",
