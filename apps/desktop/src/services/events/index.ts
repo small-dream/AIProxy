@@ -174,6 +174,38 @@ export function onWsMessage(callback: (message: WsMessage) => void): Promise<Unl
   });
 }
 
+export type SystemProxyWarningPayload = {
+  reason: string;
+  error: string;
+};
+
+/**
+ * Emitted by the backend when the OS system proxy could not be re-applied
+ * after an otherwise-successful proxy start/restart (see `start_proxy_impl`
+ * in commands/proxy.rs). The proxy itself is running; only the OS-level
+ * proxy settings may be stale.
+ */
+export function onSystemProxyWarning(
+  callback: (warning: SystemProxyWarningPayload) => void,
+): Promise<Unlisten> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<unknown>("system-proxy-warning", (event) => {
+    const payload = event.payload as Record<string, unknown> | null;
+    if (payload && typeof payload.reason === "string" && typeof payload.error === "string") {
+      callback({ reason: payload.reason, error: payload.error });
+    } else {
+      // L6: surface malformed events instead of dropping the only signal that
+      // the OS proxy settings may be stale.
+      logDevWarn("events", "system_proxy_warning_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
+    }
+  });
+}
+
 export function onWsConnectionStatus(
   callback: (event: WsConnectionStatusEvent) => void,
 ): Promise<Unlisten> {

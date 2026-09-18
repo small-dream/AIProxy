@@ -766,6 +766,45 @@ pub fn global_ws_registry() -> &'static WsConnectionRegistry {
     WS_REGISTRY.get_or_init(WsConnectionRegistry::new)
 }
 
+/// Payload pushed to the frontend when a WS connection's status flips.
+/// Contract: docs/API_SPEC.md §7.3 `ws-connection-status` and
+/// `packages/shared-types` `WsConnectionStatusEvent`
+/// (`{ sessionId: string; status: "active" | "closed" }`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsConnectionStatusPayload {
+    pub session_id: String,
+    pub status: WsConnectionStatus,
+}
+
+/// Emit a `ws-connection-status` event through the shared event-emitter
+/// callback (the same framework-agnostic channel breakpoint events use).
+/// Called where the registry state flips: `active` when the relay starts and
+/// `closed` when the relay ends or the upgrade handoff fails, so the UI never
+/// shows a stale "active" indicator for a dead connection.
+pub(crate) fn emit_ws_connection_status(
+    emitter: &Option<crate::BreakpointEventEmitter>,
+    session_id: &str,
+    status: WsConnectionStatus,
+) {
+    let Some(ref emit) = emitter else {
+        return;
+    };
+    let payload = serde_json::to_value(WsConnectionStatusPayload {
+        session_id: session_id.to_string(),
+        status,
+    })
+    .unwrap_or_else(|e| {
+        tracing::error!(
+            event = "ws_connection_status_serialize_failed",
+            error = %e,
+            "ws_connection_status_serialize_failed"
+        );
+        serde_json::Value::Null
+    });
+    emit("ws-connection-status", payload);
+}
+
 // ---------------------------------------------------------------------------
 // Frame relay with injection support
 // ---------------------------------------------------------------------------
@@ -1069,6 +1108,68 @@ mod tests {
         assert_eq!(WsOpcode::from_u8(8), WsOpcode::Close);
         assert_eq!(WsOpcode::from_u8(9), WsOpcode::Ping);
         assert_eq!(WsOpcode::from_u8(10), WsOpcode::Pong);
+    }
+
+    // H5: the `ws-connection-status` payload must match the contract in
+    // docs/API_SPEC.md §7.3 and packages/shared-types `WsConnectionStatusEvent`
+    // ({ sessionId: string; status: "active" | "closed" }).
+    #[test]
+    fn ws_connection_status_payload_serializes_to_contract() {
+        let payload = serde_json::to_value(WsConnectionStatusPayload {
+            session_id: "sess-1".to_string(),
+            status: WsConnectionStatus::Active,
+        })
+        .expect("serializes");
+        assert_eq!(
+            payload,
+            serde_json::json!({"sessionId": "sess-1", "status": "active"})
+        );
+
+        let payload = serde_json::to_value(WsConnectionStatusPayload {
+            session_id: "sess-1".to_string(),
+            status: WsConnectionStatus::Closed,
+        })
+        .expect("serializes");
+        assert_eq!(
+            payload,
+            serde_json::json!({"sessionId": "sess-1", "status": "closed"})
+        );
+    }
+
+    // H5: the emit helper must fire the `ws-connection-status` event through
+    // the shared emitter when one is installed, and stay silent (not panic)
+    // when it is absent.
+    #[test]
+    fn emit_ws_connection_status_fires_through_emitter() {
+        use std::sync::{Arc, Mutex};
+
+        let captured: Arc<Mutex<Vec<(String, serde_json::Value)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = Arc::clone(&captured);
+        let emitter: crate::BreakpointEventEmitter =
+            Arc::new(move |event: &str, payload: serde_json::Value| {
+                captured_clone
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((event.to_string(), payload));
+            });
+
+        emit_ws_connection_status(
+            &Some(emitter),
+            "sess-42",
+            WsConnectionStatus::Closed,
+        );
+
+        let events = captured.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, "ws-connection-status");
+        assert_eq!(
+            events[0].1,
+            serde_json::json!({"sessionId": "sess-42", "status": "closed"})
+        );
+
+        // No emitter installed: nothing fires, nothing panics.
+        emit_ws_connection_status(&None, "sess-42", WsConnectionStatus::Active);
     }
 
     #[test]

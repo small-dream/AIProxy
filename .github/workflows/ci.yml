@@ -59,6 +59,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Check API contract (docs vs code)
+        run: pnpm check:api-contract
+
       - name: Check frontend formatting
         run: |
           pnpm --filter @aiproxy/desktop format:check

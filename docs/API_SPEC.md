@@ -453,6 +453,7 @@ type MapRule = {
 
 type MapSessionTrace = {
   durationMs: number;
+  failureReason?: string;  // outcome 为 "failed" 时的失败原因；规则失败会降级为 trace 并继续转发原请求，不再中止连接
   localPath?: string;
   mappedUrl?: string;
   mode: "local" | "remote";
@@ -1010,6 +1011,27 @@ type ClearSessionsOutput = void;
 
 - 清空当前 workspace 的全部会话（含持久化数据），UI 侧需先做危险操作确认
 
+### `delete_sessions`
+
+请求：
+
+```ts
+type DeleteSessionsInput = {
+  sessionIds: string[];
+};
+```
+
+响应：
+
+```ts
+type DeleteSessionsOutput = void;
+```
+
+说明：
+
+- 按 id 批量删除会话（多选删除），含持久化数据与 body 文件；DB 删除按批次执行（`DELETE_SESSIONS_BATCH_SIZE`）
+- 成功后后端发射 `sessions-removed`（回显请求的 id 列表，含后端未持有的导入会话 id），前端依赖该事件更新本地状态并对这些 id 记录 tombstone，防止进行中的会话被后续 `session-upsert` 复活
+
 ### `delete_sessions_except`
 
 请求：
@@ -1385,6 +1407,30 @@ type SaveMapRuleInput = Omit<MapRule, "id"> & {
 ```ts
 type SaveMapRuleOutput = MapRule;
 ```
+
+### `list_map_session_trace`
+
+状态：`已实现`
+
+请求：
+
+```ts
+type ListMapSessionTraceInput = {
+  sessionId: string;
+};
+```
+
+响应：
+
+```ts
+type ListMapSessionTraceOutput = MapSessionTrace[];
+```
+
+说明：
+
+- 返回指定 Session 的 Map（Local / Remote）命中记录
+- 每条 trace 包含 mode、原始 URL、映射结果（`localPath` 或 `mappedUrl`）、结果、耗时与规则信息
+- 前端在 Session Inspector 的 `Automation` 标签页懒加载该数据
 
 ### `list_dns_mappings`
 
@@ -2174,6 +2220,25 @@ invoke("set_menu_locale", { preference: "en" | "system" | "zh-CN" }): Promise<vo
 
 **持久化：** `<app_data_dir>/menu-locale.json`，内容 `{ "preference": "en" | "system" | "zh-CN" }`，启动期读取并解析。
 
+## 6.13 App Commands
+
+### `show_log_file`
+
+在系统文件管理器中显示当前开发日志文件（`logs/dev/` 下，见 `dev_logger`），供「查看日志」入口使用。
+
+请求：无参数。
+
+响应：
+
+```ts
+type ShowLogFileOutput = string; // 日志文件的绝对路径
+```
+
+说明：
+
+- 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
+- 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
+
 ## 7. Event Specification
 
 ## 7.1 会话事件
@@ -2211,6 +2276,7 @@ type SessionsRemovedEvent = string[];
 触发时机：
 
 - `clear_sessions` 清空会话后触发 `sessions-cleared`
+- `delete_sessions` 按 id 批量删除会话后触发 `sessions-removed`（回显请求的 id 列表）
 - `delete_sessions_except` 批量移除会话后触发 `sessions-removed`
 
 ## 7.2 断点事件 — `已实现`
@@ -2336,6 +2402,26 @@ type MenuEvent = unknown;
 - 自绘菜单与原生菜单必须保持相同的 `menuId` 语义；新增菜单项时需同时更新 `apps/desktop/src/components/layout/app-shell-windows-menu.definitions.ts` 与 macOS 原生菜单定义（如该项也应出现在 macOS）
 - 窗口控制类菜单项（如最小化、最大化、关闭）在 Windows / Linux 通过 Tauri window API 执行，并需要在 `src-tauri/capabilities/default.json` 中声明对应 `core:window:*` 权限
 - 当前未注册 `proxy/status_changed`、`rule/matched`、`certificate/status_changed`、`export/progress` 事件；代理状态和证书状态由命令查询，规则命中通过各类 session trace 查询
+
+## 7.5 系统代理事件 — `已实现`
+
+### `system-proxy-warning` — `已实现`
+
+```ts
+type SystemProxyWarningEvent = {
+  reason: string; // 当前固定为 "reapply_failed"
+  error: string;  // 底层 reapply 失败原因
+};
+```
+
+触发时机：
+
+- `start_proxy` / 代理重启成功后，若系统代理处于开启状态，后端会以新端口重新应用系统代理；该 reapply 失败时发射此事件（见 `commands/proxy.rs` 的 `start_proxy_impl`，H4：reapply 失败不使启动失败，代理仍在运行，仅 OS 代理可能仍指向旧端口）
+
+前端处理：
+
+- `services/events/index.ts` 中的 `onSystemProxyWarning()` 订阅此事件
+- `AppShell` 的 `useSystemProxyWarning()` hook 将其转为全局 warning 通知（Snackbar），提示系统代理可能已过期
 
 ## 8. 前端调用规范
 

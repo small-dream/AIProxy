@@ -58,6 +58,11 @@
 - 点击入口打开 `UpdateDialog`，复用已有更新说明、下载进度、安装和重启流程；安装中隐藏入口，避免重复触发。
 - `UpdateDialog` 用 `pickLocalizedChangelog` 从双语 `body` 中按当前语言提取小节（`## 更新内容` / `## What's new`），经 `MarkdownRenderer` 渲染；缺失时显示「暂无更新说明」。
 
+### 3.5 全局系统代理警告
+
+- `AppShell` 通过 `useSystemProxyWarning()` 订阅后端 `system-proxy-warning` 事件（代理启动/重启成功但系统代理按新端口 reapply 失败时发射）。
+- 收到事件后经全局通知队列（`useNotificationStore`）以 warning 级 Snackbar 提示「系统代理可能仍指向旧端口」，代理本身保持运行。
+
 ## 4. Sessions Page
 
 ### 4.1 页面目标 — `已实现首版`

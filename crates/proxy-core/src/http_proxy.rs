@@ -2042,6 +2042,7 @@ mod tests {
             verify_upstream_tls: false,
             upstream_proxy: None,
             tls_verify_hosts: Arc::from(Vec::<String>::new()),
+            connection_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS)),
         }
     }
 
@@ -2202,6 +2203,7 @@ mod tests {
             verify_upstream_tls: false,
             upstream_proxy: None,
             tls_verify_hosts: Arc::from(Vec::<String>::new()),
+            connection_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS)),
         };
 
         // Throttle selection with 100% packet loss and a response-stage rule.

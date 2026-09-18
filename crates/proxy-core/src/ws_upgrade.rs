@@ -574,6 +574,48 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
     detail.summary.response_mime_type = Some("websocket".to_string());
     let session_id_for_relay = detail.id.clone();
 
+    // The relay outlives the serving connection task: hyper's serve_connection
+    // completes once the 101 is handed to `on_upgrade`, releasing the
+    // server-side connection permit while the relay keeps two sockets open.
+    // Reserve a slot from the same semaphore for the relay's whole lifetime so
+    // long-lived WS connections stay accounted against
+    // MAX_CONCURRENT_CONNECTIONS. When the semaphore is exhausted, reject the
+    // upgrade like any other over-limit connection instead of spawning an
+    // unaccounted relay.
+    let relay_permit = match ctx.connection_semaphore.clone().try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            tracing::warn!(
+                event = "connection_rejected",
+                client_addr = %ctx.client_addr,
+                host = %request.host,
+                reason = "max_connections_reached",
+                "connection_rejected"
+            );
+            // Reflect the rejection in the captured session so the pending
+            // session sent at stage 4 does not linger forever.
+            detail.summary.status_code = StatusCode::SERVICE_UNAVAILABLE.as_u16();
+            detail.summary.response_mime_type = None;
+            if ctx.session_sender.send(detail).await.is_err() {
+                tracing::debug!(
+                    event = "session_send_dropped",
+                    reason = "receiver_disconnected",
+                    "session_send_dropped"
+                );
+            }
+            let message = "The proxy is at its connection limit; try again later.";
+            return Ok(
+                crate::http_proxy::build_plain_text_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    message,
+                )
+                .unwrap_or_else(|_| {
+                    crate::http_proxy::build_empty_response(StatusCode::SERVICE_UNAVAILABLE)
+                }),
+            );
+        }
+    };
+
     // Build the 101 Switching Protocols response FIRST (before registering
     // or sending session). If construction fails, no state has been mutated.
     let mut response_builder = hyper::Response::builder()
@@ -617,6 +659,13 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
     );
     let registry = crate::ws::global_ws_registry();
     registry.register(session_id_for_relay.clone(), inject_tx);
+    // API_SPEC §7.3: the WS connection is now active — notify the frontend so
+    // its status indicator and Replay/Compose gating reflect the live relay.
+    crate::ws::emit_ws_connection_status(
+        &ctx.event_emitter,
+        &session_id_for_relay,
+        crate::ws::WsConnectionStatus::Active,
+    );
 
     // Attach request-stage traces so the final WS session retains rule hits,
     // script execution results, and throttle traces.
@@ -628,9 +677,13 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
     let _ = ctx.session_sender.send(detail).await;
 
     let ws_message_sender = ctx.ws_message_sender.clone();
+    let event_emitter = ctx.event_emitter.clone();
 
     // Spawn background task for bidirectional relay.
     tokio::spawn(async move {
+        // Hold the connection-limit permit for the relay's whole lifetime;
+        // dropping it here releases the slot when the relay ends.
+        let _relay_permit = relay_permit;
         let client_io = match on_upgrade.await {
             Ok(io) => io,
             Err(e) => {
@@ -641,6 +694,11 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
                     "ws_hyper_on_upgrade_failed"
                 );
                 registry.mark_closed(&session_id_for_relay);
+                crate::ws::emit_ws_connection_status(
+                    &event_emitter,
+                    &session_id_for_relay,
+                    crate::ws::WsConnectionStatus::Closed,
+                );
                 registry.unregister(&session_id_for_relay);
                 return;
             }
@@ -659,6 +717,11 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         .await;
 
         registry.mark_closed(&session_id_for_relay);
+        crate::ws::emit_ws_connection_status(
+            &event_emitter,
+            &session_id_for_relay,
+            crate::ws::WsConnectionStatus::Closed,
+        );
         registry.unregister(&session_id_for_relay);
     });
 
@@ -1550,6 +1613,66 @@ mod tests {
         assert!(
             !raw.contains("x-origin: \r\n"),
             "non-ASCII header value must NOT be erased to empty, got: {raw}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // WS relay connection-permit accounting
+    // -----------------------------------------------------------------------
+
+    fn make_permit_test_ctx(connection_semaphore: Arc<Semaphore>) -> ConnectionContext {
+        let (session_sender, _) = mpsc::channel(1);
+        let (ws_sender, _) = mpsc::channel(1);
+        ConnectionContext {
+            mode: ConnectionMode::PlainHttp,
+            client_addr: "127.0.0.1:0".parse().unwrap(),
+            session_sender,
+            ws_message_sender: ws_sender,
+            rewrite_manager: None,
+            map_manager: None,
+            script_manager: None,
+            throttle_manager: None,
+            breakpoint_manager: None,
+            dns_manager: None,
+            workspace_id: "test".to_string(),
+            event_emitter: None,
+            upstream_pool: Arc::new(crate::upstream_pool::UpstreamConnectionPool::new()),
+            verify_upstream_tls: false,
+            tls_verify_hosts: Arc::from(Vec::<String>::new()),
+            upstream_proxy: None,
+            connection_semaphore,
+        }
+    }
+
+    // The relay reserves its slot from the same server-level semaphore as
+    // ordinary connections, so an exhausted limit rejects the WS relay the
+    // same way it rejects a new connection (and a released slot frees it).
+    #[test]
+    fn ws_relay_permit_is_rejected_when_connection_semaphore_is_exhausted() {
+        // One slot total, already held (e.g. by the serving connection).
+        let semaphore = Arc::new(Semaphore::new(1));
+        let ctx = make_permit_test_ctx(Arc::clone(&semaphore));
+
+        let held = ctx
+            .connection_semaphore
+            .clone()
+            .try_acquire_owned()
+            .expect("the single slot is free initially");
+        assert!(
+            ctx.connection_semaphore
+                .clone()
+                .try_acquire_owned()
+                .is_err(),
+            "exhausted semaphore must reject the relay permit"
+        );
+
+        drop(held);
+        assert!(
+            ctx.connection_semaphore
+                .clone()
+                .try_acquire_owned()
+                .is_ok(),
+            "a released slot can be reserved again"
         );
     }
 }

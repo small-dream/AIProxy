@@ -87,6 +87,8 @@ pub struct SessionDetailPayload {
     trailers: Option<Vec<ProxyHeaderEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     h2_stream_id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    via_upstream_proxy: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,6 +134,12 @@ pub struct DeleteSessionsExceptInput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DeleteSessionsInput {
+    pub session_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetFocusedHostsInput {
     pub hosts: Vec<String>,
 }
@@ -146,6 +154,18 @@ pub async fn delete_sessions_except(
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
     state.delete_sessions_except(&input.keep_session_id).await;
+    Ok(())
+}
+
+// H4: batch delete by explicit ids (multi-select). Same M14 async shape as
+// `delete_sessions_except`: the heavy DB + body-file deletion is offloaded to
+// `spawn_blocking` inside `AppState::delete_sessions`.
+#[tauri::command]
+pub async fn delete_sessions(
+    input: DeleteSessionsInput,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    state.delete_sessions(input.session_ids).await;
     Ok(())
 }
 
@@ -252,6 +272,81 @@ mod tests {
 
         assert_eq!(payload["code"], "SESSION_NOT_FOUND");
         assert_eq!(payload["details"]["sessionId"], "session-1");
+    }
+
+    fn make_session_detail(via_upstream_proxy: Option<bool>) -> ProxySessionDetail {
+        ProxySessionDetail {
+            client_address: None,
+            cookies: Vec::new(),
+            id: "session-1".to_string(),
+            query_params: Vec::new(),
+            raw_request_head: None,
+            raw_response_head: None,
+            request_body: None,
+            request_headers: Vec::new(),
+            response_body: None,
+            response_headers: Vec::new(),
+            map_traces: Vec::new(),
+            rewrite_traces: Vec::new(),
+            server_ip: None,
+            tls_cipher_suite: None,
+            tls_protocol: None,
+            summary: ProxySessionSummary {
+                id: "session-1".to_string(),
+                method: "GET".to_string(),
+                host: "example.com".to_string(),
+                path: "/".to_string(),
+                protocol: "HTTP/1.1".to_string(),
+                scheme: "http".to_string(),
+                http_version: "1.1".to_string(),
+                transport_protocol: "tcp".to_string(),
+                application_protocol: "http".to_string(),
+                started_at: "2026-09-18T00:00:00Z".to_string(),
+                finished_at: "2026-09-18T00:00:01Z".to_string(),
+                duration_ms: 1000,
+                size_bytes: 0,
+                status_code: 200,
+                url: "http://example.com/".to_string(),
+                response_mime_type: None,
+            },
+            script_traces: Vec::new(),
+            throttle_traces: Vec::new(),
+            timing: None,
+            timing_source: None,
+            trailers: None,
+            h2_stream_id: None,
+            via_upstream_proxy,
+        }
+    }
+
+    // H6: `get_session_detail` must surface the upstream-proxy routing flag
+    // recorded by proxy-core; dropping it here leaves `viaUpstreamProxy`
+    // permanently undefined on the frontend.
+    #[test]
+    fn build_session_detail_payload_forwards_via_upstream_proxy() {
+        for expected in [Some(true), Some(false)] {
+            let detail = make_session_detail(expected);
+            let payload = build_session_detail_payload(&detail);
+
+            assert_eq!(payload.via_upstream_proxy, expected);
+
+            let json = serde_json::to_value(&payload).expect("serializable payload");
+            assert_eq!(json["viaUpstreamProxy"], serde_json::json!(expected));
+        }
+    }
+
+    #[test]
+    fn build_session_detail_payload_omits_via_upstream_proxy_when_unknown() {
+        let detail = make_session_detail(None);
+        let payload = build_session_detail_payload(&detail);
+
+        assert_eq!(payload.via_upstream_proxy, None);
+
+        let json = serde_json::to_value(&payload).expect("serializable payload");
+        assert!(
+            json.get("viaUpstreamProxy").is_none(),
+            "viaUpstreamProxy must be omitted when the routing decision is unknown"
+        );
     }
 }
 
@@ -439,6 +534,7 @@ fn build_session_detail_payload(detail: &ProxySessionDetail) -> SessionDetailPay
         timing_source: detail.timing_source.clone(),
         trailers: detail.trailers.clone(),
         h2_stream_id: detail.h2_stream_id,
+        via_upstream_proxy: detail.via_upstream_proxy,
     }
 }
 

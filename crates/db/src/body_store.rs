@@ -129,7 +129,7 @@ impl BodyStore {
         full_path
             .strip_prefix(base_dir)
             .ok()
-            .map(|path| path.to_string_lossy().into_owned())
+            .map(join_relative_components)
     }
 
     fn checked_resolve_body_path(&self, relative_path: &str) -> Result<PathBuf, DbError> {
@@ -156,6 +156,24 @@ impl BodyStore {
 
         Ok(self.base_dir.join(path))
     }
+}
+
+/// Join the components of a relative path with `/` separators.
+///
+/// `Path::to_string_lossy` would emit `\` separators on Windows, and
+/// `BodyStore::checked_resolve_body_path` rejects any value containing `\`,
+/// so persisting the lossy string would make every stored body unreadable
+/// there (silently degrading to the `__invalid_body_path__` sentinel).
+/// Joining components explicitly keeps the persisted relative path identical
+/// across platforms.
+fn join_relative_components(path: &Path) -> String {
+    path.components()
+        .filter_map(|component| match component {
+            Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn validate_safe_segment(value: &str, label: &str) -> Result<(), DbError> {
@@ -331,6 +349,63 @@ mod tests {
         assert_eq!(
             store.read_body("sess-m12/request.body").unwrap(),
             b"recovered"
+        );
+    }
+
+    // H1: `relative_body_path` must always emit `/`-separated paths. On
+    // Windows `Path::to_string_lossy` would emit `\`, and
+    // `checked_resolve_body_path` rejects any value containing `\`, so every
+    // on-disk body would silently degrade to the `__invalid_body_path__`
+    // sentinel. Constructing the `PathBuf` by pushing components (rather
+    // than from a separator-containing string) guarantees the same component
+    // structure on every platform, so this verifies the join semantics even
+    // on non-Windows hosts.
+    #[test]
+    fn join_relative_components_always_uses_forward_slashes() {
+        let mut path = PathBuf::new();
+        path.push("sess-1");
+        path.push("request.body");
+        assert_eq!(join_relative_components(&path), "sess-1/request.body");
+
+        let mut nested = PathBuf::new();
+        nested.push("nested");
+        nested.push("sess-2");
+        nested.push("response.body");
+        let joined = join_relative_components(&nested);
+        assert!(!joined.contains('\\'));
+        assert_eq!(joined, "nested/sess-2/response.body");
+    }
+
+    // H1 round trip: a path produced by `relative_body_path` must be accepted
+    // by `checked_resolve_body_path`, otherwise reads silently fall back to
+    // the `__invalid_body_path__` sentinel (the pre-fix Windows behavior).
+    #[test]
+    fn relative_body_path_round_trips_through_checked_resolve() {
+        let dir = std::env::temp_dir().join("aiproxy_body_test_h1_roundtrip");
+        let _ = fs::remove_dir_all(&dir);
+        let store = BodyStore::new(dir.clone());
+        store.ensure_dir().unwrap();
+
+        let stored = store.write_body("sess-rt", "request", b"round trip").unwrap();
+        let full_path = dir.join(&stored);
+
+        let relative = store
+            .relative_body_path(&full_path)
+            .expect("relative_body_path should resolve for a path under the store");
+        assert_eq!(relative, stored);
+        assert!(
+            !relative.contains('\\'),
+            "relative path must not contain backslashes, got: {relative}"
+        );
+
+        // The produced path must pass `checked_resolve_body_path`'s
+        // validation and resolve back under the base dir.
+        assert!(store.exists(&relative));
+        assert_eq!(store.read_body(&relative).unwrap(), b"round trip");
+        let resolved = store.resolve_body_path(&relative);
+        assert!(
+            resolved.starts_with(&dir) && resolved != dir.join("__invalid_body_path__"),
+            "round-tripped path must resolve under the store, got: {resolved:?}"
         );
     }
 }

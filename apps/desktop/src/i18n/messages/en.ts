@@ -171,6 +171,8 @@ export const enMessages = {
     statusEnableSystemProxy: "Enable the system proxy",
     systemProxyOff: "System Proxy Off",
     systemProxyOn: "System Proxy On",
+    systemProxyReapplyWarning:
+      "The proxy is running, but the system proxy could not be re-applied: {{error}}. Your OS proxy settings may be stale.",
     systemProxyRecoveryWarning: "System proxy recovery failed",
     stopSystemProxyAction: "Stop System Proxy",
     viewLogsAction: "View Logs",
@@ -1169,8 +1171,10 @@ export const enMessages = {
     batchDelete: "Delete",
     batchDeleteConfirm: "This will remove {{count}} session(s) from the current container.",
     batchDeleteDone: "Removed {{count}} session(s) from the current container",
+    batchDeleteFailed: "Failed to delete the selected sessions",
     batchDeleteTitle: "Delete selected sessions?",
     batchSaveResponsesDone: "Saved {{count}} responses",
+    clearOthersFailed: "Failed to clear the other sessions",
     clearSessionsConfirm:
       "This permanently deletes every captured session. This action cannot be undone.",
     clearSessionsDontAskAgain: "Clear sessions without asking again",

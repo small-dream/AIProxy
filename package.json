@@ -35,6 +35,7 @@
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "clean": "node ./scripts/clean.mjs",
+    "check:api-contract": "node ./scripts/check-api-contract.mjs",
     "prepare": "husky"
   },
   "devDependencies": {

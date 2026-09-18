@@ -47,19 +47,23 @@ export function reportCommandFailure(commandName: string, error: unknown, worksp
   });
 }
 
+// Exact shape of the rejection Tauri 2 emits for an unregistered command:
+// `resolver.reject(format!("Command {command} not found"))` (tauri src/webview/mod.rs),
+// e.g. "Command save_rewrite_rule not found". The regex is anchored on the
+// "Command <name> " prefix so genuine backend entity errors — db::Error::NotFound
+// renders as "{entity} not found: {id}" (crates/db/src/error.rs), e.g.
+// "workspace not found: abc" — never match and surface to the caller instead of
+// silently rewriting localStorage. ACL denials ("... not allowed. Command not
+// found") are also deliberately excluded: they are a misconfiguration to report,
+// not a missing command.
+const TAURI_UNREGISTERED_COMMAND_PATTERN = /^command\s+\S+\s+not found$/i;
+
 export function shouldFallbackToLocalStore(error: unknown): boolean {
   const normalized = coerceAppError(error);
-  const message = normalized.message.toLowerCase();
+  const message = normalized.message.trim();
 
-  // L5: this heuristic signals ONLY "the Tauri command is missing / not
-  // registered" (the documented dev/web fallback path). The previous bare
-  // `message.includes("command")` matched ANY message containing the substring
-  // "command" — including genuine backend errors that merely mention the word —
-  // causing `save*` wrappers to swallow the real error and silently fall back
-  // to localStorage, hiding data that never reached the backend DB.
-  return (
-    message.includes("not found") ||
-    message.includes("unknown command") ||
-    message.includes("failed to invoke")
-  );
+  // Fallback is reserved for the documented dev/web path where the Tauri
+  // command is missing / not registered. Every other error (backend entity
+  // errors included) must propagate so the caller can surface it.
+  return TAURI_UNREGISTERED_COMMAND_PATTERN.test(message);
 }

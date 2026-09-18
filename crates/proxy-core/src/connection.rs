@@ -1,7 +1,6 @@
 use super::*;
 use std::net::SocketAddr;
 use std::sync::Arc;
-
 /// Distinguishes plain HTTP from MITM HTTPS at the type level.
 /// URL construction, protocol string, pseudo-header synthesis,
 /// and TLS metadata all branch on this enum.
@@ -72,4 +71,9 @@ pub(crate) struct ConnectionContext {
     /// connection, or `None` for direct egress. Fixed for the connection's
     /// lifetime; changing the workspace setting restarts the proxy.
     pub upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
+    /// The server-level connection semaphore (MAX_CONCURRENT_CONNECTIONS).
+    /// The serving task's own permit is released as soon as hyper hands an
+    /// upgraded connection off, so the WS relay path acquires an owned permit
+    /// from here to keep long-lived WebSocket relays counted.
+    pub connection_semaphore: Arc<Semaphore>,
 }

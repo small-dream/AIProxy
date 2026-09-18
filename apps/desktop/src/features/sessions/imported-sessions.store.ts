@@ -23,6 +23,12 @@ export function keepOnlyImportedSession(sessionId: string) {
   }
 }
 
+export function removeImportedSessions(sessionIds: string[]) {
+  for (const sessionId of sessionIds) {
+    importedSessionDetails.delete(sessionId);
+  }
+}
+
 export function listImportedSessionSummaries(): SessionSummary[] {
   return Array.from(importedSessionDetails.values(), (detail) => detail.summary);
 }

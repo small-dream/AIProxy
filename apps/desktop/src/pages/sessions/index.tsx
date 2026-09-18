@@ -59,10 +59,14 @@ import {
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import {
+  deleteSessions,
+  deleteSessionsExcept,
   isCapturedSessionNotFoundError,
   loadDefaultSslProxyingExclusions,
   setFocusedHosts as syncFocusedHosts,
 } from "@/services/commands";
+import { isTauriRuntime } from "@/services/commands/runtime";
+import { hasImportedSession } from "@/features/sessions/imported-sessions.store";
 import { logDevWarn } from "@/services/logger/dev-logger";
 import {
   collectBranchSessions,
@@ -458,10 +462,34 @@ export function SessionsPage() {
   });
 
   const handleClearOthers = useCallback(
-    (session: SessionSummary) => {
-      clearOtherSessions(session.id);
+    async (session: SessionSummary) => {
+      // Imported (HAR) sessions have no backend row, so the `sessions-removed`
+      // event cannot cover them; they are removed from the store locally once
+      // the backend delete succeeds.
+      const importedIdsToRemove = useSessionContainerStore
+        .getState()
+        .activeSessionIds.filter((id) => id !== session.id && hasImportedSession(id));
+      try {
+        await deleteSessionsExcept(session.id);
+      } catch (error) {
+        logDevWarn("ui.sessions", "clear_other_sessions_failed", {
+          error,
+          keepSessionId: session.id,
+        });
+        showSnackbar(t("sessionsPage.clearOthersFailed"));
+        return;
+      }
+      if (!isTauriRuntime()) {
+        // No backend events outside the Tauri runtime; remove locally.
+        clearOtherSessions(session.id);
+        return;
+      }
+      const store = useSessionContainerStore.getState();
+      for (const id of importedIdsToRemove) {
+        store.removeSummary(id);
+      }
     },
-    [clearOtherSessions],
+    [clearOtherSessions, showSnackbar, t],
   );
 
   // Sessions visible in the current filtered tree that are part of the
@@ -498,16 +526,33 @@ export function SessionsPage() {
     setBatchDeleteConfirmOpen(true);
   }, [selectedMultiSessions.length]);
 
-  const handleConfirmDeleteSelected = useCallback(() => {
+  const handleConfirmDeleteSelected = useCallback(async () => {
     const count = selectedMultiSessions.length;
     if (count === 0) {
       setBatchDeleteConfirmOpen(false);
       return;
     }
 
-    for (const session of selectedMultiSessions) {
-      removeSummaryFromStore(session.id);
+    const ids = selectedMultiSessions.map((session) => session.id);
+    try {
+      await deleteSessions(ids);
+    } catch (error) {
+      logDevWarn("ui.sessions", "batch_delete_sessions_failed", {
+        error,
+        sessionCount: count,
+      });
+      showSnackbar(t("sessionsPage.batchDeleteFailed"));
+      return;
     }
+
+    if (!isTauriRuntime()) {
+      // No backend events outside the Tauri runtime; remove locally.
+      for (const id of ids) {
+        removeSummaryFromStore(id);
+      }
+    }
+    // In the Tauri runtime the backend's `sessions-removed` event drives the
+    // local store/query removal (and tombstones the ids against late upserts).
     clearMultiSelection();
     setBatchDeleteConfirmOpen(false);
     showSnackbar(t("sessionsPage.batchDeleteDone", { count }));

@@ -80,6 +80,10 @@ pub struct MapRule {
 #[serde(rename_all = "camelCase")]
 pub struct MapTrace {
     pub duration_ms: u128,
+    /// Why the rule failed, when `outcome` is "failed". Absent (not null) on
+    /// success so previously persisted traces deserialize unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
     pub local_path: Option<String>,
     pub mapped_url: Option<String>,
     pub mode: String,

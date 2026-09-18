@@ -41,6 +41,23 @@ fn direct_http_client() -> Result<Client, String> {
         .ok_or_else(|| "failed to initialize HTTP client".to_string())
 }
 
+/// Initial delay after a failed `accept()`; doubles per consecutive failure
+/// up to [`ACCEPT_ERROR_BACKOFF_MAX`]. A persistent accept failure (e.g. fd
+/// exhaustion) must not hot-spin the listener loop at 100% CPU while flooding
+/// the log.
+const ACCEPT_ERROR_BACKOFF_INITIAL: Duration = Duration::from_millis(10);
+const ACCEPT_ERROR_BACKOFF_MAX: Duration = Duration::from_secs(1);
+
+/// Backoff delay for the `consecutive_errors`-th consecutive accept failure
+/// (1-based): 10ms, 20ms, 40ms, ... capped at 1s. The counter resets on the
+/// first successful accept.
+fn accept_error_backoff(consecutive_errors: u32) -> Duration {
+    let shift = consecutive_errors.saturating_sub(1).min(16);
+    ACCEPT_ERROR_BACKOFF_INITIAL
+        .saturating_mul(1u32 << shift)
+        .min(ACCEPT_ERROR_BACKOFF_MAX)
+}
+
 pub async fn start_proxy_server(
     config: ProxyConfig,
     managers: ProxyManagers,
@@ -81,6 +98,7 @@ pub async fn start_proxy_server(
 
     let listener_pool = Arc::clone(&upstream_pool);
     let join_handle = tokio::spawn(async move {
+        let mut consecutive_accept_errors: u32 = 0;
         loop {
             tokio::select! {
                 _ = &mut shutdown_receiver => {
@@ -94,6 +112,7 @@ pub async fn start_proxy_server(
                 accept_result = listener.accept() => {
                     match accept_result {
                         Ok((stream, client_addr)) => {
+                            consecutive_accept_errors = 0;
                             let permit = match connection_semaphore.clone().try_acquire_owned() {
                                 Ok(permit) => permit,
                                 Err(_) => {
@@ -112,6 +131,7 @@ pub async fn start_proxy_server(
                             let managers = managers.clone();
                             let config = config.clone();
                             let upstream_pool = listener_pool.clone();
+                            let connection_semaphore = connection_semaphore.clone();
 
                             tokio::spawn(async move {
                                 let _permit = permit;
@@ -123,6 +143,7 @@ pub async fn start_proxy_server(
                                     managers,
                                     config,
                                     upstream_pool,
+                                    connection_semaphore,
                                 )
                                 .await
                                 {
@@ -152,11 +173,34 @@ pub async fn start_proxy_server(
                             });
                         }
                         Err(error) => {
+                            // Back off exponentially on repeated accept
+                            // failures: a persistent error (fd exhaustion is
+                            // the classic case) would otherwise hot-spin this
+                            // loop at 100% CPU while flooding the log. The
+                            // count resets on the next successful accept.
+                            consecutive_accept_errors =
+                                consecutive_accept_errors.saturating_add(1);
+                            let backoff = accept_error_backoff(consecutive_accept_errors);
                             tracing::error!(
                                 event = "listener_accept_failed",
                                 error = %error,
+                                consecutive_errors = consecutive_accept_errors,
+                                backoff_ms = backoff.as_millis() as u64,
                                 "listener_accept_failed"
                             );
+                            // Sleep in a nested select! so a shutdown request
+                            // is honored promptly even mid-backoff.
+                            tokio::select! {
+                                _ = &mut shutdown_receiver => {
+                                    tracing::info!(
+                                        event = "listener_stopped",
+                                        reason = "shutdown_requested",
+                                        "listener_stopped"
+                                    );
+                                    break;
+                                }
+                                _ = tokio::time::sleep(backoff) => {}
+                            }
                             continue;
                         }
                     }
@@ -238,8 +282,28 @@ mod tests {
             super::DEFAULT_HTTPS_PORT
         );
     }
+
+    // -----------------------------------------------------------------------
+    // accept_error_backoff
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn accept_error_backoff_grows_exponentially_and_caps() {
+        use super::{accept_error_backoff, ACCEPT_ERROR_BACKOFF_MAX};
+        use std::time::Duration;
+
+        assert_eq!(accept_error_backoff(1), Duration::from_millis(10));
+        assert_eq!(accept_error_backoff(2), Duration::from_millis(20));
+        assert_eq!(accept_error_backoff(3), Duration::from_millis(40));
+        assert_eq!(accept_error_backoff(7), Duration::from_millis(640));
+        // 8th consecutive failure would reach 1280ms — capped at 1s.
+        assert_eq!(accept_error_backoff(8), ACCEPT_ERROR_BACKOFF_MAX);
+        // Saturating: absurdly large counters still report the cap, no overflow.
+        assert_eq!(accept_error_backoff(u32::MAX), ACCEPT_ERROR_BACKOFF_MAX);
+    }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     mut stream: TcpStream,
     client_addr: SocketAddr,
@@ -248,6 +312,7 @@ async fn handle_connection(
     managers: ProxyManagers,
     config: ProxyConfig,
     upstream_pool: Arc<crate::upstream_pool::UpstreamConnectionPool>,
+    connection_semaphore: Arc<Semaphore>,
 ) -> Result<(), ProxyError> {
     let ProxyManagers {
         tls: tls_manager,
@@ -444,6 +509,7 @@ async fn handle_connection(
                     verify_upstream_tls,
                     Arc::clone(&tls_verify_hosts),
                     upstream_proxy,
+                    connection_semaphore,
                 )
                 .await;
             }
@@ -469,6 +535,7 @@ async fn handle_connection(
         verify_upstream_tls,
         tls_verify_hosts,
         upstream_proxy,
+        connection_semaphore,
     });
 
     let service = HttpProxyService { ctx };

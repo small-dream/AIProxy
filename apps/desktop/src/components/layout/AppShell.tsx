@@ -18,6 +18,7 @@ import {
   useAdbActions,
   useMenuActions,
   useProxyLifecycle,
+  useSystemProxyWarning,
   useWindowControls,
   useZoomControl,
 } from "@/components/layout/hooks";
@@ -52,6 +53,7 @@ export function AppShell() {
     location.pathname === "/certificates";
   useBreakpointEvents();
   useSessionEvents();
+  useSystemProxyWarning();
   const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);
 
   // --- Snackbar message shared across hooks ---

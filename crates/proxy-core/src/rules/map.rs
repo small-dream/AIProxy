@@ -243,39 +243,68 @@ pub(crate) fn apply_map_rules(
     let started_at = Instant::now();
     let original_url = request.url.to_string();
 
-    match rule.mode.as_str() {
-        "local" => {
-            let (response, local_path) = apply_local_map_rule(request, &rule)?;
-            let trace = MapTrace {
-                duration_ms: started_at.elapsed().as_millis(),
-                local_path: Some(local_path),
-                mapped_url: None,
-                mode: rule.mode,
-                original_url,
-                outcome: "success".to_string(),
-                rule_id: rule.id,
-                rule_name: rule.name,
-                source_pattern: rule.source_pattern,
-                target_value: rule.target_value,
-            };
-            Ok((Some(response), vec![trace]))
-        }
+    let result = match rule.mode.as_str() {
+        "local" => apply_local_map_rule(request, &rule)
+            .map(|(response, local_path)| (Some(response), Some(local_path), None)),
         "remote" => {
-            let mapped_url = apply_remote_map_rule(request, &rule)?;
-            let trace = MapTrace {
-                duration_ms: started_at.elapsed().as_millis(),
-                local_path: None,
-                mapped_url: Some(mapped_url),
-                mode: rule.mode,
-                original_url,
-                outcome: "success".to_string(),
-                rule_id: rule.id,
-                rule_name: rule.name,
-                source_pattern: rule.source_pattern,
-                target_value: rule.target_value,
-            };
-            Ok((None, vec![trace]))
+            // Snapshot the pre-map URL so a failed remote rule leaves the
+            // request exactly as it arrived; a partially-applied URL mutation
+            // (the target URL is swapped in before the runtime-state rebuild
+            // that can still fail) must not leak into the forwarded request.
+            let pre_map_url = request.url.clone();
+            match apply_remote_map_rule(request, &rule) {
+                Ok(mapped_url) => Ok((None, None, Some(mapped_url))),
+                Err(error) => {
+                    request.url = pre_map_url;
+                    if let Err(rebuild_error) = rebuild_request_runtime_state(request) {
+                        tracing::warn!(
+                            event = "map_remote_rollback_rebuild_failed",
+                            rule_id = %rule.id,
+                            original_url = %original_url,
+                            error = %rebuild_error,
+                            "map_remote_rollback_rebuild_failed"
+                        );
+                    }
+                    Err(error)
+                }
+            }
         }
-        _ => Ok((None, Vec::new())),
-    }
+        _ => return Ok((None, Vec::new())),
+    };
+
+    // R6-3: a failing map rule (missing/unreadable local target, invalid
+    // remote target URL, ...) must NOT abort the request — the error used to
+    // bubble out of the hyper service, closing the connection with no
+    // response and no session. Downgrade to a per-rule `failed` trace and
+    // forward the original request instead, mirroring the rewrite pipeline
+    // (see the R6-3 comment in apply_request_rewrite_rules).
+    let (response, local_path, mapped_url, outcome, failure_reason) = match result {
+        Ok((response, local_path, mapped_url)) => (response, local_path, mapped_url, "success", None),
+        Err(error) => {
+            tracing::warn!(
+                event = "map_rule_failed",
+                rule_id = %rule.id,
+                mode = %rule.mode,
+                original_url = %original_url,
+                error = %error,
+                "map_rule_failed"
+            );
+            (None, None, None, "failed", Some(error))
+        }
+    };
+
+    let trace = MapTrace {
+        duration_ms: started_at.elapsed().as_millis(),
+        failure_reason,
+        local_path,
+        mapped_url,
+        mode: rule.mode,
+        original_url,
+        outcome: outcome.to_string(),
+        rule_id: rule.id,
+        rule_name: rule.name,
+        source_pattern: rule.source_pattern,
+        target_value: rule.target_value,
+    };
+    Ok((response, vec![trace]))
 }

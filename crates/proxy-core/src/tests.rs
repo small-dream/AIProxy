@@ -2085,8 +2085,11 @@ fn applies_map_local_rules_by_resolving_a_directory_path() {
 }
 
 // M1/M2: a map-local rule pointing at a dangling symlink must fail closed
-// (return an error) rather than silently serving nothing or panicking.
-// `canonicalize` resolves the link and fails when the target is missing.
+// (never serve anything through the link). `canonicalize` resolves the link
+// and fails when the target is missing. R6-3: the failure is downgraded to a
+// per-rule `failed` trace and the original request is forwarded untouched
+// instead of aborting the whole request (which closed the connection with no
+// response and no session).
 #[cfg(unix)]
 #[test]
 fn m1_map_local_fails_closed_on_dangling_symlink() {
@@ -2113,12 +2116,104 @@ fn m1_map_local_fails_closed_on_dangling_symlink() {
     });
 
     let mut request = build_test_request("http://example.com/asset");
-    let result = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request);
+    let (response, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request)
+        .expect("map rule failure must degrade to a trace, not abort the request");
     assert!(
-        result.is_err(),
-        "map-local on a dangling symlink must fail closed, got {result:?}"
+        response.is_none(),
+        "map-local on a dangling symlink must fail closed (no local response)"
+    );
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].outcome, "failed");
+    assert!(
+        traces[0].failure_reason.is_some(),
+        "failed trace must record the failure reason"
     );
     let _ = fs::remove_dir_all(dir);
+}
+
+// H2 (R6-3): a map-local rule whose target file does not exist must not abort
+// the request. The request is forwarded unchanged and the trace records the
+// failure with its reason.
+#[test]
+fn map_local_missing_target_file_degrades_to_failed_trace_and_forwards() {
+    let dir = std::env::temp_dir().join(format!("aiproxy-map-missing-{}", std::process::id()));
+    let missing = dir.join("no-such-file.json");
+
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-missing".to_string(),
+        enabled: true,
+        mode: "local".to_string(),
+        name: "missing".to_string(),
+        note: None,
+        preserve_path: true,
+        preserve_query: true,
+        priority: 100,
+        source_pattern: "example.com".to_string(),
+        target_value: missing.display().to_string(),
+        match_type: None,
+        workspace_id: "default".to_string(),
+    });
+
+    let mut request = build_test_request("http://example.com/api/data");
+    let original_url = request.url.to_string();
+    let (response, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request)
+        .expect("a missing map-local target must not abort the request");
+
+    // No local response was produced: the caller forwards the ORIGINAL request.
+    assert!(response.is_none());
+    assert_eq!(request.url.to_string(), original_url);
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].outcome, "failed");
+    let reason = traces[0].failure_reason.as_deref().unwrap_or_default();
+    assert!(
+        reason.contains("map-missing"),
+        "failure reason names the rule: {reason}"
+    );
+    assert!(
+        reason.contains("no-such-file.json"),
+        "failure reason names the missing target: {reason}"
+    );
+}
+
+// H2 (R6-3): a map-remote rule with an invalid target URL must not abort the
+// request either; the request keeps its original URL and the trace records the
+// failure.
+#[test]
+fn map_remote_invalid_target_url_degrades_to_failed_trace_and_forwards() {
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-bad-target".to_string(),
+        enabled: true,
+        mode: "remote".to_string(),
+        name: "bad target".to_string(),
+        note: None,
+        preserve_path: true,
+        preserve_query: true,
+        priority: 100,
+        source_pattern: "example.com".to_string(),
+        target_value: "not a url".to_string(),
+        match_type: None,
+        workspace_id: "default".to_string(),
+    });
+
+    let mut request = build_test_request("http://example.com/v1/users?debug=true");
+    let original_url = request.url.to_string();
+    let (response, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request)
+        .expect("an invalid map-remote target must not abort the request");
+
+    assert!(response.is_none());
+    // The request was NOT remapped — forwarding proceeds with the original URL.
+    assert_eq!(request.url.to_string(), original_url);
+    assert_eq!(request.host, "example.com");
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].outcome, "failed");
+    assert!(traces[0].mapped_url.is_none());
+    let reason = traces[0].failure_reason.as_deref().unwrap_or_default();
+    assert!(
+        reason.contains("map-bad-target"),
+        "failure reason names the rule: {reason}"
+    );
 }
 
 // M1/M2: a map-local rule pointing at a symlink whose target IS a real file

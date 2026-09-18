@@ -87,7 +87,6 @@ impl SessionCache {
     }
 
     /// Remove summaries by ID.
-    #[allow(dead_code)]
     pub fn remove_summaries(&self, ids: &HashSet<String>) {
         self.summaries
             .lock()

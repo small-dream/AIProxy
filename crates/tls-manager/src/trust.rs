@@ -619,15 +619,33 @@ fn is_trusted_linux(_cert_path: &Path) -> bool {
     false
 }
 
+/// Arguments for the CA store refresh tool on the REMOVAL path. Debian/Ubuntu's
+/// `update-ca-certificates` must run with `--fresh` here: without it the tool
+/// only ADDS new anchors — it neither rebuilds `/etc/ssl/certs/ca-certificates.crt`
+/// without the deleted anchor nor removes the orphaned symlinks under
+/// `/etc/ssl/certs`, so the certificate would stay trusted while the removal
+/// reports success. RHEL/Fedora's `update-ca-trust` always rebuilds the store
+/// from the source dirs, so it needs no flag.
+#[cfg(any(target_os = "linux", test))]
+fn linux_ca_store_refresh_args(tool: &str) -> Vec<&'static str> {
+    if tool.ends_with("update-ca-certificates") {
+        vec!["--fresh"]
+    } else {
+        Vec::new()
+    }
+}
+
 /// Remove the certificate's anchor files from the system CA source dirs and
 /// refresh the live CA store:
 /// - `linux.anchors`: delete any file in the Debian/Ubuntu or Fedora/RHEL
 ///   anchor dir whose fingerprints match the target cert. Absent anchors
 ///   count as success (idempotent). Deleting files in these dirs requires
 ///   root, so this commonly fails and falls back to a manual command.
-/// - `linux.caStore`: re-run `update-ca-certificates` / `update-ca-trust` so
-///   the already-materialized `/etc/ssl/certs` entries disappear. Also needs
-///   root; failure is reported per store.
+/// - `linux.caStore`: re-run the CA update tool so the already-materialized
+///   `/etc/ssl/certs` entries disappear. Debian/Ubuntu's
+///   `update-ca-certificates` runs with `--fresh` (see
+///   [`linux_ca_store_refresh_args`]); RHEL/Fedora's `update-ca-trust` needs
+///   no flag. Also needs root; failure is reported per store.
 #[cfg(target_os = "linux")]
 fn remove_cert_trust_linux(cert_path: &Path) -> TrustRemovalReport {
     use std::process::Command;
@@ -704,6 +722,7 @@ fn remove_cert_trust_linux(cert_path: &Path) -> TrustRemovalReport {
             );
         };
         let output = Command::new(tool)
+            .args(linux_ca_store_refresh_args(tool))
             .output()
             .map_err(|error| format!("failed to spawn {tool}: {error}"))?;
         if output.status.success() {
@@ -894,6 +913,27 @@ mod tests {
 
     // The report serializes camelCase for the IPC boundary (the frontend
     // parses these exact field names).
+    // Removal-path regression: Debian/Ubuntu's `update-ca-certificates` must
+    // run with `--fresh` after anchor files are deleted — without it the tool
+    // only adds new anchors, leaving the removed cert inside the rebuilt
+    // `ca-certificates.crt` bundle and its orphaned symlinks in
+    // `/etc/ssl/certs`, so removal reports success while the cert stays
+    // trusted. `update-ca-trust` always rebuilds from source, so it takes no
+    // flag.
+    #[test]
+    fn linux_ca_store_refresh_args_fresh_only_for_update_ca_certificates() {
+        assert_eq!(
+            linux_ca_store_refresh_args("/usr/sbin/update-ca-certificates"),
+            vec!["--fresh"]
+        );
+        assert_eq!(
+            linux_ca_store_refresh_args("/usr/bin/update-ca-certificates"),
+            vec!["--fresh"]
+        );
+        assert!(linux_ca_store_refresh_args("/usr/bin/update-ca-trust").is_empty());
+        assert!(linux_ca_store_refresh_args("/usr/sbin/update-ca-trust").is_empty());
+    }
+
     #[test]
     fn trust_removal_report_serializes_camel_case() {
         let report = TrustRemovalReport {
