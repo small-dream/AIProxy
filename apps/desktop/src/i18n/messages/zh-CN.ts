@@ -45,6 +45,8 @@ export const zhCNMessages: Messages = {
     },
     errors: {
       generic: "发生错误，请稍后重试。",
+      mutationFailed: "操作失败，请重试。",
+      queryFailed: "数据加载失败，请重试。",
       unexpected: "发生了未预期的错误。",
     },
     labels: {
@@ -859,6 +861,8 @@ export const zhCNMessages: Messages = {
       adbDevicePickerTitleClear: "选择要清除代理的 Android 设备",
       adbDevicePickerTitleSet: "选择要设置代理的 Android 设备",
       adbDevicePlaceholder: "请选择设备",
+      adbDeviceScanTimeout:
+        "通过 adb 扫描 Android 设备超时。请确认 adb 响应正常，然后刷新设备列表。",
       adbDeviceSelectorLabel: "ADB 设备",
       adbDeviceStateHint:
         "当前选中的目标设备状态为 {{state}}。只有处于“device”状态的设备才能安装证书。",
@@ -954,6 +958,8 @@ export const zhCNMessages: Messages = {
       iosSimulatorRefreshAction: "刷新 Simulator",
       iosSimulatorRefreshing: "刷新中...",
       iosSimulatorScanHint: "点击「刷新 Simulator」以扫描 iOS 模拟器。",
+      iosSimulatorScanTimeout:
+        "扫描 iOS 模拟器超时。请检查 Xcode Simulator 服务是否正常，然后刷新模拟器列表。",
       iosSimulatorSelectorLabel: "iOS Simulator",
       iosSimulatorSuccessBody:
         "已把根证书安装到 {{simulatorName}}。接下来请在 Simulator 的证书信任设置里手动打开完全信任。",
@@ -1001,6 +1007,7 @@ export const zhCNMessages: Messages = {
       ],
       hdcDeviceLoadErrorTitle: "hdc 设备检测失败",
       hdcDevicePlaceholder: "请选择设备",
+      hdcDeviceScanTimeout: "通过 hdc 扫描鸿蒙设备超时。请确认 hdc 响应正常，然后刷新设备列表。",
       hdcDeviceSelectorLabel: "鸿蒙设备",
       hdcDeviceStateHint:
         "所选设备处于“{{state}}”状态。只有处于“Connected”状态的设备才能安装证书。",
@@ -1440,6 +1447,7 @@ export const zhCNMessages: Messages = {
   inspector: {
     cookies: "Cookies",
     copyFullValue: "查看完整内容",
+    pseudo: "伪标头",
     waterfall: {
       unavailable: "时序数据不可用",
       dns: "DNS",

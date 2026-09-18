@@ -43,17 +43,27 @@ export function createEmptyThrottleProfile(): ThrottleProfile {
   };
 }
 
-export function createRuleDraft(profileId: string, seed?: ThrottleSeed): ThrottleRule {
+export function createRuleDraft(
+  profileId: string,
+  seed: ThrottleSeed | undefined,
+  t: (key: TranslationKey, params?: TranslationParams) => string,
+): ThrottleRule {
   const urlPattern = seed?.url
     ? seed.url
     : seed?.host
       ? `*://${seed.host}${seed.path && seed.path !== "/" ? seed.path : "/*"}`
       : "*";
 
+  // Rule names are user-visible; build them through t() so they follow the UI
+  // locale instead of hardcoded English.
+  const name = seed?.host
+    ? `${seed.method ?? t("throttlingPage.anyMethod")} ${seed.host}`
+    : t("throttlingPage.defaultRuleName");
+
   return {
     id: crypto.randomUUID(),
     workspaceId: DEFAULT_WORKSPACE_ID,
-    name: seed?.host ? `${seed.method ?? "Any"} ${seed.host}` : "Targeted rule",
+    name,
     enabled: true,
     priority: 100,
     profileId,
@@ -208,19 +218,6 @@ export function useThrottleEditor() {
 
   // Effects
   useEffect(() => {
-    if (seed && profiles.length > 0 && !seedAppliedRef.current) {
-      seedAppliedRef.current = true;
-      const baseProfile = activeProfile ?? profiles[0];
-      if (!baseProfile) return;
-      const draft = createRuleDraft(baseProfile.id, seed);
-      setMode("rules");
-      setSelectedRuleId(draft.id);
-      lastSyncedRuleIdRef.current = draft.id;
-      setRuleDraft(draft);
-    }
-  }, [activeProfile, profiles, seed]);
-
-  useEffect(() => {
     if (selectedProfileId && profiles.some((profile) => profile.id === selectedProfileId)) return;
     const next = activeProfile ?? presetProfiles[0] ?? customProfiles[0];
     if (!next) return;
@@ -253,6 +250,23 @@ export function useThrottleEditor() {
       setSelectedRuleId(rules[0].id);
     }
   }, [selectedRuleId, selectedRule, rules]);
+
+  // The seed effect must run AFTER the sync effects above: on mount they all
+  // fire once with the pre-seed state (selectedRuleId undefined), and the
+  // rule-sync effect's "select the first rule" fallback would otherwise
+  // immediately overwrite the seeded draft the same commit.
+  useEffect(() => {
+    if (seed && profiles.length > 0 && !seedAppliedRef.current) {
+      seedAppliedRef.current = true;
+      const baseProfile = activeProfile ?? profiles[0];
+      if (!baseProfile) return;
+      const draft = createRuleDraft(baseProfile.id, seed, t);
+      setMode("rules");
+      setSelectedRuleId(draft.id);
+      lastSyncedRuleIdRef.current = draft.id;
+      setRuleDraft(draft);
+    }
+  }, [activeProfile, profiles, seed, t]);
 
   useEffect(() => {
     if (!temporaryUntil) return undefined;
@@ -305,7 +319,7 @@ export function useThrottleEditor() {
     const copy: ThrottleRule = {
       ...rule,
       id: crypto.randomUUID(),
-      name: `${rule.name} copy`,
+      name: t("throttlingPage.copySuffix", { name: rule.name }),
     };
     // Move selection AND draft together so the copy survives — otherwise the
     // sync effect would immediately revert the copy back to the original
@@ -361,7 +375,7 @@ export function useThrottleEditor() {
     if (isRulesError) return;
     const profileId = activeProfile?.id ?? selectedProfileId ?? profiles[0]?.id;
     if (!profileId) return;
-    const draft = createRuleDraft(profileId);
+    const draft = createRuleDraft(profileId, undefined, t);
     setMode("rules");
     setSelectedRuleId(draft.id);
     lastSyncedRuleIdRef.current = draft.id;

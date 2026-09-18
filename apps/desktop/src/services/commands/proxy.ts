@@ -68,7 +68,7 @@ export async function startProxy(input: StartProxyInput): Promise<ProxyStatus> {
 
     return status;
   } catch (error) {
-    reportCommandFailure("start_proxy", error, normalizedInput.workspaceId);
+    reportCommandFailure("start_proxy", error, { workspaceId: normalizedInput.workspaceId });
     throw coerceAppError(error);
   }
 }
@@ -91,7 +91,7 @@ export async function stopProxy(input: StopProxyInput): Promise<ProxyStatus> {
 
     return status;
   } catch (error) {
-    reportCommandFailure("stop_proxy", error, input.workspaceId);
+    reportCommandFailure("stop_proxy", error, { workspaceId: input.workspaceId });
     throw coerceAppError(error);
   }
 }

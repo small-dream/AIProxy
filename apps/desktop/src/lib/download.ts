@@ -1,12 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { isTauriRuntime } from "@/services/commands/runtime";
+
 type DownloadTextFileOptions = {
   revealInFolder?: boolean;
 };
-
-function isTauriRuntime() {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
 
 export async function downloadTextFile(
   filename: string,

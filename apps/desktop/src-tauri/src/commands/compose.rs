@@ -29,7 +29,12 @@ pub async fn send_composed_request(
                 "----AIProxyBoundary{}",
                 chrono::Utc::now().timestamp_millis()
             );
-            let body_bytes = build_multipart_body_bytes(&entries, &boundary)?.unwrap_or_default();
+            // Attachment problems (expired token, unreadable/oversized file,
+            // invalid part Content-Type) are request-input failures, so they
+            // surface as INVALID_INPUT rather than a bare string (API_SPEC 4.2).
+            let body_bytes = build_multipart_body_bytes(&entries, &boundary)
+                .map_err(|error| app_error(ERR_INVALID_INPUT, error))?
+                .unwrap_or_default();
             let mut headers = input.headers;
             if !headers
                 .iter()
@@ -41,9 +46,13 @@ pub async fn send_composed_request(
                     is_pseudo: None,
                 });
             }
-            send_direct_request_bytes(input.method, input.url, headers, Some(body_bytes)).await?
+            send_direct_request_bytes(input.method, input.url, headers, Some(body_bytes))
+                .await
+                .map_err(|error| app_error(ERR_INTERNAL, format!("send composed request: {error}")))?
         }
-        _ => send_direct_request(input.method, input.url, input.headers, input.body).await?,
+        _ => send_direct_request(input.method, input.url, input.headers, input.body)
+            .await
+            .map_err(|error| app_error(ERR_INTERNAL, format!("send composed request: {error}")))?,
     };
     let session_id = detail.id.clone();
     state.upsert_session_async(detail.clone()).await;
@@ -57,4 +66,39 @@ pub async fn send_composed_request(
     );
 
     Ok(detail)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test: multipart build failures at the command boundary must
+    /// be structured app_error payloads (API_SPEC 4.2), not bare strings.
+    #[test]
+    fn multipart_build_error_maps_to_invalid_input_app_error() {
+        let build_error = "attachment 'a.bin': attachment token expired";
+        // Mirrors the map_err closure in send_composed_request.
+        let error = app_error(ERR_INVALID_INPUT, build_error);
+        let parsed: serde_json::Value = serde_json::from_str(&error).expect("valid JSON");
+
+        assert_eq!(parsed["code"], "INVALID_INPUT");
+        assert_eq!(parsed["message"], build_error);
+    }
+
+    /// Regression test: send_direct_request(_bytes) failures at the command
+    /// boundary surface as INTERNAL_ERROR with the underlying cause preserved.
+    #[test]
+    fn send_failure_maps_to_internal_app_error() {
+        let send_error = "invalid URL 'notaurl': relative URL without a base";
+        // Mirrors the map_err closures in send_composed_request.
+        let error = app_error(ERR_INTERNAL, format!("send composed request: {send_error}"));
+        let parsed: serde_json::Value = serde_json::from_str(&error).expect("valid JSON");
+
+        assert_eq!(parsed["code"], "INTERNAL_ERROR");
+        assert!(parsed["message"]
+            .as_str()
+            .expect("message string")
+            .contains(send_error));
+    }
 }

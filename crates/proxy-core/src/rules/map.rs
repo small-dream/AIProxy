@@ -32,6 +32,12 @@ fn apply_remote_map_rule(
         mapped_url.set_path(&joined_path);
     }
     if rule.preserve_query {
+        // NOTE: `set_query` REPLACES the mapped URL's entire query string, so
+        // when the configured target URL already carries its own query (e.g.
+        // `https://staging.example/api?token=abc`), that target-side query is
+        // discarded in favor of the original request's query. This overwrite
+        // semantics is intentional (it mirrors the redirect rewrite action);
+        // merge the two queries here if a combine mode is ever needed.
         mapped_url.set_query(original_query.as_deref());
     }
 
@@ -84,22 +90,6 @@ fn join_remote_base_path(base: &str, request_path: &str) -> String {
         format!("{base}/")
     } else {
         format!("{base}/{request}")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::join_remote_base_path;
-
-    #[test]
-    fn joins_root_and_nested_paths() {
-        assert_eq!(join_remote_base_path("/", "/v1/users"), "/v1/users");
-        assert_eq!(
-            join_remote_base_path("/gateway/", "/v1/users"),
-            "/gateway/v1/users"
-        );
-        assert_eq!(join_remote_base_path("/gateway", "/"), "/gateway/");
-        assert_eq!(join_remote_base_path("", ""), "/");
     }
 }
 
@@ -307,4 +297,20 @@ pub(crate) fn apply_map_rules(
         target_value: rule.target_value,
     };
     Ok((response, vec![trace]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::join_remote_base_path;
+
+    #[test]
+    fn joins_root_and_nested_paths() {
+        assert_eq!(join_remote_base_path("/", "/v1/users"), "/v1/users");
+        assert_eq!(
+            join_remote_base_path("/gateway/", "/v1/users"),
+            "/gateway/v1/users"
+        );
+        assert_eq!(join_remote_base_path("/gateway", "/"), "/gateway/");
+        assert_eq!(join_remote_base_path("", ""), "/");
+    }
 }

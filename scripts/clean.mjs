@@ -99,7 +99,9 @@ function directorySize(dir, total = { value: 0 }) {
     entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
     // Concurrent deletion during sizing is harmless; report what we have.
-    return total;
+    // Must stay a number (total.value), not the accumulator object, so
+    // formatBytes() does not print "NaN KB".
+    return total.value;
   }
 
   for (const entry of entries) {

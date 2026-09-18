@@ -565,11 +565,15 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, D
     let mut stmt = conn
         .prepare(&format!("PRAGMA table_info({table})"))
         .map_err(|e| DbError::query("check column existence", e))?;
-    let names: Vec<String> = stmt
+    let names: Result<Vec<String>, DbError> = stmt
         .query_map([], |row| row.get::<_, String>(1))
         .map_err(|e| DbError::query("read column names", e))?
-        .filter_map(Result::ok)
+        .map(|r| r.map_err(|e| DbError::query("decode column name row", e)))
         .collect();
+    // Row decode errors are propagated, not silently dropped (filter_map):
+    // skipping an unreadable row could make a migration re-add an existing
+    // column or, worse, consider the check successful on a corrupt schema.
+    let names = names?;
     Ok(names.iter().any(|name| name.eq_ignore_ascii_case(column)))
 }
 

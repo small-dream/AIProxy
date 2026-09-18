@@ -254,7 +254,7 @@ pnpm desktop:bundle:linux
 
 说明：
 
-- 当前脚本执行的是前端构建 + `cargo tauri build`
+- 当前脚本执行的是 `cargo tauri build`（其 `beforeBuildCommand` 会自动执行前端构建，无需单独再跑一次）
 - 会生成 release 级别安装产物
 
 ## 7. 产物目录

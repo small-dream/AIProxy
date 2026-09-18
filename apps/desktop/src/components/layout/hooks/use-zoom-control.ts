@@ -27,10 +27,12 @@ export function useZoomControl() {
 
   useEffect(() => {
     function handleZoomIn() {
-      setZoomLevel((prev) => Math.min(prev + 0.1, 2));
+      // Round to the 0.1 grid: repeated ±0.1 float steps otherwise accumulate
+      // error (1 + 0.1×3 → 1.3000000000000003) and drift off the presets.
+      setZoomLevel((prev) => Math.min(Math.round((prev + 0.1) * 10) / 10, 2));
     }
     function handleZoomOut() {
-      setZoomLevel((prev) => Math.max(prev - 0.1, 0.5));
+      setZoomLevel((prev) => Math.max(Math.round((prev - 0.1) * 10) / 10, 0.5));
     }
     function handleZoomReset() {
       setZoomLevel(1);

@@ -4,7 +4,13 @@ import { ThemeProvider } from "@mui/material/styles";
 
 import { coerceAppError } from "@aiproxy/shared-types";
 import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
-import { I18nProvider, resolveLocale, type SupportedLocale } from "@/i18n";
+import {
+  I18nProvider,
+  resolveLocale,
+  translateMessage,
+  type SupportedLocale,
+  type TranslationKey,
+} from "@/i18n";
 import { logDevInfo } from "@/services/logger/dev-logger";
 import { setMenuLocale } from "@/services/commands";
 import { useNotificationStore } from "@/services/notification.store";
@@ -73,6 +79,13 @@ function getSystemLocale(): SupportedLocale {
   return resolveLocale("system", navigator.languages, navigator.language);
 }
 
+// QueryClient error callbacks run outside the React tree, so they resolve the
+// active locale imperatively from the preferences store instead of useI18n.
+function translateGlobalError(key: TranslationKey): string {
+  const preference = useAppPreferencesStore.getState().languagePreference;
+  return translateMessage(preference === "system" ? getSystemLocale() : preference, key);
+}
+
 export function AppProviders({ children }: PropsWithChildren) {
   const contentCustomFontFamily = useAppPreferencesStore((state) => state.contentCustomFontFamily);
   const contentFontPreference = useAppPreferencesStore((state) => state.contentFontPreference);
@@ -101,7 +114,8 @@ export function AppProviders({ children }: PropsWithChildren) {
             if (query.meta?.suppressGlobalErrorNotification) return;
             if (coerceAppError(error).code === "SESSION_NOT_FOUND") return;
 
-            const message = coerceAppError(error).message || "Query failed";
+            const message =
+              coerceAppError(error).message || translateGlobalError("common.errors.queryFailed");
             useNotificationStore.getState().push(message);
           },
         }),
@@ -115,7 +129,8 @@ export function AppProviders({ children }: PropsWithChildren) {
             if (mutation?.meta?.suppressGlobalErrorNotification) return;
             if (coerceAppError(error).code === "SESSION_NOT_FOUND") return;
 
-            const message = coerceAppError(error).message || "Mutation failed";
+            const message =
+              coerceAppError(error).message || translateGlobalError("common.errors.mutationFailed");
             useNotificationStore.getState().push(message);
           },
         }),

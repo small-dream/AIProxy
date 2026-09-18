@@ -687,7 +687,13 @@ async fn stage_send_pending_and_throttle(
     // Send pending session.
     let mut pending_detail = build_pending_session_detail(request, started_at);
     pending_detail.map_traces = map_traces.to_vec();
-    let _ = ctx.session_sender.send(pending_detail).await;
+    if ctx.session_sender.send(pending_detail).await.is_err() {
+        tracing::debug!(
+            event = "session_send_dropped",
+            reason = "receiver_disconnected",
+            "session_send_dropped"
+        );
+    }
     let guard = PendingRequestCancellationGuard::new(
         request.clone(),
         ctx.session_sender.clone(),
@@ -1806,7 +1812,7 @@ pub(crate) fn build_empty_response(
                 .map_err(|_: std::convert::Infallible| unreachable!())
                 .boxed(),
         )
-        .unwrap()
+        .expect("static response builder is infallible")
 }
 
 /// Build a plain text response (e.g. for errors).

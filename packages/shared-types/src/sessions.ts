@@ -204,13 +204,26 @@ export function isSessionSummary(value: unknown): value is SessionSummary {
   );
 }
 
+// Bounded payload preview for parse errors (same shape as ws.ts'
+// previewWsMessageEntry): the full payload can be huge and may carry captured
+// request data, so error details only keep a 120-character sample.
+function previewSessionPayload(value: unknown): string {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value) ?? String(value);
+  } catch {
+    serialized = String(value);
+  }
+  return serialized.length > 120 ? `${serialized.slice(0, 117)}...` : serialized;
+}
+
 export function parseSessionSummaries(value: unknown): SessionSummary[] {
   if (!Array.isArray(value)) {
     throw {
       code: "INVALID_SESSION_SUMMARIES",
       message: "The session list payload must be an array.",
       details: {
-        payload: value,
+        payloadPreview: previewSessionPayload(value),
       },
     } satisfies AppError;
   }
@@ -223,7 +236,7 @@ export function parseSessionSummaries(value: unknown): SessionSummary[] {
     code: "INVALID_SESSION_SUMMARIES",
     message: "One or more captured sessions do not match the shared contract.",
     details: {
-      payload: value,
+      payloadPreview: previewSessionPayload(value),
     },
   } satisfies AppError;
 }
@@ -506,7 +519,7 @@ export function parseSessionDetail(value: unknown): SessionDetail {
     code: "INVALID_SESSION_DETAIL",
     message: "The session detail payload does not match the shared contract.",
     details: {
-      payload: value,
+      payloadPreview: previewSessionPayload(value),
     },
   } satisfies AppError;
 }

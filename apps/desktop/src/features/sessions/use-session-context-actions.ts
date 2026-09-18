@@ -1,10 +1,12 @@
 import type { ComposedRequestInput, HeaderEntry, SessionSummary } from "@aiproxy/shared-types";
+import { DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { Dispatch, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
 
 import { useI18n } from "@/i18n";
 import { downloadTextFile } from "@/lib/download";
+import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { saveSessionToCollection, sendComposedRequest } from "@/services/commands";
 import { logDevWarn } from "@/services/logger/dev-logger";
 
@@ -56,6 +58,11 @@ export function useSessionContextActions({
 }: UseSessionContextActionsParams) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
+  const { data: proxyStatus } = useProxyStatus();
+  // Repeat must target the currently active workspace, not the hardcoded
+  // "default" — otherwise a repeated request lands in the wrong workspace
+  // when the user runs the proxy under another one.
+  const activeWorkspaceId = proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const [contextMenuAnchor, setContextMenuAnchor] = useState<{ left: number; top: number }>();
   const [contextMenuSession, setContextMenuSession] = useState<SessionSummary | null>(null);
   const [domainContextMenuAnchor, setDomainContextMenuAnchor] = useState<{
@@ -315,7 +322,7 @@ export function useSessionContextActions({
     ): Promise<SessionSummary | null> => {
       const pendingSessionId = `pending-repeat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const pendingInput: ComposedRequestInput = {
-        workspaceId: "default",
+        workspaceId: activeWorkspaceId,
         method: session.method,
         url: session.url,
         headers: [],
@@ -344,7 +351,7 @@ export function useSessionContextActions({
 
         const bodyText = detail.requestBody?.inlineText;
         const input: ComposedRequestInput = {
-          workspaceId: "default",
+          workspaceId: activeWorkspaceId,
           method: session.method,
           url: session.url,
           headers: detail.requestHeaders.map((header) => ({
@@ -382,7 +389,7 @@ export function useSessionContextActions({
         return null;
       }
     },
-    [queryClient, showSnackbar, t],
+    [activeWorkspaceId, queryClient, showSnackbar, t],
   );
 
   const handleFocusDomain = useCallback(

@@ -131,7 +131,7 @@
 详细指南见 `docs/RELEASE_GUIDE.md`（事实源），发布相关命令在 `scripts/release-checklist.sh` 与 `.github/workflows/release.yml`。核心步骤：
 
 1. **同步版本号**：`package.json`、`Cargo.toml`、`Cargo.lock`、`apps/desktop/package.json`、`apps/desktop/src-tauri/tauri.conf.json` 五处必须保持一致。
-2. **质量门禁**：运行 `scripts/release-checklist.sh`（typecheck / lint / test / Rust tests / clippy），并确认 GitHub Actions CI 通过。
+2. **质量门禁**：运行 `scripts/release-checklist.sh`（五处版本一致性校验 / typecheck / lint / test / Rust tests / clippy），并确认 GitHub Actions CI 通过。
 3. **打包验证**：脚本不支持跨平台打包，必须在对应原生宿主机上执行 `pnpm desktop:bundle:<platform>` 验证产物。
 4. **发布摘要**：在创建 tag 前新增 `docs/releases/v<版本号>.md`；文件名必须与 tag 一致，且必须包含中文 `更新内容` 和英文 `What's new`。该文件是 GitHub Release 与应用内更新的唯一更新内容来源，详见 `docs/releases/README.md`。
 5. **触发发布**：仅从 `v*` tag 触发 `release.yml`；workflow 会校验发布摘要，随后在 macOS / Windows / Linux 三端打包并发布 GitHub Release。含 `-test` / `-beta` 的 tag 会标记为 pre-release。

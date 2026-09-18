@@ -36,6 +36,10 @@ export function useUnsavedChangesGuard(isDirty: boolean) {
 
   // In-component transition: resolves true when leaving is allowed.
   const [decision, setDecision] = useState<((allowed: boolean) => void) | undefined>();
+  // Mirror of the pending resolver, writable outside render. Lets confirmLeave
+  // settle a superseded promise on re-entry and the unmount cleanup settle a
+  // promise that would otherwise stay pending forever.
+  const decisionRef = useRef<((allowed: boolean) => void) | undefined>(undefined);
 
   const blocker = useBlocker(isDirty);
 
@@ -47,6 +51,14 @@ export function useUnsavedChangesGuard(isDirty: boolean) {
     }, []),
   );
 
+  // Unmounting with a pending confirmation must not leak the promise.
+  useEffect(() => {
+    return () => {
+      decisionRef.current?.(false);
+      decisionRef.current = undefined;
+    };
+  }, []);
+
   const confirmLeave = useCallback(
     () =>
       new Promise<boolean>((resolve) => {
@@ -54,6 +66,10 @@ export function useUnsavedChangesGuard(isDirty: boolean) {
           resolve(true);
           return;
         }
+        // Re-entrant call: settle the superseded promise instead of leaving it
+        // pending forever — only one confirmation can be visible at a time.
+        decisionRef.current?.(false);
+        decisionRef.current = resolve;
         setDecision(() => resolve);
       }),
     [],
@@ -61,6 +77,7 @@ export function useUnsavedChangesGuard(isDirty: boolean) {
 
   const handleConfirm = useCallback(() => {
     decision?.(true);
+    decisionRef.current = undefined;
     setDecision(undefined);
     if (blocker.state === "blocked") {
       blocker.proceed();
@@ -69,6 +86,7 @@ export function useUnsavedChangesGuard(isDirty: boolean) {
 
   const handleCancel = useCallback(() => {
     decision?.(false);
+    decisionRef.current = undefined;
     setDecision(undefined);
     if (blocker.state === "blocked") {
       blocker.reset();

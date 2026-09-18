@@ -135,7 +135,7 @@ export async function loadWorkspace(workspaceId: string): Promise<Workspace> {
 
     return workspace;
   } catch (error) {
-    reportCommandFailure("load_workspace", error, workspaceId);
+    reportCommandFailure("load_workspace", error, { workspaceId });
     throw coerceAppError(error);
   }
 }
@@ -205,7 +205,7 @@ export async function updateWorkspace(input: {
 
     return workspace;
   } catch (error) {
-    reportCommandFailure("update_workspace", error, input.workspaceId);
+    reportCommandFailure("update_workspace", error, { workspaceId: input.workspaceId });
     throw coerceAppError(error);
   }
 }

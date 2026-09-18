@@ -12,7 +12,8 @@ import {
   type WsConnectionStatusEvent,
   type WsMessage,
 } from "@aiproxy/shared-types";
-import { logDevWarn } from "../logger/dev-logger";
+import { isTauriRuntime } from "@/services/commands/runtime";
+import { logDevWarn } from "@/services/logger/dev-logger";
 
 type Unlisten = () => void;
 
@@ -33,7 +34,7 @@ export type MenuEventPayload = {
 };
 
 export function onMenuEvent(callback: (payload: MenuEventPayload) => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -52,7 +53,7 @@ export function onMenuEvent(callback: (payload: MenuEventPayload) => void): Prom
 }
 
 export function onBreakpointHit(callback: (hit: BreakpointHit) => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -76,7 +77,7 @@ export function onBreakpointHit(callback: (hit: BreakpointHit) => void): Promise
 export function onBreakpointReleased(
   callback: (released: BreakpointReleased) => void,
 ): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -93,7 +94,7 @@ export function onBreakpointReleased(
 export function onSessionUpsert(
   callback: (summary: SessionUpsertEvent) => void,
 ): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -110,7 +111,7 @@ export function onSessionUpsert(
 export function onSessionRemove(
   callback: (sessionId: SessionRemoveEvent) => void,
 ): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -127,7 +128,7 @@ export function onSessionRemove(
 }
 
 export function onSessionsCleared(callback: () => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -137,7 +138,7 @@ export function onSessionsCleared(callback: () => void): Promise<Unlisten> {
 }
 
 export function onSessionsRemoved(callback: (ids: string[]) => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -158,7 +159,7 @@ export function onSessionsRemoved(callback: (ids: string[]) => void): Promise<Un
 }
 
 export function onWsMessage(callback: (message: WsMessage) => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -188,7 +189,7 @@ export type SystemProxyWarningPayload = {
 export function onSystemProxyWarning(
   callback: (warning: SystemProxyWarningPayload) => void,
 ): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -209,7 +210,7 @@ export function onSystemProxyWarning(
 export function onWsConnectionStatus(
   callback: (event: WsConnectionStatusEvent) => void,
 ): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 

@@ -14,6 +14,7 @@ import {
 
 import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 import { isTauriRuntime, reportCommandFailure } from "./runtime";
+import { AppCommandError } from "./errors";
 
 const fallbackAiSettings: AiSettingsPublic = {
   provider: "openai-compatible",
@@ -84,10 +85,10 @@ export async function summarizeSessionDiff(
   input: SessionDiffSummaryRequest,
 ): Promise<SessionDiffSummaryResult> {
   if (!isTauriRuntime()) {
-    throw {
-      code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "AI summaries require the Tauri desktop runtime.",
-    };
+    throw new AppCommandError(
+      "DESKTOP_RUNTIME_REQUIRED",
+      "AI summaries require the Tauri desktop runtime.",
+    );
   }
 
   try {

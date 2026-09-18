@@ -28,7 +28,7 @@ pub(crate) use map::apply_map_rules;
 pub(crate) use patterns::{compile_match_regex, pattern_matches};
 pub(crate) use rewrite::{
     apply_request_rewrite_rules, apply_response_rewrite_rules, method_matches,
-    rebuild_request_runtime_state, rewrite_stage_matches, strip_plain_body_edit_header_entries,
+    rebuild_request_runtime_state, strip_plain_body_edit_header_entries,
     strip_plain_body_edit_headers,
 };
 pub(crate) use script::{apply_request_script_rules, apply_response_script_rules};
@@ -48,16 +48,35 @@ pub(crate) fn resolve_dns_override(
     hostname: &str,
 ) -> Option<std::net::IpAddr> {
     let manager = dns_manager.as_ref()?;
-    let rules = manager.list_rules();
-    let rule = rules
-        .iter()
+    let mut rules: Vec<_> = manager
+        .list_rules()
+        .into_iter()
         .filter(|r| {
             r.enabled
                 && r.workspace_id == workspace_id
                 && pattern_matches(&r.host_pattern, hostname, r.match_type.as_deref())
         })
-        .max_by_key(|r| r.priority)?;
-    rule.target_ip.parse().ok()
+        .collect();
+    // Stable descending sort: on equal priority the rule that appears first
+    // wins, matching the rewrite/map rule ordering (max_by_key used to pick
+    // the LAST one).
+    rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
+    // A rule whose target_ip fails to parse is skipped so the next matching
+    // rule still applies, instead of discarding the whole override.
+    rules.iter().find_map(|rule| {
+        rule.target_ip
+            .parse()
+            .map_err(|error| {
+                tracing::warn!(
+                    event = "dns_override_invalid_target_ip",
+                    rule_id = %rule.id,
+                    target_ip = %rule.target_ip,
+                    error = %error,
+                    "dns_override_invalid_target_ip"
+                );
+            })
+            .ok()
+    })
 }
 
 pub(crate) fn host_header_value(url: &Url) -> String {
@@ -85,7 +104,7 @@ fn active_rewrite_rules_for_stage(
         .iter()
         .filter(|cr| cr.rule.enabled)
         .filter(|cr| cr.rule.workspace_id == workspace_id)
-        .filter(|cr| rewrite_stage_matches(&cr.rule.r#match.stage, stage))
+        .filter(|cr| rule_stage_matches(&cr.rule.r#match.stage, stage))
         .filter(|cr| method_matches(&cr.rule.r#match.methods, &request.method))
         .filter(|cr| {
             // Use pre-compiled regex for "regex" match type; fall back to
@@ -153,7 +172,7 @@ fn active_script_rules_for_stage(
         .iter()
         .filter(|rule| rule.rule.enabled)
         .filter(|rule| rule.rule.workspace_id == workspace_id)
-        .filter(|rule| rewrite_stage_matches(&rule.rule.r#match.stage, stage))
+        .filter(|rule| rule_stage_matches(&rule.rule.r#match.stage, stage))
         .filter(|rule| method_matches(&rule.rule.r#match.methods, &request.method))
         .filter(|rule| {
             // Use pre-compiled regex for "regex" match type; fall back to
@@ -191,7 +210,12 @@ pub(crate) fn active_throttle_profile_for_workspace(
         .find(|profile| profile.workspace_id == workspace_id && profile.enabled)
 }
 
-fn throttle_stage_matches(rule_stage: &str, current_stage: &str) -> bool {
+/// Shared stage-vocabulary matcher for rewrite, script, and throttle rules.
+/// A blank stage or the aliases "both"/"either" applies to both stages;
+/// anything else must equal the current stage (case-insensitive). Accepting
+/// both aliases keeps imported rule sets from silently going inert when they
+/// were authored with the other rule kind's vocabulary.
+pub(crate) fn rule_stage_matches(rule_stage: &str, current_stage: &str) -> bool {
     let normalized = rule_stage.trim();
     normalized.is_empty()
         || normalized.eq_ignore_ascii_case("both")
@@ -206,7 +230,7 @@ pub(crate) fn throttle_selection_matches_stage(
     selection
         .rule
         .as_ref()
-        .map(|rule| throttle_stage_matches(&rule.stage, stage))
+        .map(|rule| rule_stage_matches(&rule.stage, stage))
         .unwrap_or(true)
 }
 
@@ -223,8 +247,7 @@ pub(crate) fn active_throttle_selection_for_request(
         .filter(|rule| rule.enabled)
         .filter(|rule| rule.workspace_id == workspace_id)
         .filter(|rule| {
-            throttle_stage_matches(&rule.stage, "request")
-                || throttle_stage_matches(&rule.stage, "response")
+            rule_stage_matches(&rule.stage, "request") || rule_stage_matches(&rule.stage, "response")
         })
         .filter(|rule| method_matches(&rule.methods, &request.method))
         // R6-4: match against the URL only — NOT `|| request.host`. The OR was
@@ -297,4 +320,101 @@ pub(crate) fn apply_request_runtime_rules(
         rewrite_traces,
         throttle_selection,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Shared stage vocabulary: blank, "both", and "either" all apply to both
+    // stages; anything else must equal the current stage (case-insensitive).
+    #[test]
+    fn rule_stage_matches_accepts_blank_and_both_aliases() {
+        for stage in ["", "  ", "both", "BOTH", "either", "Either"] {
+            assert!(
+                rule_stage_matches(stage, "request"),
+                "stage {stage:?} must match the request stage"
+            );
+            assert!(
+                rule_stage_matches(stage, "response"),
+                "stage {stage:?} must match the response stage"
+            );
+        }
+        assert!(rule_stage_matches("request", "request"));
+        assert!(rule_stage_matches("REQUEST", "request"));
+        assert!(rule_stage_matches("response", "response"));
+        assert!(!rule_stage_matches("request", "response"));
+        assert!(!rule_stage_matches("response", "request"));
+    }
+
+    fn dns_rule(id: &str, priority: u32, target_ip: &str) -> DnsMappingRule {
+        DnsMappingRule {
+            enabled: true,
+            host_pattern: "example.com".to_string(),
+            id: id.to_string(),
+            match_type: None,
+            name: id.to_string(),
+            note: None,
+            priority,
+            target_ip: target_ip.to_string(),
+            workspace_id: "default".to_string(),
+        }
+    }
+
+    fn resolve(manager: DnsManager, hostname: &str) -> Option<std::net::IpAddr> {
+        resolve_dns_override(&Some(std::sync::Arc::new(manager)), "default", hostname)
+    }
+
+    // Regression: a matching rule whose target_ip fails to parse must be
+    // skipped so the next matching rule still applies (previously the whole
+    // override returned None).
+    #[test]
+    fn dns_override_skips_unparsable_target_ip() {
+        let manager = DnsManager::new();
+        manager.set_rules(vec![
+            dns_rule("bad", 10, "not-an-ip"),
+            dns_rule("good", 5, "192.168.0.1"),
+        ]);
+
+        assert_eq!(
+            resolve(manager, "example.com"),
+            Some(std::net::IpAddr::from([192, 168, 0, 1]))
+        );
+    }
+
+    // Regression: equal priorities resolve to the rule that appears first,
+    // matching the stable descending sort used by rewrite/map rules
+    // (max_by_key used to pick the last one).
+    #[test]
+    fn dns_override_equal_priority_prefers_first_rule() {
+        let manager = DnsManager::new();
+        manager.set_rules(vec![
+            dns_rule("first", 10, "10.0.0.1"),
+            dns_rule("second", 10, "10.0.0.2"),
+        ]);
+
+        assert_eq!(
+            resolve(manager, "example.com"),
+            Some(std::net::IpAddr::from([10, 0, 0, 1]))
+        );
+    }
+
+    #[test]
+    fn dns_override_returns_none_without_a_usable_rule() {
+        let manager = DnsManager::new();
+        manager.set_rules(vec![dns_rule("bad", 10, "not-an-ip")]);
+        // Every matching rule has an unparsable target.
+        assert_eq!(resolve(manager, "example.com"), None);
+
+        let manager = DnsManager::new();
+        manager.set_rules(vec![dns_rule("good", 10, "10.0.0.1")]);
+        // Hostname does not match the rule pattern.
+        assert_eq!(resolve(manager, "other.test"), None);
+
+        // No manager at all.
+        assert_eq!(
+            resolve_dns_override(&None, "default", "example.com"),
+            None
+        );
+    }
 }

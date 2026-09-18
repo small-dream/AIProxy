@@ -86,12 +86,16 @@ export function useEnvVarsSaveManager({ selectedEnvId, save }: UseEnvVarsSaveMan
     }
   }, [selectedEnvId, flush]);
 
-  // Clear any pending timer on unmount (M9 "ghost save").
+  // M24: on unmount, FLUSH any pending debounced save instead of just clearing
+  // the timer — closing the dialog inside the 500ms debounce window previously
+  // dropped the in-flight edit silently (same fix as the global-vars flush in
+  // EnvironmentManagerDialog). `flush` clears the timer itself, so the M9
+  // "ghost save" cannot fire after unmount either.
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      flush();
     };
-  }, []);
+  }, [flush]);
 
   // Schedule a debounced save for the currently selected env.
   const scheduleSave = useCallback(

@@ -107,4 +107,55 @@ describe("useEnvVarsSaveManager (H8 flush-on-switch)", () => {
     // Exactly one save (the flush); the cleared timer must not fire again.
     expect(save).toHaveBeenCalledTimes(1);
   });
+
+  it("flushes the pending debounced save on unmount instead of dropping it (M24)", () => {
+    const save = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useEnvVarsSaveManager({ selectedEnvId: "envA", save }),
+    );
+
+    // Edit inside the 500ms debounce window, then unmount (dialog closes)
+    // BEFORE the timer fires. The pending edit must be persisted, not dropped.
+    act(() => {
+      result.current.scheduleSave([row("LAST_MINUTE_EDIT")]);
+    });
+    expect(save).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ environmentId: "envA" }));
+    const saved = save.mock.calls[0]![0] as {
+      environmentId: string;
+      variables: Array<{ key: string }>;
+    };
+    expect(saved.variables.some((v) => v.key === "LAST_MINUTE_EDIT")).toBe(true);
+  });
+
+  it("does not fire a ghost save after the unmount flush (M9 + M24)", () => {
+    const save = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useEnvVarsSaveManager({ selectedEnvId: "envA", save }),
+    );
+
+    act(() => {
+      result.current.scheduleSave([row("K")]);
+    });
+    unmount();
+
+    // The flush must have cleared the timer: letting the debounce window
+    // elapse after unmount must not save a second time.
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("unmount without a pending edit does not save", () => {
+    const save = vi.fn();
+    const { unmount } = renderHook(() => useEnvVarsSaveManager({ selectedEnvId: "envA", save }));
+
+    unmount();
+    expect(save).not.toHaveBeenCalled();
+  });
 });

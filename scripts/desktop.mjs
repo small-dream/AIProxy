@@ -107,13 +107,10 @@ function createSteps(action) {
     ];
   }
 
+  // bundle: no explicit frontend build step here — `tauri build` already runs
+  // tauri.conf.json's beforeBuildCommand (`pnpm --filter @aiproxy/desktop build`),
+  // so running one first would build the frontend twice.
   return [
-    {
-      args: [...frontendPackageManager.args, "--dir", "apps/desktop", "build"],
-      command: frontendPackageManager.command,
-      cwd: repoRoot,
-      label: "Building desktop frontend bundle",
-    },
     {
       args: ["tauri", "build", ...tauriConfigArgs(), ...updaterArtifactsConfigArgs()],
       command: resolveCommand("cargo"),

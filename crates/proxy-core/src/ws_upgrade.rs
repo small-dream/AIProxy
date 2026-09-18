@@ -24,8 +24,14 @@ enum BodyFraming {
 /// chunked takes precedence over Content-Length (RFC 7230 §3.3.3); absence of
 /// both means read-until-close.
 fn parse_response_body_framing(headers: &[(String, String)]) -> BodyFraming {
+    // Transfer-Encoding is a comma-separated token list (RFC 9112 §6.1), so a
+    // compound value like "gzip, chunked" still means chunked framing. Split
+    // and compare token-wise instead of matching the whole value.
     let is_chunked = headers.iter().any(|(name, value)| {
-        name.eq_ignore_ascii_case("transfer-encoding") && value.eq_ignore_ascii_case("chunked")
+        name.eq_ignore_ascii_case("transfer-encoding")
+            && value
+                .split(',')
+                .any(|token| token.trim().eq_ignore_ascii_case("chunked"))
     });
     if is_chunked {
         return BodyFraming::Chunked;
@@ -1614,6 +1620,65 @@ mod tests {
             !raw.contains("x-origin: \r\n"),
             "non-ASCII header value must NOT be erased to empty, got: {raw}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_response_body_framing
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn framing_prefers_chunked_over_content_length() {
+        let headers = vec![
+            ("Transfer-Encoding".to_string(), "chunked".to_string()),
+            ("Content-Length".to_string(), "42".to_string()),
+        ];
+        assert!(matches!(
+            parse_response_body_framing(&headers),
+            BodyFraming::Chunked
+        ));
+    }
+
+    // A compound Transfer-Encoding value (RFC 9112 §6.1 allows a token list,
+    // e.g. "gzip, chunked") must still be detected as chunked framing.
+    #[test]
+    fn framing_detects_compound_transfer_encoding_value() {
+        let headers = vec![
+            ("transfer-encoding".to_string(), "gzip, chunked".to_string()),
+            ("content-length".to_string(), "42".to_string()),
+        ];
+        assert!(matches!(
+            parse_response_body_framing(&headers),
+            BodyFraming::Chunked
+        ));
+
+        let headers = vec![(
+            "Transfer-Encoding".to_string(),
+            "Chunked, gzip".to_string(),
+        )];
+        assert!(matches!(
+            parse_response_body_framing(&headers),
+            BodyFraming::Chunked
+        ));
+    }
+
+    #[test]
+    fn framing_non_chunked_transfer_encoding_falls_through() {
+        let headers = vec![
+            ("Transfer-Encoding".to_string(), "gzip".to_string()),
+            ("Content-Length".to_string(), "7".to_string()),
+        ];
+        assert!(matches!(
+            parse_response_body_framing(&headers),
+            BodyFraming::ContentLength(7)
+        ));
+    }
+
+    #[test]
+    fn framing_defaults_to_read_until_close() {
+        assert!(matches!(
+            parse_response_body_framing(&[]),
+            BodyFraming::ReadUntilClose
+        ));
     }
 
     // -----------------------------------------------------------------------

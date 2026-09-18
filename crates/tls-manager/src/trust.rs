@@ -550,7 +550,8 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
 /// the SHA-1 fingerprint of each DER-encoded certificate. A PEM file may contain
 /// several concatenated certificates (a CA bundle); fingerprinting each
 /// separately is required to match against single-certificate inputs (M9).
-#[cfg(target_os = "linux")]
+/// Not linux-gated: `certificate_sha1_thumbprint` reuses this parsing on every
+/// platform.
 fn pem_sha1_fingerprints(pem: &str) -> Vec<String> {
     use base64::Engine;
     use sha1::{Digest, Sha1};
@@ -748,26 +749,19 @@ fn remove_cert_trust_linux(_cert_path: &Path) -> TrustRemovalReport {
 
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 fn certificate_sha1_thumbprint(cert_path: &Path) -> Result<String, &'static str> {
-    use base64::Engine;
-    use sha1::{Digest, Sha1};
-
     let cert_pem = std::fs::read_to_string(cert_path).map_err(|_| "read certificate")?;
-    let b64: String = cert_pem
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.starts_with("-----") && !line.is_empty())
-        .collect();
-    let der = base64::engine::general_purpose::STANDARD
-        .decode(b64)
-        .map_err(|_| "decode certificate")?;
-
-    let mut hasher = Sha1::new();
-    hasher.update(&der);
-    let thumbprint: String = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect();
+    // Reuse the bundle-aware parser: concatenating every non-fence line of a
+    // multi-certificate PEM into one blob would hash ALL certs together and
+    // yield a thumbprint matching none of them. Take the first certificate in
+    // the file, which is our generated root CA.
+    let fingerprint = pem_sha1_fingerprints(&cert_pem)
+        .into_iter()
+        .next()
+        .ok_or("decode certificate")?;
+    // pem_sha1_fingerprints emits colon-separated uppercase hex; the
+    // thumbprint consumers (Windows PowerShell, macOS `security -Z`) expect
+    // bare uppercase hex.
+    let thumbprint = fingerprint.replace(':', "");
 
     if !thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("invalid thumbprint");
@@ -871,6 +865,46 @@ mod tests {
         assert_eq!(thumbprint.len(), 40);
         assert!(thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()));
         assert_eq!(thumbprint, thumbprint.to_ascii_uppercase());
+    }
+
+    // A multi-certificate PEM bundle must yield the FIRST certificate's
+    // thumbprint. The previous implementation concatenated every non-fence
+    // base64 line into one blob, hashing all certs together and producing a
+    // thumbprint that matched none of them.
+    #[test]
+    fn thumbprint_of_bundle_matches_first_certificate() {
+        let cert_a = crate::RootCaPair::generate().unwrap();
+        let cert_b = crate::RootCaPair::generate().unwrap();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let single_path = std::env::temp_dir().join(format!(
+            "aiproxy-thumbprint-single-{}-{nanos}.pem",
+            std::process::id()
+        ));
+        let bundle_path = std::env::temp_dir().join(format!(
+            "aiproxy-thumbprint-bundle-{}-{nanos}.pem",
+            std::process::id()
+        ));
+        std::fs::write(&single_path, cert_a.cert_pem()).unwrap();
+        std::fs::write(
+            &bundle_path,
+            format!("{}{}", cert_a.cert_pem(), cert_b.cert_pem()),
+        )
+        .unwrap();
+
+        let single = certificate_sha1_thumbprint(&single_path).unwrap();
+        let bundle = certificate_sha1_thumbprint(&bundle_path).unwrap();
+        let _ = std::fs::remove_file(&single_path);
+        let _ = std::fs::remove_file(&bundle_path);
+
+        assert_eq!(bundle, single);
+        // Sanity: the second certificate has a different thumbprint, so an
+        // accidental "hash everything" implementation could not pass.
+        let other = pem_sha1_fingerprints(cert_b.cert_pem());
+        assert_eq!(other.len(), 1);
+        assert_ne!(single, other[0].replace(':', ""));
     }
 
     // The removal report's contract: every attempted store appears exactly

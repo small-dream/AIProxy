@@ -115,6 +115,24 @@ function formatMessage(template: string, params?: TranslationParams) {
   });
 }
 
+/**
+ * Non-React translation for code that runs outside the component tree (e.g.
+ * QueryClient error callbacks). Prefer `useI18n().t` inside components.
+ */
+export function translateMessage(
+  locale: SupportedLocale,
+  key: TranslationKey,
+  params?: TranslationParams,
+): string {
+  const value = getMessage(messagesByLocale[locale], key);
+
+  if (typeof value !== "string") {
+    throw new Error(`Translation key "${key}" does not resolve to a string`);
+  }
+
+  return formatMessage(value, params);
+}
+
 export function I18nProvider({ children }: PropsWithChildren) {
   const preference = useAppPreferencesStore((state) => state.languagePreference);
   const setPreference = useAppPreferencesStore((state) => state.setLanguagePreference);

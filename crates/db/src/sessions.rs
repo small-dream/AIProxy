@@ -227,7 +227,7 @@ pub fn load_recent_summaries(
                     transport_protocol, application_protocol, started_at, finished_at,
                     duration_ms, size_bytes, status_code, url, response_mime_type
              FROM session_summaries
-             ORDER BY started_at DESC
+             ORDER BY started_at DESC, id DESC
              LIMIT ?1",
         )
         .map_err(|e| DbError::query("prepare load summaries", e))?;
@@ -311,7 +311,7 @@ pub fn load_session_detail(
 /// `SQLITE_LIMIT_VARIABLE_NUMBER` (default 999, 32766 on newer builds), so
 /// binding the entire id list at once makes `prepare` fail once the list grows
 /// past the limit. 500 stays well under both ceilings.
-const DELETE_SESSIONS_BATCH_SIZE: usize = 500;
+pub(crate) const DELETE_SESSIONS_BATCH_SIZE: usize = 500;
 
 /// Delete sessions by ID list. Returns the number of deleted summary rows.
 ///
@@ -432,7 +432,7 @@ pub fn load_ws_messages(
             "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin, truncated
              FROM ws_messages
              WHERE session_id = ?1
-             ORDER BY timestamp ASC
+             ORDER BY timestamp ASC, rowid ASC
              LIMIT ?2 OFFSET ?3",
         )
         .map_err(|e| DbError::query("prepare load ws messages", e))?;
@@ -461,6 +461,17 @@ pub fn count_ws_messages(conn: &Connection, session_id: &str) -> Result<usize, D
     Ok(count as usize)
 }
 
+/// Escape LIKE wildcards AND the escape char itself so a user-supplied keyword
+/// is matched literally under `... LIKE ? ESCAPE '\'`. Backslash must be
+/// escaped first, otherwise the backslashes added for %/_ would themselves
+/// get escaped on the next pass (L1).
+pub(crate) fn escape_like_pattern(query: &str) -> String {
+    query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 /// Search WebSocket messages by payload text using LIKE.
 pub fn search_ws_messages(
     conn: &Connection,
@@ -469,14 +480,7 @@ pub fn search_ws_messages(
     limit: usize,
     offset: usize,
 ) -> Result<Vec<WsMessageRow>, DbError> {
-    // Escape LIKE wildcards AND the escape char itself. Backslash must be
-    // escaped first, otherwise the backslashes added for %/_ would themselves
-    // get escaped on the next pass (L1).
-    let escaped_query = query
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
-    let like_pattern = format!("%{escaped_query}%");
+    let like_pattern = format!("%{}%", escape_like_pattern(query));
     let mut stmt = conn
         .prepare(
             "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin, truncated
@@ -526,9 +530,12 @@ fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummaryRow
         application_protocol: row.get("application_protocol")?,
         started_at: row.get("started_at")?,
         finished_at: row.get("finished_at")?,
-        duration_ms: row.get::<_, i64>("duration_ms")? as u128,
-        size_bytes: row.get::<_, i64>("size_bytes")? as usize,
-        status_code: row.get::<_, i32>("status_code")? as u16,
+        // Clamp to non-negative ranges before the unsigned conversion (same
+        // defence as i32_to_port in workspaces.rs): a corrupt/negative value
+        // read back from the DB must not wrap to a huge unsigned number.
+        duration_ms: row.get::<_, i64>("duration_ms")?.max(0) as u128,
+        size_bytes: row.get::<_, i64>("size_bytes")?.max(0) as usize,
+        status_code: row.get::<_, i32>("status_code")?.clamp(0, 65535) as u16,
         url: row.get("url")?,
         response_mime_type: row.get("response_mime_type")?,
     })
@@ -923,5 +930,91 @@ mod tests {
         upsert_session(&conn, &summary, &detail).unwrap();
         let loaded = load_session_detail(&conn, "h6b").unwrap();
         assert!(loaded.is_some(), "detail should load with matching FK");
+    }
+
+    #[test]
+    fn escape_like_pattern_escapes_wildcards_and_backslash() {
+        assert_eq!(escape_like_pattern("50%"), "50\\%");
+        assert_eq!(escape_like_pattern("a_b"), "a\\_b");
+        assert_eq!(escape_like_pattern("a\\b"), "a\\\\b");
+        // Backslash is escaped first, so the \ added for % is not re-escaped.
+        assert_eq!(escape_like_pattern("\\%"), "\\\\\\%");
+    }
+
+    // started_at ties (e.g. two requests started in the same second) must fall
+    // back to id DESC so paginated loads neither repeat nor skip rows.
+    #[test]
+    fn load_recent_summaries_tiebreaks_on_id_desc() {
+        let conn = test_conn();
+        for id in ["tie-a", "tie-c", "tie-b"] {
+            upsert_session(
+                &conn,
+                &test_summary(id, "tie.example.com"),
+                &test_detail(id),
+            )
+            .unwrap();
+        }
+
+        let loaded = load_recent_summaries(&conn, 100).unwrap();
+        let ids: Vec<&str> = loaded.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["tie-c", "tie-b", "tie-a"]);
+    }
+
+    // Timestamp ties must fall back to rowid ASC (insertion order) so paged
+    // message loads are stable.
+    #[test]
+    fn load_ws_messages_tiebreaks_on_rowid() {
+        let conn = test_conn();
+        upsert_session(
+            &conn,
+            &test_summary("ws-tie", "ws.example.com"),
+            &test_detail("ws-tie"),
+        )
+        .unwrap();
+
+        for id in ["wm-2", "wm-1"] {
+            insert_ws_message(
+                &conn,
+                &WsMessageRow {
+                    id: id.into(),
+                    session_id: "ws-tie".into(),
+                    direction: "clientToServer".into(),
+                    timestamp: "2026-04-19T00:00:01Z".into(),
+                    opcode: "text".into(),
+                    payload_text: None,
+                    payload_size: 0,
+                    fin: true,
+                    truncated: false,
+                },
+            )
+            .unwrap();
+        }
+
+        let loaded = load_ws_messages(&conn, "ws-tie", 100, 0).unwrap();
+        let ids: Vec<&str> = loaded.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["wm-2", "wm-1"], "insertion order on tie");
+    }
+
+    // A corrupt/out-of-range value in the DB must be clamped to a non-negative
+    // value instead of wrapping to a huge unsigned number (mirrors
+    // i32_to_port in workspaces.rs).
+    #[test]
+    fn summary_row_clamps_negative_values() {
+        let conn = test_conn();
+        conn.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, started_at, finished_at,
+                 duration_ms, size_bytes, status_code, url)
+             VALUES ('neg-1', 'GET', 'neg.example.com', '/', 'HTTP/1.1',
+                     '2026-04-19T00:00:00Z', '2026-04-19T00:00:01Z', -5, -10, 70000,
+                     'https://neg.example.com/')",
+            [],
+        )
+        .unwrap();
+
+        let loaded = load_session_summary(&conn, "neg-1").unwrap().unwrap();
+        assert_eq!(loaded.duration_ms, 0);
+        assert_eq!(loaded.size_bytes, 0);
+        assert_eq!(loaded.status_code, 65535);
     }
 }

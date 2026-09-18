@@ -741,7 +741,7 @@ export function InspectorKeyValueTable({
                   </Box>
                   {isPseudo ? (
                     <Chip
-                      label="pseudo"
+                      label={t("inspector.pseudo")}
                       size="small"
                       sx={{
                         bgcolor: "action.hover",

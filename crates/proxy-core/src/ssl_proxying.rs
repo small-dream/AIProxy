@@ -125,9 +125,16 @@ impl<'de> Deserialize<'de> for SslProxyingSettings {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct New {
+            // Every field defaults so a persisted payload missing some fields
+            // (e.g. written by an older/newer build with a different field
+            // set) still partially parses instead of failing wholesale.
+            #[serde(default)]
             include_enabled: bool,
+            #[serde(default)]
             exclude_enabled: bool,
+            #[serde(default)]
             include: Vec<SslProxyEntry>,
+            #[serde(default)]
             exclude: Vec<SslProxyEntry>,
         }
 
@@ -202,4 +209,64 @@ fn enabled_patterns(entries: &[SslProxyEntry]) -> Arc<[String]> {
             .filter(|pattern| !pattern.is_empty())
             .collect::<Vec<_>>(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The legacy shape (plain string lists) must still deserialize and migrate
+    // to the entry form, unaffected by the new field defaults.
+    #[test]
+    fn legacy_string_list_shape_still_deserializes() {
+        let settings: SslProxyingSettings = serde_json::from_str(
+            r#"{"include":["*.example.com"],"exclude":["pinned.example"]}"#,
+        )
+        .expect("legacy shape must parse");
+
+        assert!(settings.include_enabled);
+        assert!(settings.exclude_enabled);
+        assert_eq!(settings.include.len(), 1);
+        assert_eq!(settings.include[0].pattern, "*.example.com");
+        assert!(settings.include[0].enabled);
+        assert_eq!(settings.exclude.len(), 1);
+        assert_eq!(settings.exclude[0].pattern, "pinned.example");
+        assert!(settings.exclude[0].enabled);
+    }
+
+    // Regression: a new-shape payload missing some fields must partially
+    // parse (missing fields fall back to their Rust defaults) instead of
+    // failing the whole settings blob.
+    #[test]
+    fn new_shape_with_missing_fields_partially_deserializes() {
+        let settings: SslProxyingSettings = serde_json::from_str(r#"{"includeEnabled":true}"#)
+            .expect("partial new shape must parse");
+
+        assert!(settings.include_enabled);
+        assert!(!settings.exclude_enabled);
+        assert!(settings.include.is_empty());
+        assert!(settings.exclude.is_empty());
+    }
+
+    #[test]
+    fn new_shape_missing_lists_keeps_flags() {
+        let settings: SslProxyingSettings = serde_json::from_str(
+            r#"{"includeEnabled":true,"excludeEnabled":false}"#,
+        )
+        .expect("partial new shape must parse");
+
+        assert!(settings.include_enabled);
+        assert!(!settings.exclude_enabled);
+        assert!(settings.include.is_empty());
+        assert!(settings.exclude.is_empty());
+    }
+
+    // The full new shape still round-trips unchanged.
+    #[test]
+    fn full_new_shape_round_trips() {
+        let settings = SslProxyingSettings::default();
+        let text = serde_json::to_string(&settings).expect("serialize");
+        let parsed: SslProxyingSettings = serde_json::from_str(&text).expect("parse");
+        assert_eq!(parsed, settings);
+    }
 }

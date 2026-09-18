@@ -1126,3 +1126,42 @@ describe("SslProxyingSettings", () => {
     expect(() => parseSslProxyingExclusions("*.example.com")).toThrow();
   });
 });
+
+describe("session parse error payload previews", () => {
+  // Parse errors must not embed the full (potentially huge, privacy-sensitive)
+  // payload in details — only a bounded 120-character sample, same as ws.ts.
+  function thrownDetails(run: () => unknown): Record<string, unknown> {
+    try {
+      run();
+    } catch (error) {
+      const details = (error as { details?: Record<string, unknown> }).details;
+      expect(details).toBeDefined();
+      return details as Record<string, unknown>;
+    }
+    throw new Error("expected the parse to throw");
+  }
+
+  it("parseSessionSummaries keeps only a bounded payloadPreview", () => {
+    const details = thrownDetails(() => parseSessionSummaries({ blob: "x".repeat(500) }));
+
+    expect(details).not.toHaveProperty("payload");
+    expect(typeof details.payloadPreview).toBe("string");
+    expect((details.payloadPreview as string).length).toBeLessThanOrEqual(120);
+  });
+
+  it("parseSessionSummaries bounds the preview for invalid array entries", () => {
+    const details = thrownDetails(() => parseSessionSummaries([{ blob: "x".repeat(500) }]));
+
+    expect(details).not.toHaveProperty("payload");
+    expect(typeof details.payloadPreview).toBe("string");
+    expect((details.payloadPreview as string).length).toBeLessThanOrEqual(120);
+  });
+
+  it("parseSessionDetail keeps only a bounded payloadPreview", () => {
+    const details = thrownDetails(() => parseSessionDetail({ blob: "x".repeat(500) }));
+
+    expect(details).not.toHaveProperty("payload");
+    expect(typeof details.payloadPreview).toBe("string");
+    expect((details.payloadPreview as string).length).toBeLessThanOrEqual(120);
+  });
+});

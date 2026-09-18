@@ -9,9 +9,24 @@ import { I18nProvider } from "@/i18n";
 
 import { useSessionContextActions } from "./use-session-context-actions";
 import { ensureSessionDetailContent } from "./session-detail-content";
+import { sendComposedRequest } from "@/services/commands";
 
 vi.mock("./session-detail-content", () => ({
   ensureSessionDetailContent: vi.fn(),
+}));
+
+vi.mock("@/services/commands", () => ({
+  saveSessionToCollection: vi.fn(),
+  sendComposedRequest: vi.fn(),
+}));
+
+// Controllable proxy status: Repeat must target the workspace the proxy is
+// actually running under, not a hardcoded "default".
+const proxyStatusState: { current: { activeWorkspaceId?: string } | undefined } = {
+  current: undefined,
+};
+vi.mock("@/features/proxy-status/use-proxy-status", () => ({
+  useProxyStatus: () => ({ data: proxyStatusState.current }),
 }));
 
 function createSessionSummary(): SessionSummary {
@@ -105,6 +120,59 @@ describe("useSessionContextActions copy failure handling", () => {
     expect(writeText).toHaveBeenCalledTimes(1);
     await waitFor(() => {
       expect(result.current.snackbarMessage).toBe("Copy failed");
+    });
+  });
+});
+
+// P7: Repeat used to hardcode workspaceId "default", so a repeat fired while
+// the proxy ran under another workspace landed in the wrong workspace.
+describe("useSessionContextActions repeat workspace targeting", () => {
+  beforeEach(() => {
+    vi.mocked(ensureSessionDetailContent).mockReset();
+    vi.mocked(sendComposedRequest).mockReset();
+    useAppPreferencesStore.setState({ languagePreference: "en" });
+  });
+
+  function stubSuccessfulRepeat() {
+    const summary = createSessionSummary();
+    const detail = buildDetail(summary);
+    vi.mocked(ensureSessionDetailContent).mockResolvedValue(detail);
+    const repeatedDetail: SessionDetail = {
+      ...detail,
+      id: "session-repeated",
+      summary: { ...summary, id: "session-repeated" },
+    };
+    vi.mocked(sendComposedRequest).mockResolvedValue(repeatedDetail);
+    return summary;
+  }
+
+  it("sends the repeat request to proxyStatus.activeWorkspaceId", async () => {
+    proxyStatusState.current = { activeWorkspaceId: "ws-42" };
+    const summary = stubSuccessfulRepeat();
+    const { result } = renderActionsHook();
+
+    await act(async () => {
+      await result.current.handleRepeatDirect(summary);
+    });
+
+    expect(sendComposedRequest).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendComposedRequest).mock.calls[0]![0]).toMatchObject({
+      workspaceId: "ws-42",
+    });
+  });
+
+  it("falls back to the default workspace when no activeWorkspaceId is reported", async () => {
+    proxyStatusState.current = undefined;
+    const summary = stubSuccessfulRepeat();
+    const { result } = renderActionsHook();
+
+    await act(async () => {
+      await result.current.handleRepeatDirect(summary);
+    });
+
+    expect(sendComposedRequest).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendComposedRequest).mock.calls[0]![0]).toMatchObject({
+      workspaceId: "default",
     });
   });
 });

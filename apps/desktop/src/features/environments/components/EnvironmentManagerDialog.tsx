@@ -85,22 +85,28 @@ export function EnvironmentManagerDialog({
     mutateGlobalVarsRef.current = setGlobalVars.mutate;
   });
 
+  // M22-style guard: only sync the local env-var rows when the selected
+  // environment actually changes — NOT on every envVarsQuery refetch (new data
+  // identity). A refetch triggered by our own debounced save would otherwise
+  // clobber input typed inside the 500ms debounce window (H1).
+  const lastSyncedEnvIdRef = useRef<string | null>(null);
+
   // Depend on query .data directly (stable reference from the query cache, or
   // undefined when disabled/failed) — avoids a new `[]` identity on every render.
   useEffect(() => {
-    if (envVarsQuery.data) {
-      setLocalEnvVars(
-        envVarsQuery.data.map((v) => ({
-          id: v.id,
-          key: v.key,
-          value: v.value,
-          enabled: v.enabled,
-          sortOrder: v.sortOrder,
-        })),
-      );
-    }
-  }, [envVarsQuery.data]);
-
+    if (!envVarsQuery.data || !selectedEnvId) return;
+    if (lastSyncedEnvIdRef.current === selectedEnvId) return;
+    lastSyncedEnvIdRef.current = selectedEnvId;
+    setLocalEnvVars(
+      envVarsQuery.data.map((v) => ({
+        id: v.id,
+        key: v.key,
+        value: v.value,
+        enabled: v.enabled,
+        sortOrder: v.sortOrder,
+      })),
+    );
+  }, [envVarsQuery.data, selectedEnvId]);
   useEffect(() => {
     if (globalVarsQuery.data) {
       setLocalGlobalVars(
@@ -254,6 +260,14 @@ export function EnvironmentManagerDialog({
                     key={env.id}
                     direction="row"
                     onClick={() => setSelectedEnvId(env.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedEnvId(env.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                     sx={{
                       px: 1,
                       py: 0.75,
@@ -278,6 +292,7 @@ export function EnvironmentManagerDialog({
                       {env.name}
                     </Typography>
                     <IconButton
+                      aria-label={t("common.actions.delete")}
                       size="small"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -286,6 +301,7 @@ export function EnvironmentManagerDialog({
                       sx={{
                         opacity: 0,
                         ".MuiStack-root:hover &": { opacity: 1 },
+                        ".MuiStack-root:focus-within &": { opacity: 1 },
                         color: "text.secondary",
                       }}
                     >

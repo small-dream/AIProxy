@@ -66,7 +66,7 @@ export async function deleteApiCollection(id: string): Promise<void> {
   try {
     await invoke("delete_api_collection", { input: { id } });
   } catch (error) {
-    reportCommandFailure("delete_api_collection", error, id);
+    reportCommandFailure("delete_api_collection", error, { collectionId: id });
     throw coerceAppError(error);
   }
 }
@@ -79,7 +79,7 @@ export async function listApiCollectionItems(collectionId: string): Promise<ApiC
     });
     return parseApiCollectionItems(payload);
   } catch (error) {
-    reportCommandFailure("list_api_collection_items", error, collectionId);
+    reportCommandFailure("list_api_collection_items", error, { collectionId });
     throw coerceAppError(error);
   }
 }
@@ -92,7 +92,7 @@ export async function getApiCollectionItem(id: string): Promise<ApiCollectionIte
     const payload = await invoke<unknown>("get_api_collection_item", { input: { id } });
     return parseApiCollectionItem(payload);
   } catch (error) {
-    reportCommandFailure("get_api_collection_item", error, id);
+    reportCommandFailure("get_api_collection_item", error, { itemId: id });
     throw coerceAppError(error);
   }
 }
@@ -134,7 +134,7 @@ export async function deleteApiCollectionItem(id: string): Promise<void> {
   try {
     await invoke("delete_api_collection_item", { input: { id } });
   } catch (error) {
-    reportCommandFailure("delete_api_collection_item", error, id);
+    reportCommandFailure("delete_api_collection_item", error, { itemId: id });
     throw coerceAppError(error);
   }
 }
@@ -150,7 +150,7 @@ export async function moveApiCollectionItem(
       input: { id, targetCollectionId, sortOrder },
     });
   } catch (error) {
-    reportCommandFailure("move_api_collection_item", error, id);
+    reportCommandFailure("move_api_collection_item", error, { itemId: id });
     throw coerceAppError(error);
   }
 }
@@ -166,7 +166,7 @@ export async function moveApiCollection(
       input: { id, targetParentId, sortOrder },
     });
   } catch (error) {
-    reportCommandFailure("move_api_collection", error, id);
+    reportCommandFailure("move_api_collection", error, { collectionId: id });
     throw coerceAppError(error);
   }
 }
@@ -181,7 +181,7 @@ export async function saveSessionToCollection(
     const payload = await invoke<unknown>("save_session_to_collection", { input });
     return parseApiCollectionItem(payload);
   } catch (error) {
-    reportCommandFailure("save_session_to_collection", error, input.sessionId);
+    reportCommandFailure("save_session_to_collection", error, { sessionId: input.sessionId });
     throw coerceAppError(error);
   }
 }

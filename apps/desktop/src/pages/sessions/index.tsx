@@ -346,7 +346,26 @@ export function SessionsPage() {
     );
   }, [activeContainer?.requestCollapsed]);
 
+  // The `containers` array identity changes on every high-frequency session
+  // update (~10Hz under load); only rewrite the compare scopes when the synced
+  // content (id, label, sessionIds) actually changes. Compare a content
+  // signature instead of the array identity.
+  const compareScopesSignature = useMemo(
+    () =>
+      JSON.stringify(
+        containers.map((container) => [
+          container.id,
+          t("sessionsPage.containers.sessionTitle", { index: container.labelNumber }),
+          container.sessionIds,
+        ]),
+      ),
+    [containers, t],
+  );
+  const lastSyncedCompareScopesRef = useRef<string | null>(null);
+
   useEffect(() => {
+    if (lastSyncedCompareScopesRef.current === compareScopesSignature) return;
+    lastSyncedCompareScopesRef.current = compareScopesSignature;
     syncSessionCompareScopes(
       containers.map((container) => ({
         id: container.id,
@@ -355,7 +374,7 @@ export function SessionsPage() {
         updatedAt: new Date().toISOString(),
       })),
     );
-  }, [containers, t]);
+  }, [compareScopesSignature, containers, t]);
 
   // Cmd+F / Ctrl+F to activate inspector search
   useEffect(() => {

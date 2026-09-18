@@ -1,10 +1,21 @@
-use std::hint::black_box;
+//! Benchmarks for the proxy's own body-decompression entry point
+//! (`http_io::decode_body_bytes`). The implementation is included verbatim
+//! below so the numbers cover the crate's real decode path rather than a bare
+//! flate2 decoder.
 
+use std::hint::black_box;
+use std::io::{Cursor, Read, Write};
+
+use brotli::Decompressor;
 use criterion::{criterion_group, criterion_main, Criterion};
-use flate2::read::GzDecoder;
+use flate2::read::{DeflateDecoder, GzDecoder, ZlibDecoder};
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use std::io::{Read, Write};
+
+// Mirror of the crate-internal constant the included decode code expects.
+const BROTLI_BUFFER_SIZE: usize = 4096;
+
+include!("../src/http_io/body_decode.rs");
 
 fn generate_gzip_body(raw_size: usize) -> Vec<u8> {
     let raw = "A".repeat(raw_size);
@@ -22,9 +33,8 @@ fn bench_gzip_decompress(c: &mut Criterion) {
 
         group.bench_function(&label, |b| {
             b.iter(|| {
-                let mut decoder = GzDecoder::new(black_box(&compressed[..]));
-                let mut decoded = Vec::with_capacity(size);
-                let _ = decoder.read_to_end(&mut decoded);
+                let decoded = decode_body_bytes(black_box(&compressed[..]), Some("gzip"));
+                black_box(decoded)
             });
         });
     }

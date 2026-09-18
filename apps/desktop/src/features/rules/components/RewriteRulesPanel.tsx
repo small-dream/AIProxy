@@ -408,25 +408,6 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
     }, [rules, searchValue]);
 
     useEffect(() => {
-      const state = location.state as RulesLocationState;
-      if (!state?.rewriteSeed) return;
-
-      const seededRule = createSeededRule(state.rewriteSeed);
-      // M22: pre-mark as synced so the selection effect does not overwrite the
-      // seeded draft on the next rules[] refetch.
-      lastSyncedRuleIdRef.current = seededRule.id;
-      setSelectedRuleId(seededRule.id);
-      setDraft(seededRule);
-      setValidationAttempted(false);
-      setTestInput({
-        method: state.rewriteSeed.method,
-        stage: "request",
-        url: state.rewriteSeed.url,
-      });
-      navigate(location.pathname, { replace: true, state: null });
-    }, [location.pathname, location.state, navigate]);
-
-    useEffect(() => {
       // M22: only sync the draft when the selection actually changes — NOT on
       // every rules[] refetch. Protects in-flight edits from being clobbered.
       const selectionValid =
@@ -470,6 +451,47 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
       guard.confirmLeave,
       isDirty,
     ]);
+
+    // Consuming a rewriteSeed replaces the in-flight draft, so a dirty editor
+    // vetoes through the same guard as every other draft-discarding transition
+    // (mirrors the mapLocalSeed flow in MapRulesPanel). Keyed by the history
+    // entry so a vetoed seed is not re-prompted on every later re-render; a
+    // veto leaves the seed in history state, unconsumed.
+    const lastHandledSeedKeyRef = useRef<string | null>(null);
+    const seedHandlingRef = useRef(false);
+    // Destructured so the effect can depend on the stable callback directly
+    // instead of the per-render `guard` object.
+    const confirmLeave = guard.confirmLeave;
+    useEffect(() => {
+      const state = location.state as RulesLocationState;
+      if (!state?.rewriteSeed) return;
+      if (lastHandledSeedKeyRef.current === location.key) return;
+      if (seedHandlingRef.current) return;
+      seedHandlingRef.current = true;
+
+      const seed = state.rewriteSeed;
+      void (async () => {
+        if (!(await confirmLeave())) {
+          seedHandlingRef.current = false;
+          return;
+        }
+        const seededRule = createSeededRule(seed);
+        // M22: pre-mark as synced so the selection effect does not overwrite
+        // the seeded draft on the next rules[] refetch.
+        lastSyncedRuleIdRef.current = seededRule.id;
+        setSelectedRuleId(seededRule.id);
+        setDraft(seededRule);
+        setValidationAttempted(false);
+        setTestInput({
+          method: seed.method,
+          stage: "request",
+          url: seed.url,
+        });
+        lastHandledSeedKeyRef.current = location.key;
+        seedHandlingRef.current = false;
+        navigate(location.pathname, { replace: true, state: null });
+      })();
+    }, [location.pathname, location.state, location.key, navigate, confirmLeave]);
 
     async function selectRule(rule: RewriteRule) {
       if (!(await guard.confirmLeave())) return;

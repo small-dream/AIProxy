@@ -80,7 +80,7 @@ jobs:
         run: cargo fmt --check --all
 
       - name: Check Rust clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test Rust workspace
         run: cargo test --workspace

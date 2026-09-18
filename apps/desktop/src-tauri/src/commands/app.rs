@@ -48,19 +48,33 @@ pub fn show_log_file(app: tauri::AppHandle) -> Result<String, String> {
     );
 
     if let Some(parent) = log_file_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("create log directory {}: {error}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|error| {
+            app_error(
+                ERR_INTERNAL,
+                format!("create log directory {}: {error}", parent.display()),
+            )
+        })?;
     }
 
     OpenOptions::new()
         .create(true)
         .append(true)
         .open(&log_file_path)
-        .map_err(|error| format!("prepare log file {}: {error}", log_file_path.display()))?;
+        .map_err(|error| {
+            app_error(
+                ERR_INTERNAL,
+                format!("prepare log file {}: {error}", log_file_path.display()),
+            )
+        })?;
 
     app.opener()
         .reveal_item_in_dir(&log_file_path)
-        .map_err(|error| format!("show log file {}: {error}", log_file_path.display()))?;
+        .map_err(|error| {
+            app_error(
+                ERR_INTERNAL,
+                format!("show log file {}: {error}", log_file_path.display()),
+            )
+        })?;
 
     tracing::info!(
         component = "desktop.app",

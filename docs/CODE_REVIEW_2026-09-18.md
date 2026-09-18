@@ -4,7 +4,15 @@
 
 上一期报告 `docs/CODE_REVIEW_2026-08-21.md` 的【严重】P0 全部 7 条已确认修复；P1 抽查大部分已修复，仍遗留条目见 §8。
 
-> **修复状态（2026-09-18）**：§6 Top 10 已全部修复并验证通过（cargo test --workspace、cargo clippy --workspace -- -D warnings、pnpm typecheck / lint / test、pnpm check:api-contract 全绿）。修复要点：H1 相对路径改用 components 逐段 `/` 拼接；H2 map 规则失败降级为 `outcome: "failed"` + `failureReason` trace 并继续转发（shared-types/API_SPEC 已同步）；H5 后端在 relay 注册/关闭处发射 `ws-connection-status`；H6 `SessionDetailPayload` 补 `viaUpstreamProxy` 透传并加回归测试；H3 fallback 收窄为锚定正则 `^command \S+ not found$`（仅匹配 Tauri 未注册命令形态）；H4 新增 `delete_sessions` 命令，删除走"后端命令 → `sessions-removed` 事件 → 本地移除"闭环；WS relay 持有 owned permit（耗尽返回 503）；accept 失败加指数退避（10ms–1s）；Linux 证书移除补 `--fresh`；`system-proxy-warning` 前端已订阅并全局通知；新增 `scripts/check-api-contract.mjs` 并接入 CI（`pnpm check:api-contract`）。
+> **修复状态（2026-09-18，第二轮）**：第一轮 Top 10 已修复提交（026c6d79）。第二轮已修掉 §3/§4 中全部"简单低风险、改动小"的条目，要点：
+> - **proxy-core**：手写 Serialize 补 `rewriteTraces`/`scriptTraces` 且 field_count 动态化；Transfer-Encoding 复合值按逗号拆分匹配；断点改请求 body 移除陈旧 content-length、编辑头部改 `append` 保留同名多头、`should_break` 复用 `find_matching_rule_id`、删除与 rewrite 重复的 strip helpers；响应头 set 先校验后修改；stage 词汇统一为共享 `rule_stage_matches`（"both"/"either" 均兼容）；DNS override 跳过解析失败规则并对齐 tie 语义；throttle 延迟饱和转换；ssl_proxying 新版结构加 `#[serde(default)]`；bench 改测 crate 自身解压路径。
+> - **rule-engine / tls-manager**：脚本 permit 中毒泄漏与超发修复、TimedOut 误判改按中断标记判定、`JSON.stringify` 不可序列化兜底 `[unserializable]`；多证书 PEM bundle 指纹复用分块解析。
+> - **db**：insights `GROUP BY LOWER(host)` 口径统一、session_ids IN 分批（500/批）、LIKE 通配符转义共享 helper；`column_exists` 传播解码错误；行解码加 clamp；两处排序补 tiebreaker；四处 `INSERT OR REPLACE` 改 UPDATE-or-INSERT。
+> - **src-tauri**：compose/show_log_file 命令边界错误统一 `app_error()` 包装；`get_local_ip` 改 async（Windows PowerShell 走 spawn_blocking）。
+> - **前端**：`reportCommandFailure` 改 `context` 具名字段；`AppCommandError` 统一（errors.ts）；localStore 三件套去重；updater 失败清 `pendingUpdate`；设备扫描超时就地化；死 barrel/重复 helper/冗余 effect 清理；`confirmLeave` 重入与卸载兜底；shared-types 错误 details 改 120 字符截断样本；两处 resize 监听器卸载清理；环境编辑器 lastSynced 守卫 + 卸载 flush；compare scope 内容签名比对；节流规则名/伪标头/兜底文案 i18n；Repeat 注入当前工作区；headers 编辑器唯一 id；zoom 步进取整；环境列表键盘可达性；rewriteSeed 走 unsaved-guard；spring-load 定时器清理。
+> - **契约/工程**：API_SPEC 补 `systemProxyRecoveryWarning`、`commitHash`、binary 注入编码、workspace_id 预留标注、api_key 存储安全说明，事件命名规范改为连字符风格；release-checklist 新增五处版本一致性校验（AGENTS.md §13、ENGINEERING_GUIDELINES §9.4 已同步）；clean.mjs/desktop.mjs 小修；**CI 与 release-checklist 的 clippy 均已升级为 `--all-targets`**（三处 `items_after_test_module` 与一处 `too_many_arguments` 已修复，门禁转绿）。
+>
+> **仍遗留（复杂或需专项决策，建议后续单独处理）**：中 #6 WS 非 101 响应转发截断（需改流式转发）、#7 zip bomb 输出上限、#8 map-local 异步化/限容、#10 serde_json preserve_order、#11 SNI 复核、#12 compile.rs 入口点正则改 AST、#15 证书签名 spawn_blocking、#16 上游校验默认值决策、#2 请求阶段断点 Drop 补 session、#34 services→features 反向依赖下沉；旧报告 P1-8（session channel 无权重上限）、P1-11（api_key keychain）、P1-13（IP SAN）、P1-20/21/22/25/26、P1-29/32；db 迁移事务化；Windows 原子写 fsync；私钥 zeroize。
 
 ---
 

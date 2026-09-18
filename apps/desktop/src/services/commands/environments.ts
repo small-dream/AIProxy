@@ -54,7 +54,7 @@ export async function deleteApiEnvironment(id: string): Promise<void> {
   try {
     await invoke("delete_api_environment", { input: { id } });
   } catch (error) {
-    reportCommandFailure("delete_api_environment", error, id);
+    reportCommandFailure("delete_api_environment", error, { environmentId: id });
     throw coerceAppError(error);
   }
 }
@@ -69,7 +69,7 @@ export async function listApiEnvironmentVariables(
     });
     return parseApiEnvironmentVariables(payload);
   } catch (error) {
-    reportCommandFailure("list_api_environment_variables", error, environmentId);
+    reportCommandFailure("list_api_environment_variables", error, { environmentId });
     throw coerceAppError(error);
   }
 }
@@ -90,7 +90,7 @@ export async function setApiEnvironmentVariables(
       input: { environmentId, variables },
     });
   } catch (error) {
-    reportCommandFailure("set_api_environment_variables", error, environmentId);
+    reportCommandFailure("set_api_environment_variables", error, { environmentId });
     throw coerceAppError(error);
   }
 }

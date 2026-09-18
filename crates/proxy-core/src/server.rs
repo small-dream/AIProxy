@@ -237,72 +237,6 @@ fn format_listener_bind_error(bind_addr: &str, port: u16, error: &std::io::Error
     format!("failed to bind proxy listener on {bind_addr}:{port}: {error}")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::format_listener_bind_error;
-    use super::Url;
-
-    #[test]
-    fn serializes_port_in_use_bind_failures_as_app_errors() {
-        let error = std::io::Error::new(std::io::ErrorKind::AddrInUse, "Address already in use");
-        let actual = format_listener_bind_error("127.0.0.1", 8888, &error);
-        let parsed: serde_json::Value = serde_json::from_str(&actual).expect("valid json");
-
-        assert_eq!(parsed["code"], "PORT_IN_USE");
-        assert_eq!(parsed["details"]["port"], 8888);
-        assert_eq!(parsed["details"]["host"], "127.0.0.1");
-    }
-
-    // -----------------------------------------------------------------------
-    // CONNECT port parsing from URL
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn connect_port_parsed_from_url() {
-        // CONNECT target "example.com:8443" is parsed as "http://example.com:8443"
-        // by read_proxy_request. Verify that url::Url extracts the custom port.
-        let raw_path = "example.com:8443";
-        let target_url = format!("http://{raw_path}");
-        let url = Url::parse(&target_url).expect("valid URL");
-
-        assert_eq!(url.port(), Some(8443));
-        assert_eq!(url.host_str(), Some("example.com"));
-    }
-
-    #[test]
-    fn connect_default_port_when_absent() {
-        let raw_path = "example.com";
-        let target_url = format!("http://{raw_path}");
-        let url = Url::parse(&target_url).expect("valid URL");
-
-        // No explicit port → url::Url returns None, proxy falls back to 443.
-        assert_eq!(url.port(), None);
-        assert_eq!(
-            url.port().unwrap_or(super::DEFAULT_HTTPS_PORT),
-            super::DEFAULT_HTTPS_PORT
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // accept_error_backoff
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn accept_error_backoff_grows_exponentially_and_caps() {
-        use super::{accept_error_backoff, ACCEPT_ERROR_BACKOFF_MAX};
-        use std::time::Duration;
-
-        assert_eq!(accept_error_backoff(1), Duration::from_millis(10));
-        assert_eq!(accept_error_backoff(2), Duration::from_millis(20));
-        assert_eq!(accept_error_backoff(3), Duration::from_millis(40));
-        assert_eq!(accept_error_backoff(7), Duration::from_millis(640));
-        // 8th consecutive failure would reach 1280ms — capped at 1s.
-        assert_eq!(accept_error_backoff(8), ACCEPT_ERROR_BACKOFF_MAX);
-        // Saturating: absurdly large counters still report the cap, no overflow.
-        assert_eq!(accept_error_backoff(u32::MAX), ACCEPT_ERROR_BACKOFF_MAX);
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     mut stream: TcpStream,
@@ -901,4 +835,70 @@ pub async fn send_direct_request_bytes(
         // target itself and never consults the workspace's upstream proxy.
         via_upstream_proxy: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_listener_bind_error;
+    use super::Url;
+
+    #[test]
+    fn serializes_port_in_use_bind_failures_as_app_errors() {
+        let error = std::io::Error::new(std::io::ErrorKind::AddrInUse, "Address already in use");
+        let actual = format_listener_bind_error("127.0.0.1", 8888, &error);
+        let parsed: serde_json::Value = serde_json::from_str(&actual).expect("valid json");
+
+        assert_eq!(parsed["code"], "PORT_IN_USE");
+        assert_eq!(parsed["details"]["port"], 8888);
+        assert_eq!(parsed["details"]["host"], "127.0.0.1");
+    }
+
+    // -----------------------------------------------------------------------
+    // CONNECT port parsing from URL
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn connect_port_parsed_from_url() {
+        // CONNECT target "example.com:8443" is parsed as "http://example.com:8443"
+        // by read_proxy_request. Verify that url::Url extracts the custom port.
+        let raw_path = "example.com:8443";
+        let target_url = format!("http://{raw_path}");
+        let url = Url::parse(&target_url).expect("valid URL");
+
+        assert_eq!(url.port(), Some(8443));
+        assert_eq!(url.host_str(), Some("example.com"));
+    }
+
+    #[test]
+    fn connect_default_port_when_absent() {
+        let raw_path = "example.com";
+        let target_url = format!("http://{raw_path}");
+        let url = Url::parse(&target_url).expect("valid URL");
+
+        // No explicit port → url::Url returns None, proxy falls back to 443.
+        assert_eq!(url.port(), None);
+        assert_eq!(
+            url.port().unwrap_or(super::DEFAULT_HTTPS_PORT),
+            super::DEFAULT_HTTPS_PORT
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // accept_error_backoff
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn accept_error_backoff_grows_exponentially_and_caps() {
+        use super::{accept_error_backoff, ACCEPT_ERROR_BACKOFF_MAX};
+        use std::time::Duration;
+
+        assert_eq!(accept_error_backoff(1), Duration::from_millis(10));
+        assert_eq!(accept_error_backoff(2), Duration::from_millis(20));
+        assert_eq!(accept_error_backoff(3), Duration::from_millis(40));
+        assert_eq!(accept_error_backoff(7), Duration::from_millis(640));
+        // 8th consecutive failure would reach 1280ms — capped at 1s.
+        assert_eq!(accept_error_backoff(8), ACCEPT_ERROR_BACKOFF_MAX);
+        // Saturating: absurdly large counters still report the cap, no overflow.
+        assert_eq!(accept_error_backoff(u32::MAX), ACCEPT_ERROR_BACKOFF_MAX);
+    }
 }

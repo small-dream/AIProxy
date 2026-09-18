@@ -43,6 +43,8 @@ export const enMessages = {
     },
     errors: {
       generic: "Something went wrong. Please try again.",
+      mutationFailed: "The action failed. Please try again.",
+      queryFailed: "Failed to load data. Please try again.",
       unexpected: "An unexpected error occurred.",
     },
     labels: {
@@ -892,6 +894,8 @@ export const enMessages = {
       adbDevicePickerTitleClear: "Choose an Android device to clear the proxy",
       adbDevicePickerTitleSet: "Choose an Android device to set the proxy",
       adbDevicePlaceholder: "Select a device",
+      adbDeviceScanTimeout:
+        "Timed out while scanning Android devices via adb. Check that adb is responsive, then refresh devices.",
       adbDeviceSelectorLabel: "ADB Device",
       adbDeviceStateHint:
         'The selected target is in {{state}} state. Only devices in "device" state can install the certificate.',
@@ -998,6 +1002,8 @@ export const enMessages = {
       iosSimulatorRefreshAction: "Refresh Simulators",
       iosSimulatorRefreshing: "Refreshing...",
       iosSimulatorScanHint: 'Click "Refresh Simulators" to scan for iOS simulators.',
+      iosSimulatorScanTimeout:
+        "Timed out while scanning iOS Simulators. Check Xcode Simulator services, then refresh simulators.",
       iosSimulatorSelectorLabel: "iOS Simulator",
       iosSimulatorSuccessBody:
         "The root certificate was installed into {{simulatorName}}. Next, open Certificate Trust Settings in the Simulator and enable full trust manually.",
@@ -1045,6 +1051,8 @@ export const enMessages = {
       ],
       hdcDeviceLoadErrorTitle: "hdc Device Detection Failed",
       hdcDevicePlaceholder: "Select a device",
+      hdcDeviceScanTimeout:
+        "Timed out while scanning HarmonyOS devices via hdc. Check that hdc is responsive, then refresh devices.",
       hdcDeviceSelectorLabel: "HarmonyOS Device",
       hdcDeviceStateHint:
         'The selected target is in {{state}} state. Only devices in the "Connected" state can install the certificate.',
@@ -1509,6 +1517,7 @@ export const enMessages = {
   inspector: {
     cookies: "Cookies",
     copyFullValue: "View full value",
+    pseudo: "pseudo",
     waterfall: {
       unavailable: "Timing unavailable",
       dns: "DNS",

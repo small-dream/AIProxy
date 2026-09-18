@@ -16,46 +16,10 @@ import {
 import { getImportedSessionDetail } from "@/features/sessions/imported-sessions.store";
 
 import { isTauriRuntime, reportCommandFailure, shouldFallbackToLocalStore } from "./runtime";
+import { readStoredRules, upsertStoredEntity, writeStoredRules } from "./local-store.helpers";
 
 const THROTTLE_PROFILES_STORAGE_KEY = "aiproxy.throttle.profiles";
 const THROTTLE_RULES_STORAGE_KEY = "aiproxy.throttle.rules";
-
-function readStoredRules<T>(storageKey: string, parser: (value: unknown) => T[]): T[] {
-  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
-    return [];
-  }
-
-  const rawValue = window.localStorage.getItem(storageKey);
-
-  if (!rawValue) {
-    return [];
-  }
-
-  try {
-    return parser(JSON.parse(rawValue));
-  } catch (error) {
-    reportCommandFailure(`read_local_store:${storageKey}`, error);
-    return [];
-  }
-}
-
-function writeStoredRules(storageKey: string, value: unknown) {
-  if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
-    return;
-  }
-
-  window.localStorage.setItem(storageKey, JSON.stringify(value));
-}
-
-function upsertStoredEntity<T extends { id: string }>(items: T[], nextItem: T): T[] {
-  const existingIndex = items.findIndex((item) => item.id === nextItem.id);
-
-  if (existingIndex === -1) {
-    return [...items, nextItem];
-  }
-
-  return items.map((item) => (item.id === nextItem.id ? nextItem : item));
-}
 
 function createDefaultThrottleProfiles(workspaceId: string): ThrottleProfile[] {
   return [
@@ -113,7 +77,7 @@ export async function listThrottleProfiles(
 
       return parseThrottleProfiles(payload);
     } catch (error) {
-      reportCommandFailure("list_throttle_profiles", error, workspaceId);
+      reportCommandFailure("list_throttle_profiles", error, { workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -142,9 +106,10 @@ export async function saveThrottleProfile(
       });
 
       const [savedProfile] = parseThrottleProfiles([payload]);
-      return savedProfile!;
+      if (!savedProfile) throw coerceAppError("Empty response from save_throttle_profile");
+      return savedProfile;
     } catch (error) {
-      reportCommandFailure("save_throttle_profile", error, input.workspaceId);
+      reportCommandFailure("save_throttle_profile", error, { workspaceId: input.workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -181,7 +146,7 @@ export async function listThrottleRules(
 
       return parseThrottleRules(payload);
     } catch (error) {
-      reportCommandFailure("list_throttle_rules", error, workspaceId);
+      reportCommandFailure("list_throttle_rules", error, { workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -209,9 +174,10 @@ export async function saveThrottleRule(
       });
 
       const [savedRule] = parseThrottleRules([payload]);
-      return savedRule!;
+      if (!savedRule) throw coerceAppError("Empty response from save_throttle_rule");
+      return savedRule;
     } catch (error) {
-      reportCommandFailure("save_throttle_rule", error, input.workspaceId);
+      reportCommandFailure("save_throttle_rule", error, { workspaceId: input.workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -265,7 +231,7 @@ export async function setActiveThrottleProfile(input: {
       });
       return;
     } catch (error) {
-      reportCommandFailure("set_active_throttle_profile", error, workspaceId);
+      reportCommandFailure("set_active_throttle_profile", error, { workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -324,7 +290,7 @@ export async function listThrottleSessionTrace(sessionId: string): Promise<Throt
 
       return parseThrottleSessionTrace(payload);
     } catch (error) {
-      reportCommandFailure("list_throttle_session_trace", error, sessionId);
+      reportCommandFailure("list_throttle_session_trace", error, { sessionId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -348,7 +314,7 @@ export async function listThrottledSessionIds(
         ? payload.filter((id): id is string => typeof id === "string")
         : [];
     } catch (error) {
-      reportCommandFailure("list_throttled_session_ids", error, workspaceId);
+      reportCommandFailure("list_throttled_session_ids", error, { workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);

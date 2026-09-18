@@ -216,33 +216,70 @@ fn delete_collection_tree(conn: &Connection, id: &str) -> Result<(), DbError> {
 // Collection item CRUD
 // ---------------------------------------------------------------------------
 
+/// Save (insert or update) a collection item.
+///
+/// Uses UPDATE-or-INSERT rather than INSERT OR REPLACE (mirrors
+/// `upsert_collection` above): a REPLACE's implicit DELETE is a maintenance
+/// trap for any future child table referencing api_collection_items with
+/// ON DELETE CASCADE.
 pub fn upsert_collection_item(conn: &Connection, item: &CollectionItemRow) -> Result<(), DbError> {
-    conn.execute(
-        "INSERT OR REPLACE INTO api_collection_items
-            (id, collection_id, name, description, sort_order,
-             method, url, headers, body, body_type, raw_language, form_data, url_encoded,
-             form_files, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-        params![
-            item.id,
-            item.collection_id,
-            item.name,
-            item.description,
-            item.sort_order as i32,
-            item.method,
-            item.url,
-            item.headers,
-            item.body,
-            item.body_type,
-            item.raw_language,
-            item.form_data,
-            item.url_encoded,
-            item.form_files,
-            item.created_at,
-            item.updated_at,
-        ],
-    )
-    .map_err(|e| DbError::query("upsert collection item", e))?;
+    let affected = conn
+        .execute(
+            "UPDATE api_collection_items
+                SET collection_id=?2, name=?3, description=?4, sort_order=?5,
+                    method=?6, url=?7, headers=?8, body=?9, body_type=?10,
+                    raw_language=?11, form_data=?12, url_encoded=?13,
+                    form_files=?14, created_at=?15, updated_at=?16
+             WHERE id=?1",
+            params![
+                item.id,
+                item.collection_id,
+                item.name,
+                item.description,
+                item.sort_order as i32,
+                item.method,
+                item.url,
+                item.headers,
+                item.body,
+                item.body_type,
+                item.raw_language,
+                item.form_data,
+                item.url_encoded,
+                item.form_files,
+                item.created_at,
+                item.updated_at,
+            ],
+        )
+        .map_err(|e| DbError::query("update collection item", e))?;
+
+    if affected == 0 {
+        conn.execute(
+            "INSERT INTO api_collection_items
+                (id, collection_id, name, description, sort_order,
+                 method, url, headers, body, body_type, raw_language, form_data, url_encoded,
+                 form_files, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            params![
+                item.id,
+                item.collection_id,
+                item.name,
+                item.description,
+                item.sort_order as i32,
+                item.method,
+                item.url,
+                item.headers,
+                item.body,
+                item.body_type,
+                item.raw_language,
+                item.form_data,
+                item.url_encoded,
+                item.form_files,
+                item.created_at,
+                item.updated_at,
+            ],
+        )
+        .map_err(|e| DbError::query("insert collection item", e))?;
+    }
     Ok(())
 }
 
@@ -1224,5 +1261,53 @@ mod tests {
             "expected missing parent error, got: {err}"
         );
         assert!(list_all_collections(&conn).unwrap().is_empty());
+    }
+
+    // Re-saving a collection item must update the row in place
+    // (UPDATE-or-INSERT, matching upsert_collection): INSERT OR REPLACE would
+    // delete-and-recreate the row, firing CASCADE on any future child table.
+    #[test]
+    fn upsert_collection_item_updates_in_place_on_resave() {
+        let conn = test_conn();
+
+        let c = CollectionRow {
+            id: "c1".into(),
+            parent_id: None,
+            name: "Folder".into(),
+            description: String::new(),
+            sort_order: 0,
+            created_at: now(),
+            updated_at: now(),
+        };
+        upsert_collection(&conn, &c).unwrap();
+
+        fn make_item(name: &str, url: &str) -> CollectionItemRow {
+            CollectionItemRow {
+                id: "i1".into(),
+                collection_id: "c1".into(),
+                name: name.into(),
+                description: String::new(),
+                sort_order: 0,
+                method: "GET".into(),
+                url: url.into(),
+                headers: "[]".into(),
+                body: String::new(),
+                body_type: "none".into(),
+                raw_language: "json".into(),
+                form_data: "[]".into(),
+                url_encoded: "[]".into(),
+                form_files: "[]".into(),
+                created_at: "2026-04-20T00:00:00Z".into(),
+                updated_at: "2026-04-20T00:00:00Z".into(),
+            }
+        }
+
+        upsert_collection_item(&conn, &make_item("Before", "https://a.example.com")).unwrap();
+        upsert_collection_item(&conn, &make_item("After", "https://b.example.com")).unwrap();
+
+        let items = list_collection_items(&conn, "c1").unwrap();
+        assert_eq!(items.len(), 1, "re-save must not duplicate the item");
+        assert_eq!(items[0].name, "After");
+        assert_eq!(items[0].url, "https://b.example.com");
     }
 }

@@ -53,7 +53,7 @@ AIProxy 为桌面端应用，不采用传统远程 HTTP API 作为主交互形�
 ## 4.1 命名规范
 
 - Command 使用 `snake_case`
-- Event 使用 `domain/action` 风格
+- Event 使用 `domain-action` 连字符（kebab-case）风格，如 `session-upsert`、`breakpoint-hit`、`ws-message`
 - 前端内部 TypeScript 类型使用 `PascalCase`
 - Rust DTO 使用 `CamelCase` 序列化为 JSON
 
@@ -179,6 +179,9 @@ type ProxyStatus = {
   activeWorkspaceId?: string; // 当前激活代理预设 ID，字段名保持兼容
   startedAt?: string;
   http2Enabled?: boolean;
+  // 系统代理恢复 / 重新应用失败时的警告信息（如重启后 reapply 失败）；
+  // 无警告时缺省。disable_system_proxy 成功后清空。
+  systemProxyRecoveryWarning?: string;
 };
 ```
 
@@ -1068,6 +1071,8 @@ type SetFocusedHostsInput = {
 
 ```ts
 type SendComposedRequestInput = {
+  // 预留字段：后端当前不校验、不使用（compose.rs 中标记 #[allow(dead_code)]），
+  // 保留用于未来按代理预设解析发送配置。前端仍应传当前激活预设 ID。
   workspaceId: string;
   method: string;
   url: string;
@@ -1230,6 +1235,7 @@ type WsInjectInput = {
 - `clientToServer` 方向的帧使用掩码发送（RFC 6455 §5.1）
 - `serverToClient` 方向的帧不使用掩码
 - 注入的帧同时作为 `WsMessageData` 发送到会话层，确保 UI 实时更新
+- `payload` 一律为字符串：无论 `opcode` 为何，后端都按 UTF-8 将其编码为帧字节（`crates/proxy-core/src/ws.rs` 中 `req.payload.into_bytes()`）。因此 `binary` 帧的帧体就是 payload 字符串的 UTF-8 字节序列——当前没有 base64/hex 解码路径，无法注入任意二进制字节，属已知限制
 
 ### `search_ws_messages` — `已实现`
 
@@ -2457,10 +2463,11 @@ type SystemProxyWarningEvent = {
 
 ### App Build Info
 
-- `get_app_build_info() -> { version: string; buildNumber: string; versionIdentifier: string }`
+- `get_app_build_info() -> { version: string; buildNumber: string; versionIdentifier: string; commitHash: string }`
 - `version` 来自应用版本号配置，例如 `0.1.0`。
 - `buildNumber` 默认由 `apps/desktop/src-tauri/build.rs` 执行 `git rev-list --count HEAD` 生成；CI 可通过 `AIPROXY_BUILD_NUMBER` 覆盖。
 - `versionIdentifier` 使用 `version+buildNumber` 格式，例如 `0.1.0+153`，作为软件构建的唯一标识。
+- `commitHash` 为构建时的 git commit hash，由 `AIPROXY_GIT_HASH` 注入；未注入时为 `"unknown"`。
 - 原生 About 菜单和 Settings > About 都应展示版本号与 Build Number。
 
 ### v1
@@ -2683,6 +2690,8 @@ type ApiGlobalVariable = {
 ## 15. AI Compare Commands — 已实现发布硬化版
 
 这些命令由 `Compare` 页面和 `Settings > AI Model` 调用。当前仅支持 OpenAI-compatible Chat Completions，API Key 存在本地 SQLite 的 `ai_settings` 表中，前端只接收 masked key。Compare 页面生成的 diff payload 默认脱敏，并带有 Body lazy diff、截断和 binary 状态元数据。
+
+> **API Key 存储安全说明**：`api_key` 以明文存储在本地 SQLite `ai_settings` 表中，这是已知的取舍——key 需要以原文发送到用户自配置的 AI endpoint，本地桌面端无法在不引入系统 keychain 依赖的前提下加密存储。命令层已做最小暴露：任何命令 / 事件都不会把完整 key 传给前端，`get_ai_settings` 只返回 `hasApiKey` 与 `mask_api_key()` 生成的 `maskedApiKey`，日志也不记录完整 key。
 
 ### AI 共享类型
 

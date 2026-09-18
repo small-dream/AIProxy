@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { I18nProvider } from "@/i18n";
-import { SearchableCodeBlock } from "./SessionInspectorShared";
+import { InspectorKeyValueTable, SearchableCodeBlock } from "./SessionInspectorShared";
 
 function createLargeCodeBlock() {
   return Array.from({ length: 400 }, (_value, index) => `line ${index} match`).join("\n");
@@ -17,6 +18,30 @@ function mockWindowSelection(text: string) {
     toString: () => text,
   } as Selection);
 }
+
+describe("InspectorKeyValueTable", () => {
+  afterEach(() => {
+    useAppPreferencesStore.setState({ languagePreference: "en" });
+  });
+
+  it("renders the pseudo-header chip label through i18n", () => {
+    // Assert against the zh-CN message: a hardcoded English "pseudo" label
+    // would not follow the locale switch.
+    useAppPreferencesStore.setState({ languagePreference: "zh-CN" });
+
+    renderWithProviders(
+      <InspectorKeyValueTable
+        items={[
+          { name: ":method", value: "GET", isPseudo: true },
+          { name: "host", value: "example.com" },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("伪标头")).toBeInTheDocument();
+    expect(screen.queryByText("pseudo")).not.toBeInTheDocument();
+  });
+});
 
 describe("SearchableCodeBlock", () => {
   it("virtualizes large content when search is inactive", () => {

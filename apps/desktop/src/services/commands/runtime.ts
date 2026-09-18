@@ -2,14 +2,18 @@ import { coerceAppError } from "@aiproxy/shared-types";
 
 import { logDevError } from "@/services/logger/dev-logger";
 
+import { AppCommandError } from "./errors";
+
 export function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  message: string,
+  timeout: { code: string; message: string },
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeoutId = window.setTimeout(() => {
-      reject(new Error(message));
+      // Coded error (not a bare message) so the UI can map it to a localized
+      // string instead of showing a hardcoded English one.
+      reject(new AppCommandError(timeout.code, timeout.message));
     }, timeoutMs);
 
     promise.then(
@@ -38,12 +42,16 @@ export function detectBrowserPlatform(): "linux" | "macos" | "windows" {
   return "windows";
 }
 
-export function reportCommandFailure(commandName: string, error: unknown, workspaceId?: string) {
+export function reportCommandFailure(
+  commandName: string,
+  error: unknown,
+  context?: Record<string, unknown>,
+) {
   logDevError("ui.commands", "command_failed", {
     commandName,
     error,
     occurredAt: new Date().toISOString(),
-    workspaceId,
+    ...context,
   });
 }
 

@@ -66,7 +66,11 @@ pub enum WsOpcode {
 }
 
 impl WsOpcode {
-    pub fn from_u8(v: u8) -> Self {
+    /// Map a raw opcode nibble to a `WsOpcode`. Reserved opcodes (3-7, 11-15)
+    /// fall back to `Binary` — callers MUST reject them first (see
+    /// `try_parse_ws_frame`, which fails the connection per RFC 6455 §5.2).
+    /// Kept crate-private so no new caller can skip that validation.
+    pub(crate) fn from_u8(v: u8) -> Self {
         match v {
             0 => WsOpcode::Continuation,
             1 => WsOpcode::Text,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::rules::{strip_plain_body_edit_header_entries, strip_plain_body_edit_headers};
 use regex::Regex;
 
 // ---------------------------------------------------------------------------
@@ -218,25 +219,6 @@ fn apply_host_header_to_request(request: &mut ParsedProxyRequest, headers: &Head
     request.url = candidate;
 }
 
-fn strip_plain_body_edit_headers(headers: &mut HeaderMap) {
-    // Breakpoint body editors operate on decoded/plain bytes. If the original
-    // exchange was compressed or had body validators, those headers no longer
-    // describe the replacement body.
-    headers.remove("content-encoding");
-    headers.remove("content-md5");
-    headers.remove("digest");
-    headers.remove("etag");
-}
-
-fn strip_plain_body_edit_header_entries(headers: &mut Vec<ProxyHeaderEntry>) {
-    headers.retain(|entry| {
-        !entry.name.eq_ignore_ascii_case("content-encoding")
-            && !entry.name.eq_ignore_ascii_case("content-md5")
-            && !entry.name.eq_ignore_ascii_case("digest")
-            && !entry.name.eq_ignore_ascii_case("etag")
-    });
-}
-
 pub(crate) fn apply_request_resolution(
     resolution: &BreakpointResolution,
     request: &mut ParsedProxyRequest,
@@ -254,11 +236,23 @@ pub(crate) fn apply_request_resolution(
         request.request_headers = headers.clone();
         let mut new_headers = HeaderMap::new();
         for entry in headers {
-            if let (Ok(name), Ok(value)) = (
+            match (
                 HeaderName::from_bytes(entry.name.as_bytes()),
                 HeaderValue::from_str(&entry.value),
             ) {
-                new_headers.insert(name, value);
+                // append (not insert): repeated header names (e.g. multiple
+                // Cookie lines) must survive the edit instead of being
+                // collapsed to the last value.
+                (Ok(name), Ok(value)) => {
+                    new_headers.append(name, value);
+                }
+                _ => {
+                    tracing::warn!(
+                        event = "breakpoint_request_header_skipped",
+                        header_name = %entry.name,
+                        "breakpoint_request_header_skipped: invalid header name or value"
+                    );
+                }
             }
         }
         // M8: if the user edited the Host header, write it back to
@@ -276,6 +270,13 @@ pub(crate) fn apply_request_resolution(
             .unwrap_or_else(|_| body_b64.as_bytes().to_vec());
         strip_plain_body_edit_headers(&mut request.headers);
         strip_plain_body_edit_header_entries(&mut request.request_headers);
+        // Drop any stale content-length so the session detail does not show
+        // the pre-edit body length (aligned with the response path, L20). The
+        // wire framing is recomputed downstream regardless.
+        request.headers.remove("content-length");
+        request
+            .request_headers
+            .retain(|entry| !entry.name.eq_ignore_ascii_case("content-length"));
         refresh_request_target_from_url(request);
     }
 }
@@ -387,34 +388,7 @@ impl BreakpointManager {
 
     /// Check whether any enabled rule matches the given stage/method/url.
     pub fn should_break(&self, stage: &BreakpointStage, method: &str, url: &str) -> bool {
-        let rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        rules.iter().any(|cr| {
-            let rule = &cr.rule;
-            if !rule.enabled {
-                return false;
-            }
-            if rule.stage != *stage {
-                return false;
-            }
-            if !rule.methods.is_empty()
-                && !rule.methods.iter().any(|m| m.eq_ignore_ascii_case(method))
-            {
-                return false;
-            }
-            // Use pre-compiled regex for "regex" match type; fall back to
-            // pattern_matches for other match types (exact/wildcard/contains).
-            match rule.match_type.as_deref() {
-                Some("regex") => cr
-                    .compiled_match
-                    .as_ref()
-                    .is_some_and(|re| re.is_match(url)),
-                _ => crate::rules::pattern_matches(
-                    &rule.url_pattern,
-                    url,
-                    rule.match_type.as_deref(),
-                ),
-            }
-        })
+        self.find_matching_rule_id(stage, method, url).is_some()
     }
 
     /// Find the ID of the first enabled rule matching the given stage/method/url.
@@ -1489,5 +1463,88 @@ mod tests {
             request.host, original_host,
             "unclosed bracket must be rejected"
         );
+    }
+
+    fn make_resolution(
+        modified_request_headers: Option<Vec<ProxyHeaderEntry>>,
+        modified_request_body_base64: Option<String>,
+    ) -> BreakpointResolution {
+        BreakpointResolution {
+            session_id: "sess-edit".to_string(),
+            action: BreakpointActionKind::Forward,
+            mock: None,
+            modified_request_headers,
+            modified_request_query_params: None,
+            modified_request_body_base64,
+            modified_response_status_code: None,
+            modified_response_headers: None,
+            modified_response_body_base64: None,
+        }
+    }
+
+    // A request body edit replaces the payload, so the original content-length
+    // no longer describes it and must be dropped from both the upstream
+    // HeaderMap and the display entries (aligned with the response path, L20).
+    #[test]
+    fn request_body_edit_removes_stale_content_length() {
+        let mut request = make_request("sess-body-edit");
+        request
+            .headers
+            .insert("content-length", HeaderValue::from_static("2"));
+        request.request_headers.push(ProxyHeaderEntry {
+            name: "Content-Length".to_string(),
+            value: "2".to_string(),
+            is_pseudo: None,
+        });
+
+        let resolution = make_resolution(
+            None,
+            Some(BASE64_STANDARD.encode(b"hello world")),
+        );
+        apply_request_resolution(&resolution, &mut request);
+
+        assert_eq!(request.body, b"hello world");
+        assert!(
+            request.headers.get("content-length").is_none(),
+            "stale content-length must be removed from the upstream HeaderMap"
+        );
+        assert!(
+            !request
+                .request_headers
+                .iter()
+                .any(|entry| entry.name.eq_ignore_ascii_case("content-length")),
+            "stale content-length must be removed from the display entries"
+        );
+    }
+
+    // Editing request headers must keep repeated names (e.g. multiple Cookie
+    // lines) as separate values instead of collapsing them to the last one.
+    #[test]
+    fn request_header_edit_preserves_duplicate_header_names() {
+        let mut request = make_request("sess-dup-headers");
+        let resolution = make_resolution(
+            Some(vec![
+                ProxyHeaderEntry {
+                    name: "X-Dup".to_string(),
+                    value: "one".to_string(),
+                    is_pseudo: None,
+                },
+                ProxyHeaderEntry {
+                    name: "X-Dup".to_string(),
+                    value: "two".to_string(),
+                    is_pseudo: None,
+                },
+            ]),
+            None,
+        );
+        apply_request_resolution(&resolution, &mut request);
+
+        let values: Vec<String> = request
+            .headers
+            .get_all("x-dup")
+            .iter()
+            .filter_map(|value| value.to_str().ok().map(str::to_string))
+            .collect();
+        assert_eq!(values, vec!["one", "two"]);
     }
 }

@@ -75,16 +75,26 @@ fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>)
     let mut param_idx = 1;
 
     if !filter.session_ids.is_empty() {
-        let placeholders: Vec<String> = filter
+        // Bind the id list in batches of DELETE_SESSIONS_BATCH_SIZE (same
+        // bound as delete_sessions_by_ids): a single IN (...) with more
+        // placeholders than SQLITE_LIMIT_VARIABLE_NUMBER makes every insights
+        // query fail at prepare time.
+        let groups: Vec<String> = filter
             .session_ids
-            .iter()
-            .map(|_| {
-                let p = format!("?{param_idx}");
-                param_idx += 1;
-                p
+            .chunks(crate::sessions::DELETE_SESSIONS_BATCH_SIZE)
+            .map(|chunk| {
+                let placeholders: Vec<String> = chunk
+                    .iter()
+                    .map(|_| {
+                        let p = format!("?{param_idx}");
+                        param_idx += 1;
+                        p
+                    })
+                    .collect();
+                format!("id IN ({})", placeholders.join(", "))
             })
             .collect();
-        conditions.push(format!("id IN ({})", placeholders.join(", ")));
+        conditions.push(format!("({})", groups.join(" OR ")));
         for id in &filter.session_ids {
             params.push(rusqlite::types::Value::Text(id.clone()));
         }
@@ -96,8 +106,11 @@ fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>)
         .map(|keyword| keyword.trim().to_lowercase())
         .filter(|keyword| !keyword.is_empty())
     {
-        conditions.push(format!("LOWER(host) LIKE ?{param_idx}"));
-        params.push(rusqlite::types::Value::Text(format!("%{kw}%")));
+        conditions.push(format!("LOWER(host) LIKE ?{param_idx} ESCAPE '\\'"));
+        params.push(rusqlite::types::Value::Text(format!(
+            "%{}%",
+            crate::sessions::escape_like_pattern(&kw)
+        )));
         param_idx += 1;
     }
 
@@ -235,13 +248,13 @@ pub fn compute_insights(
     let by_host = {
         let mut stmt = conn
             .prepare(&format!(
-                "SELECT host,
+                "SELECT LOWER(host) AS host,
                         COUNT(*) AS request_count,
                         SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) AS error_count,
                         AVG(duration_ms) AS avg_duration_ms,
                         SUM(size_bytes) AS total_bytes
                  FROM session_summaries{where_clause}
-                 GROUP BY host
+                 GROUP BY LOWER(host)
                  ORDER BY request_count DESC, host
                  LIMIT 50"
             ))
@@ -292,11 +305,11 @@ pub fn compute_insights(
 
         let mut result = Vec::with_capacity(host_rows.len());
         for hr in &host_rows {
-            // Aggregation above groups by LOWER(host); match the same way so the
-            // P95 lookup is case-insensitive (consistent with the old
-            // `compute_host_p95` query).
+            // The aggregation above groups by LOWER(host) (the selected host is
+            // already lowercased) and the per-host duration map is keyed by
+            // LOWER(host), so the P95 lookup matches case-insensitively.
             let durations = per_host_durations
-                .get(&hr.host.to_lowercase())
+                .get(hr.host.as_str())
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
             // `percentile` expects a sorted slice; sort the in-memory vector in
@@ -492,6 +505,7 @@ mod tests {
 
     // Like `insert_session` but with an explicit `started_at`, so tiebreak
     // ordering (started_at DESC, id ASC) can be exercised in tests.
+    #[allow(clippy::too_many_arguments)]
     fn insert_session_started_at(
         conn: &Connection,
         id: &str,
@@ -886,5 +900,82 @@ mod tests {
         let result = compute_insights(&conn, &filter).unwrap();
 
         assert_eq!(result.total_requests, 0);
+    }
+
+    // The by_host aggregation and the per-host P95 lookup must share one key:
+    // both group by LOWER(host). Case-variant spellings of one host merge into
+    // a single (lowercased) row whose P95 spans all variants.
+    #[test]
+    fn by_host_merges_case_variant_hosts() {
+        let conn = test_conn();
+        insert_session(&conn, "c1", "API.example.com", "GET", 200, 100, 500);
+        insert_session(&conn, "c2", "api.EXAMPLE.com", "GET", 500, 300, 700);
+        insert_session(&conn, "c3", "cdn.example.com", "GET", 200, 50, 200);
+
+        let result = compute_insights(&conn, &InsightsFilter::default()).unwrap();
+
+        assert_eq!(result.by_host.len(), 2);
+        let api = result
+            .by_host
+            .iter()
+            .find(|h| h.host == "api.example.com")
+            .expect("case variants must merge into one lowercased host row");
+        assert_eq!(api.request_count, 2);
+        assert_eq!(api.error_count, 1);
+        // P95 over [100, 300] (nearest-rank: index round(0.95 * 1) = 1) = 300.
+        assert_eq!(api.p95_duration_ms, 300.0);
+    }
+
+    // Regression: the session_ids IN (...) filter must be chunked (same bound
+    // as delete_sessions_by_ids) so a filter longer than
+    // SQLITE_LIMIT_VARIABLE_NUMBER does not fail at prepare time.
+    #[test]
+    fn filter_by_session_ids_spans_multiple_batches() {
+        let conn = test_conn();
+        let total = crate::sessions::DELETE_SESSIONS_BATCH_SIZE + 1;
+        let mut ids = Vec::with_capacity(total);
+        for i in 0..total {
+            let id = format!("bulk-{i}");
+            insert_session(&conn, &id, "api.example.com", "GET", 200, 10, 10);
+            ids.push(id);
+        }
+
+        let filter = InsightsFilter {
+            session_ids: ids,
+            ..InsightsFilter::default()
+        };
+        let result = compute_insights(&conn, &filter).unwrap();
+        assert_eq!(result.total_requests, total as i64);
+    }
+
+    // Regression: the host_keyword LIKE pattern must escape %, _ and \ so the
+    // keyword matches literally — searching "50%" must not match every host
+    // that merely contains "50".
+    #[test]
+    fn host_keyword_escapes_like_wildcards() {
+        let conn = test_conn();
+        insert_session(&conn, "k1", "50percent.example.com", "GET", 200, 10, 10);
+        insert_session(&conn, "k2", "api501.example.com", "GET", 200, 10, 10);
+        insert_session(&conn, "k3", "50%.example.com", "GET", 200, 10, 10);
+
+        let filter = InsightsFilter {
+            host_keyword: Some("50%".into()),
+            ..InsightsFilter::default()
+        };
+        let result = compute_insights(&conn, &filter).unwrap();
+        assert_eq!(result.total_requests, 1);
+        assert_eq!(result.by_host[0].host, "50%.example.com");
+
+        // Underscore is a single-char LIKE wildcard and must also match
+        // literally.
+        insert_session(&conn, "k4", "api_example.com", "GET", 200, 10, 10);
+        insert_session(&conn, "k5", "apixexample.com", "GET", 200, 10, 10);
+        let filter = InsightsFilter {
+            host_keyword: Some("api_example".into()),
+            ..InsightsFilter::default()
+        };
+        let result = compute_insights(&conn, &filter).unwrap();
+        assert_eq!(result.total_requests, 1);
+        assert_eq!(result.by_host[0].host, "api_example.com");
     }
 }

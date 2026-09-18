@@ -313,11 +313,12 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 
 每个里程碑发布前必须运行 `scripts/release-checklist.sh`，该脚本依次执行：
 
-1. `typecheck`
-2. `lint`
-3. 前端测试
-4. Rust 测试
-5. `clippy`
+1. 版本一致性校验（`package.json`、`Cargo.toml`、`Cargo.lock`、`apps/desktop/package.json`、`apps/desktop/src-tauri/tauri.conf.json` 五处版本号必须一致，任一不一致即非零退出）
+2. `typecheck`
+3. `lint`
+4. 前端测试
+5. Rust 测试
+6. `clippy`
 
 ### 9.5 属性测试（Property-Based Testing）
 

@@ -286,4 +286,30 @@ describe("BreakpointInterceptPanel", () => {
     });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  it("uses unique aria-labelledby ids when both headers editors are visible", () => {
+    renderPanel(
+      createHit({
+        responseBody: {
+          inlineText: '{"ok":true}',
+          mimeType: "application/json",
+          sizeBytes: 11,
+        },
+        responseHeaders: [{ name: "Content-Type", value: "application/json" }],
+        responseStatusCode: 200,
+        sessionId: "breakpoint-response",
+        stage: "response",
+      }),
+    );
+
+    // Show the Headers editor in BOTH panes: their localized titles are
+    // identical, so the aria-labelledby ids must come from unique prefixes —
+    // otherwise the document ends up with duplicate DOM ids.
+    const tabLists = screen.getAllByRole("tablist");
+    fireEvent.click(within(tabLists[0]!).getByRole("tab", { name: "Headers" }));
+    fireEvent.click(within(tabLists[1]!).getByRole("tab", { name: "Headers" }));
+
+    expect(document.getElementById("request-headers-title")).toBeInTheDocument();
+    expect(document.getElementById("response-headers-title")).toBeInTheDocument();
+  });
 });

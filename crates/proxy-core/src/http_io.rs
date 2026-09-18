@@ -606,67 +606,12 @@ pub(crate) fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -
     std::str::from_utf8(body).is_ok()
 }
 
-/// Decode a raw DEFLATE stream (RFC 1951, no zlib wrapper).
-///
-/// Uses flate2's streaming `DeflateDecoder` (the `Read` API). This consumes
-/// the input incrementally and is correct for arbitrary payload sizes and
-/// compression ratios. The previous manual `Decompress` loop re-fed the full
-/// input slice on every iteration, which corrupted output once the initial
-/// spare capacity was exceeded (highly-compressible payloads).
-fn raw_deflate_decode(input: &[u8]) -> Option<Vec<u8>> {
-    let mut decoder = DeflateDecoder::new(Cursor::new(input));
-    let mut output = Vec::new();
-    match decoder.read_to_end(&mut output) {
-        Ok(_) => Some(output),
-        Err(_) => None,
-    }
-}
-
-pub(crate) fn decode_body_bytes(body: &[u8], content_encoding: Option<&str>) -> Option<Vec<u8>> {
-    let encodings: Vec<String> = content_encoding?
-        .split(',')
-        .map(|encoding| encoding.trim().to_ascii_lowercase())
-        .filter(|encoding| !encoding.is_empty() && encoding != "identity")
-        .collect();
-    if encodings.is_empty() {
-        return None;
-    }
-
-    let mut decoded = body.to_vec();
-
-    for encoding in encodings.iter().rev() {
-        decoded = match encoding.as_str() {
-            "gzip" | "x-gzip" => {
-                let mut decoder = GzDecoder::new(Cursor::new(decoded));
-                let mut output = Vec::new();
-                decoder.read_to_end(&mut output).ok()?;
-                output
-            }
-            "deflate" => {
-                // Some servers send raw deflate (RFC 1951) even though the
-                // "deflate" Content-Encoding is nominally zlib-wrapped
-                // (RFC 1950). Try zlib first, then fall back to raw deflate.
-                let mut output = Vec::new();
-                let mut zlib_decoder = ZlibDecoder::new(Cursor::new(&decoded));
-                if zlib_decoder.read_to_end(&mut output).is_ok() {
-                    output
-                } else {
-                    // Raw deflate (no zlib header) via flate2's Decompress.
-                    raw_deflate_decode(&decoded)?
-                }
-            }
-            "br" => {
-                let mut decoder = Decompressor::new(Cursor::new(decoded), BROTLI_BUFFER_SIZE);
-                let mut output = Vec::new();
-                decoder.read_to_end(&mut output).ok()?;
-                output
-            }
-            _ => return None,
-        };
-    }
-
-    Some(decoded)
-}
+// The decode implementation lives in `http_io/body_decode.rs` and is pulled
+// in verbatim via `include!` (NOT a module) so `benches/body_decompress.rs`
+// can include the same source and benchmark the crate's own decode path
+// without exposing it in the public API. The included file relies on this
+// scope's imports (flate2 / brotli / std::io) and on BROTLI_BUFFER_SIZE.
+include!("http_io/body_decode.rs");
 
 pub(crate) fn build_raw_http_head(start_line: &str, headers: &[ProxyHeaderEntry]) -> String {
     let mut raw_message = String::new();

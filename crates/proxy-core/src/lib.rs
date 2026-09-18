@@ -37,6 +37,14 @@ const DEFAULT_HTTPS_PORT: u16 = 443;
 const MAX_REQUEST_HEADERS: usize = 64;
 const BROTLI_BUFFER_SIZE: usize = 4096;
 const MAX_CAPTURED_BODY_BYTES: usize = 20 * 1024 * 1024;
+/// Target of the UDP route probe in `get_local_ip_addresses` (types.rs). A UDP
+/// `connect()` never sends packets — it only asks the OS routing table which
+/// local interface would reach this address, so the "preferred outbound" IP can
+/// be ranked first in the list shown to users configuring a phone proxy. The
+/// hardcoded address is never contacted; any routable IP would do. On offline
+/// or restricted networks (no default route, blocked egress) the probe simply
+/// fails and the list falls back to the interface enumeration order — the IPs
+/// are still correct, just possibly ordered differently.
 const UDP_ROUTE_PROBE_ADDRESS: &str = "8.8.8.8:80";
 
 mod breakpoints;

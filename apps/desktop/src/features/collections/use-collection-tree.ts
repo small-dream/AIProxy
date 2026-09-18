@@ -197,6 +197,17 @@ export function useCollectionTree(params: UseCollectionTreeParams): UseCollectio
     return () => window.removeEventListener("pointermove", onMove);
   }, []);
 
+  // Clear a pending spring-load expand timer on unmount so it cannot fire
+  // handleToggleExpand after the tree (and its collections closure) is gone.
+  useEffect(() => {
+    return () => {
+      if (springLoadRef.current) {
+        window.clearTimeout(springLoadRef.current.timer);
+        springLoadRef.current = null;
+      }
+    };
+  }, []);
+
   // --- Context menu & rename ---
 
   const [treeMenuState, setTreeMenuState] = useState<{

@@ -127,8 +127,21 @@ pub async fn disable_system_proxy(
 }
 
 #[tauri::command]
-pub fn get_local_ip() -> Vec<String> {
-    get_local_ip_addresses()
+pub async fn get_local_ip() -> Vec<String> {
+    // The Windows branch of get_local_ip_addresses (types_windows.rs) spawns a
+    // PowerShell subprocess and can block for hundreds of ms; offload it so the
+    // command — now async — does not park an async-runtime worker. The
+    // non-Windows path (getifaddrs) is cheap and behaves exactly as before.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(get_local_ip_addresses)
+            .await
+            .unwrap_or_default()
+    }
+    #[cfg(not(windows))]
+    {
+        get_local_ip_addresses()
+    }
 }
 
 /// Restart the proxy server using the currently-applied status (same port,
