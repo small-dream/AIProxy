@@ -1007,8 +1007,8 @@ mod tests {
         );
 
         // Each cert's standalone fingerprint must appear in the bundle's set.
-        let single_a = pem_sha1_fingerprints(&cert_a.cert_pem());
-        let single_b = pem_sha1_fingerprints(&cert_b.cert_pem());
+        let single_a = pem_sha1_fingerprints(cert_a.cert_pem());
+        let single_b = pem_sha1_fingerprints(cert_b.cert_pem());
         assert_eq!(single_a.len(), 1);
         assert_eq!(single_b.len(), 1);
         assert!(bundle_fps.contains(&single_a[0]));
