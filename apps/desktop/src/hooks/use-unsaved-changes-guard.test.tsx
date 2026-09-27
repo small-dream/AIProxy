@@ -21,9 +21,10 @@ function mountGuard(isDirty: boolean) {
     ],
     { initialEntries: ["/rules"] },
   );
-  render(<RouterProvider router={router} />);
+  const rendered = render(<RouterProvider router={router} />);
   return {
     router,
+    unmount: rendered.unmount,
     get api() {
       return api;
     },
@@ -85,5 +86,40 @@ describe("useUnsavedChangesGuard (P0-2)", () => {
     act(() => void harness.router.navigate("/other"));
     expect(harness.router.state.location.pathname).toBe("/rules");
     expect(harness.api.dialogOpen).toBe(true);
+  });
+
+  it("settles a superseded confirmLeave promise on re-entry", async () => {
+    const harness = mountGuard(true);
+    const results: boolean[] = [];
+
+    act(() => {
+      void harness.api.confirmLeave().then((value) => results.push(value));
+    });
+    act(() => {
+      void harness.api.confirmLeave().then((value) => results.push(value));
+    });
+
+    // Only one confirmation can be visible: the first call resolves false
+    // instead of leaking a forever-pending promise; the second owns the dialog.
+    await waitFor(() => expect(results).toEqual([false]));
+    expect(harness.api.dialogOpen).toBe(true);
+
+    act(() => harness.api.handleConfirm());
+    await waitFor(() => expect(results).toEqual([false, true]));
+  });
+
+  it("settles a pending confirmLeave promise when the component unmounts", async () => {
+    const harness = mountGuard(true);
+    let allowed: boolean | undefined;
+
+    act(() => {
+      void harness.api.confirmLeave().then((value) => {
+        allowed = value;
+      });
+    });
+    expect(harness.api.dialogOpen).toBe(true);
+
+    act(() => harness.unmount());
+    await waitFor(() => expect(allowed).toBe(false));
   });
 });

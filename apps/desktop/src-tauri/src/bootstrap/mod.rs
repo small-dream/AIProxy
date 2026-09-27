@@ -318,6 +318,30 @@ impl AppState {
             .await;
     }
 
+    // H4: explicit-id variant of `delete_sessions_except` for multi-select
+    // deletion. Same M14 shape: cache update + event emission inline, heavy
+    // DB + body-file deletion offloaded to `spawn_blocking`.
+    //
+    // The emitted `sessions-removed` payload echoes the REQUESTED ids (not
+    // only the ids found in the cache): the frontend passes every selected id,
+    // including import-only sessions the backend never saw, and relies on this
+    // event to drop them from its own stores.
+    pub async fn delete_sessions(&self, session_ids: Vec<String>) {
+        self.session_generation.fetch_add(1, Ordering::AcqRel);
+        let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
+        let ids_set: HashSet<String> = session_ids.iter().cloned().collect();
+        self.cache.remove_summaries(&ids_set);
+        self.cache.remove_details(&ids_set);
+
+        if let Some(handle) = self.read_app_handle() {
+            emit_sessions_removed(&handle, session_ids.clone());
+        }
+
+        self.repository
+            .delete_sessions_and_bodies_async(session_ids)
+            .await;
+    }
+
     /// Persist one session (async).  All blocking IO is offloaded to the
     /// repository's internal `spawn_blocking`.  Cache update and event emission
     /// happen in the async context after persistence completes.
@@ -675,6 +699,61 @@ mod tests {
         assert_eq!(loaded.id, "db-session");
         assert_eq!(loaded.summary.host, "api.example.com");
         assert_eq!(loaded.server_ip.as_deref(), Some("1.2.3.4"));
+
+        let _ = std::fs::remove_dir_all(body_store_dir);
+    }
+
+    // H4: `delete_sessions` must remove the requested ids from both the
+    // in-memory cache and the persisted DB rows, leaving other sessions
+    // untouched.
+    #[test]
+    fn delete_sessions_removes_requested_ids_from_cache_and_db() {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+
+        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+
+        let deleted = build_summary("del-1", "delete.example.com");
+        let kept = build_summary("keep-1", "keep.example.com");
+        for summary in [&deleted, &kept] {
+            let detail = build_detail(summary);
+            let summary_row = proxy_summary_to_row(summary);
+            let detail_row = proxy_detail_to_row(&detail, state.repository.body_store().as_ref());
+            let conn = state
+                .repository
+                .db()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+        }
+        state
+            .cache
+            .seed_summaries(vec![deleted.clone(), kept.clone()]);
+
+        tauri::async_runtime::block_on(state.delete_sessions(vec!["del-1".to_string()]));
+
+        let remaining = state.read_sessions();
+        assert!(remaining.iter().all(|s| s.id != "del-1"));
+        assert!(remaining.iter().any(|s| s.id == "keep-1"));
+        assert!(
+            state
+                .read_session_detail("del-1")
+                .expect("db read should not surface a poison error")
+                .is_none(),
+            "deleted session must not be reloadable from the db"
+        );
+        assert!(
+            state
+                .read_session_detail("keep-1")
+                .expect("db read should not surface a poison error")
+                .is_some(),
+            "unrelated session must survive"
+        );
 
         let _ = std::fs::remove_dir_all(body_store_dir);
     }

@@ -47,6 +47,7 @@ AIProxy 的界面目标不是“炫”，而是“高效、稳定、可读、专
   - `Certificates` / `证书`
   - `Rules` / `规则`
   - `Settings` / `设置`
+- 设置页采用页面内二级目录；目录项中英文译法必须与分区标题一致，搜索结果必须显示所属分区，避免用户误入同名设置
 - 代码、协议名、HTTP 方法、域名、端口、URL、Header 名称等技术标识保持原样，不做翻译
 
 ## 3.2 外观主题约束
@@ -217,7 +218,8 @@ App Shell
 - Clear Sessions
 - 代理运行状态摘要
 - 设置入口
-- 发现新版本时，在窗口右侧显示 `Update <version>` 入口；点击后打开更新详情对话框，继续沿用下载进度、安装与重启流程
+- 发现新版本时，在窗口右侧显示紧凑的蓝色“更新”主按钮（参考 VS Code）；点击后打开更新详情对话框，版本号与更新说明在对话框内展示，继续沿用下载进度、安装与重启流程
+- 更新说明从双语发布摘要中按当前语言提取（中文取「更新内容」、英文取「What's new」），以 Markdown 富文本渲染，不展示另一语言与安装说明；无对应小节时显示「暂无更新说明」占位
 
 设计要求：
 
@@ -425,6 +427,17 @@ Sessions Page
 - 媒体预览区（图片）右键提供 `Copy Image`（复制图片到剪贴板）、`Save Image As...`（图片另存为）、`Copy Image URL`（复制图片地址）、`Open in Browser`（在浏览器中打开）
 - 媒体预览区（音频/视频）右键提供 `Save As...`（另存为）、`Copy URL`（复制地址）、`Open in Browser`（在浏览器中打开）
 
+#### `Domain Context Menu`
+
+- 触发方式：右键 Host 分组节点或 host 分支
+- 定位方式：与其他上下文菜单一致，以鼠标指针位置为锚点弹出
+- 提供 `Save All Files...`（该 host 下所有响应体落盘）、`Export Host`（导出 HAR）
+- Host 视图状态：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`（与会话叶子菜单一致）
+- SSL 解密策略：
+  - `Add to Include list`：把 host 加入 `Workspace.sslProxying.include`（启用条目并打开 `includeEnabled`，同时从 `sslBlindHosts` 移除该 host），代理运行时自动重启使白名单生效
+  - `Disable / Enable SSL Decryption`：写 `Workspace.sslBlindHosts` 并重启代理生效
+- Host 级 SSL 策略只出现在 `DomainContextMenu`，会话叶子菜单不再重复提供
+
 #### `Session Folder Context Menu`
 
 - 触发方式：右键会话树中的 URL 路径分支节点（即树里的「目录」）
@@ -453,7 +466,7 @@ Sessions Page
   - 媒体预览（音频/视频）：`Save As...`、`Copy URL`、`Open in Browser`
   - 处理：`Save Response...`、`Compose`、`Repeat`
   - 会话范围：`Export Session...`、`Clear Others`
-  - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`、`Disable / Enable SSL Decryption for Host`（写 `Workspace.sslBlindHosts` 并重启代理生效）
+  - Host 范围：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`
   - 跳转：`Breakpoints...`、`Map Rules...`、`Map Local…`（携带请求的 host/method/path/url 预填 Mapping 规则）
 - 菜单动作完成后应自动关闭
 - 复制类动作必须给出 `Snackbar` 成功反馈
@@ -789,6 +802,7 @@ Certificates Page
 - 安装指引
 - 平台差异说明
 - 手机端抓包配置（网络信息、二维码、iOS/Android/HarmonyOS 指引）；其中设备/模拟器扫描（iOS Simulator / adb / hdc）为**静默自动探测**：进入面板即自动查询；若未安装对应工具链或当前无该平台抓包需求（如纯网页抓包），探测失败时**静默降级**（仅显示中性「点击刷新」提示，不弹红色错误）；只有用户主动点击「刷新」后仍失败，才在面板内显示错误
+- 全局 Tools 菜单的「通过 ADB 设置代理 / 清除代理」快捷操作：单设备时直接执行；多台设备连接时弹出设备选择对话框（`AndroidAdbDevicePickerDialog`），选定设备后直接执行，不再跳转证书页
 - 常见问题
 - 风险提示
 
@@ -804,7 +818,7 @@ Settings Page 负责应用级默认配置与代理预设管理，不再提供独
 - 外观偏好：`Follow System / Light / Dark`
 - 代理预设：列表选择、创建、编辑、应用
 - 上游代理：协议/地址/端口/认证/绕行列表配置与连通性测试
-- SSL 代理：逐域名的 include / exclude 解密策略，含「恢复推荐列表」与证书绑定说明
+- SSL 代理：逐域名的 include / exclude 解密策略，每个列表带总开关、每条规则带独立开关，含「恢复推荐列表」与证书绑定说明
 - 语言与外观偏好均为应用级持久化设置
 
 ### 页面结构树
@@ -849,7 +863,7 @@ Settings Page
   - 启用时常驻一条 info `Alert` 说明「代理不可用时请求直接失败、不回退直连」
   - 填写密码时追加 warning `Alert` 说明凭据以明文存储于本地数据库
   - 切换协议时仅在当前端口仍是某个协议的默认值时才改写端口，手填端口不被静默覆盖
-- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`，提供 include / exclude 两个多行输入、恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`，空 include 表示解密全部未排除域名。
+- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各为一块列表（每条 pattern + 独立开关 + 删除 + 新增输入框），**总开关（`includeEnabled` / `excludeEnabled`）内联在各自列表标题行右侧**，与所控制的列表紧贴呈现；另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。
 
 ## 9.9 Compare Page — `已实现发布硬化版`
 

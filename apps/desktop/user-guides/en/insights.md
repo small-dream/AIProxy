@@ -41,15 +41,15 @@ The core is a per-host stats table:
 | Traffic | Traffic size |
 
 - **Click a row**: jump to Sessions filtered by that host to see the details
-- **Right-click a row**: set that host as an exact filter, add to exclusions, copy, or view all its requests
+- **Hover the Host column**: a filter icon sets an exact filter for that host in one click
+- **Right-click a row**: set that host as an exact filter (or filter on just the text you selected inside the cell), add to exclusions, copy, or view all its requests
+- The table shows once filtering leaves two or more hosts
 
 ## Distributions & rankings
 
 - **Status-code distribution**: horizontal bars, descending by count
 - **Method distribution**: horizontal bars, descending by GET / POST / … count
-- **Request ranking**: toggle between "Slowest requests" and "Largest requests"; rows carry color-intensity markers for status, size, and duration
-  - Default shows **Top 20** (with no host filter)
-  - When filtered to a host, all matching requests for that host are shown
+- **Request ranking**: toggle between "Slowest requests" and "Largest requests"; rows carry color-intensity markers for status, size, and duration. This section appears only while at least one host filter is active, and then lists all matching requests — click a row to open that exact session in Sessions
 
 The list uses virtual scrolling, so even many requests browse smoothly.
 
@@ -61,11 +61,11 @@ Filter hosts at the top:
 - **Exact match**: host equals the value
 - **Exclude**: host does not equal the value
 
-Active filters appear as chips and can be cleared in one click. You can also right-click a host in the table to set an exact-match / exclusion directly.
+Active filters appear as chips and can be cleared in one click. You can also right-click a host in the table to set an exact-match / exclusion directly. The top-right counter shows how many requests are in the current scope.
 
 ## Statistic definitions
 
-Percentiles (P50 / P95 / P99): sort all request durations and take the value at the percentile position. Host-level P95 counts only that host's requests. Errors count status ≥ 400.
+Percentile (P95): sort all request durations and take the value at the 95% position. Host-level P95 counts only that host's requests. Errors count status ≥ 400.
 
 ## FAQ
 

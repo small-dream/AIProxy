@@ -43,6 +43,8 @@ export const enMessages = {
     },
     errors: {
       generic: "Something went wrong. Please try again.",
+      mutationFailed: "The action failed. Please try again.",
+      queryFailed: "Failed to load data. Please try again.",
       unexpected: "An unexpected error occurred.",
     },
     labels: {
@@ -125,8 +127,7 @@ export const enMessages = {
   },
   appShell: {
     appSubtitle: "Desktop proxy workbench",
-    updateAvailableAction: "Update {{version}}",
-    updateAvailableTooltip: "A new AIProxy version is available",
+    updateAvailableAction: "Update",
     breakpointsPending: "{{count}} breakpoint{{suffix}}",
     breakpointsPendingTitle: "Breakpoints pending, click to open Rules",
     changePortTitle: "Change Proxy Port",
@@ -172,6 +173,8 @@ export const enMessages = {
     statusEnableSystemProxy: "Enable the system proxy",
     systemProxyOff: "System Proxy Off",
     systemProxyOn: "System Proxy On",
+    systemProxyReapplyWarning:
+      "The proxy is running, but the system proxy could not be re-applied: {{error}}. Your OS proxy settings may be stale.",
     systemProxyRecoveryWarning: "System proxy recovery failed",
     stopSystemProxyAction: "Stop System Proxy",
     viewLogsAction: "View Logs",
@@ -229,6 +232,19 @@ export const enMessages = {
     reloadApp: "Reload app",
     title: "Something went wrong",
     tryAgain: "Try again",
+  },
+  settingsNavigation: {
+    about: "About",
+    ai: "AI Model",
+    appearance: "Appearance & Language",
+    behavior: "Notifications & Confirmations",
+    proxy: "Proxy Presets",
+    searchLabel: "Search settings",
+    searchNoResults: "No matching settings",
+    searchPlaceholder: "Search settings",
+    ssl: "SSL / TLS",
+    updates: "Software Updates",
+    upstream: "Upstream Proxy",
   },
   settingsPage: {
     aboutBuildNumber: "Build Number",
@@ -308,7 +324,9 @@ export const enMessages = {
     updatesRestarting: "Update installed. Restarting AIProxy...",
     updateDialogChangelog: "What's new",
     updateDialogCheckFailed: "Could not check for updates. Check your connection and try again.",
+    updateDialogCurrentVersion: "Current version: {{currentVersion}}",
     updateDialogLater: "Later",
+    updateDialogNoChangelog: "No release notes are available for this version.",
     updateDialogNoUpdate: "AIProxy is up to date.",
     updateDialogTitle: "New version {{version}} is available",
     updateDialogUpdateNow: "Update now",
@@ -353,15 +371,23 @@ export const enMessages = {
     description:
       "Choose which hosts get decrypted. A host that is not proxied is still relayed, just without visibility into its traffic.",
     modeAllExceptExcluded: "Decrypting everything except the excluded hosts.",
-    modeIncludeList: "Decrypting only the hosts listed under Include.",
+    modeIncludeList: "Decrypting only the enabled hosts under Include.",
+    includeEnabledLabel: "Intercept only the Include list",
+    includeEnabledDescription:
+      "When on, only hosts matching an enabled Include entry are decrypted and the rest are relayed blind. When off, every host that is not excluded is decrypted.",
+    excludeEnabledLabel: "Enable the Exclude list",
+    excludeEnabledDescription:
+      "Excluded hosts are never decrypted, even when matched by Include. Turning this off may break apps that pin their certificates (TikTok, iCloud, ...).",
     include: "Include",
-    includePlaceholder: "One pattern per line — leave empty to decrypt everything",
-    includeDescription:
-      "Leave empty to decrypt every host that is not excluded. Add patterns to decrypt only those hosts and relay the rest untouched.",
+    includeAddPlaceholder: "Type a host pattern and press Enter to add",
+    includeEmpty: "No entries yet — with the switch above on, nothing is captured.",
     exclude: "Exclude",
-    excludePlaceholder: "One pattern per line (e.g. *.example.com, 192.168.0.0/16)",
-    excludeDescription:
-      "Never decrypted, even when matched by Include. Supports exact hostnames, *.example.com suffixes, and CIDR ranges (literal IP targets only).",
+    excludeAddPlaceholder: "Type a host pattern and press Enter to add",
+    excludeEmpty: "No exclusions.",
+    add: "Add",
+    enable: "Enable",
+    disable: "Disable",
+    remove: "Remove",
     restoreRecommended: "Restore Recommended",
     recommendationsUnavailable:
       "The recommended exclusions could not be loaded yet. Saving stays disabled for workspaces that have not configured SSL proxying, so the built-in protections cannot be dropped by accident.",
@@ -865,7 +891,11 @@ export const enMessages = {
       adbClearingProxy: "Clearing proxy via ADB...",
       adbErrorTitle: "ADB Install Failed",
       adbDeviceLoadErrorTitle: "ADB Device Detection Failed",
+      adbDevicePickerTitleClear: "Choose an Android device to clear the proxy",
+      adbDevicePickerTitleSet: "Choose an Android device to set the proxy",
       adbDevicePlaceholder: "Select a device",
+      adbDeviceScanTimeout:
+        "Timed out while scanning Android devices via adb. Check that adb is responsive, then refresh devices.",
       adbDeviceSelectorLabel: "ADB Device",
       adbDeviceStateHint:
         'The selected target is in {{state}} state. Only devices in "device" state can install the certificate.',
@@ -972,6 +1002,8 @@ export const enMessages = {
       iosSimulatorRefreshAction: "Refresh Simulators",
       iosSimulatorRefreshing: "Refreshing...",
       iosSimulatorScanHint: 'Click "Refresh Simulators" to scan for iOS simulators.',
+      iosSimulatorScanTimeout:
+        "Timed out while scanning iOS Simulators. Check Xcode Simulator services, then refresh simulators.",
       iosSimulatorSelectorLabel: "iOS Simulator",
       iosSimulatorSuccessBody:
         "The root certificate was installed into {{simulatorName}}. Next, open Certificate Trust Settings in the Simulator and enable full trust manually.",
@@ -1019,6 +1051,8 @@ export const enMessages = {
       ],
       hdcDeviceLoadErrorTitle: "hdc Device Detection Failed",
       hdcDevicePlaceholder: "Select a device",
+      hdcDeviceScanTimeout:
+        "Timed out while scanning HarmonyOS devices via hdc. Check that hdc is responsive, then refresh devices.",
       hdcDeviceSelectorLabel: "HarmonyOS Device",
       hdcDeviceStateHint:
         'The selected target is in {{state}} state. Only devices in the "Connected" state can install the certificate.',
@@ -1145,8 +1179,10 @@ export const enMessages = {
     batchDelete: "Delete",
     batchDeleteConfirm: "This will remove {{count}} session(s) from the current container.",
     batchDeleteDone: "Removed {{count}} session(s) from the current container",
+    batchDeleteFailed: "Failed to delete the selected sessions",
     batchDeleteTitle: "Delete selected sessions?",
     batchSaveResponsesDone: "Saved {{count}} responses",
+    clearOthersFailed: "Failed to clear the other sessions",
     clearSessionsConfirm:
       "This permanently deletes every captured session. This action cannot be undone.",
     clearSessionsDontAskAgain: "Clear sessions without asking again",
@@ -1162,6 +1198,9 @@ export const enMessages = {
     sslDecryptDisabled: "SSL decryption disabled for {{host}}",
     sslDecryptEnabled: "SSL decryption enabled for {{host}}",
     sslDecryptToggleFailed: "Failed to update SSL decryption setting",
+    addedToIncludeList:
+      "Added {{host}} to the Include list — only matching hosts are now decrypted.",
+    addedToIncludeListFailed: "Failed to add host to the Include list",
     compareBaseSet: "Compare base set to {{method}} {{path}}.",
     filterAllSessions: "All Sessions",
     filterThrottled: "Throttled",
@@ -1478,6 +1517,7 @@ export const enMessages = {
   inspector: {
     cookies: "Cookies",
     copyFullValue: "View full value",
+    pseudo: "pseudo",
     waterfall: {
       unavailable: "Timing unavailable",
       dns: "DNS",
@@ -1730,6 +1770,7 @@ export const enMessages = {
     notificationBody: "{{method}} {{target}} is waiting for your action.",
   },
   contextMenu: {
+    addToIncludeList: "Add to Include list",
     clearOthers: "Clear Others",
     compose: "Compose",
     copy: "Copy",
@@ -1756,8 +1797,8 @@ export const enMessages = {
     saveResponse: "Save Response...",
     saveResponseFiles: "Save All Files...",
     setCompareBase: "Set as Compare Base",
-    sslDecryptDisable: "Disable SSL Decryption for Host",
-    sslDecryptEnable: "Enable SSL Decryption for Host",
+    sslDecryptDisable: "Disable SSL Decryption",
+    sslDecryptEnable: "Enable SSL Decryption",
     stopIgnoringHost: "Stop Ignoring",
     unfocusHost: "Remove Focus",
   },

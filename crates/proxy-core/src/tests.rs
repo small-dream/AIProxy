@@ -2085,8 +2085,11 @@ fn applies_map_local_rules_by_resolving_a_directory_path() {
 }
 
 // M1/M2: a map-local rule pointing at a dangling symlink must fail closed
-// (return an error) rather than silently serving nothing or panicking.
-// `canonicalize` resolves the link and fails when the target is missing.
+// (never serve anything through the link). `canonicalize` resolves the link
+// and fails when the target is missing. R6-3: the failure is downgraded to a
+// per-rule `failed` trace and the original request is forwarded untouched
+// instead of aborting the whole request (which closed the connection with no
+// response and no session).
 #[cfg(unix)]
 #[test]
 fn m1_map_local_fails_closed_on_dangling_symlink() {
@@ -2113,12 +2116,104 @@ fn m1_map_local_fails_closed_on_dangling_symlink() {
     });
 
     let mut request = build_test_request("http://example.com/asset");
-    let result = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request);
+    let (response, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request)
+        .expect("map rule failure must degrade to a trace, not abort the request");
     assert!(
-        result.is_err(),
-        "map-local on a dangling symlink must fail closed, got {result:?}"
+        response.is_none(),
+        "map-local on a dangling symlink must fail closed (no local response)"
+    );
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].outcome, "failed");
+    assert!(
+        traces[0].failure_reason.is_some(),
+        "failed trace must record the failure reason"
     );
     let _ = fs::remove_dir_all(dir);
+}
+
+// H2 (R6-3): a map-local rule whose target file does not exist must not abort
+// the request. The request is forwarded unchanged and the trace records the
+// failure with its reason.
+#[test]
+fn map_local_missing_target_file_degrades_to_failed_trace_and_forwards() {
+    let dir = std::env::temp_dir().join(format!("aiproxy-map-missing-{}", std::process::id()));
+    let missing = dir.join("no-such-file.json");
+
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-missing".to_string(),
+        enabled: true,
+        mode: "local".to_string(),
+        name: "missing".to_string(),
+        note: None,
+        preserve_path: true,
+        preserve_query: true,
+        priority: 100,
+        source_pattern: "example.com".to_string(),
+        target_value: missing.display().to_string(),
+        match_type: None,
+        workspace_id: "default".to_string(),
+    });
+
+    let mut request = build_test_request("http://example.com/api/data");
+    let original_url = request.url.to_string();
+    let (response, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request)
+        .expect("a missing map-local target must not abort the request");
+
+    // No local response was produced: the caller forwards the ORIGINAL request.
+    assert!(response.is_none());
+    assert_eq!(request.url.to_string(), original_url);
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].outcome, "failed");
+    let reason = traces[0].failure_reason.as_deref().unwrap_or_default();
+    assert!(
+        reason.contains("map-missing"),
+        "failure reason names the rule: {reason}"
+    );
+    assert!(
+        reason.contains("no-such-file.json"),
+        "failure reason names the missing target: {reason}"
+    );
+}
+
+// H2 (R6-3): a map-remote rule with an invalid target URL must not abort the
+// request either; the request keeps its original URL and the trace records the
+// failure.
+#[test]
+fn map_remote_invalid_target_url_degrades_to_failed_trace_and_forwards() {
+    let manager = MapManager::new();
+    manager.save_rule(MapRule {
+        id: "map-bad-target".to_string(),
+        enabled: true,
+        mode: "remote".to_string(),
+        name: "bad target".to_string(),
+        note: None,
+        preserve_path: true,
+        preserve_query: true,
+        priority: 100,
+        source_pattern: "example.com".to_string(),
+        target_value: "not a url".to_string(),
+        match_type: None,
+        workspace_id: "default".to_string(),
+    });
+
+    let mut request = build_test_request("http://example.com/v1/users?debug=true");
+    let original_url = request.url.to_string();
+    let (response, traces) = apply_map_rules(&Some(Arc::new(manager)), "default", &mut request)
+        .expect("an invalid map-remote target must not abort the request");
+
+    assert!(response.is_none());
+    // The request was NOT remapped — forwarding proceeds with the original URL.
+    assert_eq!(request.url.to_string(), original_url);
+    assert_eq!(request.host, "example.com");
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0].outcome, "failed");
+    assert!(traces[0].mapped_url.is_none());
+    let reason = traces[0].failure_reason.as_deref().unwrap_or_default();
+    assert!(
+        reason.contains("map-bad-target"),
+        "failure reason names the rule: {reason}"
+    );
 }
 
 // M1/M2: a map-local rule pointing at a symlink whose target IS a real file
@@ -5217,8 +5312,13 @@ async fn ssl_proxying_policy_routes_excluded_connect_to_blind_relay() {
                 upstream_proxy: None,
                 ssl_proxying: Some(Arc::new(
                     crate::ssl_proxying::SslProxyingSettings {
+                        include_enabled: false,
+                        exclude_enabled: true,
                         include: Vec::new(),
-                        exclude: vec!["127.0.0.1".to_string()],
+                        exclude: vec![crate::ssl_proxying::SslProxyEntry {
+                            pattern: "127.0.0.1".to_string(),
+                            enabled: true,
+                        }],
                     }
                     .to_runtime_config(),
                 )),
@@ -6039,6 +6139,13 @@ fn h2_request_uri_is_absolute_without_userinfo_or_fragment() {
 // SSL proxying policy
 // ---------------------------------------------------------------------------
 
+fn ssl_entry(pattern: &str, enabled: bool) -> crate::ssl_proxying::SslProxyEntry {
+    crate::ssl_proxying::SslProxyEntry {
+        pattern: pattern.to_string(),
+        enabled,
+    }
+}
+
 #[test]
 fn ssl_proxying_intercepts_everything_when_unconfigured() {
     use crate::ssl_proxying::SslProxyingSettings;
@@ -6046,6 +6153,8 @@ fn ssl_proxying_intercepts_everything_when_unconfigured() {
     // Two empty lists must behave exactly like the pre-feature proxy, or
     // enabling the setting would silently stop capturing traffic.
     let policy = SslProxyingSettings {
+        include_enabled: false,
+        exclude_enabled: false,
         include: Vec::new(),
         exclude: Vec::new(),
     }
@@ -6066,8 +6175,10 @@ fn ssl_proxying_exclude_wins_over_include() {
     // The exclude list is the escape hatch a user reaches for when an app
     // breaks; a broad include pattern must not be able to defeat it.
     let policy = SslProxyingSettings {
-        include: vec!["*".to_string()],
-        exclude: vec!["*.pinned.com".to_string()],
+        include_enabled: true,
+        exclude_enabled: true,
+        include: vec![ssl_entry("*", true)],
+        exclude: vec![ssl_entry("*.pinned.com", true)],
     }
     .to_runtime_config();
 
@@ -6084,7 +6195,12 @@ fn ssl_proxying_include_list_switches_to_allowlist_mode() {
     use crate::ssl_proxying::SslProxyingSettings;
 
     let policy = SslProxyingSettings {
-        include: vec!["*.example.com".to_string(), "single.test".to_string()],
+        include_enabled: true,
+        exclude_enabled: false,
+        include: vec![
+            ssl_entry("*.example.com", true),
+            ssl_entry("single.test", true),
+        ],
         exclude: Vec::new(),
     }
     .to_runtime_config();
@@ -6098,11 +6214,124 @@ fn ssl_proxying_include_list_switches_to_allowlist_mode() {
 }
 
 #[test]
+fn ssl_proxying_include_master_switch_off_ignores_retained_entries() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // The whole point of the master switch: patterns stay in the list, but
+    // flipping it off restores "decrypt everything not excluded" without the
+    // user deleting or re-adding anything.
+    let policy = SslProxyingSettings {
+        include_enabled: false,
+        exclude_enabled: false,
+        include: vec![ssl_entry("*.example.com", true)],
+        exclude: Vec::new(),
+    }
+    .to_runtime_config();
+
+    assert!(policy.should_intercept("api.example.com"));
+    assert!(policy.should_intercept("other.com"));
+}
+
+#[test]
+fn ssl_proxying_disabled_entries_are_ignored() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // A retained-but-disabled entry must not capture anything.
+    let policy = SslProxyingSettings {
+        include_enabled: true,
+        exclude_enabled: false,
+        include: vec![
+            ssl_entry("*.example.com", true),
+            ssl_entry("*.disabled.com", false),
+        ],
+        exclude: Vec::new(),
+    }
+    .to_runtime_config();
+
+    assert!(policy.should_intercept("api.example.com"));
+    assert!(!policy.should_intercept("api.disabled.com"));
+    assert!(!policy.should_intercept("other.com"));
+}
+
+#[test]
+fn ssl_proxying_exclude_master_switch_off_disarms_escape_hatch() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // Turning the exclude master switch off means even a matching pinned host
+    // is intercepted. Deliberately dangerous, so the default stays on; the
+    // test just pins down the semantics.
+    let policy = SslProxyingSettings {
+        include_enabled: true,
+        exclude_enabled: false,
+        include: vec![ssl_entry("*", true)],
+        exclude: vec![ssl_entry("*.pinned.com", true)],
+    }
+    .to_runtime_config();
+
+    assert!(policy.should_intercept("api.pinned.com"));
+}
+
+#[test]
+fn ssl_proxying_legacy_json_migrates_to_entry_switches() {
+    // Workspaces saved before the per-entry switches existed stored plain
+    // string arrays. A non-empty include was an allowlist and the exclude list
+    // was always in effect; deserialization must preserve both.
+    let settings: crate::ssl_proxying::SslProxyingSettings =
+        serde_json::from_str(r#"{"include":["*.example.com"],"exclude":["*.tiktokv.com"]}"#)
+            .unwrap();
+
+    assert!(settings.include_enabled);
+    assert!(settings.exclude_enabled);
+    assert_eq!(settings.include, vec![ssl_entry("*.example.com", true)]);
+    assert_eq!(settings.exclude, vec![ssl_entry("*.tiktokv.com", true)]);
+}
+
+#[test]
+fn ssl_proxying_legacy_empty_include_json_stays_decrypt_all() {
+    use crate::ssl_proxying::SslProxyingSettings;
+
+    // An empty legacy include meant "decrypt everything not excluded"; it must
+    // not come back as an allowlist with no entries.
+    let settings: SslProxyingSettings =
+        serde_json::from_str(r#"{"include":[],"exclude":["*.pinned.com"]}"#).unwrap();
+    let policy = settings.to_runtime_config();
+
+    assert!(!settings.include_enabled);
+    assert!(settings.exclude_enabled);
+    assert!(policy.should_intercept("example.com"));
+    assert!(!policy.should_intercept("api.pinned.com"));
+}
+
+#[test]
+fn ssl_proxying_new_json_round_trips_master_switches() {
+    // The current shape (entry arrays plus master switches) must survive a
+    // save/load round trip unchanged.
+    let settings: crate::ssl_proxying::SslProxyingSettings = serde_json::from_str(
+        r#"{
+                "includeEnabled": true,
+                "excludeEnabled": true,
+                "include": [{"pattern": "*.example.com", "enabled": true}],
+                "exclude": [{"pattern": "*.pinned.com", "enabled": false}]
+            }"#,
+    )
+    .unwrap();
+
+    let encoded = serde_json::to_string(&settings).unwrap();
+    let decoded: crate::ssl_proxying::SslProxyingSettings = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, settings);
+}
+
+#[test]
 fn ssl_proxying_runtime_default_keeps_recommended_exclusions() {
     // The runtime config's Default must mirror SslProxyingSettings::default(),
     // not derive empty/empty — otherwise a caller resolving "unconfigured"
     // through the config type silently intercepts the known-pinning hosts.
     let policy = crate::ssl_proxying::SslProxyingConfig::default();
+    assert!(!policy.include_enabled, "default is not an allowlist");
+    assert!(
+        policy.exclude_enabled,
+        "default keeps the exclude escape hatch on"
+    );
     assert!(
         policy.include.is_empty(),
         "default must not be an allowlist"
@@ -6122,8 +6351,10 @@ fn ssl_proxying_exact_ipv6_patterns_match_bracketed_connect_hosts() {
     // the `[...]` brackets of an IPv6 authority. An exact pattern spelled the
     // way a user (or the defaults) would type it must still take effect.
     let policy = SslProxyingSettings {
+        include_enabled: false,
+        exclude_enabled: true,
         include: Vec::new(),
-        exclude: vec!["2001:db8::5".to_string()],
+        exclude: vec![ssl_entry("2001:db8::5", true)],
     }
     .to_runtime_config();
 
@@ -6134,7 +6365,9 @@ fn ssl_proxying_exact_ipv6_patterns_match_bracketed_connect_hosts() {
     assert!(policy.should_intercept("[2001:db8::6]"));
 
     let allowlist = SslProxyingSettings {
-        include: vec!["2001:db8::5".to_string()],
+        include_enabled: true,
+        exclude_enabled: false,
+        include: vec![ssl_entry("2001:db8::5", true)],
         exclude: Vec::new(),
     }
     .to_runtime_config();
@@ -6190,11 +6423,13 @@ fn ssl_proxying_normalizes_blank_pattern_entries() {
     // A textarea round-trip leaves blank lines and stray whitespace behind; a
     // blank pattern must not become a match-everything rule.
     let policy = SslProxyingSettings {
+        include_enabled: false,
+        exclude_enabled: true,
         include: Vec::new(),
         exclude: vec![
-            "  ".to_string(),
-            String::new(),
-            "  *.example.com  ".to_string(),
+            ssl_entry("  ", true),
+            ssl_entry("", true),
+            ssl_entry("  *.example.com  ", true),
         ],
     }
     .to_runtime_config();

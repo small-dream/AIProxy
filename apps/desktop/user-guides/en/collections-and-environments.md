@@ -18,26 +18,25 @@ Comparable to Postman's Collection feature, AIProxy's unique advantage is that y
 
 ## Page layout
 
-The Collections page uses a three-pane layout:
+The Collections page uses a two-pane layout:
 
-- **Left pane**: collection / folder tree + an environment selector at the bottom
-- **Middle pane**: the request list within the selected collection
-- **Right pane**: request editor (URL, Headers, Body) + response preview
+- **Left pane**: the collection / folder / request tree, with a search box on top and an environment selector at the bottom
+- **Right pane**: the request editor (name, description, method, URL, headers, body) + response preview
 
 ## Create collections & folders
 
 ### Create a top-level collection
 
-1. Click the **New Folder** icon at the top of the left pane
+1. Click the **New Collection** icon in the left-pane header
 2. Enter a collection name, e.g. `User API`
-3. Click **Add**
+3. Confirm
 
-### Create a subfolder
+### Create a subfolder or request
 
-1. Hover over a collection / folder
-2. Click the **+** icon that appears on the right
-3. Enter the folder name
-4. Click **Add**
+1. Hover over a collection / folder row
+2. Click the **+** icon that appears on the right — it opens a small menu
+3. Choose **New Folder** or **New Request**
+4. For a folder, enter the name and confirm
 
 Folders support unlimited nesting for organizing large API sets.
 
@@ -70,11 +69,10 @@ If the server rejects the move (e.g. a system error or concurrency conflict), th
 
 ### Create a request on the Collections page
 
-1. Click the **+** icon at the top of the middle pane
+1. Hover a collection / folder and use the **+** → **New Request** menu item — or select a collection and click **New Request** in the right-pane empty state
 2. The right pane clears the editor into new-request mode
-3. Fill in Method, URL, Headers, Body
-4. Enter a request name at the top (e.g. `GET User detail`)
-5. Click **Save as New**
+3. Fill in name, description (optional), method, URL, headers, body
+4. Click **Save as New**
 
 ### Save from captured traffic (highlight feature)
 
@@ -84,15 +82,16 @@ If the server rejects the move (e.g. a system error or concurrency conflict), th
 4. Pick the target collection in the dialog
 5. Optionally rename the request and confirm
 
-The system auto-detects the method, URL, headers, and body, and infers a suitable body type (JSON / FormData / URL-encoded).
+The system auto-detects method, URL, headers, and body, and infers a body type from the `Content-Type`: JSON becomes raw/JSON, parseable form data becomes URL-encoded fields, anything else (including multipart) is kept as a **raw text body** — multipart file attachments themselves are not captured; re-attach files after saving if needed.
 
 ## Edit and send requests in a collection
 
-1. Click a collection in the left pane; the middle pane lists its requests
-2. Click a request to load its detail in the right pane
-3. Edit URL, Headers, or Body
-4. Click **Send**
-5. The response appears in the lower half of the right pane
+1. Click a collection or request in the left tree; the editor loads it in the right pane
+2. Edit name, description, URL, headers, or body — form-data bodies support **Attach file**, same as [Compose](./compose.md)
+3. Click **Send**
+4. The response appears in the lower half of the right pane
+
+The left-pane search box filters the tree by collection, folder, or request name while keeping the hierarchy visible.
 
 ### Update a saved request
 
@@ -173,7 +172,7 @@ Unmatched variables (e.g. `{{missing}}` not defined in the environment) are left
 
 ## Environment-selection persistence
 
-The currently selected environment is saved automatically and restored on the next launch.
+The active environment is saved automatically and restored on the next launch — and the selection is **shared with [Compose](./compose.md)**, whose toolbar selector shows the same environment.
 
 ## FAQ
 

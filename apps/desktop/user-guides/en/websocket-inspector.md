@@ -20,7 +20,9 @@ The WebSocket message inspector lets you view, search, and replay every frame in
 
 ## Message list
 
-The left list shows every captured frame. Each row has:
+When you open a session's Messages tab, AIProxy loads the **first 500 stored frames** from the database, then keeps appending frames that arrive live (up to 10,000 kept in memory). Very long sessions may therefore show only their earliest frames.
+
+The left list shows the loaded frames. Each row has:
 
 | Column | Description |
 |---|---|
@@ -28,7 +30,8 @@ The left list shows every captured frame. Each row has:
 | Type tag | The frame's opcode (text, binary, close, ping, pong) |
 | Content preview | First 60 chars for text frames; size for binary frames |
 | Size | Frame payload bytes |
-| ▶ button | Replay (visible only for text frames on an active connection) |
+| Truncated chip | Shown when reassembly hit the 20 MiB capture cap (see below) |
+| ▶ button | Replay (on active connections, shown on any frame with readable text — text frames and close frames carrying a reason) |
 
 Click any row to see that frame's details on the right.
 
@@ -55,7 +58,11 @@ Filter by opcode using the second tab set:
 
 ### Search
 
-Type a keyword in the search box to filter the currently loaded messages in real time. Search matches both message content (`payloadText`) and opcode.
+Type a keyword in the search box to filter the currently loaded messages in real time. Search matches both message content (`payloadText`) and opcode. Note it only covers the loaded window described above — not the full database history of a long session.
+
+### Oversized messages
+
+A single WebSocket message is reassembled from its frames up to **20 MiB**; larger messages keep only the first 20 MiB. Those rows show a **Truncated** chip in the list, and the detail panel explains that only a prefix of the original payload was captured.
 
 ## Message detail
 
@@ -121,6 +128,7 @@ This means:
 - The proxy does not modify WebSocket message content — it only passes through and records
 - Binary frames store only their size, not their actual content (to save storage)
 - Injected messages are transparent to the server/client and indistinguishable from normal messages
+- If no frame arrives for 5 minutes, the proxy closes the connection; a frame that stops mid-delivery must finish within 30 seconds or the connection is closed too. These timeouts keep dead connections from lingering forever.
 
 ## Supported protocols
 
@@ -151,7 +159,11 @@ Yes. In the compose panel opened by Replay, you can switch the direction to "Sen
 
 ### Q: Does the search box only search the currently shown messages?
 
-The search box filters client-side among the currently loaded messages. For large sessions, all messages are already loaded into the front end via `listWsMessages`, so search covers everything.
+The search box filters client-side among the loaded window: the first 500 stored frames plus everything that arrived live while the pane is open. It doesn't query the session's full database history beyond that window.
+
+### Q: Why did my long-lived connection get disconnected?
+
+The proxy enforces idle timeouts to keep dead connections from lingering: if no frame arrives for 5 minutes the connection is closed, and a frame that stops mid-delivery must complete within 30 seconds. Keepalives (ping frames) from either side prevent the idle close.
 
 ### Q: How do I identify a WebSocket session in the list?
 

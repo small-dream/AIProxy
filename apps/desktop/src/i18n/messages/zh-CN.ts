@@ -45,6 +45,8 @@ export const zhCNMessages: Messages = {
     },
     errors: {
       generic: "发生错误，请稍后重试。",
+      mutationFailed: "操作失败，请重试。",
+      queryFailed: "数据加载失败，请重试。",
       unexpected: "发生了未预期的错误。",
     },
     labels: {
@@ -127,8 +129,7 @@ export const zhCNMessages: Messages = {
   },
   appShell: {
     appSubtitle: "桌面代理工作台",
-    updateAvailableAction: "更新 {{version}}",
-    updateAvailableTooltip: "AIProxy 有新版本可用",
+    updateAvailableAction: "更新",
     breakpointsPending: "{{count}} 个断点{{suffix}}",
     breakpointsPendingTitle: "有待处理断点，点击打开规则页面",
     changePortTitle: "修改代理端口",
@@ -171,6 +172,8 @@ export const zhCNMessages: Messages = {
     statusEnableSystemProxy: "启用系统代理",
     systemProxyOff: "系统代理已关闭",
     systemProxyOn: "系统代理已启用",
+    systemProxyReapplyWarning:
+      "代理已在运行，但系统代理重新应用失败：{{error}}。系统代理可能仍指向旧端口。",
     systemProxyRecoveryWarning: "系统代理恢复失败",
     stopSystemProxyAction: "停止系统代理",
     viewLogsAction: "查看日志",
@@ -228,6 +231,19 @@ export const zhCNMessages: Messages = {
     reloadApp: "重新加载应用",
     title: "出现了一些问题",
     tryAgain: "重试",
+  },
+  settingsNavigation: {
+    about: "关于",
+    ai: "AI 模型",
+    appearance: "外观与语言",
+    behavior: "通知与确认",
+    proxy: "代理预设",
+    searchLabel: "搜索设置",
+    searchNoResults: "没有匹配的设置项",
+    searchPlaceholder: "搜索设置",
+    ssl: "SSL / TLS",
+    updates: "软件更新",
+    upstream: "上游代理",
   },
   settingsPage: {
     aboutBuildNumber: "构建号",
@@ -304,7 +320,9 @@ export const zhCNMessages: Messages = {
     updatesRestarting: "更新已安装，正在重启 AIProxy...",
     updateDialogChangelog: "更新内容",
     updateDialogCheckFailed: "检查更新失败，请检查网络后重试。",
+    updateDialogCurrentVersion: "当前版本：{{currentVersion}}",
     updateDialogLater: "稍后",
+    updateDialogNoChangelog: "此版本暂无更新说明。",
     updateDialogNoUpdate: "AIProxy 已是最新版本。",
     updateDialogTitle: "发现新版本 {{version}}",
     updateDialogUpdateNow: "立即更新",
@@ -345,14 +363,23 @@ export const zhCNMessages: Messages = {
     title: "SSL 代理",
     description: "选择哪些域名需要解密。未被解密的域名仍会正常转发，只是看不到其流量内容。",
     modeAllExceptExcluded: "当前：解密除排除列表以外的全部域名。",
-    modeIncludeList: "当前：仅解密包含列表中的域名。",
+    modeIncludeList: "当前：仅解密包含列表中已启用的域名。",
+    includeEnabledLabel: "只看包含列表中的域名",
+    includeEnabledDescription:
+      "开启后仅解密包含列表中已启用的域名，其余盲转发；关闭后解密除排除列表以外的全部域名。",
+    excludeEnabledLabel: "启用排除列表",
+    excludeEnabledDescription:
+      "命中排除列表的域名始终不解密，即使命中包含列表也一样。关闭可能使 TikTok、iCloud 等绑定证书的 App 无法使用。",
     include: "包含列表",
-    includePlaceholder: "每行一条规则 —— 留空表示解密全部",
-    includeDescription: "留空表示解密所有未被排除的域名。填写后则只解密列出的域名，其余原样转发。",
+    includeAddPlaceholder: "输入域名规则，回车添加",
+    includeEmpty: "暂无条目 —— 开启上方开关后不抓取任何域名。",
     exclude: "排除列表",
-    excludePlaceholder: "每行一条规则（如 *.example.com、192.168.0.0/16）",
-    excludeDescription:
-      "始终不解密，即使命中包含列表也一样。支持精确域名、*.example.com 后缀通配，以及 CIDR 网段（仅对 IP 字面量目标生效）。",
+    excludeAddPlaceholder: "输入域名规则，回车添加",
+    excludeEmpty: "暂无排除条目。",
+    add: "添加",
+    enable: "启用",
+    disable: "禁用",
+    remove: "删除",
     restoreRecommended: "恢复推荐列表",
     recommendationsUnavailable:
       "推荐排除列表尚未加载成功。尚未配置过 SSL 代理的工作区暂不能保存，以免内置的防护列表被意外清空。",
@@ -831,7 +858,11 @@ export const zhCNMessages: Messages = {
       adbClearingProxy: "正在通过 ADB 清除代理...",
       adbErrorTitle: "ADB 安装失败",
       adbDeviceLoadErrorTitle: "ADB 设备检测失败",
+      adbDevicePickerTitleClear: "选择要清除代理的 Android 设备",
+      adbDevicePickerTitleSet: "选择要设置代理的 Android 设备",
       adbDevicePlaceholder: "请选择设备",
+      adbDeviceScanTimeout:
+        "通过 adb 扫描 Android 设备超时。请确认 adb 响应正常，然后刷新设备列表。",
       adbDeviceSelectorLabel: "ADB 设备",
       adbDeviceStateHint:
         "当前选中的目标设备状态为 {{state}}。只有处于“device”状态的设备才能安装证书。",
@@ -927,6 +958,8 @@ export const zhCNMessages: Messages = {
       iosSimulatorRefreshAction: "刷新 Simulator",
       iosSimulatorRefreshing: "刷新中...",
       iosSimulatorScanHint: "点击「刷新 Simulator」以扫描 iOS 模拟器。",
+      iosSimulatorScanTimeout:
+        "扫描 iOS 模拟器超时。请检查 Xcode Simulator 服务是否正常，然后刷新模拟器列表。",
       iosSimulatorSelectorLabel: "iOS Simulator",
       iosSimulatorSuccessBody:
         "已把根证书安装到 {{simulatorName}}。接下来请在 Simulator 的证书信任设置里手动打开完全信任。",
@@ -974,6 +1007,7 @@ export const zhCNMessages: Messages = {
       ],
       hdcDeviceLoadErrorTitle: "hdc 设备检测失败",
       hdcDevicePlaceholder: "请选择设备",
+      hdcDeviceScanTimeout: "通过 hdc 扫描鸿蒙设备超时。请确认 hdc 响应正常，然后刷新设备列表。",
       hdcDeviceSelectorLabel: "鸿蒙设备",
       hdcDeviceStateHint:
         "所选设备处于“{{state}}”状态。只有处于“Connected”状态的设备才能安装证书。",
@@ -1099,8 +1133,10 @@ export const zhCNMessages: Messages = {
     batchDelete: "删除",
     batchDeleteConfirm: "将从当前容器移除 {{count}} 个会话。",
     batchDeleteDone: "已从当前容器移除 {{count}} 个会话",
+    batchDeleteFailed: "删除选中会话失败",
     batchDeleteTitle: "删除选中的会话？",
     batchSaveResponsesDone: "已保存 {{count}} 个响应",
+    clearOthersFailed: "清除其他会话失败",
     clearSessionsConfirm: "将永久删除所有已捕获的会话，此操作无法撤销。",
     clearSessionsDontAskAgain: "不再确认清空会话",
     clearSessionsDone: "已清空全部会话",
@@ -1113,6 +1149,8 @@ export const zhCNMessages: Messages = {
     sslDecryptDisabled: "已停用 {{host}} 的 SSL 解密",
     sslDecryptEnabled: "已启用 {{host}} 的 SSL 解密",
     sslDecryptToggleFailed: "更新 SSL 解密设置失败",
+    addedToIncludeList: "已将 {{host}} 加入包含列表，仅解密包含列表中匹配的域名。",
+    addedToIncludeListFailed: "添加域名到包含列表失败",
     compareBaseSet: "已将 {{method}} {{path}} 设为对比基准。",
     filterAllSessions: "全部会话",
     filterThrottled: "已限速",
@@ -1409,6 +1447,7 @@ export const zhCNMessages: Messages = {
   inspector: {
     cookies: "Cookies",
     copyFullValue: "查看完整内容",
+    pseudo: "伪标头",
     waterfall: {
       unavailable: "时序数据不可用",
       dns: "DNS",
@@ -1658,6 +1697,7 @@ export const zhCNMessages: Messages = {
     notificationBody: "{{method}} {{target}} 正在等待你的处理。",
   },
   contextMenu: {
+    addToIncludeList: "加入包含列表",
     clearOthers: "清除其他会话",
     compose: "构造请求",
     copy: "复制",
@@ -1684,8 +1724,8 @@ export const zhCNMessages: Messages = {
     saveResponse: "保存响应...",
     saveResponseFiles: "保存所有文件...",
     setCompareBase: "设为对比基准",
-    sslDecryptDisable: "对此 host 停用 SSL 解密",
-    sslDecryptEnable: "对此 host 启用 SSL 解密",
+    sslDecryptDisable: "停用 SSL 解密",
+    sslDecryptEnable: "启用 SSL 解密",
     stopIgnoringHost: "Stop Ignoring",
     unfocusHost: "Remove Focus",
   },

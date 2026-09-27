@@ -176,7 +176,7 @@ cargo test --workspace                     # Rust tests
 
 ### In-App User Guides
 
-Bilingual guides are available within the app's Docs page, covering DNS mapping, throttling, WebSocket inspection, script rules, and collections.
+Bilingual guides are available within the app's Docs page — from certificate setup and capture (sessions, WebSocket inspection) to rules (rewrite, script, breakpoints, map local/remote, DNS mapping, throttling), plus collections & environments, Compose, insights, session compare, and settings.
 
 ## Internationalization
 

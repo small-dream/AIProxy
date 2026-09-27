@@ -606,67 +606,12 @@ pub(crate) fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -
     std::str::from_utf8(body).is_ok()
 }
 
-/// Decode a raw DEFLATE stream (RFC 1951, no zlib wrapper).
-///
-/// Uses flate2's streaming `DeflateDecoder` (the `Read` API). This consumes
-/// the input incrementally and is correct for arbitrary payload sizes and
-/// compression ratios. The previous manual `Decompress` loop re-fed the full
-/// input slice on every iteration, which corrupted output once the initial
-/// spare capacity was exceeded (highly-compressible payloads).
-fn raw_deflate_decode(input: &[u8]) -> Option<Vec<u8>> {
-    let mut decoder = DeflateDecoder::new(Cursor::new(input));
-    let mut output = Vec::new();
-    match decoder.read_to_end(&mut output) {
-        Ok(_) => Some(output),
-        Err(_) => None,
-    }
-}
-
-pub(crate) fn decode_body_bytes(body: &[u8], content_encoding: Option<&str>) -> Option<Vec<u8>> {
-    let encodings: Vec<String> = content_encoding?
-        .split(',')
-        .map(|encoding| encoding.trim().to_ascii_lowercase())
-        .filter(|encoding| !encoding.is_empty() && encoding != "identity")
-        .collect();
-    if encodings.is_empty() {
-        return None;
-    }
-
-    let mut decoded = body.to_vec();
-
-    for encoding in encodings.iter().rev() {
-        decoded = match encoding.as_str() {
-            "gzip" | "x-gzip" => {
-                let mut decoder = GzDecoder::new(Cursor::new(decoded));
-                let mut output = Vec::new();
-                decoder.read_to_end(&mut output).ok()?;
-                output
-            }
-            "deflate" => {
-                // Some servers send raw deflate (RFC 1951) even though the
-                // "deflate" Content-Encoding is nominally zlib-wrapped
-                // (RFC 1950). Try zlib first, then fall back to raw deflate.
-                let mut output = Vec::new();
-                let mut zlib_decoder = ZlibDecoder::new(Cursor::new(&decoded));
-                if zlib_decoder.read_to_end(&mut output).is_ok() {
-                    output
-                } else {
-                    // Raw deflate (no zlib header) via flate2's Decompress.
-                    raw_deflate_decode(&decoded)?
-                }
-            }
-            "br" => {
-                let mut decoder = Decompressor::new(Cursor::new(decoded), BROTLI_BUFFER_SIZE);
-                let mut output = Vec::new();
-                decoder.read_to_end(&mut output).ok()?;
-                output
-            }
-            _ => return None,
-        };
-    }
-
-    Some(decoded)
-}
+// The decode implementation lives in `http_io/body_decode.rs` and is pulled
+// in verbatim via `include!` (NOT a module) so `benches/body_decompress.rs`
+// can include the same source and benchmark the crate's own decode path
+// without exposing it in the public API. The included file relies on this
+// scope's imports (flate2 / brotli / std::io) and on BROTLI_BUFFER_SIZE.
+include!("http_io/body_decode.rs");
 
 pub(crate) fn build_raw_http_head(start_line: &str, headers: &[ProxyHeaderEntry]) -> String {
     let mut raw_message = String::new();
@@ -1118,6 +1063,15 @@ mod tests {
         encoder.finish().unwrap()
     }
 
+    fn encode_gzip(plain: &[u8]) -> Vec<u8> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(plain).unwrap();
+        encoder.finish().unwrap()
+    }
+
     // L2-1: zlib-wrapped deflate (standard servers) still decodes
     #[test]
     fn decode_body_bytes_deflate_zlib_wrapped() {
@@ -1171,5 +1125,54 @@ mod tests {
         let encoded = encode_raw_deflate(plain);
         let decoded = decode_body_bytes(&encoded, Some("  DeFLATE "));
         assert_eq!(decoded.as_deref(), Some(plain.as_slice()));
+    }
+
+    // -----------------------------------------------------------------------
+    // Body-decompression output cap (zip-bomb guard)
+    // -----------------------------------------------------------------------
+
+    // Boundary: an output of exactly `limit` bytes is a successful decode; only
+    // output that would exceed the limit is rejected.
+    #[test]
+    fn read_decoded_bounded_accepts_output_at_the_limit() {
+        let payload = [b'a'; 8];
+        let decoded = read_decoded_bounded(Cursor::new(&payload[..]), 8);
+        assert_eq!(decoded.as_deref(), Some(payload.as_slice()));
+    }
+
+    // One byte over the limit fails the decode instead of returning a truncated
+    // prefix, so a partial expansion can never be surfaced — or written back by
+    // a rewrite/script rule — as if it were the whole body.
+    #[test]
+    fn read_decoded_bounded_rejects_output_over_the_limit() {
+        let payload = [b'a'; 9];
+        assert_eq!(read_decoded_bounded(Cursor::new(&payload[..]), 8), None);
+    }
+
+    // End-to-end zip bomb: a tiny gzip wire body that expands past the cap must
+    // be reported as undecodable (callers fall back to the raw bytes) rather
+    // than allocating the expansion.
+    #[test]
+    fn decode_body_bytes_rejects_expansion_over_the_cap() {
+        let expansion = vec![0u8; MAX_DECOMPRESSED_BODY_BYTES + 1];
+        let encoded = encode_gzip(&expansion);
+        assert!(
+            encoded.len() < 1024 * 1024,
+            "fixture must stay a small wire body (encoded={})",
+            encoded.len()
+        );
+
+        assert_eq!(decode_body_bytes(&encoded, Some("gzip")), None);
+    }
+
+    // The cap must not disturb the normal path: a compressed body that decodes
+    // well below it still round-trips exactly.
+    #[test]
+    fn decode_body_bytes_gzip_roundtrips_under_the_cap() {
+        let plain: Vec<u8> = (0..100_000u32).flat_map(|i| i.to_le_bytes()).collect();
+        let encoded = encode_gzip(&plain);
+
+        let decoded = decode_body_bytes(&encoded, Some("gzip")).expect("gzip decodes");
+        assert_eq!(decoded, plain);
     }
 }

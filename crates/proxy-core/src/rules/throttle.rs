@@ -63,7 +63,9 @@ fn transfer_delay_ms(byte_count: usize, kbps: u32) -> u64 {
     let bits_per_second = (kbps as u128) * 1024;
     let millis = (bits * 1_000).div_ceil(bits_per_second);
 
-    millis as u64
+    // Saturate instead of truncating: `as u64` silently wraps for theoretical
+    // delays beyond u64::MAX ms (a huge body at a very low rate).
+    millis.try_into().unwrap_or(u64::MAX)
 }
 
 pub(crate) async fn apply_request_throttle(
@@ -434,6 +436,17 @@ mod tests {
     fn transfer_delay_handles_huge_body_without_overflow() {
         let delay = transfer_delay_ms(usize::MAX, 1);
         assert!(delay > 0);
+    }
+
+    // Regression: the u128 -> u64 conversion must saturate at u64::MAX instead
+    // of wrapping (the previous `as u64` truncated, so a pathological
+    // byte_count could produce a tiny delay).
+    #[test]
+    fn transfer_delay_saturates_at_u64_max_instead_of_wrapping() {
+        // usize::MAX bytes at the lowest non-zero rate exceeds u64::MAX ms.
+        assert_eq!(transfer_delay_ms(usize::MAX, 1), u64::MAX);
+        // A value below the saturation point still converts exactly.
+        assert_eq!(transfer_delay_ms(1024, 1), 8_000);
     }
 
     #[test]

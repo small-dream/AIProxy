@@ -1,4 +1,5 @@
 export * from "./proxy";
+export * from "./errors";
 export * from "./port-manager";
 export * from "./app";
 export * from "./sessions";

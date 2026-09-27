@@ -53,7 +53,7 @@ AIProxy 为桌面端应用，不采用传统远程 HTTP API 作为主交互形�
 ## 4.1 命名规范
 
 - Command 使用 `snake_case`
-- Event 使用 `domain/action` 风格
+- Event 使用 `domain-action` 连字符（kebab-case）风格，如 `session-upsert`、`breakpoint-hit`、`ws-message`
 - 前端内部 TypeScript 类型使用 `PascalCase`
 - Rust DTO 使用 `CamelCase` 序列化为 JSON
 
@@ -128,11 +128,23 @@ type Workspace = {
   sslProxying?: SslProxyingSettings;
 };
 
+type SslProxyEntry = {
+  // 域名模式：精确域名、*.example.com / .example.com 后缀（含 apex）、CIDR（仅对 IP 字面量目标生效）、*。
+  // 关闭的条目保留但不生效。
+  pattern: string;
+  enabled: boolean;
+};
+
 type SslProxyingSettings = {
-  // 为空表示「解密所有未被排除的域名」，即该设置存在之前的历史行为。
-  include: string[];
-  // 始终不解密，优先级高于 include。
-  exclude: string[];
+  // include 总开关：开启 = 仅解密 include 中已启用的条目（白名单模式）；
+  // 关闭 = 解密所有未被排除的域名（默认，保持历史行为）。
+  includeEnabled: boolean;
+  // exclude 总开关：默认开启（逃生舱）；关闭可能使证书绑定的 App 无法使用。
+  excludeEnabled: boolean;
+  // 候选解密条目，仅 enabled 且在 includeEnabled 开启时生效。
+  include: SslProxyEntry[];
+  // 始终不解密（当 excludeEnabled 开启时），优先级高于 include。
+  exclude: SslProxyEntry[];
 };
 
 type UpstreamProxyProtocol = "http" | "https" | "socks5";
@@ -167,6 +179,9 @@ type ProxyStatus = {
   activeWorkspaceId?: string; // 当前激活代理预设 ID，字段名保持兼容
   startedAt?: string;
   http2Enabled?: boolean;
+  // 系统代理恢复 / 重新应用失败时的警告信息（如重启后 reapply 失败）；
+  // 无警告时缺省。disable_system_proxy 成功后清空。
+  systemProxyRecoveryWarning?: string;
 };
 ```
 
@@ -441,6 +456,7 @@ type MapRule = {
 
 type MapSessionTrace = {
   durationMs: number;
+  failureReason?: string;  // outcome 为 "failed" 时的失败原因；规则失败会降级为 trace 并继续转发原请求，不再中止连接
   localPath?: string;
   mappedUrl?: string;
   mode: "local" | "remote";
@@ -833,7 +849,7 @@ type UpdateWorkspaceInput = {
 type UpdateWorkspaceOutput = Workspace;
 ```
 
-> **H3 行为说明**：每条新上游连接的有效校验决策为 `verifyUpstreamTls || tlsVerifyHosts.contains(host)`（大小写不敏感、去空白）——即白名单内的 host 即使总开关关闭也会被校验。`true`（或 host 命中白名单）时依据系统根证书校验上游证书（无效/自签名被拒）；`false`（默认）保持 NoOp verifier，接受任意上游证书。开关在新连接上生效（已建立的连接不强制断开）。`start_proxy` / 重启会按当前 workspace 的设置解析进 `ProxyConfig`。
+> **H3 行为说明**：每条新上游连接的有效校验决策为 `verifyUpstreamTls || tlsVerifyHosts.contains(host)`（大小写不敏感、去空白）——即白名单内的 host 即使总开关关闭也会被校验。`true`（或 host 命中白名单）时依据系统根证书校验上游证书（无效/自签名被拒）；`false`（默认）保持 NoOp verifier，接受任意上游证书（其通告的签名校验方案委托 crypto provider，见 §9）。开关在新连接上生效（已建立的连接不强制断开）。`start_proxy` / 重启会按当前 workspace 的设置解析进 `ProxyConfig`。
 
 > **SSL 按 host 解密开关**：`sslBlindHosts` 内的 host 在 CONNECT 阶段直接盲通（不终止 TLS、不捕获解密后的明文），即使 workspace 级 `sslEnabled` 保持开启——既是隐私合规控制，也是绕过证书固定（pinning）的手段。匹配为大小写不敏感、去空白（复用 `host_in_allowlist`）。修改通过 `update_workspace` 持久化，代理运行时在 `start_proxy` / 重启后按新列表解析生效。
 
@@ -888,7 +904,9 @@ type UpstreamProxyProbeResult = {
 > **SSL 代理行为说明**：
 >
 > - **判定顺序**：`exclude` 优先于 `include`。exclude 是用户在 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
-> - **两种模式**：`include` 为空 ⇒ 解密所有未被排除的域名（默认，保持历史行为）；`include` 非空 ⇒ 仅解密列出的域名，其余原样盲转发。
+> - **总开关 + 条目开关**：`includeEnabled` / `excludeEnabled` 是两个列表的总开关；每条规则带独立的 `enabled` 开关，关闭的条目保留但不生效。
+> - **两种模式**：`includeEnabled=false` ⇒ 解密所有未被排除的域名（默认，保持历史行为）；`includeEnabled=true` ⇒ 仅解密 include 中已启用的条目，其余原样盲转发。
+> - **旧数据迁移**：升级前保存的 `{ include: string[], exclude: string[] }` 在反序列化时自动迁移为条目形式（`includeEnabled = include 非空`、`excludeEnabled = true`、条目均 `enabled`），行为保持不变。
 > - **模式匹配语法**与上游代理绕行列表一致（`crates/proxy-core/src/host_pattern.rs` 共用实现）：精确域名、`*.example.com` / `.example.com` 后缀（含 apex）、CIDR（仅对 IP 字面量目标生效）、`*` 通配全部。IPv6 字面量在规则与目标两侧都接受带/不带方括号、带/不带尾点 FQDN 点的写法并归一后比较。
 > - **未解密 ≠ 未转发**：被排除的域名走盲转发（`tunnel_blind_relay`），App 功能不受影响，只是看不到明文。这与 `ssl_enabled=false` 的全局关闭是同一条代码路径。
 > - **仅在 `ssl_enabled` 为 true 时生效**：拦截本身关闭时没有可缩放的范围，此时 `ProxyRuntimeConfig.ssl_proxying` 为 `None`。
@@ -996,6 +1014,27 @@ type ClearSessionsOutput = void;
 
 - 清空当前 workspace 的全部会话（含持久化数据），UI 侧需先做危险操作确认
 
+### `delete_sessions`
+
+请求：
+
+```ts
+type DeleteSessionsInput = {
+  sessionIds: string[];
+};
+```
+
+响应：
+
+```ts
+type DeleteSessionsOutput = void;
+```
+
+说明：
+
+- 按 id 批量删除会话（多选删除），含持久化数据与 body 文件；DB 删除按批次执行（`DELETE_SESSIONS_BATCH_SIZE`）
+- 成功后后端发射 `sessions-removed`（回显请求的 id 列表，含后端未持有的导入会话 id），前端依赖该事件更新本地状态并对这些 id 记录 tombstone，防止进行中的会话被后续 `session-upsert` 复活
+
 ### `delete_sessions_except`
 
 请求：
@@ -1032,6 +1071,8 @@ type SetFocusedHostsInput = {
 
 ```ts
 type SendComposedRequestInput = {
+  // 预留字段：后端当前不校验、不使用（compose.rs 中标记 #[allow(dead_code)]），
+  // 保留用于未来按代理预设解析发送配置。前端仍应传当前激活预设 ID。
   workspaceId: string;
   method: string;
   url: string;
@@ -1194,6 +1235,7 @@ type WsInjectInput = {
 - `clientToServer` 方向的帧使用掩码发送（RFC 6455 §5.1）
 - `serverToClient` 方向的帧不使用掩码
 - 注入的帧同时作为 `WsMessageData` 发送到会话层，确保 UI 实时更新
+- `payload` 一律为字符串：无论 `opcode` 为何，后端都按 UTF-8 将其编码为帧字节（`crates/proxy-core/src/ws.rs` 中 `req.payload.into_bytes()`）。因此 `binary` 帧的帧体就是 payload 字符串的 UTF-8 字节序列——当前没有 base64/hex 解码路径，无法注入任意二进制字节，属已知限制
 
 ### `search_ws_messages` — `已实现`
 
@@ -1371,6 +1413,30 @@ type SaveMapRuleInput = Omit<MapRule, "id"> & {
 ```ts
 type SaveMapRuleOutput = MapRule;
 ```
+
+### `list_map_session_trace`
+
+状态：`已实现`
+
+请求：
+
+```ts
+type ListMapSessionTraceInput = {
+  sessionId: string;
+};
+```
+
+响应：
+
+```ts
+type ListMapSessionTraceOutput = MapSessionTrace[];
+```
+
+说明：
+
+- 返回指定 Session 的 Map（Local / Remote）命中记录
+- 每条 trace 包含 mode、原始 URL、映射结果（`localPath` 或 `mappedUrl`）、结果、耗时与规则信息
+- 前端在 Session Inspector 的 `Automation` 标签页懒加载该数据
 
 ### `list_dns_mappings`
 
@@ -2160,6 +2226,25 @@ invoke("set_menu_locale", { preference: "en" | "system" | "zh-CN" }): Promise<vo
 
 **持久化：** `<app_data_dir>/menu-locale.json`，内容 `{ "preference": "en" | "system" | "zh-CN" }`，启动期读取并解析。
 
+## 6.13 App Commands
+
+### `show_log_file`
+
+在系统文件管理器中显示当前开发日志文件（`logs/dev/` 下，见 `dev_logger`），供「查看日志」入口使用。
+
+请求：无参数。
+
+响应：
+
+```ts
+type ShowLogFileOutput = string; // 日志文件的绝对路径
+```
+
+说明：
+
+- 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
+- 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
+
 ## 7. Event Specification
 
 ## 7.1 会话事件
@@ -2197,6 +2282,7 @@ type SessionsRemovedEvent = string[];
 触发时机：
 
 - `clear_sessions` 清空会话后触发 `sessions-cleared`
+- `delete_sessions` 按 id 批量删除会话后触发 `sessions-removed`（回显请求的 id 列表）
 - `delete_sessions_except` 批量移除会话后触发 `sessions-removed`
 
 ## 7.2 断点事件 — `已实现`
@@ -2323,6 +2409,26 @@ type MenuEvent = unknown;
 - 窗口控制类菜单项（如最小化、最大化、关闭）在 Windows / Linux 通过 Tauri window API 执行，并需要在 `src-tauri/capabilities/default.json` 中声明对应 `core:window:*` 权限
 - 当前未注册 `proxy/status_changed`、`rule/matched`、`certificate/status_changed`、`export/progress` 事件；代理状态和证书状态由命令查询，规则命中通过各类 session trace 查询
 
+## 7.5 系统代理事件 — `已实现`
+
+### `system-proxy-warning` — `已实现`
+
+```ts
+type SystemProxyWarningEvent = {
+  reason: string; // 当前固定为 "reapply_failed"
+  error: string;  // 底层 reapply 失败原因
+};
+```
+
+触发时机：
+
+- `start_proxy` / 代理重启成功后，若系统代理处于开启状态，后端会以新端口重新应用系统代理；该 reapply 失败时发射此事件（见 `commands/proxy.rs` 的 `start_proxy_impl`，H4：reapply 失败不使启动失败，代理仍在运行，仅 OS 代理可能仍指向旧端口）
+
+前端处理：
+
+- `services/events/index.ts` 中的 `onSystemProxyWarning()` 订阅此事件
+- `AppShell` 的 `useSystemProxyWarning()` hook 将其转为全局 warning 通知（Snackbar），提示系统代理可能已过期
+
 ## 8. 前端调用规范
 
 ## 8.1 Command Client 约束
@@ -2352,15 +2458,18 @@ type MenuEvent = unknown;
 - 对证书、密钥、导出路径进行白名单校验
 - Body 大文件避免一次性加载到内存
 - 日志中默认不打印完整敏感 Body
+- **Body 解压输出上限（zip bomb 防护）**：捕获路径已将压缩 Body 限制在 `MAX_CAPTURED_BODY_BYTES`（20 MiB，见 `crates/proxy-core/src/lib.rs`），但解压并非体积守恒。`decode_body_bytes`（gzip / deflate / x-gzip / br，含 zlib 失败后的 raw deflate 回退）对**单次调用**的解压输出设 `MAX_DECOMPRESSED_BODY_BYTES = 64 MiB` 上限（`crates/proxy-core/src/http_io/body_decode.rs`）。超限时**不返回部分解压结果**，等同“无法解码”：调用方回退到原始（仍受 20 MiB 约束的）wire bytes，并记录 `body_decode_output_limit_exceeded` 结构化日志（含 `limit` 字段）。恰好等于上限视为解码成功；多段 `Content-Encoding` 逐段解码，每段各自受该上限约束。
+- **上游 TLS 校验方案集（`NoOpVerifier`）**：盲通/未开启上游校验时使用的 `NoOpVerifier` 会接受任意证书，但它向对端通告的签名校验方案**不是硬编码清单**，而是委托当前 crypto provider（`default_provider().signature_verification_algorithms.supported_schemes()`，见 `crates/tls-manager/src/client.rs`）。这保证 ClientHello 中通告的方案与运行时真正能校验的方案完全一致：此前手写清单漏掉 `RSA_PSS_SHA512`，会导致只能以该方案握手的对端被本端自己拒绝。provider 不支持的方案（如 ring 下的 ECDSA P-521 / Ed448）仍不通告，属预期行为，需更换 provider 才能覆盖。
 
 ## 10. 版本策略
 
 ### App Build Info
 
-- `get_app_build_info() -> { version: string; buildNumber: string; versionIdentifier: string }`
+- `get_app_build_info() -> { version: string; buildNumber: string; versionIdentifier: string; commitHash: string }`
 - `version` 来自应用版本号配置，例如 `0.1.0`。
 - `buildNumber` 默认由 `apps/desktop/src-tauri/build.rs` 执行 `git rev-list --count HEAD` 生成；CI 可通过 `AIPROXY_BUILD_NUMBER` 覆盖。
 - `versionIdentifier` 使用 `version+buildNumber` 格式，例如 `0.1.0+153`，作为软件构建的唯一标识。
+- `commitHash` 为构建时的 git commit hash，由 `AIPROXY_GIT_HASH` 注入；未注入时为 `"unknown"`。
 - 原生 About 菜单和 Settings > About 都应展示版本号与 Build Number。
 
 ### v1
@@ -2583,6 +2692,8 @@ type ApiGlobalVariable = {
 ## 15. AI Compare Commands — 已实现发布硬化版
 
 这些命令由 `Compare` 页面和 `Settings > AI Model` 调用。当前仅支持 OpenAI-compatible Chat Completions，API Key 存在本地 SQLite 的 `ai_settings` 表中，前端只接收 masked key。Compare 页面生成的 diff payload 默认脱敏，并带有 Body lazy diff、截断和 binary 状态元数据。
+
+> **API Key 存储安全说明**：`api_key` 以明文存储在本地 SQLite `ai_settings` 表中，这是已知的取舍——key 需要以原文发送到用户自配置的 AI endpoint，本地桌面端无法在不引入系统 keychain 依赖的前提下加密存储。命令层已做最小暴露：任何命令 / 事件都不会把完整 key 传给前端，`get_ai_settings` 只返回 `hasApiKey` 与 `mask_api_key()` 生成的 `maskedApiKey`，日志也不记录完整 key。
 
 ### AI 共享类型
 

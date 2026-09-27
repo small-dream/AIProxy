@@ -573,26 +573,56 @@ pub struct ThrottleRuleRow {
     pub match_type: String,
 }
 
+/// Save (insert or update) a throttle rule.
+///
+/// Uses UPDATE-or-INSERT rather than INSERT OR REPLACE (mirrors
+/// save_throttle_profile above): a REPLACE's implicit DELETE fires
+/// ON DELETE CASCADE on any current or future child table (foreign_keys=ON),
+/// so re-saving a rule must update the row in place.
 pub fn save_throttle_rule(conn: &Connection, rule: &ThrottleRuleRow) -> Result<(), DbError> {
-    conn.execute(
-        "INSERT OR REPLACE INTO throttle_rules
-            (id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage, match_type)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![
-            rule.id,
-            rule.workspace_id,
-            rule.name,
-            rule.note,
-            rule.enabled as i32,
-            rule.priority,
-            rule.profile_id,
-            rule.url_pattern,
-            rule.methods,
-            rule.stage,
-            rule.match_type,
-        ],
-    )
-    .map_err(|e| DbError::query("save throttle rule", e))?;
+    let affected = conn
+        .execute(
+            "UPDATE throttle_rules
+                SET workspace_id=?2, name=?3, note=?4, enabled=?5, priority=?6,
+                    profile_id=?7, url_pattern=?8, methods=?9, stage=?10, match_type=?11
+             WHERE id=?1",
+            params![
+                rule.id,
+                rule.workspace_id,
+                rule.name,
+                rule.note,
+                rule.enabled as i32,
+                rule.priority,
+                rule.profile_id,
+                rule.url_pattern,
+                rule.methods,
+                rule.stage,
+                rule.match_type,
+            ],
+        )
+        .map_err(|e| DbError::query("update throttle rule", e))?;
+
+    if affected == 0 {
+        conn.execute(
+            "INSERT INTO throttle_rules
+                (id, workspace_id, name, note, enabled, priority, profile_id, url_pattern, methods, stage, match_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                rule.id,
+                rule.workspace_id,
+                rule.name,
+                rule.note,
+                rule.enabled as i32,
+                rule.priority,
+                rule.profile_id,
+                rule.url_pattern,
+                rule.methods,
+                rule.stage,
+                rule.match_type,
+            ],
+        )
+        .map_err(|e| DbError::query("insert throttle rule", e))?;
+    }
     Ok(())
 }
 
@@ -864,24 +894,52 @@ pub struct DnsMappingRow {
     pub match_type: String,
 }
 
+/// Save (insert or update) a DNS mapping.
+///
+/// Uses UPDATE-or-INSERT rather than INSERT OR REPLACE (mirrors the other
+/// save_* paths in this crate): a REPLACE's implicit DELETE fires
+/// ON DELETE CASCADE on any future child table (foreign_keys=ON), so
+/// re-saving a mapping must update the row in place.
 pub fn save_dns_mapping(conn: &Connection, r: &DnsMappingRow) -> Result<(), DbError> {
-    conn.execute(
-        "INSERT OR REPLACE INTO dns_mappings
-            (id, workspace_id, name, note, enabled, priority, host_pattern, target_ip, match_type)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            r.id,
-            r.workspace_id,
-            r.name,
-            r.note,
-            r.enabled as i32,
-            r.priority,
-            r.host_pattern,
-            r.target_ip,
-            r.match_type,
-        ],
-    )
-    .map_err(|e| DbError::query("save dns mapping", e))?;
+    let affected = conn
+        .execute(
+            "UPDATE dns_mappings
+                SET workspace_id=?2, name=?3, note=?4, enabled=?5, priority=?6,
+                    host_pattern=?7, target_ip=?8, match_type=?9
+             WHERE id=?1",
+            params![
+                r.id,
+                r.workspace_id,
+                r.name,
+                r.note,
+                r.enabled as i32,
+                r.priority,
+                r.host_pattern,
+                r.target_ip,
+                r.match_type,
+            ],
+        )
+        .map_err(|e| DbError::query("update dns mapping", e))?;
+
+    if affected == 0 {
+        conn.execute(
+            "INSERT INTO dns_mappings
+                (id, workspace_id, name, note, enabled, priority, host_pattern, target_ip, match_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                r.id,
+                r.workspace_id,
+                r.name,
+                r.note,
+                r.enabled as i32,
+                r.priority,
+                r.host_pattern,
+                r.target_ip,
+                r.match_type,
+            ],
+        )
+        .map_err(|e| DbError::query("insert dns mapping", e))?;
+    }
     Ok(())
 }
 
@@ -2362,5 +2420,81 @@ mod tests {
             entries_left, 0,
             "script_run_entries should be empty after clear"
         );
+    }
+
+    // Re-saving a throttle rule must update the row in place
+    // (UPDATE-or-INSERT, matching save_throttle_profile): INSERT OR REPLACE
+    // would delete-and-recreate the row, firing CASCADE on any future child
+    // table.
+    #[test]
+    fn save_throttle_rule_updates_in_place_on_resave() {
+        let conn = test_conn();
+        save_throttle_profile(
+            &conn,
+            &ThrottleProfileRow {
+                id: "tp1".into(),
+                workspace_id: "default".into(),
+                name: "Profile".into(),
+                note: None,
+                enabled: false,
+                preset: false,
+                latency_ms: 100,
+                upload_kbps: 300,
+                download_kbps: 500,
+                packet_loss_ratio: 0.0,
+            },
+        )
+        .unwrap();
+
+        fn make_rule(name: &str) -> ThrottleRuleRow {
+            ThrottleRuleRow {
+                id: "tr1".into(),
+                workspace_id: "default".into(),
+                name: name.into(),
+                note: None,
+                enabled: true,
+                priority: 1,
+                profile_id: "tp1".into(),
+                url_pattern: "*".into(),
+                methods: "[]".into(),
+                stage: "both".into(),
+                match_type: "contains".into(),
+            }
+        }
+
+        save_throttle_rule(&conn, &make_rule("Before")).unwrap();
+        save_throttle_rule(&conn, &make_rule("After")).unwrap();
+
+        let loaded = load_all_throttle_rules(&conn).unwrap();
+        assert_eq!(loaded.len(), 1, "re-save must not duplicate the rule");
+        assert_eq!(loaded[0].name, "After");
+    }
+
+    // Re-saving a DNS mapping must update the row in place (UPDATE-or-INSERT,
+    // matching the other save_* paths).
+    #[test]
+    fn save_dns_mapping_updates_in_place_on_resave() {
+        let conn = test_conn();
+
+        fn make_mapping(target_ip: &str) -> DnsMappingRow {
+            DnsMappingRow {
+                id: "d1".into(),
+                workspace_id: "default".into(),
+                name: "Local API".into(),
+                note: None,
+                enabled: true,
+                priority: 100,
+                host_pattern: "api.example.com".into(),
+                target_ip: target_ip.into(),
+                match_type: "contains".into(),
+            }
+        }
+
+        save_dns_mapping(&conn, &make_mapping("127.0.0.1")).unwrap();
+        save_dns_mapping(&conn, &make_mapping("127.0.0.2")).unwrap();
+
+        let loaded = load_all_dns_mappings(&conn).unwrap();
+        assert_eq!(loaded.len(), 1, "re-save must not duplicate the mapping");
+        assert_eq!(loaded[0].target_ip, "127.0.0.2");
     }
 }

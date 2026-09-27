@@ -30,20 +30,20 @@ This version supports:
 - Global profiles: apply one set of weak-network params to the current workspace's proxied traffic
 - Preset profiles: e.g. Fast 4G, Slow 3G, Lossy Wi-Fi
 - Custom profiles: configure latency, upload, download, packet loss
-- Targeted rules: scope weak-network effects by URL / host pattern, HTTP method, stage, priority
-- 15-minute temporary enable, auto-disabling on expiry
+- Targeted rules: scope weak-network effects by URL pattern (with Match Type), HTTP method, stage, priority
+- 15-minute temporary enable with a live countdown; auto-disabling on expiry (while the app stays open)
+- Inline enable/disable per rule row, plus rule duplication
 - One-click disable of global weak-network
 - A Session Automation tab showing the Throttling Trace
 - A Sessions-list toggle to show only throttled requests
 - Right-click a session to create a targeted weak-network rule
+- Backup via the Rules-page single-file export/import ([details](./rewrite-rules.md#import--export-rules))
 
 Not yet supported:
 
 - Jitter
 - Timeout / offline params
-- Chunked or streaming bandwidth simulation
 - WebSocket message-level rate limiting
-- Profile import/export
 - A pre-save tester
 - API QPS / quota / concurrency limiting
 
@@ -63,9 +63,11 @@ It shows:
 | Drops | Number of requests simulated as failed by packet loss |
 | Delay | Cumulative added request / response latency |
 | 15 min | Temporarily enable the selected profile |
-| Disable | Immediately turn off global weak-network |
+| Disable Throttling | Immediately turn off global weak-network |
 
-Tip: click **Disable** after testing so later captures aren't affected.
+Tip: click **Disable Throttling** after testing so later captures aren't affected.
+
+During a temporary enable, a countdown chip shows the remaining time and a scope line summarizes "global profile + N targeted rules". Note the countdown lives in the app layer — if AIProxy restarts mid-window, the temporarily enabled profile stays active until you disable it.
 
 ### Profiles
 
@@ -76,19 +78,19 @@ Each profile has:
 | Field | Description | Example |
 |---|---|---|
 | Profile Name | Config name | `Slow checkout API` |
-| Latency | Extra latency at the request stage | `300 ms` |
-| Download | Response download bandwidth | `768 kbps` |
-| Upload | Request upload bandwidth | `320 kbps` |
-| Packet Loss | Request packet-loss ratio | `1.2%` |
+| Latency | Extra fixed latency added to each request and response leg (0–2000 ms) | `300 ms` |
+| Download | Response download bandwidth, applied progressively per chunk (1–100,000 kbps) | `768 kbps` |
+| Upload | Request upload bandwidth; the upload body is buffered then sent after the computed delay (1–50,000 kbps) | `320 kbps` |
+| Packet Loss | Chance that each request or response leg is dropped (0–100 %) | `1.2%` |
 | Enable after save | Whether to enable as the global profile on save | on / off |
 
 Common actions:
 
 - Click a preset or custom profile to view/edit it on the right
-- Click **Apply** to enable that profile as the global weak-network config immediately
+- Click **Apply** to temporarily enable this profile globally for **15 minutes** (a countdown chip appears at the top)
 - Click **New Custom** to create a custom config
 - Click **Save Profile** to save without necessarily enabling
-- Click **Save & Apply** to save and enable globally
+- Click **Save & Apply** to save and keep it enabled globally until throttling is turned off
 
 ## Global weak-network vs targeted rules
 
@@ -119,30 +121,33 @@ Rule fields:
 | Field | Description | Example |
 |---|---|---|
 | Rule name | Rule name | `Slow login API` |
-| Enabled | Whether the rule is active | on |
-| Profile | The weak-network profile to use on a hit | `Slow 3G` |
-| URL / Host pattern | Match URL or host, supports `*` | `*://api.example.com/login*` |
+| Enabled | Whether the rule is active (also toggleable inline in the list) | on |
+| Profile | The weak-network profile to use on a hit — the rule only fires while this profile is enabled | `Slow 3G` |
+| URL pattern | Matches against the full request URL, interpreted per Match Type | `*://api.example.com/login*` |
+| Match Type | Contains (default) / Wildcard / Exact / Regex | Wildcard |
 | Methods | Match HTTP method; empty = all | `POST` |
 | Stage | The stage to affect | `Request + response` |
 | Priority | Priority; higher wins | `100` |
 
+The editor also offers **Duplicate** to copy an existing rule as a starting point.
+
 When both a targeted rule and a global profile exist:
 
-1. If a request matches an enabled rule, that rule's profile wins
+1. If a request matches an enabled rule whose referenced profile is also enabled, that rule's profile wins
 2. If multiple rules match, the highest-priority rule wins
 3. If no rule matches, the global active profile is used
 
-## URL / Host pattern
+## URL pattern
 
-The pattern supports plain text and `*` wildcards.
+The default **Contains** type matches any URL containing the pattern text — there, asterisks are literal characters. To use `*` placeholders pick **Wildcard**; it is anchored unless the pattern starts/ends with `*`.
 
-| Pattern | Matches |
-|---|---|
-| `api.example.com` | any URL containing `api.example.com` |
-| `*://api.example.com/*` | `https://api.example.com/v1/users` |
-| `*login*` | any URL containing `login` |
-| `https://api.example.com/users` | that exact endpoint URL |
-| `*` | all requests |
+| Pattern | Match Type | Matches |
+|---|---|---|
+| `api.example.com` | Contains (default) | any URL containing `api.example.com` |
+| `*://api.example.com/*` | Wildcard | `https://api.example.com/v1/users` |
+| `*login*` | Wildcard | any URL containing `login` |
+| `https://api.example.com/users` | Exact | only that exact endpoint URL |
+| `*` | Contains or Wildcard | all requests |
 
 Tips:
 
@@ -211,8 +216,9 @@ The trace shows:
 Common readings:
 
 - `request / applied`: the request stage added latency or upload delay
-- `response / applied`: the response stage added download delay
+- `response / applied`: the response stage added latency / download delay
 - `request / dropped`: the request was dropped by packet-loss simulation, usually returning a timeout-like response
+- `response / dropped`: the response was dropped mid-transfer; the client sees a failed response
 
 ## Recommended workflows
 
@@ -220,10 +226,10 @@ Common readings:
 
 1. Open **Throttling**
 2. Pick `Slow 3G` in Profiles
-3. Click **Apply** or **15 min**
+3. Click **Apply** for a temporary 15-minute run (or **Save & Apply** to keep it on)
 4. Go run your test flow
 5. Watch slow requests and error states in Sessions
-6. Click **Disable** when done
+6. Click **Disable Throttling** when done
 
 ### Precise single-endpoint weak-network test
 
@@ -254,12 +260,11 @@ AIProxy applies Throttling in the proxy pipeline:
 4. Request stage:
    - Decide whether to simulate packet loss by `packetLossRatio`
    - Add fixed latency by `latencyMs`
-   - Compute upload delay from request body size and `uploadKbps`
+   - Compute upload delay from request body size and `uploadKbps` (the upload body is buffered first, then handed upstream after the computed delay)
 5. Response stage:
-   - Compute download delay from response body size and `downloadKbps`
+   - Roll packet loss and add fixed latency here as well — both legs are treated symmetrically
+   - Deliver the response at `downloadKbps`, pacing it in ~16 KiB chunks so downloads arrive progressively
 6. Each effect writes a session-level Throttling Trace
-
-Note: bandwidth simulation waits on the whole body at once, not per chunk. So it simulates "everything slower" but not fully streaming or progressive large-file loading.
 
 ## Persistence
 
@@ -312,4 +317,4 @@ Open that session's **Automation** tab and check the Throttling Trace. If `Outco
 
 ### Q: What happens when the 15-minute temporary enable expires?
 
-AIProxy auto-disables global Throttling on expiry. Targeted rules keep their config; if a rule is itself enabled and matches a request, it can still affect matched requests.
+On expiry AIProxy disables the active profile. Because targeted rules borrow a profile, they pause too — a rule only takes effect while its referenced profile is enabled. Re-apply a profile (or enable one) to resume throttling.

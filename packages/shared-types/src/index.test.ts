@@ -13,6 +13,7 @@ import {
   isSessionSummary,
   isUpstreamProxyProtocol,
   isSslProxyingSettings,
+  isSslProxyEntry,
   isRewriteRule,
   normalizeRewriteRule,
   parseSslProxyingExclusions,
@@ -1048,22 +1049,71 @@ describe("upstream proxy contract", () => {
 
 describe("SslProxyingSettings", () => {
   it("validates a complete settings object", () => {
-    expect(isSslProxyingSettings({ include: ["*.example.com"], exclude: ["*.pinned.com"] })).toBe(
-      true,
-    );
+    expect(
+      isSslProxyingSettings({
+        includeEnabled: false,
+        excludeEnabled: true,
+        include: [{ pattern: "*.example.com", enabled: true }],
+        exclude: [{ pattern: "*.pinned.com", enabled: true }],
+      }),
+    ).toBe(true);
   });
 
-  it("accepts two empty lists, which means intercept everything", () => {
-    expect(isSslProxyingSettings({ include: [], exclude: [] })).toBe(true);
+  it("accepts empty lists alongside their master switches", () => {
+    expect(
+      isSslProxyingSettings({
+        includeEnabled: false,
+        excludeEnabled: true,
+        include: [],
+        exclude: [],
+      }),
+    ).toBe(true);
   });
 
-  it("rejects malformed or missing pattern lists", () => {
-    expect(isSslProxyingSettings({ include: ["ok"] })).toBe(false);
-    expect(isSslProxyingSettings({ exclude: ["ok"] })).toBe(false);
-    expect(isSslProxyingSettings({ include: "*.example.com", exclude: [] })).toBe(false);
-    expect(isSslProxyingSettings({ include: [], exclude: [1, 2] })).toBe(false);
+  it("rejects malformed or missing entries and master switches", () => {
+    expect(
+      isSslProxyingSettings({
+        includeEnabled: true,
+        excludeEnabled: true,
+        include: ["ok"],
+        exclude: [],
+      }),
+    ).toBe(false);
+    expect(
+      isSslProxyingSettings({
+        includeEnabled: true,
+        excludeEnabled: true,
+        include: [],
+        exclude: [{ pattern: "ok", enabled: "yes" }],
+      }),
+    ).toBe(false);
+    expect(isSslProxyingSettings({ includeEnabled: true, include: [], exclude: [] })).toBe(false);
+    expect(
+      isSslProxyingSettings({
+        includeEnabled: "yes",
+        excludeEnabled: true,
+        include: [],
+        exclude: [],
+      }),
+    ).toBe(false);
+    expect(
+      isSslProxyingSettings({
+        includeEnabled: true,
+        excludeEnabled: true,
+        include: [{ pattern: "a.com" }],
+        exclude: [],
+      }),
+    ).toBe(false);
     expect(isSslProxyingSettings(null)).toBe(false);
     expect(isSslProxyingSettings(undefined)).toBe(false);
+  });
+
+  it("validates an individual entry with both fields", () => {
+    expect(isSslProxyEntry({ pattern: "*.example.com", enabled: true })).toBe(true);
+    expect(isSslProxyEntry({ pattern: "*.example.com" })).toBe(false);
+    expect(isSslProxyEntry({ enabled: true })).toBe(false);
+    expect(isSslProxyEntry("*.example.com")).toBe(false);
+    expect(isSslProxyEntry(null)).toBe(false);
   });
 
   it("parses the recommended exclusion list and rejects non-string payloads", () => {
@@ -1074,5 +1124,44 @@ describe("SslProxyingSettings", () => {
     expect(parseSslProxyingExclusions([])).toEqual([]);
     expect(() => parseSslProxyingExclusions([1, 2])).toThrow();
     expect(() => parseSslProxyingExclusions("*.example.com")).toThrow();
+  });
+});
+
+describe("session parse error payload previews", () => {
+  // Parse errors must not embed the full (potentially huge, privacy-sensitive)
+  // payload in details — only a bounded 120-character sample, same as ws.ts.
+  function thrownDetails(run: () => unknown): Record<string, unknown> {
+    try {
+      run();
+    } catch (error) {
+      const details = (error as { details?: Record<string, unknown> }).details;
+      expect(details).toBeDefined();
+      return details as Record<string, unknown>;
+    }
+    throw new Error("expected the parse to throw");
+  }
+
+  it("parseSessionSummaries keeps only a bounded payloadPreview", () => {
+    const details = thrownDetails(() => parseSessionSummaries({ blob: "x".repeat(500) }));
+
+    expect(details).not.toHaveProperty("payload");
+    expect(typeof details.payloadPreview).toBe("string");
+    expect((details.payloadPreview as string).length).toBeLessThanOrEqual(120);
+  });
+
+  it("parseSessionSummaries bounds the preview for invalid array entries", () => {
+    const details = thrownDetails(() => parseSessionSummaries([{ blob: "x".repeat(500) }]));
+
+    expect(details).not.toHaveProperty("payload");
+    expect(typeof details.payloadPreview).toBe("string");
+    expect((details.payloadPreview as string).length).toBeLessThanOrEqual(120);
+  });
+
+  it("parseSessionDetail keeps only a bounded payloadPreview", () => {
+    const details = thrownDetails(() => parseSessionDetail({ blob: "x".repeat(500) }));
+
+    expect(details).not.toHaveProperty("payload");
+    expect(typeof details.payloadPreview).toBe("string");
+    expect((details.payloadPreview as string).length).toBeLessThanOrEqual(120);
   });
 });

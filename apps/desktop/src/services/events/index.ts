@@ -12,7 +12,8 @@ import {
   type WsConnectionStatusEvent,
   type WsMessage,
 } from "@aiproxy/shared-types";
-import { logDevWarn } from "../logger/dev-logger";
+import { isTauriRuntime } from "@/services/commands/runtime";
+import { logDevWarn } from "@/services/logger/dev-logger";
 
 type Unlisten = () => void;
 
@@ -33,7 +34,7 @@ export type MenuEventPayload = {
 };
 
 export function onMenuEvent(callback: (payload: MenuEventPayload) => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -52,7 +53,7 @@ export function onMenuEvent(callback: (payload: MenuEventPayload) => void): Prom
 }
 
 export function onBreakpointHit(callback: (hit: BreakpointHit) => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -76,7 +77,7 @@ export function onBreakpointHit(callback: (hit: BreakpointHit) => void): Promise
 export function onBreakpointReleased(
   callback: (released: BreakpointReleased) => void,
 ): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -93,7 +94,7 @@ export function onBreakpointReleased(
 export function onSessionUpsert(
   callback: (summary: SessionUpsertEvent) => void,
 ): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -110,7 +111,7 @@ export function onSessionUpsert(
 export function onSessionRemove(
   callback: (sessionId: SessionRemoveEvent) => void,
 ): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -127,7 +128,7 @@ export function onSessionRemove(
 }
 
 export function onSessionsCleared(callback: () => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -137,7 +138,7 @@ export function onSessionsCleared(callback: () => void): Promise<Unlisten> {
 }
 
 export function onSessionsRemoved(callback: (ids: string[]) => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -158,7 +159,7 @@ export function onSessionsRemoved(callback: (ids: string[]) => void): Promise<Un
 }
 
 export function onWsMessage(callback: (message: WsMessage) => void): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 
@@ -174,10 +175,42 @@ export function onWsMessage(callback: (message: WsMessage) => void): Promise<Unl
   });
 }
 
+export type SystemProxyWarningPayload = {
+  reason: string;
+  error: string;
+};
+
+/**
+ * Emitted by the backend when the OS system proxy could not be re-applied
+ * after an otherwise-successful proxy start/restart (see `start_proxy_impl`
+ * in commands/proxy.rs). The proxy itself is running; only the OS-level
+ * proxy settings may be stale.
+ */
+export function onSystemProxyWarning(
+  callback: (warning: SystemProxyWarningPayload) => void,
+): Promise<Unlisten> {
+  if (!isTauriRuntime()) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<unknown>("system-proxy-warning", (event) => {
+    const payload = event.payload as Record<string, unknown> | null;
+    if (payload && typeof payload.reason === "string" && typeof payload.error === "string") {
+      callback({ reason: payload.reason, error: payload.error });
+    } else {
+      // L6: surface malformed events instead of dropping the only signal that
+      // the OS proxy settings may be stale.
+      logDevWarn("events", "system_proxy_warning_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
+    }
+  });
+}
+
 export function onWsConnectionStatus(
   callback: (event: WsConnectionStatusEvent) => void,
 ): Promise<Unlisten> {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+  if (!isTauriRuntime()) {
     return Promise.resolve(() => {});
   }
 

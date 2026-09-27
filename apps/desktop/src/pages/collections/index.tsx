@@ -106,6 +106,10 @@ export function CollectionsPage() {
 
   const explorerDragFrameRef = useRef<number | null>(null);
   const inspectorDragFrameRef = useRef<number | null>(null);
+  // M21: tracks the active resize cleanup fn so a mid-drag unmount can remove
+  // the window pointer listeners instead of leaking them until some unrelated
+  // pointerup elsewhere finally fires.
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
   const [explorerWidth, setExplorerWidth] = useState(() => {
     const parsedWidth = Number(readStorageValue(EXPLORER_WIDTH_STORAGE_KEY));
     return Number.isFinite(parsedWidth) ? clampExplorerWidth(parsedWidth) : 320;
@@ -201,6 +205,11 @@ export function CollectionsPage() {
       if (inspectorDragFrameRef.current) {
         window.cancelAnimationFrame(inspectorDragFrameRef.current);
       }
+      // M21: if the page unmounts mid-drag, run the active resize cleanup so
+      // the window pointer listeners do not leak.
+      const resizeCleanup = resizeCleanupRef.current;
+      if (resizeCleanup) resizeCleanup();
+      resizeCleanupRef.current = null;
     };
   }, []);
 
@@ -333,11 +342,29 @@ export function CollectionsPage() {
       updateWidth(moveEvent.clientX);
     };
 
+    // M21: store the cleanup on the ref so the unmount effect can run it if
+    // the page is torn down mid-drag. Release the pointer capture so the
+    // element does not keep capturing pointer events after the drag ends.
+    const target = event.currentTarget;
     const stopResize = () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", stopResize);
       window.removeEventListener("pointercancel", stopResize);
+      try {
+        target.releasePointerCapture(pointerId);
+      } catch {
+        // releasePointerCapture throws if the capture was already released
+        // (e.g. the browser implicitly released on pointerup). Swallow — the
+        // capture is gone either way.
+      }
+      if (resizeCleanupRef.current === stopResize) {
+        resizeCleanupRef.current = null;
+      }
     };
+    // Only one resize drag can be tracked by the ref; end any in-flight one
+    // before registering the new cleanup.
+    resizeCleanupRef.current?.();
+    resizeCleanupRef.current = stopResize;
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", stopResize);
@@ -374,11 +401,29 @@ export function CollectionsPage() {
         updateRatio(moveEvent.clientY);
       };
 
+      // M21: store the cleanup on the ref so the unmount effect can run it if
+      // the page is torn down mid-drag. Release the pointer capture so the
+      // element does not keep capturing pointer events after the drag ends.
+      const target = event.currentTarget;
       const stopResize = () => {
         window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerup", stopResize);
         window.removeEventListener("pointercancel", stopResize);
+        try {
+          target.releasePointerCapture(pointerId);
+        } catch {
+          // releasePointerCapture throws if the capture was already released
+          // (e.g. the browser implicitly released on pointerup). Swallow —
+          // the capture is gone either way.
+        }
+        if (resizeCleanupRef.current === stopResize) {
+          resizeCleanupRef.current = null;
+        }
       };
+      // Only one resize drag can be tracked by the ref; end any in-flight one
+      // before registering the new cleanup.
+      resizeCleanupRef.current?.();
+      resizeCleanupRef.current = stopResize;
 
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", stopResize);

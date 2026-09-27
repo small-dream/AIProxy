@@ -27,7 +27,7 @@ describe("UpdateAvailableButton", () => {
 
     render(<UpdateAvailableButton />, { wrapper: AppProviders });
 
-    fireEvent.click(screen.getByRole("button", { name: /update 0\.1\.20/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^update$/i }));
     expect(useAppShellStore.getState().isUpdateDialogOpen).toBe(true);
   });
 

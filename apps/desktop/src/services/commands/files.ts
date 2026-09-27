@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { coerceAppError } from "@aiproxy/shared-types";
 
 import { isTauriRuntime, reportCommandFailure } from "./runtime";
+import { AppCommandError } from "./errors";
 
 /** Output of `pick_and_read_har_file`: the picked file name + HAR contents. */
 export interface HarFileContents {
@@ -19,10 +20,10 @@ export interface HarFileContents {
  */
 export async function pickAndReadHarFile(title: string): Promise<HarFileContents | null> {
   if (!isTauriRuntime()) {
-    throw {
-      code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "Reading HAR files requires the Tauri desktop runtime.",
-    };
+    throw new AppCommandError(
+      "DESKTOP_RUNTIME_REQUIRED",
+      "Reading HAR files requires the Tauri desktop runtime.",
+    );
   }
 
   try {
@@ -48,10 +49,10 @@ export interface RulesFileContents {
  */
 export async function pickAndReadRulesFile(title: string): Promise<RulesFileContents | null> {
   if (!isTauriRuntime()) {
-    throw {
-      code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "Reading rules files requires the Tauri desktop runtime.",
-    };
+    throw new AppCommandError(
+      "DESKTOP_RUNTIME_REQUIRED",
+      "Reading rules files requires the Tauri desktop runtime.",
+    );
   }
 
   try {
@@ -79,10 +80,10 @@ export interface AttachmentFile {
  */
 export async function pickAttachmentFile(title: string): Promise<AttachmentFile | null> {
   if (!isTauriRuntime()) {
-    throw {
-      code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "Attaching files requires the Tauri desktop runtime.",
-    };
+    throw new AppCommandError(
+      "DESKTOP_RUNTIME_REQUIRED",
+      "Attaching files requires the Tauri desktop runtime.",
+    );
   }
 
   try {
@@ -137,10 +138,10 @@ export async function saveResponseFiles(
   input: SaveResponseFilesInput,
 ): Promise<SaveResponseFilesResult | null> {
   if (!isTauriRuntime()) {
-    throw {
-      code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "Saving captured files requires the Tauri desktop runtime.",
-    };
+    throw new AppCommandError(
+      "DESKTOP_RUNTIME_REQUIRED",
+      "Saving captured files requires the Tauri desktop runtime.",
+    );
   }
 
   try {

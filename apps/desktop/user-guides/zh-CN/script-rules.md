@@ -20,6 +20,7 @@
 - 单文件 `JS / TS`
 - 应用内编辑
 - 从本地 `.js / .mjs / .ts / .mts` 文件一次性导入
+- `async` hook 函数（内部可使用 `await`）
 - 会话级日志与提取结果查看；Automation 标签页会同时展示 Rewrite 命中记录和 Script trace
 
 `v1` 不支持：
@@ -58,13 +59,18 @@
 | 字段 | 说明 | 示例 |
 |---|---|---|
 | Rule Name | 规则名称，便于搜索和识别 | `给 API 请求加调试头` |
-| Enabled | 控制规则是否生效 | 开启 |
-| Priority | 数字越大优先级越高 | `100` |
-| URL Pattern | URL 子串匹配模式 | `api.example.com/v1/` |
+| Enabled | 控制规则是否生效（列表内也可行内开关） | 开启 |
+| Priority | 数字越大优先级越高；可在列表里拖拽行调整顺序，优先级自动重排 | `100` |
+| URL Pattern | 匹配请求 URL，按 Match Type 解释 | `api.example.com/v1/` |
+| Match Type | 模式匹配方式：Contains（默认）/ Wildcard / Exact / Regex | Contains |
 | HTTP Methods | 只匹配指定方法，留空表示全部 | `GET, POST` |
 | Match Stage | `request`、`response`、`either` | `request` |
 | Language | `TypeScript` 或 `JavaScript` | `TypeScript` |
 | Script Source | 脚本正文 | 见下方示例 |
+
+## 规则管理
+
+勾选行前复选框可批量 **启用 / 禁用 / 删除**；拖动行首把手可排序——优先级自动重排，列表顺序即优先顺序。脚本规则包含在 Rules 页的[导入 / 导出](./rewrite-rules.md#规则导入--导出)中。
 
 ## 导入本地脚本文件
 
@@ -336,9 +342,11 @@ export function onResponse(ctx) {
 为保证代理稳定性，脚本运行有以下限制：
 
 - 单脚本源码大小上限：`128 KB`
-- 单次 hook 执行超时：`50 ms`
+- 单次 hook 执行超时：`500 ms`
 - 单次运行最大日志 / 提取条目：`50`
 - 单条日志或提取值序列化上限：`8 KB`
+- 单次运行内存上限：`16 MB`——超出后该次 hook 失败（fail-open）
+- 最多 64 个 hook 并发执行；超出的运行等待空闲槽位，未及时等到则跳过（fail-open）
 
 建议：
 

@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 pub const MAX_LOG_ENTRY_BYTES: usize = 8 * 1024;
+// Keep in sync with the `entries.length >= 50` cap in the JS host bridge
+// (src/js_bridge.rs `pushEntry`), which drops entries client-side first.
 pub(crate) const MAX_SCRIPT_ENTRIES: usize = 50;
 pub(crate) const MAX_SCRIPT_SOURCE_BYTES: usize = 128 * 1024;
 /// Wall-clock budget for a single script rule hook (onRequest/onResponse).

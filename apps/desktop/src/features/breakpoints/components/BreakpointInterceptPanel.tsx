@@ -210,6 +210,7 @@ function HeaderEditor({
   addLabel,
   countLabel,
   headers,
+  idPrefix,
   namePlaceholder,
   noHeadersLabel,
   onChange,
@@ -220,6 +221,10 @@ function HeaderEditor({
   addLabel: string;
   countLabel: string;
   headers: HeaderEntry[];
+  // Uniqueness prefix for the aria-labelledby id: the title is localized, so
+  // the request and response headers editors (same title) would otherwise
+  // produce duplicate DOM ids when both are visible.
+  idPrefix?: string;
   namePlaceholder: string;
   noHeadersLabel: string;
   onChange: (headers: HeaderEntry[]) => void;
@@ -228,7 +233,7 @@ function HeaderEditor({
   valuePlaceholder: string;
 }) {
   const { rows, update, remove, add } = useStableKeyedRows(headers, onChange);
-  const headerId = `${title.replace(/\s+/g, "-").toLowerCase()}-title`;
+  const headerId = `${idPrefix ?? title.replace(/\s+/g, "-").toLowerCase()}-title`;
 
   return (
     <Paper
@@ -1638,6 +1643,7 @@ export function BreakpointInterceptPanel() {
                     addLabel={t("common.actions.addHeader")}
                     countLabel={requestHeaderCount}
                     headers={reqHeaders}
+                    idPrefix="request-headers"
                     namePlaceholder={t("common.placeholders.name")}
                     noHeadersLabel={t("breakpointPanel.noHeaders")}
                     onChange={(h) => setEditedReqHeaders(h)}
@@ -1804,6 +1810,7 @@ export function BreakpointInterceptPanel() {
                   addLabel={t("common.actions.addHeader")}
                   countLabel={mockMode ? mockHeaderCount : responseHeaderCount}
                   headers={mockMode ? mockHeaders : respHeaders}
+                  idPrefix="response-headers"
                   namePlaceholder={t("common.placeholders.name")}
                   noHeadersLabel={t("breakpointPanel.noHeaders")}
                   onChange={mockMode ? setMockHeaders : (h) => setEditedRespHeaders(h)}

@@ -13,7 +13,7 @@ Compare lets you diff two requests or two groups of requests side by side, to qu
 
 1. Click **Compare** in the left nav
 
-The page has the diff workbench on the left and a collapsible AI-summary panel on the right.
+The page has the diff workbench on the left and a fixed-width **AI Summary** panel on the right (its header shows the configured model name).
 
 > You can also use right-click **Set as Compare Base** / **Compare with Base** in [Sessions](./sessions.md) to quickly send requests into Request Compare.
 
@@ -21,7 +21,7 @@ The page has the diff workbench on the left and a collapsible AI-summary panel o
 
 ### Pick two requests
 
-Use the **Left Request / Right Request** dropdowns to pick one session each from the captured set. Selections sync to URL params, so you can share or save a compare state.
+Use the **Left Request / Right Request** dropdowns to pick one session each from the captured set. Picking the same request (or the same container) on both sides shows a "Choose two different sessions" warning instead of a diff. Selections sync to URL params, so you can share or save a compare state.
 
 ### Diff dimensions
 
@@ -44,7 +44,7 @@ Each dimension shows a count above (added / removed / changed / unchanged) and t
 - The body is collapsed by default; click **Compute body diff** to expand
 - JSON goes through **semantic diff** (recursive compare by field path, marking added / removed / changed)
 - Non-JSON content goes through **line-level text diff**
-- Very large bodies are truncated (~256 KB) with a truncation notice
+- If the two bodies' combined text exceeds 256,000 chars, the detailed diff is skipped entirely with a notice; when it does compute, display is capped at the first 240 entries
 
 ## Session Compare
 
@@ -107,8 +107,8 @@ You need at least two containers created on the Sessions page via **New Session 
 
 ### Q: The body diff is incomplete for large bodies?
 
-Bodies are truncated past ~256 KB. For a full compare, reduce the request body size or focus on key fields.
+When the two bodies' combined text exceeds 256,000 chars the detailed diff is skipped with a message showing the actual size; computed diffs show at most the first 240 entries. For a full compare, reduce the request body size or focus on key fields.
 
 ### Q: Can I share a compare state?
 
-Yes. Request Compare's left/right selections sync to URL params; copying the current URL reproduces the same compare config.
+Yes. The compare mode plus Request Compare's left/right selections sync to URL params (`mode`, `left`, `right`, scopes and domain filters included); copying the current URL reproduces the same compare config.

@@ -550,7 +550,8 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
 /// the SHA-1 fingerprint of each DER-encoded certificate. A PEM file may contain
 /// several concatenated certificates (a CA bundle); fingerprinting each
 /// separately is required to match against single-certificate inputs (M9).
-#[cfg(target_os = "linux")]
+/// Not linux-gated: `certificate_sha1_thumbprint` reuses this parsing on every
+/// platform.
 fn pem_sha1_fingerprints(pem: &str) -> Vec<String> {
     use base64::Engine;
     use sha1::{Digest, Sha1};
@@ -619,15 +620,33 @@ fn is_trusted_linux(_cert_path: &Path) -> bool {
     false
 }
 
+/// Arguments for the CA store refresh tool on the REMOVAL path. Debian/Ubuntu's
+/// `update-ca-certificates` must run with `--fresh` here: without it the tool
+/// only ADDS new anchors — it neither rebuilds `/etc/ssl/certs/ca-certificates.crt`
+/// without the deleted anchor nor removes the orphaned symlinks under
+/// `/etc/ssl/certs`, so the certificate would stay trusted while the removal
+/// reports success. RHEL/Fedora's `update-ca-trust` always rebuilds the store
+/// from the source dirs, so it needs no flag.
+#[cfg(any(target_os = "linux", test))]
+fn linux_ca_store_refresh_args(tool: &str) -> Vec<&'static str> {
+    if tool.ends_with("update-ca-certificates") {
+        vec!["--fresh"]
+    } else {
+        Vec::new()
+    }
+}
+
 /// Remove the certificate's anchor files from the system CA source dirs and
 /// refresh the live CA store:
 /// - `linux.anchors`: delete any file in the Debian/Ubuntu or Fedora/RHEL
 ///   anchor dir whose fingerprints match the target cert. Absent anchors
 ///   count as success (idempotent). Deleting files in these dirs requires
 ///   root, so this commonly fails and falls back to a manual command.
-/// - `linux.caStore`: re-run `update-ca-certificates` / `update-ca-trust` so
-///   the already-materialized `/etc/ssl/certs` entries disappear. Also needs
-///   root; failure is reported per store.
+/// - `linux.caStore`: re-run the CA update tool so the already-materialized
+///   `/etc/ssl/certs` entries disappear. Debian/Ubuntu's
+///   `update-ca-certificates` runs with `--fresh` (see
+///   [`linux_ca_store_refresh_args`]); RHEL/Fedora's `update-ca-trust` needs
+///   no flag. Also needs root; failure is reported per store.
 #[cfg(target_os = "linux")]
 fn remove_cert_trust_linux(cert_path: &Path) -> TrustRemovalReport {
     use std::process::Command;
@@ -704,6 +723,7 @@ fn remove_cert_trust_linux(cert_path: &Path) -> TrustRemovalReport {
             );
         };
         let output = Command::new(tool)
+            .args(linux_ca_store_refresh_args(tool))
             .output()
             .map_err(|error| format!("failed to spawn {tool}: {error}"))?;
         if output.status.success() {
@@ -729,26 +749,19 @@ fn remove_cert_trust_linux(_cert_path: &Path) -> TrustRemovalReport {
 
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 fn certificate_sha1_thumbprint(cert_path: &Path) -> Result<String, &'static str> {
-    use base64::Engine;
-    use sha1::{Digest, Sha1};
-
     let cert_pem = std::fs::read_to_string(cert_path).map_err(|_| "read certificate")?;
-    let b64: String = cert_pem
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.starts_with("-----") && !line.is_empty())
-        .collect();
-    let der = base64::engine::general_purpose::STANDARD
-        .decode(b64)
-        .map_err(|_| "decode certificate")?;
-
-    let mut hasher = Sha1::new();
-    hasher.update(&der);
-    let thumbprint: String = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect();
+    // Reuse the bundle-aware parser: concatenating every non-fence line of a
+    // multi-certificate PEM into one blob would hash ALL certs together and
+    // yield a thumbprint matching none of them. Take the first certificate in
+    // the file, which is our generated root CA.
+    let fingerprint = pem_sha1_fingerprints(&cert_pem)
+        .into_iter()
+        .next()
+        .ok_or("decode certificate")?;
+    // pem_sha1_fingerprints emits colon-separated uppercase hex; the
+    // thumbprint consumers (Windows PowerShell, macOS `security -Z`) expect
+    // bare uppercase hex.
+    let thumbprint = fingerprint.replace(':', "");
 
     if !thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("invalid thumbprint");
@@ -854,6 +867,46 @@ mod tests {
         assert_eq!(thumbprint, thumbprint.to_ascii_uppercase());
     }
 
+    // A multi-certificate PEM bundle must yield the FIRST certificate's
+    // thumbprint. The previous implementation concatenated every non-fence
+    // base64 line into one blob, hashing all certs together and producing a
+    // thumbprint that matched none of them.
+    #[test]
+    fn thumbprint_of_bundle_matches_first_certificate() {
+        let cert_a = crate::RootCaPair::generate().unwrap();
+        let cert_b = crate::RootCaPair::generate().unwrap();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let single_path = std::env::temp_dir().join(format!(
+            "aiproxy-thumbprint-single-{}-{nanos}.pem",
+            std::process::id()
+        ));
+        let bundle_path = std::env::temp_dir().join(format!(
+            "aiproxy-thumbprint-bundle-{}-{nanos}.pem",
+            std::process::id()
+        ));
+        std::fs::write(&single_path, cert_a.cert_pem()).unwrap();
+        std::fs::write(
+            &bundle_path,
+            format!("{}{}", cert_a.cert_pem(), cert_b.cert_pem()),
+        )
+        .unwrap();
+
+        let single = certificate_sha1_thumbprint(&single_path).unwrap();
+        let bundle = certificate_sha1_thumbprint(&bundle_path).unwrap();
+        let _ = std::fs::remove_file(&single_path);
+        let _ = std::fs::remove_file(&bundle_path);
+
+        assert_eq!(bundle, single);
+        // Sanity: the second certificate has a different thumbprint, so an
+        // accidental "hash everything" implementation could not pass.
+        let other = pem_sha1_fingerprints(cert_b.cert_pem());
+        assert_eq!(other.len(), 1);
+        assert_ne!(single, other[0].replace(':', ""));
+    }
+
     // The removal report's contract: every attempted store appears exactly
     // once in `attempted`, Ok outcomes (removed OR simply absent) land in
     // `succeeded`, and Err outcomes carry the store id + error into `failed`.
@@ -894,6 +947,27 @@ mod tests {
 
     // The report serializes camelCase for the IPC boundary (the frontend
     // parses these exact field names).
+    // Removal-path regression: Debian/Ubuntu's `update-ca-certificates` must
+    // run with `--fresh` after anchor files are deleted — without it the tool
+    // only adds new anchors, leaving the removed cert inside the rebuilt
+    // `ca-certificates.crt` bundle and its orphaned symlinks in
+    // `/etc/ssl/certs`, so removal reports success while the cert stays
+    // trusted. `update-ca-trust` always rebuilds from source, so it takes no
+    // flag.
+    #[test]
+    fn linux_ca_store_refresh_args_fresh_only_for_update_ca_certificates() {
+        assert_eq!(
+            linux_ca_store_refresh_args("/usr/sbin/update-ca-certificates"),
+            vec!["--fresh"]
+        );
+        assert_eq!(
+            linux_ca_store_refresh_args("/usr/bin/update-ca-certificates"),
+            vec!["--fresh"]
+        );
+        assert!(linux_ca_store_refresh_args("/usr/bin/update-ca-trust").is_empty());
+        assert!(linux_ca_store_refresh_args("/usr/sbin/update-ca-trust").is_empty());
+    }
+
     #[test]
     fn trust_removal_report_serializes_camel_case() {
         let report = TrustRemovalReport {
@@ -933,8 +1007,8 @@ mod tests {
         );
 
         // Each cert's standalone fingerprint must appear in the bundle's set.
-        let single_a = pem_sha1_fingerprints(&cert_a.cert_pem());
-        let single_b = pem_sha1_fingerprints(&cert_b.cert_pem());
+        let single_a = pem_sha1_fingerprints(cert_a.cert_pem());
+        let single_b = pem_sha1_fingerprints(cert_b.cert_pem());
         assert_eq!(single_a.len(), 1);
         assert_eq!(single_b.len(), 1);
         assert!(bundle_fps.contains(&single_a[0]));

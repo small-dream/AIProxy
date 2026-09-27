@@ -26,8 +26,22 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 
 const routerState = vi.hoisted(() => ({ current: null as unknown }));
 const navigateMock = vi.hoisted(() => vi.fn());
+// The real router hands the SAME location object to every render of one
+// history entry; effects keyed on location.state identity rely on that
+// stability (a vetoed seed must not re-prompt on every re-render). Cache the
+// mocked location so its identity only changes when the state content does.
+const locationCache = vi.hoisted(() => ({
+  forState: undefined as unknown,
+  value: null as unknown,
+}));
 vi.mock("react-router-dom", () => ({
-  useLocation: () => ({ pathname: "/rules", state: routerState.current }),
+  useLocation: () => {
+    if (locationCache.forState !== routerState.current) {
+      locationCache.forState = routerState.current;
+      locationCache.value = { pathname: "/rules", state: routerState.current, key: "test-key" };
+    }
+    return locationCache.value;
+  },
   useNavigate: () => navigateMock,
   // P0-2 unsaved-changes guard: never dirty in these multi-action tests.
   useBlocker: () => ({ state: "unblocked" as const, proceed: vi.fn(), reset: vi.fn() }),
@@ -70,6 +84,7 @@ beforeEach(() => {
   rulesState.current = [];
   saveMutateMock.mockClear();
   deleteMutateMock.mockClear();
+  navigateMock.mockClear();
   routerState.current = null;
 });
 
@@ -285,5 +300,89 @@ describe("RewriteRulesPanel — unsaved-changes guard integration (P0-2)", () =>
     await waitFor(() =>
       expect(screen.queryByText("rulesPage.unsavedChangesTitle")).not.toBeInTheDocument(),
     );
+  });
+});
+
+// ── P7: rewriteSeed consumption must go through the unsaved guard ────────
+// A rewriteSeed (from "debug this request" on the sessions page) replaces the
+// in-flight draft; previously the seed effect overwrote a dirty draft with no
+// confirmation. Mirrors the mapLocalSeed guard in MapRulesPanel.
+describe("RewriteRulesPanel — rewriteSeed unsaved guard", () => {
+  const seed = {
+    host: "seeded.example.com",
+    method: "GET",
+    path: "/x",
+    url: "https://seeded.example.com/x",
+  };
+
+  async function renderDirtyDraftWithSeed() {
+    rulesState.current = [makeRule({ id: "rule-a", name: "Alpha", priority: 200 })];
+    const view = render(<RewriteRulesPanel />);
+
+    // Wait for the initial selection to load, then make the draft dirty.
+    const nameField = await waitFor(() => {
+      const field = screen.getByLabelText(/rulesPage\.editor\.ruleName/) as HTMLInputElement;
+      expect(field.value).toBe("Alpha");
+      return field;
+    });
+    fireEvent.change(nameField, { target: { value: "Edited draft" } });
+
+    // The seed arrives as a NEW history state after the draft is dirty.
+    act(() => {
+      routerState.current = { rewriteSeed: seed };
+    });
+    view.rerender(<RewriteRulesPanel />);
+    return view;
+  }
+
+  it("vetoing the seed keeps the dirty draft and does not consume the seed", async () => {
+    renderDirtyDraftWithSeed();
+
+    await waitFor(() =>
+      expect(screen.getByText("rulesPage.unsavedChangesTitle")).toBeInTheDocument(),
+    );
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "common.actions.keepEditing" }));
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText("rulesPage.unsavedChangesTitle")).not.toBeInTheDocument(),
+    );
+    expect((screen.getByLabelText(/rulesPage\.editor\.ruleName/) as HTMLInputElement).value).toBe(
+      "Edited draft",
+    );
+    // The seed stays in history state — navigate() must not have cleared it.
+    expect(navigateMock).not.toHaveBeenCalledWith("/rules", { replace: true, state: null });
+  });
+
+  it("confirming the seed replaces the draft and clears the history state", async () => {
+    renderDirtyDraftWithSeed();
+
+    await waitFor(() =>
+      expect(screen.getByText("rulesPage.unsavedChangesTitle")).toBeInTheDocument(),
+    );
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "common.actions.discard" }));
+    });
+
+    await waitFor(() => {
+      const field = screen.getByLabelText(/rulesPage\.editor\.ruleName/) as HTMLInputElement;
+      expect(field.value).toBe("Debug seeded.example.com");
+    });
+    expect(navigateMock).toHaveBeenCalledWith("/rules", { replace: true, state: null });
+  });
+
+  it("applies the seed immediately when the draft is not dirty", async () => {
+    rulesState.current = [makeRule({ id: "rule-a", name: "Alpha", priority: 200 })];
+    routerState.current = { rewriteSeed: seed };
+
+    render(<RewriteRulesPanel />);
+
+    await waitFor(() => {
+      const field = screen.getByLabelText(/rulesPage\.editor\.ruleName/) as HTMLInputElement;
+      expect(field.value).toBe("Debug seeded.example.com");
+    });
+    expect(screen.queryByText("rulesPage.unsavedChangesTitle")).not.toBeInTheDocument();
+    expect(navigateMock).toHaveBeenCalledWith("/rules", { replace: true, state: null });
   });
 });

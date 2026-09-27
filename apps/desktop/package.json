@@ -1,6 +1,6 @@
 {
   "name": "@aiproxy/desktop",
-  "version": "0.1.25",
+  "version": "0.1.32",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -42,7 +42,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^7.18.0",
+    "react-router-dom": "^7.18.4",
     "rehype-raw": "^7.0.0",
     "zustand": "^5.0.14"
   },

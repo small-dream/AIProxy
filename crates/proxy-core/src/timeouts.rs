@@ -101,6 +101,27 @@ pub(crate) fn timeout(kind: TimeoutKind) -> Duration {
 }
 
 #[cfg(test)]
+pub(crate) fn override_timeout_for_test(kind: TimeoutKind, timeout: Duration) -> TestTimeoutGuard {
+    kind.test_override_slot()
+        .store(timeout.as_millis() as u64, Ordering::SeqCst);
+    TestTimeoutGuard {
+        slot: kind.test_override_slot(),
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct TestTimeoutGuard {
+    slot: &'static AtomicU64,
+}
+
+#[cfg(test)]
+impl Drop for TestTimeoutGuard {
+    fn drop(&mut self) {
+        self.slot.store(0, Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -140,26 +161,5 @@ mod tests {
         assert_ne!(timeout(TimeoutKind::TunnelIdle), Duration::from_millis(17));
         drop(_guard);
         assert_eq!(timeout(TimeoutKind::UpstreamRequest), before);
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn override_timeout_for_test(kind: TimeoutKind, timeout: Duration) -> TestTimeoutGuard {
-    kind.test_override_slot()
-        .store(timeout.as_millis() as u64, Ordering::SeqCst);
-    TestTimeoutGuard {
-        slot: kind.test_override_slot(),
-    }
-}
-
-#[cfg(test)]
-pub(crate) struct TestTimeoutGuard {
-    slot: &'static AtomicU64,
-}
-
-#[cfg(test)]
-impl Drop for TestTimeoutGuard {
-    fn drop(&mut self) {
-        self.slot.store(0, Ordering::SeqCst);
     }
 }

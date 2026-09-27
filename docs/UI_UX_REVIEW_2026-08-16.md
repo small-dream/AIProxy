@@ -205,7 +205,7 @@
 
 ## 六、P2：全局壳层细节
 
-> **修复（2026-08-17）**：Windows/Linux 顶部菜单接入 i18n、快捷键标注与禁用态；Find / Refresh / Keyboard Shortcuts 不再派发无人监听事件；补齐页面切换快捷键与设置文档快捷键锚点；Docs 进入侧栏导航；全局 Snackbar 改为右下角 severity toast，错误提供查看日志出口；代理状态增加轮询；zoom 持久化；ErrorBoundary 文案 i18n；断点侧滑面板宽度改为响应式；Edit 菜单移除 `document.execCommand` 依赖；ADB 多设备时跳转到已有设备选择 UI。`hdc` label 已在当前代码中存在。状态栏吞吐/连接数仍需后端暴露运行时计数后再接入。
+> **修复（2026-08-17）**：Windows/Linux 顶部菜单接入 i18n、快捷键标注与禁用态；Find / Refresh / Keyboard Shortcuts 不再派发无人监听事件；补齐页面切换快捷键与设置文档快捷键锚点；Docs 进入侧栏导航；全局 Snackbar 改为右下角 severity toast，错误提供查看日志出口；代理状态增加轮询；zoom 持久化；ErrorBoundary 文案 i18n；断点侧滑面板宽度改为响应式；Edit 菜单移除 `document.execCommand` 依赖；ADB 多设备时弹出设备选择对话框（`AndroidAdbDevicePickerDialog`），选定设备后直接执行设置/清除代理。`hdc` label 已在当前代码中存在。状态栏吞吐/连接数仍需后端暴露运行时计数后再接入。
 
 | # | 问题 | 证据 |
 |---|---|---|

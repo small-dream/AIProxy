@@ -23,14 +23,19 @@ Map Local and Map Remote share one field set:
 |---|---|---|
 | Rule name | For recognition | — |
 | Enabled | Whether it's active | on |
-| Priority | Higher wins; on multiple matches the highest wins | `100` |
-| Source URL pattern | The request URL pattern to match | — |
+| Priority | Higher wins; on multiple matches the highest wins. Drag rows in the list to reorder and renumber priorities | `100` |
+| Source URL pattern | The request URL pattern to match, interpreted per Match Type | — |
+| Match Type | How the pattern matches: Contains (default) / Wildcard / Exact / Regex | Contains |
 | Preserve Path | Keep the original request path | on |
 | Preserve Query | Keep the original request query | on |
 
-The source URL pattern uses **substring matching** (same as DNS mapping): empty or `*` matches all, otherwise the request URL must contain the substring. For example `example.com/assets/` matches requests under that path.
+With the default **Contains** type: empty or `*` matches all URLs, otherwise the request URL must contain the substring — e.g. `example.com/assets/` matches requests under that path. Other types: **Wildcard** uses `*` placeholders but is anchored (a pattern not starting with `*` must match from the start of the URL, one not ending with `*` through the end); **Exact** requires the whole URL to equal the pattern; **Regex** compiles a regular expression (an invalid regex silently never matches).
 
 When multiple rules match, the **highest-priority** one wins.
+
+### Managing map rules
+
+Tick row checkboxes for bulk **Enable / Disable / Delete**; drag the row handle to reorder (priorities renumber automatically so list order equals precedence). You can also right-click a request in [Sessions](./sessions.md) → **Map Local this request** to pre-fill a new draft with that host + path. Map Local / Map Remote rules are included in the Rules-page [import / export](./rewrite-rules.md#import--export-rules).
 
 ## Map Local: return a local file
 
@@ -95,7 +100,7 @@ For example, source `api.example.com`, target `https://staging.example.com`, wit
 Check:
 
 1. Whether the rule is enabled
-2. Whether the source URL pattern actually contains the target request URL (substring match)
+2. Whether the source URL pattern actually matches the request URL under the selected Match Type
 3. Whether the target path exists and is readable
 4. Whether a higher-priority rule matched first
 5. If pointing at a folder, confirm the request path resolves to a file under it

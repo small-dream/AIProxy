@@ -27,15 +27,16 @@ DNS mapping lets you resolve a given hostname to a custom IP address, without ed
 |---|---|---|
 | Rule name | A recognizable name | `Test-env API` |
 | Enabled | Whether the rule is active | on |
-| Priority | Higher wins; when multiple rules match, the highest priority takes effect | `10` |
-| Hostname pattern | The hostname to match, matched by substring (see below) | `example.com` |
+| Priority | Higher wins; when multiple rules match, the highest priority takes effect. Drag rows in the list to reorder | `100` |
+| Hostname pattern | The hostname to match, interpreted per Match Type (see below) | `example.com` |
+| Match Type | How the pattern matches: Contains (default) / Wildcard / Exact / Regex | Contains |
 | Target IP | The IP address to resolve to on match | `192.168.1.100` |
 
 3. Click **Save** — the rule takes effect immediately
 
 ## Hostname pattern
 
-The hostname pattern uses **substring matching**: the proxy checks whether the request's target hostname *contains* the pattern string, not a wildcard expansion.
+The default **Contains** type checks whether the request's target hostname *contains* the pattern string.
 
 | Pattern | What it matches |
 |---|---|
@@ -43,9 +44,11 @@ The hostname pattern uses **substring matching**: the proxy checks whether the r
 | `api.` | Any hostname containing `api.`, e.g. `api.example.com` |
 | `*` or empty | All hostnames (not recommended in production) |
 
+Other match types: with **Wildcard**, `*.example.com` *is* a real wildcard — it covers subdomains only, not bare `example.com`. **Exact** requires hostname equality; **Regex** compiles a regular expression over the hostname.
+
 Matching rules:
 
-- Matching is **substring inclusion**. A pattern like `*.example.com` is **not** interpreted as a wildcard — it only looks for the literal string `*.example.com`, so write the shared suffix directly (e.g. `example.com`) to cover a domain and its subdomains
+- Under Contains, matching is **substring inclusion**: write the shared suffix directly (e.g. `example.com`) to cover a domain and its subdomains
 - Matching is **case-sensitive** against the raw hostname; hostnames are usually lowercase, so keep patterns lowercase too
 - When multiple rules match, the **highest-priority** one wins
 
@@ -72,7 +75,7 @@ Select a rule and click **Remove** at the top of the editor.
 
 ### Priority
 
-When multiple rules match the same hostname, the one with the highest priority number wins. Give rules of different purposes different priorities to avoid conflicts.
+When multiple rules match the same hostname, the one with the highest priority number wins. Give rules of different purposes different priorities to avoid conflicts. Tick row checkboxes for bulk enable/disable/delete, and drag row handles to reorder — priorities renumber so list order equals precedence. DNS mappings are included in the Rules-page [import / export](./rewrite-rules.md#import--export-rules).
 
 ## How it works
 
@@ -125,7 +128,7 @@ DNS mapping does not change TLS SNI, so it normally causes no certificate errors
 
 ### Q: Can I configure multiple DNS mappings?
 
-Yes. Multiple rules are ordered by priority, and the highest-priority match wins. Use a separate rule per hostname and avoid overly broad substrings.
+Yes. Multiple rules are ordered by priority, and the highest-priority match wins. Use a separate rule per hostname and avoid overly broad substrings (a bare `com` would match huge numbers of unrelated hostnames).
 
 ### Q: Does the mapping affect other apps?
 

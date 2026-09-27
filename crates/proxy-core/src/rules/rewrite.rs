@@ -16,10 +16,6 @@ pub(crate) fn method_matches(methods: &[String], method: &Method) -> bool {
             .any(|candidate| candidate.eq_ignore_ascii_case(method.as_str()))
 }
 
-pub(crate) fn rewrite_stage_matches(rule_stage: &str, current_stage: &str) -> bool {
-    rule_stage.eq_ignore_ascii_case("either") || rule_stage.eq_ignore_ascii_case(current_stage)
-}
-
 fn set_header_entry(headers: &mut Vec<ProxyHeaderEntry>, name: &str, value: &str) {
     let mut replaced = false;
 
@@ -667,16 +663,30 @@ fn apply_response_action(
             }
 
             let before = header_map_value(&response.response_headers, &payload.header_name);
-            if let Ok(name) = HeaderName::from_bytes(payload.header_name.as_bytes()) {
+            // Validate the name (and, for a set, the value) BEFORE mutating
+            // the headers: previously the existing header was removed first,
+            // so an unparsable value silently deleted the header while the
+            // trace still recorded a successful "header" entry.
+            let name = HeaderName::from_bytes(payload.header_name.as_bytes()).map_err(|error| {
+                format!(
+                    "rewrite rule '{}' has an invalid header name '{}': {error}",
+                    rule_id, payload.header_name
+                )
+            })?;
+            if payload.operation.eq_ignore_ascii_case("remove") {
                 response.response_headers.remove(&name);
-
-                if !payload.operation.eq_ignore_ascii_case("remove") {
-                    if let Some(value) = payload.value.as_deref() {
-                        if let Ok(header_value) = HeaderValue::from_str(value) {
-                            response.response_headers.insert(name, header_value);
-                        }
-                    }
-                }
+            } else if let Some(value) = payload.value.as_deref() {
+                let header_value = HeaderValue::from_str(value).map_err(|error| {
+                    format!(
+                        "rewrite rule '{}' has an invalid value for header '{}': {error}",
+                        rule_id, payload.header_name
+                    )
+                })?;
+                response.response_headers.remove(&name);
+                response.response_headers.insert(name, header_value);
+            } else {
+                // A "set" without a value behaves as a remove (legacy semantics).
+                response.response_headers.remove(&name);
             }
             let after = header_map_value(&response.response_headers, &payload.header_name);
             entries.push(trace_entry(
@@ -764,4 +774,121 @@ fn apply_response_action(
     }
 
     Ok("success")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn response_header_rule(value: Option<&str>) -> RewriteRule {
+        RewriteRule {
+            actions: None,
+            enabled: true,
+            id: "rewrite-response-header".to_string(),
+            r#match: RewriteRuleMatch {
+                match_type: None,
+                methods: Vec::new(),
+                stage: "response".to_string(),
+                url_pattern: "example.com".to_string(),
+            },
+            name: "Rewrite response header".to_string(),
+            note: None,
+            payload: serde_json::json!({
+                "headerName": "x-debug",
+                "operation": "set",
+                "target": "response",
+                "value": value,
+            }),
+            priority: 10,
+            rewrite_type: "header".to_string(),
+            workspace_id: "default".to_string(),
+        }
+    }
+
+    fn response_with_debug_header() -> UpstreamResponse {
+        let mut response = UpstreamResponse {
+            body_truncated: false,
+            connect_ms: 0,
+            dns_ms: 0,
+            request_send_ms: 0,
+            response_body: b"body".to_vec(),
+            response_body_size_bytes: 4,
+            response_headers: HeaderMap::new(),
+            response_read_ms: 0,
+            spooled_response_path: None,
+            status_code: StatusCode::OK,
+            tls_ms: None,
+            waiting_ms: 0,
+            via_upstream_proxy: None,
+        };
+        response
+            .response_headers
+            .insert("x-debug", HeaderValue::from_static("original"));
+        response
+    }
+
+    // Regression: an invalid header value must fail the action with an error
+    // trace entry instead of silently deleting the existing header while the
+    // trace still recorded success.
+    #[test]
+    fn response_header_set_with_invalid_value_fails_and_preserves_header() {
+        let rule = response_header_rule(Some("bad\nvalue"));
+        let mut response = response_with_debug_header();
+        let mut entries = Vec::new();
+
+        let outcome = apply_one_response_rule(&rule, &mut response, false, &mut entries);
+
+        assert!(outcome.is_err(), "invalid value must fail the rule");
+        assert!(
+            entries.iter().any(|entry| entry.kind == "error"),
+            "an error trace entry must be recorded"
+        );
+        assert_eq!(
+            response
+                .response_headers
+                .get("x-debug")
+                .and_then(|value| value.to_str().ok()),
+            Some("original"),
+            "the existing header must not be removed on validation failure"
+        );
+    }
+
+    // Regression: an invalid header name must also fail instead of being
+    // silently ignored.
+    #[test]
+    fn response_header_set_with_invalid_name_fails() {
+        let mut rule = response_header_rule(Some("value"));
+        rule.payload = serde_json::json!({
+            "headerName": "bad header name",
+            "operation": "set",
+            "target": "response",
+            "value": "value",
+        });
+        let mut response = response_with_debug_header();
+        let mut entries = Vec::new();
+
+        let outcome = apply_one_response_rule(&rule, &mut response, false, &mut entries);
+
+        assert!(outcome.is_err(), "invalid name must fail the rule");
+        assert!(entries.iter().any(|entry| entry.kind == "error"));
+    }
+
+    // The valid path still replaces the header and succeeds.
+    #[test]
+    fn response_header_set_with_valid_value_replaces_header() {
+        let rule = response_header_rule(Some("rewritten"));
+        let mut response = response_with_debug_header();
+        let mut entries = Vec::new();
+
+        let outcome = apply_one_response_rule(&rule, &mut response, false, &mut entries);
+
+        assert_eq!(outcome.ok(), Some("success"));
+        assert_eq!(
+            response
+                .response_headers
+                .get("x-debug")
+                .and_then(|value| value.to_str().ok()),
+            Some("rewritten")
+        );
+    }
 }

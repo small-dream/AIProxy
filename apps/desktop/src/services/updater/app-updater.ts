@@ -97,9 +97,17 @@ export async function installPendingAppUpdate(
     await relaunch();
   })();
 
-  installInFlight = install.finally(() => {
-    installInFlight = null;
-  });
+  installInFlight = install
+    .catch((error: unknown) => {
+      // A failed download/install (or relaunch) leaves the pending handle
+      // stale — drop it so the next attempt re-checks instead of retrying an
+      // update object that may already be superseded.
+      pendingUpdate = null;
+      throw error;
+    })
+    .finally(() => {
+      installInFlight = null;
+    });
 
   // Await the guarded handle, not the raw install: the derived promise is what
   // concurrent joiners receive, and awaiting it here guarantees it always has

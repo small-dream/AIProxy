@@ -2,14 +2,18 @@ import { coerceAppError } from "@aiproxy/shared-types";
 
 import { logDevError } from "@/services/logger/dev-logger";
 
+import { AppCommandError } from "./errors";
+
 export function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  message: string,
+  timeout: { code: string; message: string },
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeoutId = window.setTimeout(() => {
-      reject(new Error(message));
+      // Coded error (not a bare message) so the UI can map it to a localized
+      // string instead of showing a hardcoded English one.
+      reject(new AppCommandError(timeout.code, timeout.message));
     }, timeoutMs);
 
     promise.then(
@@ -38,28 +42,36 @@ export function detectBrowserPlatform(): "linux" | "macos" | "windows" {
   return "windows";
 }
 
-export function reportCommandFailure(commandName: string, error: unknown, workspaceId?: string) {
+export function reportCommandFailure(
+  commandName: string,
+  error: unknown,
+  context?: Record<string, unknown>,
+) {
   logDevError("ui.commands", "command_failed", {
     commandName,
     error,
     occurredAt: new Date().toISOString(),
-    workspaceId,
+    ...context,
   });
 }
 
+// Exact shape of the rejection Tauri 2 emits for an unregistered command:
+// `resolver.reject(format!("Command {command} not found"))` (tauri src/webview/mod.rs),
+// e.g. "Command save_rewrite_rule not found". The regex is anchored on the
+// "Command <name> " prefix so genuine backend entity errors — db::Error::NotFound
+// renders as "{entity} not found: {id}" (crates/db/src/error.rs), e.g.
+// "workspace not found: abc" — never match and surface to the caller instead of
+// silently rewriting localStorage. ACL denials ("... not allowed. Command not
+// found") are also deliberately excluded: they are a misconfiguration to report,
+// not a missing command.
+const TAURI_UNREGISTERED_COMMAND_PATTERN = /^command\s+\S+\s+not found$/i;
+
 export function shouldFallbackToLocalStore(error: unknown): boolean {
   const normalized = coerceAppError(error);
-  const message = normalized.message.toLowerCase();
+  const message = normalized.message.trim();
 
-  // L5: this heuristic signals ONLY "the Tauri command is missing / not
-  // registered" (the documented dev/web fallback path). The previous bare
-  // `message.includes("command")` matched ANY message containing the substring
-  // "command" — including genuine backend errors that merely mention the word —
-  // causing `save*` wrappers to swallow the real error and silently fall back
-  // to localStorage, hiding data that never reached the backend DB.
-  return (
-    message.includes("not found") ||
-    message.includes("unknown command") ||
-    message.includes("failed to invoke")
-  );
+  // Fallback is reserved for the documented dev/web path where the Tauri
+  // command is missing / not registered. Every other error (backend entity
+  // errors included) must propagate so the caller can surface it.
+  return TAURI_UNREGISTERED_COMMAND_PATTERN.test(message);
 }

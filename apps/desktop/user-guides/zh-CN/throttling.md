@@ -30,20 +30,20 @@ Throttling 用于在代理层模拟弱网环境，例如高延迟、低带宽、
 - 全局 Profile：对当前 Workspace 的代理流量启用一组弱网参数
 - 预设 Profile：例如 Fast 4G、Slow 3G、Lossy Wi-Fi
 - 自定义 Profile：配置延迟、上行、下行、丢包率
-- 定向 Rule：按 URL / Host pattern、HTTP Method、Stage、Priority 控制弱网作用范围
-- 15 分钟临时启用，到期后自动关闭
+- 定向 Rule：按 URL pattern（支持 Match Type）、HTTP Method、Stage、Priority 控制弱网作用范围
+- 15 分钟临时启用并显示倒计时；到期自动关闭（应用保持运行时）
+- 规则行内开关启停 + 规则复制
 - 一键关闭全局弱网
 - Session Automation 标签页展示 Throttling Trace
 - Sessions 列表可切换只查看被弱网影响的请求
 - Session 右键创建定向弱网规则
+- 通过 Rules 页的单文件导入导出做备份（[详见](./rewrite-rules.md#规则导入--导出)）
 
 当前版本暂不支持：
 
 - Jitter 随机抖动
 - Timeout / Offline 场景参数
-- 分块或流式带宽模拟
 - WebSocket 消息级限速
-- Profile 导入导出
 - 保存前测试器
 - API QPS / Quota / 并发限流
 
@@ -63,9 +63,11 @@ Throttling 用于在代理层模拟弱网环境，例如高延迟、低带宽、
 | Drops | 因丢包被模拟失败的请求数 |
 | Delay | 累计增加的 request / response 延迟 |
 | 15 min | 临时启用当前选中的 Profile |
-| Disable | 立即关闭全局弱网 |
+| 关闭弱网 | 立即关闭全局弱网 |
 
-建议：测试结束后点击 **Disable**，避免后续抓包受到弱网影响。
+建议：测试结束后点击 **关闭弱网**，避免后续抓包受到弱网影响。
+
+临时启用期间会显示倒计时标签和「全局 Profile + N 条定向规则」的范围说明。注意倒计时在应用层计时——如果中途重启 AIProxy，临时启用的 Profile 会保持生效状态，直到你手动关闭。
 
 ### Profiles
 
@@ -76,19 +78,19 @@ Profiles 是可复用的弱网参数集合。
 | 字段 | 说明 | 示例 |
 |---|---|---|
 | Profile Name | 配置名称 | `Slow checkout API` |
-| Latency | 请求阶段额外延迟 | `300 ms` |
-| Download | 响应下载带宽 | `768 kbps` |
-| Upload | 请求上传带宽 | `320 kbps` |
-| Packet Loss | 请求丢包率 | `1.2%` |
+| Latency | 给每个请求和响应阶段各增加的固定延迟（0–2000 ms） | `300 ms` |
+| Download | 响应下载带宽，按 chunk 渐进交付（1–100,000 kbps） | `768 kbps` |
+| Upload | 请求上传带宽；上传 body 会先缓冲，再按计算出的延迟发出（1–50,000 kbps） | `320 kbps` |
+| Packet Loss | 请求或响应阶段各自被丢弃的概率（0–100%） | `1.2%` |
 | Enable after save | 保存后是否立即作为全局 Profile 启用 | 开启 / 关闭 |
 
 常用操作：
 
 - 点击预设或自定义 Profile，可在右侧查看和编辑
-- 点击 **Apply**，立即把该 Profile 作为全局弱网配置启用
+- 点击 **Apply**，把该 Profile 作为全局弱网配置临时启用 **15 分钟**（顶部会出现倒计时标签）
 - 点击 **New Custom**，创建自定义弱网配置
 - 点击 **Save Profile**，保存配置但不一定启用
-- 点击 **Save & Apply**，保存并立即全局启用
+- 点击 **Save & Apply**，保存并保持全局启用，直到手动关闭弱网
 
 ## 全局弱网与定向规则
 
@@ -119,30 +121,33 @@ Rule 字段：
 | 字段 | 说明 | 示例 |
 |---|---|---|
 | Rule name | 规则名称 | `Slow login API` |
-| Enabled | 是否启用该规则 | 开启 |
-| Profile | 命中后使用的弱网 Profile | `Slow 3G` |
-| URL / Host pattern | 匹配 URL 或 Host，支持 `*` | `*://api.example.com/login*` |
+| Enabled | 是否启用该规则（列表内也可行内开关） | 开启 |
+| Profile | 命中后使用的弱网 Profile——仅当该 Profile 处于启用状态时规则才会生效 | `Slow 3G` |
+| URL pattern | 匹配完整请求 URL，按 Match Type 解释 | `*://api.example.com/login*` |
+| Match Type | 模式匹配方式：Contains（默认）/ Wildcard / Exact / Regex | Wildcard |
 | Methods | 匹配 HTTP Method，留空表示全部 | `POST` |
 | Stage | 作用阶段 | `Request + response` |
 | Priority | 优先级，数字越大越优先 | `100` |
 
+编辑器还提供 **Duplicate（复制）**，可以基于现有规则快速创建新规则。
+
 当定向 Rule 与全局 Profile 同时存在时：
 
-1. 如果请求命中某条启用的 Rule，优先使用该 Rule 指定的 Profile
+1. 如果请求命中某条启用的 Rule、且其引用的 Profile 也处于启用状态，使用该 Rule 指定的 Profile
 2. 多条 Rule 同时命中时，优先级最高的 Rule 生效
 3. 如果没有命中任何 Rule，再使用全局 active Profile
 
-## URL / Host Pattern 规则
+## URL pattern
 
-Pattern 支持普通文本和 `*` 通配符。
+默认的 **Contains** 方式匹配任何包含模式文本的 URL——此时 `*` 是普通字符。想用 `*` 占位请选 **Wildcard**；除以 `*` 开头/结尾外，模式两端锚定。
 
-| Pattern | 匹配示例 |
-|---|---|
-| `api.example.com` | 任意包含 `api.example.com` 的 URL |
-| `*://api.example.com/*` | `https://api.example.com/v1/users` |
-| `*login*` | 任意包含 `login` 的 URL |
-| `https://api.example.com/users` | 具体接口 URL |
-| `*` | 全部请求 |
+| Pattern | Match Type | 匹配示例 |
+|---|---|---|
+| `api.example.com` | Contains（默认） | 任何包含 `api.example.com` 的 URL |
+| `*://api.example.com/*` | Wildcard | `https://api.example.com/v1/users` |
+| `*login*` | Wildcard | 任何包含 `login` 的 URL |
+| `https://api.example.com/users` | Exact | 仅这个完全相同的接口 URL |
+| `*` | Contains 或 Wildcard | 全部请求 |
 
 建议：
 
@@ -213,6 +218,7 @@ Trace 会展示：
 - `request / applied`：请求阶段已增加 latency 或 upload delay
 - `response / applied`：响应阶段已增加 download delay
 - `request / dropped`：请求被丢包模拟拦截，通常会返回超时类响应
+- `response / dropped`：响应在传输中途被丢弃，客户端看到的是失败的响应
 
 ## 推荐工作流
 
@@ -220,10 +226,10 @@ Trace 会展示：
 
 1. 打开 **Throttling**
 2. 在 Profiles 中选择 `Slow 3G`
-3. 点击 **Apply** 或 **15 min**
+3. 点击 **Apply** 做 15 分钟临时启用（或 **Save & Apply** 长期保持）
 4. 回到应用执行测试流程
 5. 在 Sessions 中观察慢请求和错误态
-6. 测试结束后点击 **Disable**
+6. 测试结束后点击 **关闭弱网**
 
 ### 精准接口弱网测试
 
@@ -254,12 +260,13 @@ AIProxy 在代理管线中应用 Throttling：
 4. 请求阶段：
    - 按 `packetLossRatio` 判断是否模拟丢包
    - 按 `latencyMs` 增加固定延迟
-   - 按 request body 大小和 `uploadKbps` 计算上传延迟
+   - 按 request body 大小和 `uploadKbps` 计算上传延迟（上传 body 先缓冲，再按计算出的延迟交给上游）
 5. 响应阶段：
-   - 按 response body 大小和 `downloadKbps` 计算下载延迟
+   - 同样做丢包判定并增加固定延迟——两个阶段对称处理
+   - 按 `downloadKbps` 交付响应，以约 16 KiB 的 chunk 渐进发送，下载逐步到达
 6. 每次生效都会写入 Session 级 Throttling Trace
 
-注意：当前版本的带宽模拟是按完整 body 计算后整体等待，不是逐 chunk 限速。因此它能模拟“整体变慢”的体验，但暂不能完全模拟流式下载或大文件逐步加载。
+注意：上传侧是缓冲后延迟发送；下载侧按 chunk 渐进交付。它能较好地模拟“整体变慢”的体验，但暂不能完全模拟流式接口或大文件的逐块实时加载。
 
 ## 数据持久化
 
@@ -289,7 +296,7 @@ Throttling 配置会保存到本地 SQLite 数据库：
 
 ### Q: 为什么只想影响一个接口，却所有请求都变慢了？
 
-你可能启用了全局 Profile。请点击顶部 **Disable** 关闭全局弱网，然后创建定向 Rule，只匹配目标 URL / Method。
+你可能启用了全局 Profile。请点击顶部 **关闭弱网**，然后创建定向 Rule，只匹配目标 URL / Method。
 
 ### Q: 多条 Rule 同时命中时谁生效？
 
@@ -312,4 +319,4 @@ Packet Loss 是按请求独立随机判断。`10%` 表示每次请求都有 10% 
 
 ### Q: 15 分钟临时启用到期后会怎样？
 
-到期后 AIProxy 会自动关闭全局 Throttling。定向 Rule 仍会保留配置；如果 Rule 自身启用且匹配请求，它仍可继续影响命中的请求。
+到期后 AIProxy 会停用当前生效的 Profile。由于定向 Rule 借用 Profile 生效，它们也会一并暂停——Rule 只有在其引用的 Profile 处于启用状态时才会起作用。重新 Apply（或启用）某个 Profile 即可恢复弱网。

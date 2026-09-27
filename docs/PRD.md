@@ -257,7 +257,7 @@ flowchart LR
 - 支持 HTTP / HTTPS / WebSocket 捕获
 - 支持 HTTP/2 捕获 — `已实现`：TLS ALPN 协商 `h2` 后将 HTTP/2 stream 映射为 Session，Inspector 展示 pseudo headers（斜体 + 标签）与 trailers；HAR 导出记录真实 HTTP version；设置页可关闭 HTTP/2 回退 HTTP/1.1 排障
 - 支持上游（链式）代理：将抓包流量经由 HTTP CONNECT / HTTPS / SOCKS5 上游代理出网，适配「手机连 AIProxy 抓包、由本机规则代理负责实际出网」的场景；提供绕行列表与连通性测试，会话详情标注每条请求是直连还是经由上游代理
-- 支持逐域名的 SSL 代理策略（对标 Charles SSL Proxying Settings）：include / exclude 两级列表决定哪些域名解密，未解密的域名仍正常盲转发。默认解密全部并预置一份已知使用证书绑定的域名排除表，使 TikTok、iCloud 等 App 在开启抓包时仍可正常使用
+- 支持逐域名的 SSL 代理策略（对标 Charles SSL Proxying Settings）：include / exclude 两级列表决定哪些域名解密，未解密的域名仍正常盲转发。每个列表带总开关、每条规则带独立开关，可随时在「只看某个域名」与「解密全部」之间切换而无需删除/重加规则。默认解密全部并预置一份已知使用证书绑定的域名排除表，使 TikTok、iCloud 等 App 在开启抓包时仍可正常使用
 
 ### 9.2 会话列表
 

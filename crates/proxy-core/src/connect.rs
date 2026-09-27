@@ -415,6 +415,9 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
     tls_verify_hosts: Arc<[String]>,
     // Upstream (chained) proxy for outbound connections, or None for direct.
     upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
+    // Server-level connection semaphore, forwarded into the ConnectionContext
+    // so the WS relay can reserve a slot for its own lifetime.
+    connection_semaphore: Arc<Semaphore>,
 ) -> Result<(), ProxyError> {
     // Send 200 Connection Established
     stream
@@ -558,6 +561,7 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
         verify_upstream_tls,
         tls_verify_hosts,
         upstream_proxy,
+        connection_semaphore,
     });
     let service = HttpProxyService { ctx };
 

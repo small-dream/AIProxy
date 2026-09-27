@@ -1954,92 +1954,6 @@ fn is_hdc_binary(path: &std::path::Path) -> bool {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn is_safe_proxy_host_accepts_hostnames_and_ips() {
-        assert!(is_safe_proxy_host("192.168.1.10"));
-        assert!(is_safe_proxy_host("desktop.lan"));
-        assert!(is_safe_proxy_host("My-PC"));
-        assert!(is_safe_proxy_host("[::1]"));
-        assert!(is_safe_proxy_host("fe80::1"));
-    }
-
-    #[test]
-    fn is_safe_proxy_host_rejects_shell_metacharacters_and_garbage() {
-        // adb joins shell args on the device side, so each of these could
-        // otherwise smuggle device-side shell syntax.
-        assert!(!is_safe_proxy_host(""));
-        assert!(!is_safe_proxy_host("127.0.0.1; reboot"));
-        assert!(!is_safe_proxy_host("$(reboot)"));
-        assert!(!is_safe_proxy_host("`id`"));
-        assert!(!is_safe_proxy_host("host name"));
-        assert!(!is_safe_proxy_host("a\tb"));
-        assert!(!is_safe_proxy_host("[::1"));
-        assert!(!is_safe_proxy_host("-x"));
-        assert!(!is_safe_proxy_host(&"a".repeat(254)));
-    }
-
-    fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock went backwards")
-            .as_nanos();
-        std::env::temp_dir().join(format!("{prefix}-{stamp}"))
-    }
-
-    #[test]
-    fn resolve_hdc_candidate_from_path_accepts_directory() {
-        let dir = unique_temp_dir("hdc-path");
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-
-        let binary = if cfg!(target_os = "windows") {
-            dir.join("hdc.exe")
-        } else {
-            dir.join("hdc")
-        };
-        std::fs::write(&binary, b"").expect("create temp binary");
-
-        assert_eq!(resolve_hdc_candidate_from_path(&dir), Some(binary.clone()));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn is_hdc_binary_matches_expected_filename() {
-        let path = unique_temp_dir("hdc-binary-check").join(if cfg!(target_os = "windows") {
-            "hdc.exe"
-        } else {
-            "hdc"
-        });
-
-        assert!(is_hdc_binary(&path));
-    }
-
-    #[test]
-    fn parse_hdc_devices_output_accepts_verbose_emulator_row() {
-        let devices =
-            parse_hdc_devices_output("127.0.0.1:5555\t\tTCP\tConnected\tlocalhost\thdc\n");
-
-        assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0].serial, "127.0.0.1:5555");
-        assert_eq!(devices[0].state, "Connected");
-        assert_eq!(devices[0].model.as_deref(), Some("localhost"));
-    }
-
-    #[test]
-    fn parse_hdc_devices_output_treats_serial_only_rows_as_connected() {
-        let devices = parse_hdc_devices_output("127.0.0.1:5555\n");
-
-        assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0].serial, "127.0.0.1:5555");
-        assert_eq!(devices[0].state, "Connected");
-    }
-}
-
 fn hdc_spawn_error(error: std::io::Error) -> String {
     if error.kind() == std::io::ErrorKind::NotFound {
         return app_error(ERR_INTERNAL, "hdc was not found in PATH. Install HarmonyOS SDK / DevEco Studio and make sure the `hdc` command is available.");
@@ -2176,3 +2090,89 @@ pub(super) fn try_load_tls_manager(http2_enabled: Option<bool>) -> Result<Arc<Tl
 }
 
 // --- Breakpoint commands ---
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn is_safe_proxy_host_accepts_hostnames_and_ips() {
+        assert!(is_safe_proxy_host("192.168.1.10"));
+        assert!(is_safe_proxy_host("desktop.lan"));
+        assert!(is_safe_proxy_host("My-PC"));
+        assert!(is_safe_proxy_host("[::1]"));
+        assert!(is_safe_proxy_host("fe80::1"));
+    }
+
+    #[test]
+    fn is_safe_proxy_host_rejects_shell_metacharacters_and_garbage() {
+        // adb joins shell args on the device side, so each of these could
+        // otherwise smuggle device-side shell syntax.
+        assert!(!is_safe_proxy_host(""));
+        assert!(!is_safe_proxy_host("127.0.0.1; reboot"));
+        assert!(!is_safe_proxy_host("$(reboot)"));
+        assert!(!is_safe_proxy_host("`id`"));
+        assert!(!is_safe_proxy_host("host name"));
+        assert!(!is_safe_proxy_host("a\tb"));
+        assert!(!is_safe_proxy_host("[::1"));
+        assert!(!is_safe_proxy_host("-x"));
+        assert!(!is_safe_proxy_host(&"a".repeat(254)));
+    }
+
+    fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock went backwards")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{stamp}"))
+    }
+
+    #[test]
+    fn resolve_hdc_candidate_from_path_accepts_directory() {
+        let dir = unique_temp_dir("hdc-path");
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+
+        let binary = if cfg!(target_os = "windows") {
+            dir.join("hdc.exe")
+        } else {
+            dir.join("hdc")
+        };
+        std::fs::write(&binary, b"").expect("create temp binary");
+
+        assert_eq!(resolve_hdc_candidate_from_path(&dir), Some(binary.clone()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_hdc_binary_matches_expected_filename() {
+        let path = unique_temp_dir("hdc-binary-check").join(if cfg!(target_os = "windows") {
+            "hdc.exe"
+        } else {
+            "hdc"
+        });
+
+        assert!(is_hdc_binary(&path));
+    }
+
+    #[test]
+    fn parse_hdc_devices_output_accepts_verbose_emulator_row() {
+        let devices =
+            parse_hdc_devices_output("127.0.0.1:5555\t\tTCP\tConnected\tlocalhost\thdc\n");
+
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].serial, "127.0.0.1:5555");
+        assert_eq!(devices[0].state, "Connected");
+        assert_eq!(devices[0].model.as_deref(), Some("localhost"));
+    }
+
+    #[test]
+    fn parse_hdc_devices_output_treats_serial_only_rows_as_connected() {
+        let devices = parse_hdc_devices_output("127.0.0.1:5555\n");
+
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].serial, "127.0.0.1:5555");
+        assert_eq!(devices[0].state, "Connected");
+    }
+}

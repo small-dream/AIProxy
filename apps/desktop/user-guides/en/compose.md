@@ -14,6 +14,13 @@ Compose requests **connect directly to the target server** and **do not go throu
 
 The page is split top/bottom: the request editor on top and the response preview on the bottom, with a draggable divider.
 
+The top toolbar offers:
+
+- **Environment selector**: pick the active environment; its `{{var}}` variables are substituted when the request is sent. The gear icon opens environment management
+- **Import cURL**: paste a cURL command containing an `http(s)` URL to convert it into a request
+- **Save to Collection**: save the current draft as a collection entry
+- **Copy cURL**: generate a cURL command from the current request
+
 You can also right-click a request in [Sessions](./sessions.md) → **Repeat** to jump to Compose with that request's params auto-filled.
 
 ## Build a request
@@ -38,7 +45,7 @@ Pick a body type via the toggle at the top:
 | Type | Description |
 |---|---|
 | none | No body |
-| form-data | `multipart/form-data`, edited as key/value pairs (boundary and Content-Type generated automatically) |
+| form-data | `multipart/form-data`; text fields edit as key/value pairs, files attach via **Attach file** (boundary and Content-Type generated automatically on send) |
 | x-www-form-urlencoded | URL-encoded form, edited as key/value pairs |
 | raw | Raw text body |
 
@@ -52,7 +59,7 @@ Pick a body type via the toggle at the top:
 | HTML | `text/html` |
 | JavaScript | `application/javascript` |
 
-> form-data currently supports text fields only — **no file upload**.
+> Attachments can only be picked from system-allowed folders (Downloads, Pictures, Videos, Desktop or Documents). Files are read from disk at send time. A cURL command containing file parts (`-F name=@file`) can't be imported as-is — strip those parts to import, then re-attach the files by hand. Environment variables substitute field names and values, but never the attachment file token.
 
 ## Send & response
 
@@ -74,9 +81,7 @@ Compose requests are **inserted into the Sessions list as sessions**, so you can
 ## Current limits
 
 - **Does not go through proxy rules** (direct connection)
-- **No environment variables** (no `{{var}}` substitution; for environment switching use [Collections](./collections-and-environments.md))
-- **No save-to-collection**, **no request history**
-- **No form-data file upload**
+- **No standalone request history** (persistence goes through [Collections](./collections-and-environments.md))
 - Bodies are truncated past **20 MB**
 
 ## FAQ
@@ -91,7 +96,7 @@ Yes. Each send is inserted as a session, for later inspection and comparison.
 
 ### Q: How do I send a request with environment variables?
 
-Compose doesn't support them. Save the request to [Collections](./collections-and-environments.md) and use `{{var}}` environment variables there.
+Pick an environment in the Compose toolbar; `{{var}}` occurrences in the URL, headers, raw body, and form fields are substituted at send time. When the active environment and globals define the same name, the active environment wins.
 
 ### Q: How do I quickly resend a captured request?
 
@@ -99,4 +104,4 @@ Right-click the request in Sessions → **Repeat**; it loads into Compose for ed
 
 ### Q: Can I save a crafted request for reuse?
 
-Compose itself doesn't save. For persistence, use Collections: right-click a request in Sessions → **Save to Collection**, then call it from the collection anytime.
+Yes — click **Save to Collection** in the toolbar to save the current draft to a [collection](./collections-and-environments.md). You can also right-click a captured request in Sessions → **Save to Collection**, then call it from the collection anytime.

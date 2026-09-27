@@ -1,10 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
+import type { LanguagePreference } from "@/app/store/app-preferences.store";
 
 import { isTauriRuntime, reportCommandFailure } from "./runtime";
-
-export type MenuLanguagePreference = "en" | "system" | "zh-CN";
 
 /**
  * Push the current display-language preference to the native (macOS) menu so it
@@ -14,7 +13,7 @@ export type MenuLanguagePreference = "en" | "system" | "zh-CN";
  * because callers invoke this fire-and-forget from an effect and must never
  * surface an unhandled promise rejection for a non-critical menu sync.
  */
-export async function setMenuLocale(preference: MenuLanguagePreference): Promise<void> {
+export async function setMenuLocale(preference: LanguagePreference): Promise<void> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "set_menu_locale_bypassed_non_tauri_runtime");
     return;

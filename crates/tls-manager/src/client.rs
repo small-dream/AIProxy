@@ -44,16 +44,16 @@ impl ServerCertVerifier for NoOpVerifier {
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        vec![
-            SignatureScheme::ECDSA_NISTP256_SHA256,
-            SignatureScheme::ECDSA_NISTP384_SHA384,
-            SignatureScheme::ED25519,
-            SignatureScheme::RSA_PSS_SHA256,
-            SignatureScheme::RSA_PSS_SHA384,
-            SignatureScheme::RSA_PKCS1_SHA256,
-            SignatureScheme::RSA_PKCS1_SHA384,
-            SignatureScheme::RSA_PKCS1_SHA512,
-        ]
+        // Advertise exactly what the configured crypto provider can verify,
+        // in the provider's preference order. A hand-maintained list is a
+        // silent interoperability trap: a scheme missing here is never offered
+        // in the ClientHello, so a peer whose certificate key type has no
+        // overlap (ECDSA P-521 must sign with ECDSA_NISTP521_SHA512, for
+        // example) fails the handshake — even though this verifier accepts
+        // every certificate. Delegating keeps the list complete.
+        default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 
@@ -215,18 +215,25 @@ mod tests {
     }
 
     #[test]
-    fn supported_verify_schemes_contains_all_eight() {
-        let verifier = NoOpVerifier;
-        let schemes = verifier.supported_verify_schemes();
-        assert_eq!(schemes.len(), 8);
-        assert!(schemes.contains(&SignatureScheme::ECDSA_NISTP256_SHA256));
-        assert!(schemes.contains(&SignatureScheme::ECDSA_NISTP384_SHA384));
-        assert!(schemes.contains(&SignatureScheme::ED25519));
-        assert!(schemes.contains(&SignatureScheme::RSA_PSS_SHA256));
-        assert!(schemes.contains(&SignatureScheme::RSA_PSS_SHA384));
-        assert!(schemes.contains(&SignatureScheme::RSA_PKCS1_SHA256));
-        assert!(schemes.contains(&SignatureScheme::RSA_PKCS1_SHA384));
-        assert!(schemes.contains(&SignatureScheme::RSA_PKCS1_SHA512));
+    fn supported_verify_schemes_match_the_provider() {
+        let schemes = NoOpVerifier.supported_verify_schemes();
+        let provider_schemes = default_provider()
+            .signature_verification_algorithms
+            .supported_schemes();
+
+        assert_eq!(
+            schemes, provider_schemes,
+            "the permissive verifier must not narrow the advertised schemes"
+        );
+        // Regression: the previous hand-written list omitted RSA_PSS_SHA512,
+        // which the ring provider verifies, so a peer that could only sign the
+        // handshake with it was rejected by our own advertisement. (Schemes the
+        // provider cannot verify at all — ECDSA P-521 under ring — stay
+        // unadvertised on purpose; supporting them needs a provider swap.)
+        assert!(
+            schemes.contains(&SignatureScheme::RSA_PSS_SHA512),
+            "advertised schemes must include RSA_PSS_SHA512"
+        );
     }
 
     #[test]

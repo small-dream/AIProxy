@@ -20,27 +20,13 @@ import { logDevDebug, logDevInfo, logDevWarn } from "@/services/logger/dev-logge
 import {
   clearImportedSessions,
   getImportedSessionDetail,
+  keepOnlyImportedSession,
   listImportedSessionSummaries,
+  removeImportedSessions,
 } from "@/features/sessions/imported-sessions.store";
 
 import { isTauriRuntime, reportCommandFailure } from "./runtime";
-
-/**
- * Error carrying a stable machine code alongside the human message.
- *
- * Thrown (instead of a plain object) so callers keep a real `Error` stack trace,
- * `instanceof Error` checks hold, and TanStack Query / Sentry can classify it.
- * The `code` field preserves the structured signaling the previous plain-object
- * throws relied on (M10).
- */
-export class AppCommandError extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = "AppCommandError";
-    this.code = code;
-  }
-}
+import { AppCommandError } from "./errors";
 
 export async function listSessions(): Promise<SessionSummary[]> {
   const importedSessions = listImportedSessionSummaries();
@@ -248,6 +234,57 @@ export async function clearSessions(): Promise<void> {
     logDevInfo("ui.commands", "clear_sessions_succeeded");
   } catch (error) {
     reportCommandFailure("clear_sessions", error);
+    throw coerceAppError(error);
+  }
+}
+
+// H4: deletion must round-trip through the backend so the in-memory cache, the
+// persisted rows and the removal tombstones stay consistent — a store-only
+// removal lets the next session-upsert event (or the next app launch) bring
+// the "deleted" session back. On success the backend's `sessions-removed`
+// event drives the local store/query cleanup.
+export async function deleteSessions(sessionIds: string[]): Promise<void> {
+  // Imported (HAR) sessions live only in the renderer; the backend never saw
+  // them, so they are dropped from the import store here.
+  removeImportedSessions(sessionIds);
+
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "delete_sessions_bypassed_non_tauri_runtime", {
+      sessionCount: sessionIds.length,
+    });
+    return;
+  }
+
+  try {
+    logDevInfo("ui.commands", "delete_sessions_requested", {
+      sessionCount: sessionIds.length,
+    });
+    await invoke("delete_sessions", { input: { sessionIds } });
+    logDevInfo("ui.commands", "delete_sessions_succeeded", {
+      sessionCount: sessionIds.length,
+    });
+  } catch (error) {
+    reportCommandFailure("delete_sessions", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function deleteSessionsExcept(keepSessionId: string): Promise<void> {
+  keepOnlyImportedSession(keepSessionId);
+
+  if (!isTauriRuntime()) {
+    logDevDebug("ui.commands", "delete_sessions_except_bypassed_non_tauri_runtime", {
+      keepSessionId,
+    });
+    return;
+  }
+
+  try {
+    logDevInfo("ui.commands", "delete_sessions_except_requested", { keepSessionId });
+    await invoke("delete_sessions_except", { input: { keepSessionId } });
+    logDevInfo("ui.commands", "delete_sessions_except_succeeded", { keepSessionId });
+  } catch (error) {
+    reportCommandFailure("delete_sessions_except", error);
     throw coerceAppError(error);
   }
 }

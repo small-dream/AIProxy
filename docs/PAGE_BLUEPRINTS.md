@@ -54,8 +54,14 @@
 ### 3.4 全局更新入口
 
 - `AppShell` 启动时静默检查更新；发现可用版本后写入 shell 级 `availableUpdate` 状态。
-- macOS 将 `Update <version>` 放在窗口控制区左侧，Windows/Linux 放在右上角窗口控制按钮左侧；无更新时不占位。
+- macOS 将紧凑的蓝色更新主按钮（参考 VS Code）放在窗口控制区左侧，Windows/Linux 放在右上角窗口控制按钮左侧；无更新时不占位，版本号仅在 `UpdateDialog` 中展示。
 - 点击入口打开 `UpdateDialog`，复用已有更新说明、下载进度、安装和重启流程；安装中隐藏入口，避免重复触发。
+- `UpdateDialog` 用 `pickLocalizedChangelog` 从双语 `body` 中按当前语言提取小节（`## 更新内容` / `## What's new`），经 `MarkdownRenderer` 渲染；缺失时显示「暂无更新说明」。
+
+### 3.5 全局系统代理警告
+
+- `AppShell` 通过 `useSystemProxyWarning()` 订阅后端 `system-proxy-warning` 事件（代理启动/重启成功但系统代理按新端口 reapply 失败时发射）。
+- 收到事件后经全局通知队列（`useNotificationStore`）以 warning 级 Snackbar 提示「系统代理可能仍指向旧端口」，代理本身保持运行。
 
 ## 4. Sessions Page
 
@@ -146,8 +152,8 @@ SessionsPage
 | `features/sessions/components/SessionFilterChips.tsx` | 列表上方的单行可移除过滤 chips：每个 focused/ignored host 一枚（点 × 取消），同一类别超过 3 个 host 时聚合为"Focus/Ignored (N)"总 chip（菜单内可逐项移除/全部清除），throttled 过滤一枚总开关；被 ignore 的 host 从数据滤除后右键菜单不可达，此行是唯一取消入口 |
 | `features/sessions/components/SessionInspectorWorkspace.tsx` | 请求 / 响应详情工作区，支持搜索与 Repeat 摘要动作 |
 | `features/sessions/components/SessionInspectorMediaPreview.tsx` | 响应体多媒体预览（图片/音频/视频），按 MIME 类型动态显示，支持右键复制图片/另存为/复制地址/在浏览器中打开 |
-| `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作（含按 host 停用/启用 SSL 解密）、规则跳转（含 Map Local 直达） |
-| `features/sessions/components/DomainContextMenu.tsx` | Host 节点右键菜单：保存该 host 下所有文件、导出 HAR、Focus / Ignore |
+| `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作、规则跳转（含 Map Local 直达） |
+| `features/sessions/components/DomainContextMenu.tsx` | Host 节点右键菜单：保存该 host 下所有文件、导出 HAR、Focus / Ignore、加入包含列表、停用/启用 SSL 解密 |
 | `features/sessions/components/SessionFolderContextMenu.tsx` | URL 路径目录节点右键菜单，当前承载「保存所有文件」 |
 | `features/sessions/components/SaveResponseFilesDialog.tsx` | 保存抓包文件的策略对话框（同名冲突：只保留最后一次 / 全部保留），无冲突时不出现 |
 | `features/sessions/session-save-files.helpers.ts` | 可保存会话过滤（排除 WebSocket）与同名冲突检测 |
@@ -223,7 +229,7 @@ Sessions polling returns captured sessions
 
 **键盘与多选（P1）：** 会话树支持 `↑/↓`、`Home/End`、`Esc`；`⌘/Ctrl+点击` 多选、`Shift+点击` 范围选择（按树可见顺序，`collectVisibleSessionIds` 与键盘导航共用同一顺序源）；多选批量条支持导出 / 保存响应 / 删除（删除需确认）。
 
-**SSL 按 host 解密（P1）：** 右键菜单可对会话 host 停用/启用 SSL 解密，写入 `Workspace.sslBlindHosts`（DB `ssl_blind_hosts` 列），代理运行时对列表内 host 直接盲通（`is_ssl_blind_tunnel` / `host_in_allowlist`），修改后自动重启代理生效。
+**SSL 按 host 解密（P1）：** host 右键菜单可对 host 停用/启用 SSL 解密，写入 `Workspace.sslBlindHosts`（DB `ssl_blind_hosts` 列），代理运行时对列表内 host 直接盲通（`is_ssl_blind_tunnel` / `host_in_allowlist`），修改后自动重启代理生效。host 右键的 `Add to Include list` 会把 host 加入 `Workspace.sslProxying.include`（启用条目、打开 `includeEnabled`、并移除其 `sslBlindHosts` 盲通项），同样在代理运行时自动重启生效。
 
 ### 4.7 上下文菜单事件流
 
@@ -240,12 +246,27 @@ User right clicks a session leaf node
    clear all other sessions
    focus or unfocus host
    ignore or stop ignoring host
-   disable / enable SSL decryption for host (updates Workspace.sslBlindHosts,
-     restarts the proxy when running)
    create rewrite rule / map local rule (seeds Rules page with request fields)
    go to Breakpoints / Rules page
 -> actions that need body/raw payload fetch detail on demand
 -> copy actions show Snackbar feedback
+-> menu closes after action
+```
+
+```text
+User right clicks a host node
+-> SessionsPage stores pointer anchorPosition + target host
+-> DomainContextMenu opens at cursor position
+-> menu action executes one of:
+   save all files under the host
+   export host (HAR)
+   focus or unfocus host
+   ignore or stop ignoring host
+   add host to the Include list (writes Workspace.sslProxying.include,
+     enables includeEnabled, drops the host from sslBlindHosts, restarts the
+     proxy when running)
+   disable / enable SSL decryption (updates Workspace.sslBlindHosts,
+     restarts the proxy when running)
 -> menu closes after action
 ```
 
@@ -861,6 +882,8 @@ CertificatesPage
 
 > 移动端设备扫描（`IosQuickActionsPanel` / `AndroidQuickActionsPanel` / `HarmonyQuickActionsPanel`）为**静默自动探测**：进入面板时立即自动发起设备/模拟器查询。各面板用 `userRefreshed` 标志区分「自动/后台探测」与「用户主动刷新」：探测失败（未安装对应工具链 Xcode simctl / adb / hdc 等）时**静默降级**——只显示中性「点击刷新设备」提示，不弹红色「设备检测失败」，避免打扰未安装工具链或无该平台抓包需求（如纯网页抓包）的用户；只有用户主动点击「刷新」后查询仍失败，才在面板内显示错误。
 
+> 全局 Tools 菜单的「通过 ADB 设置代理 / 清除代理」快捷操作（`adb_set_proxy` / `adb_clear_proxy`）在多台设备连接时弹出设备选择对话框（`AndroidAdbDevicePickerDialog`），选定设备后直接执行对应动作；单设备时直接执行，不弹对话框。证书页内的 `AndroidQuickActionsPanel` 仍保留设备下拉选择。
+
 ### 7.4 页面状态模型
 
 ```ts
@@ -893,7 +916,7 @@ type CertificatesPageState = {
 
 **通知开关：** Settings 页新增 breakpoint system notifications 开关，开启时会 best-effort 请求系统权限；权限被拒绝只静默降级，不打断面板内通知链路。
 
-## 8. Settings Page — `基础设置与代理预设已实现`
+## 8. Settings Page — `目录导航与搜索已实现`
 
 ### 8.1 页面目标
 
@@ -907,120 +930,65 @@ type CertificatesPageState = {
 - 在「General」区统一管理语言、主题、界面字体、内容字体与字号偏好
 - 管理危险操作确认开关（Clear All Sessions 确认可关闭并在此恢复）
 - 支持 `system` 级别的自动解析与持久化
+- 通过页面内二级目录在 Proxy Presets、Upstream Proxy、SSL / TLS、AI Model、Appearance & Language、Notifications & Confirmations、Software Updates 与 About 之间切换
+- 通过设置搜索定位具体设置项；结果按当前界面语言匹配标签、描述和补充关键词，并支持分区深链 `/settings?section=<sectionId>`
 
 ### 8.2 低保真线框
 
 ```text
 [Settings Page]
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Title: Settings                                                             │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [Proxy Presets]                                                             │
-│ Preset List                  (New Preset) (Apply) (Save)                    │
-│ Name / Port / SSL Editor                                                    │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [Upstream Proxy]                          (Test Connection) (Save)          │
-│ Route through an upstream proxy  [ Toggle ]                                 │
-│ Protocol [HTTP v]  Host [__________]  Port [_____]                          │
-│ Username [__________]  Password [__________]                                │
-│ Bypass List (multiline)                                                     │
-│ Probe Result / No-Fallback Hint / Credential Storage Hint                   │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [SSL Proxying]                      (Restore Recommended) (Save)            │
-│ Mode Hint (all-except-excluded / include-list)                              │
-│ Include (multiline)                                                         │
-│ Exclude (multiline)                                                         │
-│ Pinning Hint / SSL-Disabled Hint                                            │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [General]  (macOS 风格分组行，Divider 分隔，控件右对齐)                       │
-│ Display Language                        [Follow System v]                   │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│ Appearance Theme                        [Follow System v]                   │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│ Interface Font                          [System Default v]                  │
-│ (custom 时追加 Custom Font 行)                                               │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│ Content & Code Font                     [System Monospace v]                │
-│ ─────────────────────────────────────────────────────────────────────────── │
-│ Font Size                               [14px v]                            │
-├──────────────────────────────────────────────────────────────────────────────┤
-│ [Dangerous Action Confirmations]                                            │
-│ Ask before clearing all sessions                    [========○]             │
-│ Info Hint                                                                   │
-└──────────────────────────────────────────────────────────────────────────────┘
+│ [Search settings.................]                                           │
+├───────────────┬──────────────────────────────────────────────────────────────┤
+│ Directory     │ Title: Settings                                              │
+│ Proxy         ├──────────────────────────────────────────────────────────────┤
+│ Upstream      │ Active section content                                       │
+│ SSL / TLS     │ (Proxy / Upstream / SSL / AI / Appearance / Behavior /       │
+│ AI Model      │  Updates / About)                                            │
+│ Appearance    │                                                              │
+│ Behavior      │ Search result click => switch section => scroll/highlight    │
+│ Updates       │ target row                                                   │
+│ About         │                                                              │
+└───────────────┴──────────────────────────────────────────────────────────────┘
 ```
+
+目录状态使用 `section` query 参数表示；`/settings` 默认显示 `proxy`。搜索输入非空时替换目录为结果列表；清空后恢复目录。结果匹配当前语言的标签、描述与静态关键词，不复制第二套用户可见文案。
 
 ### 8.3 React 组件树
 
 ```text
 SettingsPage
-├─ PageHeader
-├─ ProxyPresetsSection
-│  ├─ PresetList
-│  ├─ PresetActions
-│  ├─ PresetEditor
-│  └─ SuccessAlert
-├─ UpstreamProxySection
-│  ├─ EnableToggle
-│  ├─ ProtocolSelect / HostField / PortField
-│  ├─ CredentialFields
-│  ├─ BypassTextarea
-│  ├─ TestConnectionButton
-│  └─ ProbeResultAlert / NoFallbackAlert / CredentialStorageAlert
-├─ SslProxyingSection
-│  ├─ IncludeTextarea
-│  ├─ ExcludeTextarea
-│  ├─ RestoreRecommendedButton
-│  └─ PinningHint / SslDisabledHint
-├─ SectionCard "General"
-│  └─ SettingsGroup (Divider 分隔)
-│     ├─ SettingsRow LanguagePreferenceSelect
-│     ├─ SettingsRow ThemePreferenceSelect
-│     ├─ SettingsRow FontFamilyPreferenceSelect (+ custom 行)
-│     ├─ SettingsRow ContentFontPreferenceSelect (+ custom 行)
-│     └─ SettingsRow FontSizeSelect
-├─ SectionCard "Dangerous Action Confirmations"
-│  ├─ Description
-│  └─ ClearSessionsConfirmSwitch (bound to !skipClearSessionsConfirm)
-├─ SectionCard "Notifications"
-│  ├─ Description
-│  └─ BreakpointSystemNotificationsSwitch
+├─ SettingsSearchField
+├─ SectionDirectory | SearchResultList
+├─ SectionHeader
+└─ ActiveSettingsSection
+   ├─ ProxySettingsSection
+   ├─ UpstreamProxySection
+   ├─ SslProxyingSection
+   ├─ AiModelSettingsSection
+   ├─ AppearanceSettingsSection
+   ├─ BehaviorSettingsSection
+   ├─ UpdatesSection
+   └─ AboutSection
 ```
-
 **行组件约定：** `SettingsRow`（label/description 左、控件右，`stacked` 用于 TLS hosts 等宽输入）、`SettingsGroup`（Divider 分隔行列表）、`SettingsFooter`（hint 左、动作右）是 Settings 页统一的行级布局原语，各 Section 内部一律复用，不再手写行布局。
 
 ### 8.4 页面状态模型
 
 ```ts
 type SettingsPageState = {
-  presets: {
-    activePresetId?: string;
-    selectedPresetId?: string | null;
-    isCreatingPreset: boolean;
-  };
-  upstreamProxy: {
-    // 表单草稿；bypass 以换行分隔文本编辑，保存时解析为数组
-    draft: {
-      enabled: boolean;
-      protocol: "http" | "https" | "socks5";
-      host: string;
-      port: number;
-      username: string;
-      password: string;
-      bypassText: string;
-    };
-    // 一次性连通性探测结果，任何字段变更都会清空
-    testResult: UpstreamProxyProbeResult | null;
-    isTesting: boolean;
-  };
-  preferences: {
-    languagePreference: "system" | "zh-CN" | "en";
-    themePreference: "system" | "light" | "dark";
-    skipClearSessionsConfirm: boolean; // "don't ask again" from the Clear All Sessions dialog
-  };
-  derived: {
-    resolvedLocale: "zh-CN" | "en";
-    resolvedTheme: "light" | "dark";
+  navigation: {
+    sectionId:
+      | "proxy"
+      | "upstream"
+      | "ssl"
+      | "ai"
+      | "appearance"
+      | "behavior"
+      | "updates"
+      | "about";
+    searchText: string;
+    activeItemId: string | null;
   };
 };
 ```
@@ -1156,7 +1124,9 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` �
 ### 关键设计约束
 
 - **exclude 优先于 include**：exclude 是 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
-- **默认保持历史行为**：`include` 为空 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
+- **默认保持历史行为**：`includeEnabled` 默认关闭 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
+- **总开关 + 条目开关**：每个列表一个总开关（`includeEnabled` / `excludeEnabled`），每条规则带独立 `enabled` 开关；关闭的条目保留但不生效。总开关内联在对应列表标题行右侧，与列表紧贴。「只看一个域名」= 打开 include 总开关并只启用该条目，「看全部」= 关闭 include 总开关，全程无需删除/重加规则。
+- **旧数据迁移**：升级前保存的 `{ include: string[], exclude: string[] }` 在 Rust 反序列化时自动迁移为条目形式（`includeEnabled = include 非空`、`excludeEnabled = true`、条目均 `enabled`），行为保持不变。
 - **「从未配置」≠「两个空列表」**：DB 列为空串时回退到内置推荐排除表，因此已有 workspace 升级后能直接获得保护，而不必手动配置。
 - **未解密仍然转发**：被排除的域名走 `tunnel_blind_relay`，与 `ssl_enabled=false` 是同一条代码路径，App 功能不受影响。
 - **仅在 `ssl_enabled` 为 true 时生效**：拦截关闭时没有可缩放的范围，此时运行时策略为 `None`。
@@ -1170,12 +1140,12 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` �
 
 | 层级 | 文件 | 职责 |
 | --- | --- | --- |
-| 页面 | `pages/settings/index.tsx` — `SslProxyingSection` | include / exclude 表单 + 恢复推荐 + 保存/重启 |
+| 页面 | `pages/settings/index.tsx` — `SslProxyingSection` | 总开关 + 条目列表（含每条 Switch/删除/新增）+ 恢复推荐 + 保存/重启 |
 | Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`sslProxying` 入参） |
 | 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `loadDefaultSslProxyingExclusions` |
-| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` 及其校验/解析函数 |
+| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` / `SslProxyEntry` 及其校验函数 |
 | Rust 命令 | `src-tauri/src/commands/proxy.rs` | `default_ssl_proxying_exclusions`；`start_proxy` 中解析 workspace 策略 |
-| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`、推荐排除表 |
+| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`（总开关 + 条目开关判定）、旧格式迁移反序列化、推荐排除表 |
 | Rust 领域 | `crates/proxy-core/src/host_pattern.rs` | 域名模式匹配（与上游代理绕行列表共用） |
 | Rust 分流 | `crates/proxy-core/src/server.rs` | CONNECT 时按域名决定 MITM 还是盲转发 |
 | 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.ssl_proxying` JSON 列 |

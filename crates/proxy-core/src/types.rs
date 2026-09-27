@@ -519,17 +519,38 @@ impl Serialize for ProxySessionDetail {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("ProxySessionDetail", 18)?;
+        let raw_request = self.raw_request_text();
+        let raw_response = self.raw_response_text();
+        // Field count must match the fields actually emitted below: 10 always
+        // serialized (cookies, id, queryParams, requestHeaders, responseHeaders,
+        // mapTraces, rewriteTraces, summary, scriptTraces, throttleTraces) plus
+        // the Option/derived fields, which are skipped when absent to mirror
+        // `skip_serializing_if` semantics (same convention as ProxyBodyReference).
+        let field_count = 10
+            + usize::from(self.client_address.is_some())
+            + usize::from(raw_request.is_some())
+            + usize::from(raw_response.is_some())
+            + usize::from(self.request_body.is_some())
+            + usize::from(self.response_body.is_some())
+            + usize::from(self.server_ip.is_some())
+            + usize::from(self.tls_cipher_suite.is_some())
+            + usize::from(self.tls_protocol.is_some())
+            + usize::from(self.timing.is_some())
+            + usize::from(self.timing_source.is_some())
+            + usize::from(self.trailers.is_some())
+            + usize::from(self.h2_stream_id.is_some())
+            + usize::from(self.via_upstream_proxy.is_some());
+        let mut state = serializer.serialize_struct("ProxySessionDetail", field_count)?;
         if let Some(client_address) = &self.client_address {
             state.serialize_field("clientAddress", client_address)?;
         }
         state.serialize_field("cookies", &self.cookies)?;
         state.serialize_field("id", &self.id)?;
         state.serialize_field("queryParams", &self.query_params)?;
-        if let Some(raw_request) = self.raw_request_text() {
+        if let Some(raw_request) = raw_request {
             state.serialize_field("rawRequest", &raw_request)?;
         }
-        if let Some(raw_response) = self.raw_response_text() {
+        if let Some(raw_response) = raw_response {
             state.serialize_field("rawResponse", &raw_response)?;
         }
         if let Some(request_body) = &self.request_body {
@@ -541,6 +562,7 @@ impl Serialize for ProxySessionDetail {
         }
         state.serialize_field("responseHeaders", &self.response_headers)?;
         state.serialize_field("mapTraces", &self.map_traces)?;
+        state.serialize_field("rewriteTraces", &self.rewrite_traces)?;
         if let Some(server_ip) = &self.server_ip {
             state.serialize_field("serverIp", server_ip)?;
         }
@@ -551,6 +573,7 @@ impl Serialize for ProxySessionDetail {
             state.serialize_field("tlsProtocol", tls_protocol)?;
         }
         state.serialize_field("summary", &self.summary)?;
+        state.serialize_field("scriptTraces", &self.script_traces)?;
         state.serialize_field("throttleTraces", &self.throttle_traces)?;
         if let Some(timing) = &self.timing {
             state.serialize_field("timing", timing)?;
@@ -771,5 +794,87 @@ mod types_tests {
         let entries = parse_interface_json(json);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].0, "Good");
+    }
+
+    fn minimal_session_summary() -> ProxySessionSummary {
+        ProxySessionSummary {
+            id: "sess-1".to_string(),
+            method: "GET".to_string(),
+            host: "example.com".to_string(),
+            path: "/".to_string(),
+            protocol: "http".to_string(),
+            scheme: "http".to_string(),
+            http_version: "1.1".to_string(),
+            transport_protocol: "tcp".to_string(),
+            application_protocol: "http".to_string(),
+            started_at: "2026-09-18T00:00:00Z".to_string(),
+            finished_at: "2026-09-18T00:00:01Z".to_string(),
+            duration_ms: 1000,
+            size_bytes: 0,
+            status_code: 200,
+            url: "http://example.com/".to_string(),
+            response_mime_type: None,
+        }
+    }
+
+    /// The hand-written Serialize impl must emit the rewrite_traces and
+    /// script_traces fields (previously declared on the struct but dropped
+    /// from the wire payload).
+    #[test]
+    fn session_detail_serializes_rewrite_and_script_traces() {
+        let detail = ProxySessionDetail {
+            client_address: None,
+            cookies: Vec::new(),
+            id: "sess-1".to_string(),
+            query_params: Vec::new(),
+            raw_request_head: None,
+            raw_response_head: None,
+            request_body: None,
+            request_headers: Vec::new(),
+            response_body: None,
+            response_headers: Vec::new(),
+            map_traces: Vec::new(),
+            rewrite_traces: vec![RewriteTrace {
+                duration_ms: 1,
+                entries: Vec::new(),
+                outcome: "applied".to_string(),
+                rule_id: "rule-1".to_string(),
+                rule_name: "rule".to_string(),
+                rewrite_type: "body".to_string(),
+                stage: "request".to_string(),
+            }],
+            server_ip: None,
+            tls_cipher_suite: None,
+            tls_protocol: None,
+            summary: minimal_session_summary(),
+            script_traces: vec![ScriptTrace {
+                duration_ms: 2,
+                entries: Vec::new(),
+                outcome: aiproxy_rule_engine::ScriptRunOutcome::Success,
+                rule_id: "script-1".to_string(),
+                rule_name: "script".to_string(),
+                stage: aiproxy_rule_engine::ScriptTraceStage::Request,
+            }],
+            throttle_traces: Vec::new(),
+            timing: None,
+            timing_source: None,
+            trailers: None,
+            h2_stream_id: None,
+            via_upstream_proxy: None,
+        };
+
+        let value = serde_json::to_value(&detail).expect("serializes");
+        assert_eq!(
+            value["rewriteTraces"][0]["ruleId"], "rule-1",
+            "rewriteTraces must be serialized, got: {value}"
+        );
+        assert_eq!(
+            value["scriptTraces"][0]["ruleId"], "script-1",
+            "scriptTraces must be serialized, got: {value}"
+        );
+        // Optional fields that are None must be skipped, not serialized as null.
+        assert!(value.get("clientAddress").is_none());
+        assert!(value.get("timing").is_none());
+        assert!(value.get("viaUpstreamProxy").is_none());
     }
 }

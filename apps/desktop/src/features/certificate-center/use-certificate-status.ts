@@ -21,7 +21,10 @@ import {
 import { PROXY_STATUS_QUERY_KEY } from "@/features/proxy-status/use-proxy-status";
 import { WORKSPACES_KEY } from "@/features/workspace-manager/use-workspaces";
 import { logDevError } from "@/services/logger/dev-logger";
+import { useI18n, type TranslationKey } from "@/i18n";
 import {
+  AppCommandError,
+  MOBILE_DEVICE_SCAN_TIMEOUT,
   clearAndroidProxyViaAdb,
   getCertificateStatus,
   generateRootCertificate,
@@ -130,10 +133,29 @@ type DeviceQueryOptions = {
   enabled?: boolean;
 };
 
+// The command layer raises a coded timeout (MOBILE_DEVICE_SCAN_TIMEOUT); swap
+// in the localized copy here so the panels — which only render `error.message`
+// — stay bilingual without hardcoding English in services.
+function localizeDeviceScanError(
+  error: unknown,
+  t: (key: TranslationKey) => string,
+  timeoutKey: TranslationKey,
+): unknown {
+  if (error instanceof AppCommandError && error.code === MOBILE_DEVICE_SCAN_TIMEOUT) {
+    return new AppCommandError(error.code, t(timeoutKey));
+  }
+  return error;
+}
+
 export function useAndroidAdbDevices(options?: DeviceQueryOptions) {
+  const { t } = useI18n();
+
   return useQuery<AndroidAdbDevice[]>({
     queryKey: ANDROID_ADB_DEVICES_QUERY_KEY,
-    queryFn: listAndroidAdbDevices,
+    queryFn: () =>
+      listAndroidAdbDevices().catch((error: unknown) => {
+        throw localizeDeviceScanError(error, t, "certificatesPage.mobile.adbDeviceScanTimeout");
+      }),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
     // adb may be absent; the probe fails silently and is handled in-panel
@@ -157,9 +179,14 @@ export function useInstallAndroidCertificateViaAdb() {
 }
 
 export function useIosSimulators(options?: DeviceQueryOptions) {
+  const { t } = useI18n();
+
   return useQuery<IOSSimulatorDevice[]>({
     queryKey: IOS_SIMULATORS_QUERY_KEY,
-    queryFn: listIosSimulators,
+    queryFn: () =>
+      listIosSimulators().catch((error: unknown) => {
+        throw localizeDeviceScanError(error, t, "certificatesPage.mobile.iosSimulatorScanTimeout");
+      }),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
     // Xcode simctl may be absent (or this isn't macOS); the probe fails
@@ -195,9 +222,14 @@ export function useClearAndroidProxyViaAdb() {
 }
 
 export function useHarmonyHdcDevices(options?: DeviceQueryOptions) {
+  const { t } = useI18n();
+
   return useQuery<HarmonyHdcDevice[]>({
     queryKey: HARMONY_HDC_DEVICES_QUERY_KEY,
-    queryFn: listHarmonyHdcDevices,
+    queryFn: () =>
+      listHarmonyHdcDevices().catch((error: unknown) => {
+        throw localizeDeviceScanError(error, t, "certificatesPage.mobile.hdcDeviceScanTimeout");
+      }),
     enabled: options?.enabled ?? true,
     staleTime: 30_000,
     // hdc may be absent; the probe fails silently and is handled in-panel

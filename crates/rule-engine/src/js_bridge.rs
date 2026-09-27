@@ -5,6 +5,18 @@ function __aiproxyClone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+// Serialize a ctx.log/ctx.extract payload for a trace entry. JSON.stringify
+// throws on circular references (and values like BigInt); without this guard
+// the throw would bubble up and fail the WHOLE hook as a RuntimeError just
+// because of one log call. Fall back to a placeholder instead.
+function __aiproxyStringifyEntryData(value) {
+  try {
+    return JSON.stringify(value);
+  } catch (_error) {
+    return "[unserializable]";
+  }
+}
+
 function __aiproxyNormalizeHeaders(headers) {
   if (!Array.isArray(headers)) return [];
   return headers
@@ -134,6 +146,8 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
   let responseOverride = null;
 
   const pushEntry = (entry) => {
+    // Keep in sync with MAX_SCRIPT_ENTRIES in crates/rule-engine/src/types.rs
+    // (the Rust side re-truncates to that limit after decoding).
     if (entries.length >= 50) return;
     entries.push({
       sequence: entries.length,
@@ -162,16 +176,16 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
     session,
     log: {
       debug(message, data) {
-        pushEntry({ kind: "log", level: "debug", message: String(message ?? ""), payloadJson: data === undefined ? null : JSON.stringify(data), key: null });
+        pushEntry({ kind: "log", level: "debug", message: String(message ?? ""), payloadJson: data === undefined ? null : __aiproxyStringifyEntryData(data), key: null });
       },
       info(message, data) {
-        pushEntry({ kind: "log", level: "info", message: String(message ?? ""), payloadJson: data === undefined ? null : JSON.stringify(data), key: null });
+        pushEntry({ kind: "log", level: "info", message: String(message ?? ""), payloadJson: data === undefined ? null : __aiproxyStringifyEntryData(data), key: null });
       },
       warn(message, data) {
-        pushEntry({ kind: "log", level: "warn", message: String(message ?? ""), payloadJson: data === undefined ? null : JSON.stringify(data), key: null });
+        pushEntry({ kind: "log", level: "warn", message: String(message ?? ""), payloadJson: data === undefined ? null : __aiproxyStringifyEntryData(data), key: null });
       },
       error(message, data) {
-        pushEntry({ kind: "log", level: "error", message: String(message ?? ""), payloadJson: data === undefined ? null : JSON.stringify(data), key: null });
+        pushEntry({ kind: "log", level: "error", message: String(message ?? ""), payloadJson: data === undefined ? null : __aiproxyStringifyEntryData(data), key: null });
       },
     },
     extract(key, value) {
@@ -180,7 +194,7 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
         level: null,
         key: String(key ?? ""),
         message: null,
-        payloadJson: value === undefined ? null : JSON.stringify(value),
+        payloadJson: value === undefined ? null : __aiproxyStringifyEntryData(value),
       });
     },
     respond(init) {

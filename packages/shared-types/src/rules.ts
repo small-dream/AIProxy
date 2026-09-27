@@ -165,6 +165,7 @@ export type MapRule = {
 
 export type MapSessionTrace = {
   durationMs: number;
+  failureReason?: string;
   localPath?: string;
   mappedUrl?: string;
   mode: MapRuleMode;

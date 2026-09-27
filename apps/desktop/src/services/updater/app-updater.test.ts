@@ -115,4 +115,34 @@ describe("app-updater", () => {
     await next;
     expect(retry.fn).toHaveBeenCalledTimes(1);
   });
+
+  // Review follow-up: a failed download/install (or relaunch) must drop the
+  // pending handle — retrying the stale object could target an update that is
+  // already installed or superseded.
+  it("clears the pending update after a failed install", async () => {
+    const failing = vi.fn(async () => {
+      throw new Error("download aborted");
+    }) as unknown as DownloadAndInstall;
+    vi.mocked(check).mockResolvedValue(makePendingUpdate(failing));
+    await checkForAppUpdate();
+
+    await expect(installPendingAppUpdate()).rejects.toThrow("download aborted");
+
+    // Without a fresh check the install must refuse — the stale handle is gone.
+    await expect(installPendingAppUpdate()).rejects.toThrow("No pending update");
+    expect(failing).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the pending update when the relaunch fails", async () => {
+    const download = deferredDownload();
+    vi.mocked(check).mockResolvedValue(makePendingUpdate(download.fn));
+    await checkForAppUpdate();
+
+    vi.mocked(relaunch).mockRejectedValueOnce(new Error("relaunch denied"));
+    const install = installPendingAppUpdate();
+    download.resolve();
+    await expect(install).rejects.toThrow("relaunch denied");
+
+    await expect(installPendingAppUpdate()).rejects.toThrow("No pending update");
+  });
 });

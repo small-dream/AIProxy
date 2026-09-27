@@ -23,6 +23,10 @@ Rewrite 不是文本生成能力，而是代理层的自动改包能力。规则
 
 也可以在 Sessions 列表中右键某条请求，点击 **Create Rewrite Rule**，AIProxy 会基于当前请求自动生成一条可编辑的 Rewrite 草稿。
 
+## 规则导入 / 导出
+
+**Rules** 页头部提供 **导出（Export） / 导入（Import）** 按钮（每个标签页都可用）。导出会下载单个 `aiproxy-rules-YYYY-MM-DD.json` 文件，包含全部规则种类——Rewrite、Map Local / Map Remote、DNS 映射、Script、断点，以及限速规则和 Profile（`aiproxy.rules` 格式，版本 1）。导入先选择本地 `.json` 文件，再在预览对话框中按类型勾选并确认；导入的规则会分配新 id、以 **禁用状态** 落到默认工作区——不会覆盖任何现有内容。
+
 ## 当前版本能力
 
 当前版本支持：
@@ -31,6 +35,7 @@ Rewrite 不是文本生成能力，而是代理层的自动改包能力。规则
 - Query 改写：新增 / 覆盖 / 删除请求 URL Query 参数
 - Body 改写：整段替换请求或响应 Body，或按 JSON Path 修改/删除指定字段，并设置 `Content-Type`
 - Redirect 改写：把请求转发到另一个目标 URL，可选择保留原 path / query
+- 单条规则支持多个有序动作：Header / Query / Body / Redirect 步骤按顺序自上而下执行
 - URL Pattern、HTTP Method、Stage 匹配
 - 优先级与启停控制
 - 高频模板
@@ -102,6 +107,10 @@ Contains 模式下，空值或 `*` 表示匹配所有 URL。Wildcard 模式下�
 | Regex | `api\..*\.com/v[12]/` | `api.example.com/v1/users`、`api.staging.com/v2/items` |
 
 ## 改写动作
+
+一条规则可以串联多个有序动作——例如先加一个 Header，再改 Body，再 Redirect。每个动作是一张编号卡片，带独立的类型下拉框（Header / Query / Body / Redirect）和对应的编辑器；用卡片上的上下箭头调整顺序，用 **+ 添加动作** 追加。动作严格自上而下执行；规则之间仍按优先级执行，后面的规则看到的是前面规则改写后的结果。
+
+某个动作失败时（例如 Fields 模式下 Body 不是合法 JSON），其余动作仍会继续执行，每个失败都会作为错误记录展示在 Automation 中——只有全部动作都失败时整条规则才算失败。与当前阶段不匹配的动作会被记为 skipped。
 
 ### Header Rewrite
 
@@ -279,17 +288,23 @@ Upstream / Local Response -> Response Rewrite -> Script(onResponse) -> Breakpoin
 
 - `Map Local` 直接返回本地响应时，请求阶段 Script 不执行，但响应阶段 Rewrite / Script 仍可继续处理返回内容
 - 响应体超过捕获上限（当前为 20 MB）时，AIProxy 会跳过响应 Body 改写，避免大文件造成性能问题
+- HTTP/2 请求目前跳过 Body 改写（会记录一条 skipped 轨迹）
+
+## 规则管理
+
+- **批量操作**：勾选行前的复选框会出现批量操作栏 **启用 / 禁用 / 删除 / 完成**；删除会先确认，部分失败时通过 toast 提示。
+- **拖拽排序**：行首有拖拽把手，拖动后会重算优先级，使列表顺序与执行顺序一致（越靠上优先级越高）。
+- **未保存草稿保护**：编辑器有未保存修改时，离开 Rules 页面、切换标签页、选择另一条规则、新建规则或套用模板，都会先弹「有未保存的更改……是否丢弃？」确认。
+- 字段级校验错误在首次尝试保存后显示在每个出错字段下方；Alert 仅用于保存失败和跨字段警告。
 
 ## 无效组合保护
 
-当前版本会阻止或提示以下容易误解的组合：
+当前版本直接拒绝保存以下容易误解的组合——在修正 Stage 或 Target 前 **Save** 按钮不会生效，同时会有警告说明原因：
 
 - response 阶段的 Query Rewrite
 - response 阶段的 Redirect Rewrite
 - request 阶段规则却选择 response Header / Body target
 - response 阶段规则却选择 request Header / Body target
-
-如果看到 warning，请按提示调整 Stage 或 Target。
 
 ## 常见问题
 
@@ -310,7 +325,7 @@ Query 和 Redirect 修改的是即将发往上游的请求 URL。响应回来时
 
 ### Q: 多条 Rewrite 会怎么执行？
 
-同一阶段内，命中的 Rewrite 规则按优先级从高到低依次执行。后执行的规则可能看到前一条规则改写后的请求或响应。
+同一阶段内，命中的 Rewrite 规则按优先级从高到低依次执行。后执行的规则可能看到前一条规则改写后的请求或响应。同一条规则内的多个动作则严格自上而下执行。
 
 ### Q: Rewrite 和 Script 有什么区别？
 

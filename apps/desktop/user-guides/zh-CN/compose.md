@@ -14,6 +14,13 @@ Compose 的请求是**直连目标服务器**的，**不经过代理规则**—�
 
 页面上下分栏：上方是请求编辑器，下方是响应预览，中间分隔线可拖动调整比例。
 
+顶部工具栏支持：
+
+- **环境选择器**：选择当前环境和全局变量；齿轮图标打开环境管理
+- **导入 cURL**：粘贴带 `http(s)` URL 的 cURL 命令并转换为请求
+- **保存到集合**：把当前构造内容保存为集合项
+- **复制 cURL**：按当前请求生成 cURL 命令
+
 你也可以在 [Sessions](./sessions.md) 里右键某条请求 → **重复请求（Repeat）**，会跳到 Compose 并自动带入该请求的参数。
 
 ## 构造请求
@@ -38,7 +45,7 @@ Compose 的请求是**直连目标服务器**的，**不经过代理规则**—�
 | 类型 | 说明 |
 |---|---|
 | none | 无 Body |
-| form-data | `multipart/form-data` 表单，键值对编辑（自动生成 boundary 和 Content-Type） |
+| form-data | `multipart/form-data` 表单；文本用键值对编辑，文件用 **附加文件** 添加（发送时自动生成 boundary 和 Content-Type） |
 | x-www-form-urlencoded | URL 编码表单，键值对编辑 |
 | raw | 原始文本 Body |
 
@@ -52,7 +59,7 @@ Compose 的请求是**直连目标服务器**的，**不经过代理规则**—�
 | HTML | `text/html` |
 | JavaScript | `application/javascript` |
 
-> 当前 form-data 仅支持文本字段，**不支持文件上传**。
+> 附件只能从系统允许的目录中选择（下载、图片、视频、桌面或文档）。应用在发送时才从磁盘读取文件；包含文件部分的 cURL 命令（`-F 名字=@文件`）无法直接导入——先去掉这些部分完成导入，再手动附加文件。环境变量可替换字段名和值，但不会替换附件的文件 token。
 
 ## 发送与响应
 
@@ -74,9 +81,7 @@ Compose 发出的请求会**以会话形式插入 Sessions 列表**，可以像�
 ## 当前版本的限制
 
 - **不经过代理规则**（直连目标）
-- **不支持环境变量**（没有 `{{var}}` 替换；需要环境变量切换请用 [Collections](./collections-and-environments.md)）
-- **不支持保存到集合**、**没有请求历史**
-- **不支持 form-data 文件上传**
+- **没有独立请求历史**
 - Body 超过 **20 MB** 会截断
 
 ## 常见问题
@@ -91,7 +96,7 @@ Compose 是直连请求，刻意绕过代理规则。要测试代理规则效果
 
 ### Q: 想带环境变量发请求怎么办？
 
-Compose 暂不支持环境变量。把请求保存到 [Collections](./collections-and-environments.md)，在集合里使用 `{{var}}` 环境变量发送。
+在 Compose 顶部选择环境后，URL、Header、Raw Body 和表单字段中的 `{{var}}` 会在发送时替换。当前环境和全局变量同名时，当前环境优先。
 
 ### Q: 怎么快速重发某条抓到的请求？
 
@@ -99,4 +104,4 @@ Compose 暂不支持环境变量。把请求保存到 [Collections](./collection
 
 ### Q: 能保存构造好的请求反复用吗？
 
-Compose 本身不保存。如需持久化，请用 Collections：在 Sessions 右键 → **保存到集合**，之后在集合里随时调用。
+可以——点击工具栏的 **保存到集合**，把当前构造内容存进[集合](./collections-and-environments.md)。也可以在 Sessions 右键某条请求 → **保存到集合**，之后在集合里随时调用。

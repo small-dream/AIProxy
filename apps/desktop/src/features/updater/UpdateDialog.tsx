@@ -1,3 +1,5 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
+import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRounded";
 import {
   Box,
   Button,
@@ -6,15 +8,19 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  LinearProgress,
+  Stack,
   Typography,
 } from "@mui/material";
 
 import { useAppShellStore } from "@/app/store/app-shell.store";
+import { MarkdownRenderer } from "@/components/shared/MarkdownRenderer";
 import { useI18n } from "@/i18n";
+import { pickLocalizedChangelog } from "@/features/updater/release-notes";
 import { installUpdateAndStore } from "@/features/updater/update-status";
 
 export function UpdateDialog() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const availableUpdate = useAppShellStore((s) => s.availableUpdate);
   const isChecking = useAppShellStore((s) => s.isChecking);
   const isInstalling = useAppShellStore((s) => s.isInstalling);
@@ -34,6 +40,10 @@ export function UpdateDialog() {
           total: Math.round(updateProgress.contentLength / 1024).toString(),
         })
       : null;
+  const progressPercent =
+    updateProgress?.contentLength && updateProgress.contentLength > 0
+      ? Math.min(100, Math.round((updateProgress.downloaded / updateProgress.contentLength) * 100))
+      : null;
 
   const title = isChecking
     ? t("settingsPage.updatesChecking")
@@ -42,6 +52,8 @@ export function UpdateDialog() {
       : availableUpdate
         ? t("settingsPage.updateDialogTitle", { version: availableUpdate.version })
         : t("settingsPage.updateDialogNoUpdate");
+
+  const changelog = pickLocalizedChangelog(availableUpdate?.body, locale);
 
   async function handleUpdate() {
     try {
@@ -60,23 +72,75 @@ export function UpdateDialog() {
       maxWidth="sm"
       onClose={isInstalling ? undefined : () => setUpdateDialogOpen(false)}
     >
-      <DialogTitle>{title}</DialogTitle>
+      <DialogTitle sx={{ pb: 1.5 }}>
+        <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+          <Box
+            sx={(theme) => ({
+              alignItems: "center",
+              bgcolor: theme.palette.action.selected,
+              borderRadius: 1.5,
+              color: "primary.main",
+              display: "inline-flex",
+              height: 36,
+              justifyContent: "center",
+              width: 36,
+            })}
+          >
+            <SystemUpdateAltRoundedIcon fontSize="small" />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography component="div" variant="h6" sx={{ fontWeight: 600 }}>
+              {title}
+            </Typography>
+            {availableUpdate ? (
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                {t("settingsPage.updateDialogCurrentVersion", {
+                  currentVersion: availableUpdate.currentVersion,
+                })}
+              </Typography>
+            ) : null}
+          </Box>
+        </Stack>
+      </DialogTitle>
       <DialogContent>
-        {isChecking ? <CircularProgress size={24} /> : null}
-        {isInstalling ? (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}>
-            <CircularProgress size={16} />
-            <Typography variant="body2">{t("settingsPage.updatesInstalling")}</Typography>
+        {isChecking ? (
+          <Box sx={{ alignItems: "center", display: "flex", gap: 1, py: 1 }}>
+            <CircularProgress size={20} />
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {t("settingsPage.updatesChecking")}
+            </Typography>
           </Box>
         ) : null}
-        {availableUpdate?.body ? (
+        {isInstalling ? (
+          <Box sx={{ mt: 1 }}>
+            <Box sx={{ alignItems: "center", display: "flex", gap: 1 }}>
+              <CircularProgress size={16} />
+              <Typography variant="body2">{t("settingsPage.updatesInstalling")}</Typography>
+            </Box>
+            {progressPercent !== null ? (
+              <LinearProgress
+                aria-label={t("settingsPage.updatesInstalling")}
+                value={progressPercent}
+                variant="determinate"
+                sx={{ borderRadius: 999, height: 6, mt: 1.25 }}
+              />
+            ) : null}
+          </Box>
+        ) : null}
+        {availableUpdate ? (
           <Box sx={{ mt: isChecking ? 2 : 0 }}>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               {t("settingsPage.updateDialogChangelog")}
             </Typography>
-            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-              {availableUpdate.body}
-            </Typography>
+            {changelog ? (
+              <MarkdownRenderer density="compact" onExternalLink={openUrl}>
+                {changelog}
+              </MarkdownRenderer>
+            ) : (
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                {t("settingsPage.updateDialogNoChangelog")}
+              </Typography>
+            )}
           </Box>
         ) : null}
         {isInstalling && progressText ? (

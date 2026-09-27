@@ -56,7 +56,13 @@ vi.mock("./use-throttle-profiles", () => ({
 
 // The hook reads router location state for the "seed" feature at the top
 // level — stub it so renderHook doesn't need a router provider.
-const mockLocation = { pathname: "/throttling", search: "", hash: "", state: null, key: "test" };
+const mockLocation: {
+  pathname: string;
+  search: string;
+  hash: string;
+  state: unknown;
+  key: string;
+} = { pathname: "/throttling", search: "", hash: "", state: null, key: "test" };
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
   return {
@@ -65,9 +71,12 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
-// Keep the test free of the i18n provider / preference store dependency.
+// Keep the test free of the i18n provider / preference store dependency. The
+// mock records calls so tests can assert rule names are built through t()
+// with the right key/params instead of hardcoded English.
+const tMock = vi.fn((key: string) => key);
 vi.mock("@/i18n", () => ({
-  useI18n: () => ({ t: (key: string) => key, tList: (key: string) => [key], locale: "en-US" }),
+  useI18n: () => ({ t: tMock, tList: (key: string) => [key], locale: "en-US" }),
 }));
 
 function createWrapper() {
@@ -113,6 +122,8 @@ function resetFixtures() {
 beforeEach(() => {
   resetFixtures();
   setActiveMutateMock.mockReset();
+  tMock.mockClear();
+  mockLocation.state = null;
 });
 
 describe("useThrottleEditor draft sync (H1/H2)", () => {
@@ -162,6 +173,38 @@ describe("useThrottleEditor draft sync (H1/H2)", () => {
     expect(result.current.selectedRuleId).not.toBe(before);
     expect(result.current.ruleDraft?.id).not.toBe(before);
     expect(result.current.ruleDraft?.name).toContain("copy");
+  });
+
+  it("duplicateRule builds the copy name through t() (throttlingPage.copySuffix)", () => {
+    const { result } = renderHook(() => useThrottleEditor(), { wrapper: createWrapper() });
+
+    act(() => result.current.selectRule(rulesState.current[0]!));
+    tMock.mockClear();
+    act(() => result.current.duplicateRule(result.current.ruleDraft!));
+
+    // The duplicated rule name must come from the i18n copy-suffix template
+    // (localized "… copy"), not a hardcoded "`${name} copy`" string.
+    expect(tMock).toHaveBeenCalledWith("throttlingPage.copySuffix", { name: "R1" });
+    expect(result.current.ruleDraft?.name).toBe("throttlingPage.copySuffix");
+  });
+
+  it("handleNewRule names the draft via t() (throttlingPage.defaultRuleName)", () => {
+    const { result } = renderHook(() => useThrottleEditor(), { wrapper: createWrapper() });
+
+    tMock.mockClear();
+    act(() => result.current.handleNewRule());
+
+    expect(tMock).toHaveBeenCalledWith("throttlingPage.defaultRuleName");
+    expect(result.current.ruleDraft?.name).toBe("throttlingPage.defaultRuleName");
+  });
+
+  it("seeded rule without a method names the draft via t() (throttlingPage.anyMethod)", () => {
+    mockLocation.state = { throttleSeed: { host: "example.com" } };
+
+    const { result } = renderHook(() => useThrottleEditor(), { wrapper: createWrapper() });
+
+    expect(tMock).toHaveBeenCalledWith("throttlingPage.anyMethod");
+    expect(result.current.ruleDraft?.name).toBe("throttlingPage.anyMethod example.com");
   });
 
   it("handleNewProfile selects the new empty profile draft and is not immediately overwritten", () => {

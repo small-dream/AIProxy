@@ -29,48 +29,13 @@ import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 import { getImportedSessionDetail } from "@/features/sessions/imported-sessions.store";
 
 import { isTauriRuntime, reportCommandFailure, shouldFallbackToLocalStore } from "./runtime";
+import { AppCommandError } from "./errors";
+import { readStoredRules, upsertStoredEntity, writeStoredRules } from "./local-store.helpers";
 
 const REWRITE_RULES_STORAGE_KEY = "aiproxy.rules.rewrite";
 const MAP_RULES_STORAGE_KEY = "aiproxy.rules.map";
 const DNS_MAPPINGS_STORAGE_KEY = "aiproxy.rules.dns";
 const SCRIPT_RULES_STORAGE_KEY = "aiproxy.rules.script";
-
-function readStoredRules<T>(storageKey: string, parser: (value: unknown) => T[]): T[] {
-  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
-    return [];
-  }
-
-  const rawValue = window.localStorage.getItem(storageKey);
-
-  if (!rawValue) {
-    return [];
-  }
-
-  try {
-    return parser(JSON.parse(rawValue));
-  } catch (error) {
-    reportCommandFailure(`read_local_store:${storageKey}`, error);
-    return [];
-  }
-}
-
-function writeStoredRules(storageKey: string, value: unknown) {
-  if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
-    return;
-  }
-
-  window.localStorage.setItem(storageKey, JSON.stringify(value));
-}
-
-function upsertStoredEntity<T extends { id: string }>(items: T[], nextItem: T): T[] {
-  const existingIndex = items.findIndex((item) => item.id === nextItem.id);
-
-  if (existingIndex === -1) {
-    return [...items, nextItem];
-  }
-
-  return items.map((item) => (item.id === nextItem.id ? nextItem : item));
-}
 
 export async function listBreakpointRules(): Promise<BreakpointRule[]> {
   if (!isTauriRuntime()) {
@@ -138,7 +103,7 @@ export async function listRewriteRules(workspaceId = DEFAULT_WORKSPACE_ID): Prom
 
       return parseRewriteRules(payload);
     } catch (error) {
-      reportCommandFailure("list_rewrite_rules", error, workspaceId);
+      reportCommandFailure("list_rewrite_rules", error, { workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -161,9 +126,10 @@ export async function saveRewriteRule(
       });
 
       const [savedRule] = parseRewriteRules([payload]);
-      return savedRule!;
+      if (!savedRule) throw coerceAppError("Empty response from save_rewrite_rule");
+      return savedRule;
     } catch (error) {
-      reportCommandFailure("save_rewrite_rule", error, input.workspaceId);
+      reportCommandFailure("save_rewrite_rule", error, { workspaceId: input.workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -282,7 +248,7 @@ export async function listMapRules(input?: {
 
       return parseMapRules(payload);
     } catch (error) {
-      reportCommandFailure("list_map_rules", error, workspaceId);
+      reportCommandFailure("list_map_rules", error, { workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -307,9 +273,10 @@ export async function saveMapRule(input: Omit<MapRule, "id"> & { id?: string }):
       });
 
       const [savedRule] = parseMapRules([payload]);
-      return savedRule!;
+      if (!savedRule) throw coerceAppError("Empty response from save_map_rule");
+      return savedRule;
     } catch (error) {
-      reportCommandFailure("save_map_rule", error, input.workspaceId);
+      reportCommandFailure("save_map_rule", error, { workspaceId: input.workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -337,7 +304,7 @@ export async function listScriptRules(workspaceId = DEFAULT_WORKSPACE_ID): Promi
 
       return parseScriptRules(payload);
     } catch (error) {
-      reportCommandFailure("list_script_rules", error, workspaceId);
+      reportCommandFailure("list_script_rules", error, { workspaceId });
 
       if (!shouldFallbackToLocalStore(error)) {
         throw coerceAppError(error);
@@ -357,9 +324,10 @@ export async function saveScriptRule(
     try {
       const payload = await invoke<unknown>("save_script_rule", { input });
       const [savedRule] = parseScriptRules([payload]);
-      return savedRule!;
+      if (!savedRule) throw coerceAppError("Empty response from save_script_rule");
+      return savedRule;
     } catch (error) {
-      reportCommandFailure("save_script_rule", error, input.workspaceId);
+      reportCommandFailure("save_script_rule", error, { workspaceId: input.workspaceId });
 
       // L4: fall back to localStorage on a missing/unregistered command, the
       // same as every sibling save* rule wrapper. Previously this threw in
@@ -390,10 +358,10 @@ export async function saveScriptRule(
  */
 export async function pickAndReadScriptFile(title: string): Promise<ScriptSourceFile | null> {
   if (!isTauriRuntime()) {
-    throw {
-      code: "DESKTOP_RUNTIME_REQUIRED",
-      message: "Picking script files requires the Tauri desktop runtime.",
-    };
+    throw new AppCommandError(
+      "DESKTOP_RUNTIME_REQUIRED",
+      "Picking script files requires the Tauri desktop runtime.",
+    );
   }
 
   try {
@@ -405,7 +373,7 @@ export async function pickAndReadScriptFile(title: string): Promise<ScriptSource
     }
     return parseScriptSourceFile(payload);
   } catch (error) {
-    reportCommandFailure("pick_and_read_script_file", error, title);
+    reportCommandFailure("pick_and_read_script_file", error, { title });
     throw coerceAppError(error);
   }
 }
@@ -421,7 +389,7 @@ export async function listScriptSessionTrace(sessionId: string): Promise<ScriptS
     });
     return parseScriptSessionTrace(payload);
   } catch (error) {
-    reportCommandFailure("list_script_session_trace", error, sessionId);
+    reportCommandFailure("list_script_session_trace", error, { sessionId });
     throw coerceAppError(error);
   }
 }
@@ -437,7 +405,7 @@ export async function listRewriteSessionTrace(sessionId: string): Promise<Rewrit
     });
     return parseRewriteSessionTrace(payload);
   } catch (error) {
-    reportCommandFailure("list_rewrite_session_trace", error, sessionId);
+    reportCommandFailure("list_rewrite_session_trace", error, { sessionId });
     throw coerceAppError(error);
   }
 }
@@ -458,7 +426,7 @@ export async function listMapSessionTrace(sessionId: string): Promise<MapSession
     });
     return parseMapSessionTrace(payload);
   } catch (error) {
-    reportCommandFailure("list_map_session_trace", error, sessionId);
+    reportCommandFailure("list_map_session_trace", error, { sessionId });
     throw coerceAppError(error);
   }
 }

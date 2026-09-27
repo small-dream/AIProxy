@@ -25,6 +25,20 @@ function FailingMutation({ meta }: { meta?: boolean }) {
   );
 }
 
+function EmptyMessageMutation() {
+  const mutation = useMutation<string, Error, void>({
+    mutationFn: async () => {
+      throw new Error("");
+    },
+  });
+
+  return (
+    <button type="button" onClick={() => mutation.mutate()}>
+      fire-empty
+    </button>
+  );
+}
+
 describe("AppProviders MutationCache (P1-19)", () => {
   beforeEach(() => {
     // The notification store is a module-level zustand singleton shared by
@@ -67,5 +81,20 @@ describe("AppProviders MutationCache (P1-19)", () => {
     expect(useNotificationStore.getState().queue.map((n) => n.message)).not.toContain(
       "boom-from-test",
     );
+  });
+
+  it("falls back to a localized message when the error carries none", async () => {
+    render(
+      <AppProviders>
+        <EmptyMessageMutation />
+      </AppProviders>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "fire-empty" }));
+
+    await waitFor(() => {
+      const messages = useNotificationStore.getState().queue.map((n) => n.message);
+      expect(messages).toContain("The action failed. Please try again.");
+    });
   });
 });

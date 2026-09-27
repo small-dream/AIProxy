@@ -217,7 +217,7 @@ CSP 策略：
 - `connect.rs`：CONNECT 处理模块，负责 blind TCP relay、MITM TLS accept、CONNECT/WSS 相关 response head 读取。
 - `connection.rs`：`ConnectionContext` 结构体 + `ConnectionMode` enum，定义纯 HTTP / MITM 两条路径的连接级共享状态。
 - `upstream_proxy.rs`：上游（链式）代理模块。所有出站连接统一经由 `dial_target()` 拨号，返回一条「能到达目标」的字节流；未配置或命中绕行规则时直连，否则按 HTTP CONNECT / HTTPS（先与代理做 TLS 再 CONNECT）/ SOCKS5（RFC 1928 + 1929 认证）协商隧道。三个出站点（`connect.rs` 盲转发、`timing_connector.rs` HTTP/MITM 转发、`ws_upgrade.rs` WebSocket 上游）共用该抽象，因此 TLS 拦截、h1/h2 选择、timing 采集与连接池均无需感知代理链。
-- `ssl_proxying.rs`：逐域名的 SSL 代理（TLS 解密）策略。`server.rs` 在处理 CONNECT 时调用 `should_intercept()` 决定该连接走 MITM 还是盲转发：`exclude` 优先于 `include`，`include` 为空表示「解密所有未被排除的域名」。这是为证书绑定（SSL Pinning）客户端准备的——它们会拒绝我们的证书，而握手失败会直接断开连接，因此拦截这类域名不只是抓不到明文，而是会让 App 不可用；排除后走盲转发即可保持其正常工作。
+- `ssl_proxying.rs`：逐域名的 SSL 代理（TLS 解密）策略。`server.rs` 在处理 CONNECT 时调用 `should_intercept()` 决定该连接走 MITM 还是盲转发：`exclude` 优先于 `include`，每条规则带独立开关，`includeEnabled` 关闭表示「解密所有未被排除的域名」，开启则为白名单（仅解密 include 中已启用的条目）。这是为证书绑定（SSL Pinning）客户端准备的——它们会拒绝我们的证书，而握手失败会直接断开连接，因此拦截这类域名不只是抓不到明文，而是会让 App 不可用；排除后走盲转发即可保持其正常工作。
 - `host_pattern.rs`：域名模式匹配的共用实现（精确域名 / `*.example.com` 后缀 / CIDR / `*`），由上游代理绕行列表与 SSL 代理 include/exclude 列表共同使用。
 - `http_io.rs`：HTTP I/O 工具模块，含 `OwnedPrefixedStream`（首包回注 + WS relay）、`read_header_only()` 返回的 consumed/leftover 字节通过该工具回注给后续 IO。
 - `upstream_pool.rs`：协议感知的上游连接池，按 `(scheme, host, port)` 键复用连接。HTTP/2 连接通过可克隆 sender 多路复用；HTTP/1.1 在每个 key 下维护有界连接集合，每条连接通过独占 lease 保证请求字节不交错；忙连接会扩容拨号，达到上限后通过 `Notify` 排队并受独立等待超时约束。通过 `watch::Receiver` 通道实现雷鸣群体（thundering herd）防护；扩容拨号使用取消安全的 RAII 配额 guard，避免 future 取消后永久占用容量。池内建空闲连接驱逐定时器、driver 关闭驱逐和失败驱逐；h1 连接在超时/错误/显式关闭时会同步标记关闭并 abort driver。ALPN 协商结果直接决定 h2 或 h1 连接类型，避免 h1 fallback 后重复拨号。

@@ -7,7 +7,7 @@ import {
   type WsMessage,
 } from "@aiproxy/shared-types";
 
-import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
+import { logDevDebug, logDevInfo, logDevWarn } from "@/services/logger/dev-logger";
 
 import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
@@ -50,7 +50,12 @@ export async function getWsConnectionStatus(sessionId: string): Promise<WsConnec
     });
     return result.status === "active" ? "active" : "closed";
   } catch (error) {
-    reportCommandFailure("get_ws_connection_status", error);
+    reportCommandFailure("get_ws_connection_status", error, { sessionId });
+    // The command failing (backend down, session gone) is not the same as the
+    // backend reporting "closed" — log the fallback so the two stay
+    // distinguishable in the dev log. Callers keep receiving "closed" either
+    // way, so nothing downstream changes.
+    logDevWarn("ui.commands", "get_ws_connection_status_treated_as_closed", { sessionId });
     return "closed";
   }
 }
@@ -75,7 +80,7 @@ export async function injectWsMessage(input: WsInjectInput): Promise<void> {
       opcode: input.opcode,
     });
   } catch (error) {
-    reportCommandFailure("inject_ws_message", error, input.sessionId);
+    reportCommandFailure("inject_ws_message", error, { sessionId: input.sessionId });
     throw coerceAppError(error);
   }
 }

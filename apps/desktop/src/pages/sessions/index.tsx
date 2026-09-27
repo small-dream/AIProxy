@@ -59,9 +59,14 @@ import {
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
 import {
+  deleteSessions,
+  deleteSessionsExcept,
   isCapturedSessionNotFoundError,
+  loadDefaultSslProxyingExclusions,
   setFocusedHosts as syncFocusedHosts,
 } from "@/services/commands";
+import { isTauriRuntime } from "@/services/commands/runtime";
+import { hasImportedSession } from "@/features/sessions/imported-sessions.store";
 import { logDevWarn } from "@/services/logger/dev-logger";
 import {
   collectBranchSessions,
@@ -341,7 +346,26 @@ export function SessionsPage() {
     );
   }, [activeContainer?.requestCollapsed]);
 
+  // The `containers` array identity changes on every high-frequency session
+  // update (~10Hz under load); only rewrite the compare scopes when the synced
+  // content (id, label, sessionIds) actually changes. Compare a content
+  // signature instead of the array identity.
+  const compareScopesSignature = useMemo(
+    () =>
+      JSON.stringify(
+        containers.map((container) => [
+          container.id,
+          t("sessionsPage.containers.sessionTitle", { index: container.labelNumber }),
+          container.sessionIds,
+        ]),
+      ),
+    [containers, t],
+  );
+  const lastSyncedCompareScopesRef = useRef<string | null>(null);
+
   useEffect(() => {
+    if (lastSyncedCompareScopesRef.current === compareScopesSignature) return;
+    lastSyncedCompareScopesRef.current = compareScopesSignature;
     syncSessionCompareScopes(
       containers.map((container) => ({
         id: container.id,
@@ -350,7 +374,7 @@ export function SessionsPage() {
         updatedAt: new Date().toISOString(),
       })),
     );
-  }, [containers, t]);
+  }, [compareScopesSignature, containers, t]);
 
   // Cmd+F / Ctrl+F to activate inspector search
   useEffect(() => {
@@ -457,10 +481,34 @@ export function SessionsPage() {
   });
 
   const handleClearOthers = useCallback(
-    (session: SessionSummary) => {
-      clearOtherSessions(session.id);
+    async (session: SessionSummary) => {
+      // Imported (HAR) sessions have no backend row, so the `sessions-removed`
+      // event cannot cover them; they are removed from the store locally once
+      // the backend delete succeeds.
+      const importedIdsToRemove = useSessionContainerStore
+        .getState()
+        .activeSessionIds.filter((id) => id !== session.id && hasImportedSession(id));
+      try {
+        await deleteSessionsExcept(session.id);
+      } catch (error) {
+        logDevWarn("ui.sessions", "clear_other_sessions_failed", {
+          error,
+          keepSessionId: session.id,
+        });
+        showSnackbar(t("sessionsPage.clearOthersFailed"));
+        return;
+      }
+      if (!isTauriRuntime()) {
+        // No backend events outside the Tauri runtime; remove locally.
+        clearOtherSessions(session.id);
+        return;
+      }
+      const store = useSessionContainerStore.getState();
+      for (const id of importedIdsToRemove) {
+        store.removeSummary(id);
+      }
     },
-    [clearOtherSessions],
+    [clearOtherSessions, showSnackbar, t],
   );
 
   // Sessions visible in the current filtered tree that are part of the
@@ -497,16 +545,33 @@ export function SessionsPage() {
     setBatchDeleteConfirmOpen(true);
   }, [selectedMultiSessions.length]);
 
-  const handleConfirmDeleteSelected = useCallback(() => {
+  const handleConfirmDeleteSelected = useCallback(async () => {
     const count = selectedMultiSessions.length;
     if (count === 0) {
       setBatchDeleteConfirmOpen(false);
       return;
     }
 
-    for (const session of selectedMultiSessions) {
-      removeSummaryFromStore(session.id);
+    const ids = selectedMultiSessions.map((session) => session.id);
+    try {
+      await deleteSessions(ids);
+    } catch (error) {
+      logDevWarn("ui.sessions", "batch_delete_sessions_failed", {
+        error,
+        sessionCount: count,
+      });
+      showSnackbar(t("sessionsPage.batchDeleteFailed"));
+      return;
     }
+
+    if (!isTauriRuntime()) {
+      // No backend events outside the Tauri runtime; remove locally.
+      for (const id of ids) {
+        removeSummaryFromStore(id);
+      }
+    }
+    // In the Tauri runtime the backend's `sessions-removed` event drives the
+    // local store/query removal (and tombstones the ids against late upserts).
     clearMultiSelection();
     setBatchDeleteConfirmOpen(false);
     showSnackbar(t("sessionsPage.batchDeleteDone", { count }));
@@ -668,10 +733,9 @@ export function SessionsPage() {
   );
 
   const handleToggleSslDecrypt = useCallback(
-    async (session: SessionSummary) => {
-      if (!currentWorkspace || !session.host) return;
+    async (host: string) => {
+      if (!currentWorkspace || !host) return;
 
-      const host = session.host;
       const currentList = currentWorkspace.sslBlindHosts ?? [];
       const isDisabling = !currentList.includes(host);
       const nextList = isDisabling
@@ -703,6 +767,68 @@ export function SessionsPage() {
         );
       } catch {
         showSnackbar(t("sessionsPage.sslDecryptToggleFailed"));
+      }
+    },
+    [currentWorkspace, proxyStatus, showSnackbar, startProxyMutation, t, updateWorkspaceMutation],
+  );
+
+  const handleAddToIncludeList = useCallback(
+    async (host: string) => {
+      if (!currentWorkspace || !host) return;
+
+      try {
+        // A workspace that never configured SSL proxying falls back to the
+        // recommended exclusions (matching the settings section), so saving a
+        // policy from the context menu must not silently drop those built-in
+        // protections.
+        const current = currentWorkspace.sslProxying ?? {
+          includeEnabled: false,
+          excludeEnabled: true,
+          include: [],
+          exclude: (await loadDefaultSslProxyingExclusions()).map((pattern) => ({
+            pattern,
+            enabled: true,
+          })),
+        };
+
+        const normalized = host.toLowerCase();
+        const alreadyListed = current.include.some(
+          (entry) => entry.pattern.toLowerCase() === normalized,
+        );
+        const include = alreadyListed
+          ? current.include
+          : [...current.include, { pattern: host, enabled: true }];
+        // A host on the blind list is relayed blind regardless of the
+        // proxying policy, so adding it to Include would silently do nothing
+        // unless it is removed here.
+        const sslBlindHosts = (currentWorkspace.sslBlindHosts ?? []).filter(
+          (candidate) => candidate !== host,
+        );
+
+        await updateWorkspaceMutation.mutateAsync({
+          workspaceId: currentWorkspace.id,
+          sslBlindHosts,
+          sslProxying: {
+            ...current,
+            include,
+            includeEnabled: true,
+          },
+        });
+
+        // The policy is captured when the proxy starts, so a running proxy
+        // has to be restarted before the allowlist change takes effect.
+        if (proxyStatus?.running) {
+          await startProxyMutation.mutateAsync({
+            enableHttp2: proxyStatus.http2Enabled ?? true,
+            enableSsl: proxyStatus.sslEnabled,
+            port: proxyStatus.port,
+            workspaceId: currentWorkspace.id,
+          });
+        }
+
+        showSnackbar(t("sessionsPage.addedToIncludeList", { host }));
+      } catch {
+        showSnackbar(t("sessionsPage.addedToIncludeListFailed"));
       }
     },
     [currentWorkspace, proxyStatus, showSnackbar, startProxyMutation, t, updateWorkspaceMutation],
@@ -1037,11 +1163,6 @@ export function SessionsPage() {
         anchorPosition={contextMenuAnchor}
         isHostFocused={contextMenuSession ? focusedHosts.has(contextMenuSession.host) : false}
         isHostIgnored={contextMenuSession ? ignoredHosts.has(contextMenuSession.host) : false}
-        isHostSslDecryptDisabled={
-          contextMenuSession
-            ? (currentWorkspace?.sslBlindHosts ?? []).includes(contextMenuSession.host)
-            : false
-        }
         onClose={handleContextMenuClose}
         onClearOthers={handleClearOthers}
         onCompose={handleCompose}
@@ -1063,7 +1184,6 @@ export function SessionsPage() {
         onSaveToCollection={handleSaveToCollection}
         onSetCompareBase={handleSetCompareBase}
         onStopIgnoringHost={handleStopIgnoringHost}
-        onToggleSslDecrypt={handleToggleSslDecrypt}
         onUnfocusHost={handleUnfocusHost}
         session={contextMenuSession}
       />
@@ -1109,12 +1229,19 @@ export function SessionsPage() {
         host={contextMenuHost}
         isHostFocused={contextMenuHost ? focusedHosts.has(contextMenuHost) : false}
         isHostIgnored={contextMenuHost ? ignoredHosts.has(contextMenuHost) : false}
+        isHostSslDecryptDisabled={
+          contextMenuHost
+            ? (currentWorkspace?.sslBlindHosts ?? []).includes(contextMenuHost)
+            : false
+        }
         onClose={handleHostContextMenuClose}
+        onAddToIncludeList={handleAddToIncludeList}
         onExportHost={handleExportHost}
         onFocusHost={handleFocusDomain}
         onIgnoreHost={handleIgnoreDomain}
         onSaveHostFiles={handleSaveHostFiles}
         onStopIgnoringHost={handleStopIgnoringDomain}
+        onToggleSslDecrypt={handleToggleSslDecrypt}
         onUnfocusHost={handleUnfocusDomain}
       />
 

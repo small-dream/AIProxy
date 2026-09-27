@@ -6,17 +6,19 @@ Breakpoints let you **pause** traffic right before a request is sent or a respon
 
 A breakpoint is a "manual intervention" tool: on a hit it **blocks** the request and waits for you to act in the intercept panel. That differs from [Rewrite](./rewrite-rules.md) / [scripts](./script-rules.md), which auto-rewrite — those run automatically, while a breakpoint needs you to handle each hit.
 
-> A breakpoint never auto-forwards. If you don't handle it, the matched request stays hung. Remember to delete or disable breakpoint rules after debugging.
+> A pending hit does not hang forever: it auto-forwards **without changes after 5 minutes** — the countdown chip in the intercept panel shows the time left. Remember to delete or disable breakpoint rules after debugging.
 
 ## Where to find it
 
 1. Click **Rules** in the left nav
 2. Click the **Breakpoint** tab at the top
 
-The page has two quick toggles at the top:
+The page has two one-shot buttons in the **Quick Breakpoint** card at the top:
 
-- **Break on all requests**: a fast breakpoint for the request stage of every request
-- **Break on all responses**: a fast breakpoint for the response stage of every request
+- **Break on all requests**: adds an enabled catch-all rule for the request stage of every request
+- **Break on all responses**: adds an enabled catch-all rule for the response stage of every request
+
+Both buttons are disabled while such a catch-all rule already exists — to stop intercepting everything again, disable or delete that rule in the list.
 
 For fine control, click **Add Rule** to create a breakpoint rule with match conditions.
 
@@ -27,12 +29,12 @@ Breakpoint rules are leaner than other rule types — **no rule name, no priorit
 | Field | Description | Default |
 |---|---|---|
 | Enabled | Whether it's active | on |
-| URL Pattern | URL match pattern | empty (empty matches all) |
+| URL Pattern | URL match pattern; must be non-empty (use `*` to match everything — that's what the quick buttons create) | — |
 | Match Type | How the URL Pattern is matched | `Contains` (substring) |
 | HTTP Methods | Match only these methods; empty = all | empty (all methods) |
 | Match Stage | Hit stage: request or response | request |
 
-Match Type options are `Contains` (substring, default) / `Wildcard` / `Exact` / `Regex`, with the same meaning as [Rewrite's Match Type](./rewrite-rules.md#url-pattern-rules).
+Match Type options are `Contains` (substring, default) / `Wildcard` / `Exact` / `Regex`, with the same meaning as [Rewrite's Match Type](./rewrite-rules.md#match-conditions).
 
 ## The intercept panel on a hit
 
@@ -60,6 +62,8 @@ The panel lets you move between multiple pending breakpoints with prev/next butt
 
 After you edit a body, AIProxy automatically removes response headers that would mismatch the new body — `content-encoding`, `content-md5`, `digest`, `etag` — to avoid client validation failures.
 
+**Forward** and **Mock Response** validate JSON bodies: if a body you edited (or the mock body) no longer parses as JSON, the action is blocked with an "Invalid JSON" message until you fix it. **Drop** is never blocked, and untouched or non-JSON bodies pass through unvalidated.
+
 ## Breakpoint position in the pipeline
 
 A breakpoint sits late in the rule chain, so it sees the result of earlier rewrites:
@@ -86,11 +90,16 @@ On confirm, the request returns that mock response directly without hitting upst
 - **Temporary mocking**: use Mock Response to return a fake response quickly
 - **Verify client error handling**: change the status code to 500 at the response stage and watch the front end degrade
 
+## Managing breakpoint rules
+
+- Breakpoint rules are included in the Rules-page [import / export](./rewrite-rules.md#import--export-rules) file; imported breakpoint rules are appended disabled with fresh ids.
+- Closing the Add Rule dialog or switching tabs while a draft has unsaved changes asks first; deleting a rule asks for confirmation.
+
 ## FAQ
 
 ### Q: After a hit the request hangs with no response?
 
-A breakpoint needs you to act. The intercept panel only releases on Forward / Drop / Mock. If the panel is closed, the Rules nav badge still shows pending breakpoints.
+A breakpoint needs you to act: the panel releases on Forward / Drop / Mock, or auto-forwards without changes when the 5-minute countdown reaches zero. If the panel is closed, the Rules nav badge still shows pending breakpoints.
 
 ### Q: How is a breakpoint different from Rewrite / scripts?
 

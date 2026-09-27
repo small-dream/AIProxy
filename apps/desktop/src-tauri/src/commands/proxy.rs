@@ -127,8 +127,21 @@ pub async fn disable_system_proxy(
 }
 
 #[tauri::command]
-pub fn get_local_ip() -> Vec<String> {
-    get_local_ip_addresses()
+pub async fn get_local_ip() -> Vec<String> {
+    // The Windows branch of get_local_ip_addresses (types_windows.rs) spawns a
+    // PowerShell subprocess and can block for hundreds of ms; offload it so the
+    // command — now async — does not park an async-runtime worker. The
+    // non-Windows path (getifaddrs) is cheap and behaves exactly as before.
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(get_local_ip_addresses)
+            .await
+            .unwrap_or_default()
+    }
+    #[cfg(not(windows))]
+    {
+        get_local_ip_addresses()
+    }
 }
 
 /// Restart the proxy server using the currently-applied status (same port,
@@ -338,11 +351,14 @@ async fn start_proxy_impl(
             component = "desktop.commands",
             event = "ssl_proxying_configured",
             workspace_id = %input.workspace_id,
+            include_enabled = config.include_enabled,
+            exclude_enabled = config.exclude_enabled,
             include_len = config.include.len(),
             exclude_len = config.exclude.len(),
-            // An empty include list means "everything not excluded", which is a
-            // materially different posture from an allowlist.
-            mode = if config.include.is_empty() { "all_except_excluded" } else { "include_list" },
+            // The include master switch decides the posture, not whether the
+            // list happens to be empty: retained-but-disabled patterns must not
+            // flip the behavior.
+            mode = if config.include_enabled { "include_list" } else { "all_except_excluded" },
             "ssl_proxying_configured"
         );
         Some(std::sync::Arc::new(config))

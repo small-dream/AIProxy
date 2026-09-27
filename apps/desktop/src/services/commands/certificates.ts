@@ -43,6 +43,10 @@ import {
 
 const MOBILE_DEVICE_SCAN_TIMEOUT_MS = 8_000;
 
+// Stable code for the device-scan timeout below; the UI maps it to localized
+// copy (see features/certificate-center/use-certificate-status.ts).
+export const MOBILE_DEVICE_SCAN_TIMEOUT = "MOBILE_DEVICE_SCAN_TIMEOUT";
+
 export async function getCertificateStatus(): Promise<CertificateStatus> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "get_certificate_status_bypassed_non_tauri_runtime");
@@ -227,7 +231,10 @@ export async function listAndroidAdbDevices(): Promise<AndroidAdbDevice[]> {
     const payload = await withTimeout(
       invoke<unknown>("list_android_adb_devices"),
       MOBILE_DEVICE_SCAN_TIMEOUT_MS,
-      "Timed out while scanning Android devices via adb. Check that adb is responsive, then refresh devices.",
+      {
+        code: MOBILE_DEVICE_SCAN_TIMEOUT,
+        message: "Timed out while scanning Android devices via adb.",
+      },
     );
     const devices = parseAndroidAdbDevices(payload);
 
@@ -295,7 +302,10 @@ export async function listIosSimulators(): Promise<IOSSimulatorDevice[]> {
     const payload = await withTimeout(
       invoke<unknown>("list_ios_simulators"),
       MOBILE_DEVICE_SCAN_TIMEOUT_MS,
-      "Timed out while scanning iOS Simulators. Check Xcode Simulator services, then refresh simulators.",
+      {
+        code: MOBILE_DEVICE_SCAN_TIMEOUT,
+        message: "Timed out while scanning iOS Simulators.",
+      },
     );
     const simulators = parseIOSSimulatorDevices(payload);
 
@@ -342,7 +352,9 @@ export async function installIosCertificateViaSimulator(
 
     return result;
   } catch (error) {
-    reportCommandFailure("install_ios_certificate_via_simulator", error, input?.simulatorUdid);
+    reportCommandFailure("install_ios_certificate_via_simulator", error, {
+      simulatorUdid: input?.simulatorUdid,
+    });
     throw coerceAppError(error);
   }
 }
@@ -377,7 +389,7 @@ export async function setAndroidProxyViaAdb(
 
     return result;
   } catch (error) {
-    reportCommandFailure("set_android_proxy_via_adb", error, input.deviceSerial);
+    reportCommandFailure("set_android_proxy_via_adb", error, { deviceSerial: input.deviceSerial });
     throw coerceAppError(error);
   }
 }
@@ -406,7 +418,9 @@ export async function clearAndroidProxyViaAdb(
 
     return result;
   } catch (error) {
-    reportCommandFailure("clear_android_proxy_via_adb", error, input?.deviceSerial);
+    reportCommandFailure("clear_android_proxy_via_adb", error, {
+      deviceSerial: input?.deviceSerial,
+    });
     throw coerceAppError(error);
   }
 }
@@ -428,7 +442,10 @@ export async function listHarmonyHdcDevices(): Promise<HarmonyHdcDevice[]> {
     const payload = await withTimeout(
       invoke<unknown>("list_harmony_hdc_devices"),
       MOBILE_DEVICE_SCAN_TIMEOUT_MS,
-      "Timed out while scanning HarmonyOS devices via hdc. Check that hdc is responsive, then refresh devices.",
+      {
+        code: MOBILE_DEVICE_SCAN_TIMEOUT,
+        message: "Timed out while scanning HarmonyOS devices via hdc.",
+      },
     );
     const devices = parseHarmonyHdcDevices(payload);
 
