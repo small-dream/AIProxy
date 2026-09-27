@@ -1158,11 +1158,7 @@ mod tests {
                     .push((event.to_string(), payload));
             });
 
-        emit_ws_connection_status(
-            &Some(emitter),
-            "sess-42",
-            WsConnectionStatus::Closed,
-        );
+        emit_ws_connection_status(&Some(emitter), "sess-42", WsConnectionStatus::Closed);
 
         let events = captured.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(events.len(), 1);

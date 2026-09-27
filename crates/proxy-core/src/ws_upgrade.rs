@@ -610,15 +610,13 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
                 );
             }
             let message = "The proxy is at its connection limit; try again later.";
-            return Ok(
-                crate::http_proxy::build_plain_text_response(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    message,
-                )
-                .unwrap_or_else(|_| {
-                    crate::http_proxy::build_empty_response(StatusCode::SERVICE_UNAVAILABLE)
-                }),
-            );
+            return Ok(crate::http_proxy::build_plain_text_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                message,
+            )
+            .unwrap_or_else(|_| {
+                crate::http_proxy::build_empty_response(StatusCode::SERVICE_UNAVAILABLE)
+            }));
         }
     };
 
@@ -1651,10 +1649,7 @@ mod tests {
             BodyFraming::Chunked
         ));
 
-        let headers = vec![(
-            "Transfer-Encoding".to_string(),
-            "Chunked, gzip".to_string(),
-        )];
+        let headers = vec![("Transfer-Encoding".to_string(), "Chunked, gzip".to_string())];
         assert!(matches!(
             parse_response_body_framing(&headers),
             BodyFraming::Chunked
@@ -1733,10 +1728,7 @@ mod tests {
 
         drop(held);
         assert!(
-            ctx.connection_semaphore
-                .clone()
-                .try_acquire_owned()
-                .is_ok(),
+            ctx.connection_semaphore.clone().try_acquire_owned().is_ok(),
             "a released slot can be reserved again"
         );
     }

@@ -663,9 +663,8 @@ mod tests {
     // must be classified as TimedOut via the "interrupted" error content.
     #[test]
     fn busy_loop_hook_is_classified_timed_out() {
-        let rule = test_rule(
-            "__aiproxyScriptExports.onRequest = function onRequest() { for (;;) {} };",
-        );
+        let rule =
+            test_rule("__aiproxyScriptExports.onRequest = function onRequest() { for (;;) {} };");
         let result = execute_request_hook(&rule, test_payload());
         assert_eq!(
             result.trace.outcome,
@@ -698,7 +697,10 @@ mod tests {
             .iter()
             .find(|entry| entry.key.as_deref() == Some("circ"))
             .expect("extraction entry should exist");
-        assert_eq!(extract_entry.payload_json.as_deref(), Some("[unserializable]"));
+        assert_eq!(
+            extract_entry.payload_json.as_deref(),
+            Some("[unserializable]")
+        );
     }
 
     // H7: trim_to_byte_limit must never panic when the byte limit falls inside
@@ -738,4 +740,3 @@ mod tests {
         assert_eq!(trim_to_byte_limit(&exact, 100), exact);
     }
 }
-

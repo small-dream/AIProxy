@@ -1497,10 +1497,7 @@ mod tests {
             is_pseudo: None,
         });
 
-        let resolution = make_resolution(
-            None,
-            Some(BASE64_STANDARD.encode(b"hello world")),
-        );
+        let resolution = make_resolution(None, Some(BASE64_STANDARD.encode(b"hello world")));
         apply_request_resolution(&resolution, &mut request);
 
         assert_eq!(request.body, b"hello world");

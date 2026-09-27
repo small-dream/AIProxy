@@ -247,7 +247,8 @@ pub(crate) fn active_throttle_selection_for_request(
         .filter(|rule| rule.enabled)
         .filter(|rule| rule.workspace_id == workspace_id)
         .filter(|rule| {
-            rule_stage_matches(&rule.stage, "request") || rule_stage_matches(&rule.stage, "response")
+            rule_stage_matches(&rule.stage, "request")
+                || rule_stage_matches(&rule.stage, "response")
         })
         .filter(|rule| method_matches(&rule.methods, &request.method))
         // R6-4: match against the URL only — NOT `|| request.host`. The OR was
@@ -412,9 +413,6 @@ mod tests {
         assert_eq!(resolve(manager, "other.test"), None);
 
         // No manager at all.
-        assert_eq!(
-            resolve_dns_override(&None, "default", "example.com"),
-            None
-        );
+        assert_eq!(resolve_dns_override(&None, "default", "example.com"), None);
     }
 }

@@ -386,7 +386,9 @@ mod tests {
         let store = BodyStore::new(dir.clone());
         store.ensure_dir().unwrap();
 
-        let stored = store.write_body("sess-rt", "request", b"round trip").unwrap();
+        let stored = store
+            .write_body("sess-rt", "request", b"round trip")
+            .unwrap();
         let full_path = dir.join(&stored);
 
         let relative = store

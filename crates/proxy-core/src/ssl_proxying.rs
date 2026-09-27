@@ -219,10 +219,9 @@ mod tests {
     // to the entry form, unaffected by the new field defaults.
     #[test]
     fn legacy_string_list_shape_still_deserializes() {
-        let settings: SslProxyingSettings = serde_json::from_str(
-            r#"{"include":["*.example.com"],"exclude":["pinned.example"]}"#,
-        )
-        .expect("legacy shape must parse");
+        let settings: SslProxyingSettings =
+            serde_json::from_str(r#"{"include":["*.example.com"],"exclude":["pinned.example"]}"#)
+                .expect("legacy shape must parse");
 
         assert!(settings.include_enabled);
         assert!(settings.exclude_enabled);
@@ -250,10 +249,9 @@ mod tests {
 
     #[test]
     fn new_shape_missing_lists_keeps_flags() {
-        let settings: SslProxyingSettings = serde_json::from_str(
-            r#"{"includeEnabled":true,"excludeEnabled":false}"#,
-        )
-        .expect("partial new shape must parse");
+        let settings: SslProxyingSettings =
+            serde_json::from_str(r#"{"includeEnabled":true,"excludeEnabled":false}"#)
+                .expect("partial new shape must parse");
 
         assert!(settings.include_enabled);
         assert!(!settings.exclude_enabled);

@@ -269,7 +269,9 @@ pub(crate) fn apply_map_rules(
     // forward the original request instead, mirroring the rewrite pipeline
     // (see the R6-3 comment in apply_request_rewrite_rules).
     let (response, local_path, mapped_url, outcome, failure_reason) = match result {
-        Ok((response, local_path, mapped_url)) => (response, local_path, mapped_url, "success", None),
+        Ok((response, local_path, mapped_url)) => {
+            (response, local_path, mapped_url, "success", None)
+        }
         Err(error) => {
             tracing::warn!(
                 event = "map_rule_failed",

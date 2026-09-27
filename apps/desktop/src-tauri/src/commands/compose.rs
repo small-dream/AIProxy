@@ -48,7 +48,9 @@ pub async fn send_composed_request(
             }
             send_direct_request_bytes(input.method, input.url, headers, Some(body_bytes))
                 .await
-                .map_err(|error| app_error(ERR_INTERNAL, format!("send composed request: {error}")))?
+                .map_err(|error| {
+                    app_error(ERR_INTERNAL, format!("send composed request: {error}"))
+                })?
         }
         _ => send_direct_request(input.method, input.url, input.headers, input.body)
             .await
@@ -67,7 +69,6 @@ pub async fn send_composed_request(
 
     Ok(detail)
 }
-
 
 #[cfg(test)]
 mod tests {
