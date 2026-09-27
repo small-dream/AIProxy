@@ -56,11 +56,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit Rust dependencies (RUSTSEC advisories)
+        # Fails on real vulnerabilities only; unmaintained/unsound advisories
+        # are reported as warnings so an upstream-only fix cannot block PRs.
+        run: cargo audit
+
       - name: Lint
         run: pnpm lint
 
       - name: Check API contract (docs vs code)
         run: pnpm check:api-contract
+
+      - name: Audit production dependencies (npm advisories)
+        # Production surface only: dev-tooling advisories are not shipped.
+        run: pnpm audit --prod --audit-level high
 
       - name: Check frontend formatting
         run: |

@@ -316,9 +316,12 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 1. 版本一致性校验（`package.json`、`Cargo.toml`、`Cargo.lock`、`apps/desktop/package.json`、`apps/desktop/src-tauri/tauri.conf.json` 五处版本号必须一致，任一不一致即非零退出）
 2. `typecheck`
 3. `lint`
-4. 前端测试
-5. Rust 测试
-6. `clippy`
+4. 生产依赖安全审计（`pnpm audit --prod --audit-level high`，仅 high 及以上漏洞导致失败）
+5. 前端测试
+6. Rust 测试
+7. `clippy`
+
+此外，CI（`.github/workflows/ci.yml`）在 Linux 上额外运行 `cargo audit`：真实漏洞（vulnerabilities）使构建失败，`unmaintained` / `unsound` / yanked 等告警仅输出不阻塞；同一 workflow 也运行 `pnpm audit --prod --audit-level high`。依赖告警的处置结论需记入当次 review 报告。
 
 ### 9.5 属性测试（Property-Based Testing）
 

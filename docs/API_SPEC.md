@@ -849,7 +849,7 @@ type UpdateWorkspaceInput = {
 type UpdateWorkspaceOutput = Workspace;
 ```
 
-> **H3 行为说明**：每条新上游连接的有效校验决策为 `verifyUpstreamTls || tlsVerifyHosts.contains(host)`（大小写不敏感、去空白）——即白名单内的 host 即使总开关关闭也会被校验。`true`（或 host 命中白名单）时依据系统根证书校验上游证书（无效/自签名被拒）；`false`（默认）保持 NoOp verifier，接受任意上游证书。开关在新连接上生效（已建立的连接不强制断开）。`start_proxy` / 重启会按当前 workspace 的设置解析进 `ProxyConfig`。
+> **H3 行为说明**：每条新上游连接的有效校验决策为 `verifyUpstreamTls || tlsVerifyHosts.contains(host)`（大小写不敏感、去空白）——即白名单内的 host 即使总开关关闭也会被校验。`true`（或 host 命中白名单）时依据系统根证书校验上游证书（无效/自签名被拒）；`false`（默认）保持 NoOp verifier，接受任意上游证书（其通告的签名校验方案委托 crypto provider，见 §9）。开关在新连接上生效（已建立的连接不强制断开）。`start_proxy` / 重启会按当前 workspace 的设置解析进 `ProxyConfig`。
 
 > **SSL 按 host 解密开关**：`sslBlindHosts` 内的 host 在 CONNECT 阶段直接盲通（不终止 TLS、不捕获解密后的明文），即使 workspace 级 `sslEnabled` 保持开启——既是隐私合规控制，也是绕过证书固定（pinning）的手段。匹配为大小写不敏感、去空白（复用 `host_in_allowlist`）。修改通过 `update_workspace` 持久化，代理运行时在 `start_proxy` / 重启后按新列表解析生效。
 
@@ -2458,6 +2458,8 @@ type SystemProxyWarningEvent = {
 - 对证书、密钥、导出路径进行白名单校验
 - Body 大文件避免一次性加载到内存
 - 日志中默认不打印完整敏感 Body
+- **Body 解压输出上限（zip bomb 防护）**：捕获路径已将压缩 Body 限制在 `MAX_CAPTURED_BODY_BYTES`（20 MiB，见 `crates/proxy-core/src/lib.rs`），但解压并非体积守恒。`decode_body_bytes`（gzip / deflate / x-gzip / br，含 zlib 失败后的 raw deflate 回退）对**单次调用**的解压输出设 `MAX_DECOMPRESSED_BODY_BYTES = 64 MiB` 上限（`crates/proxy-core/src/http_io/body_decode.rs`）。超限时**不返回部分解压结果**，等同“无法解码”：调用方回退到原始（仍受 20 MiB 约束的）wire bytes，并记录 `body_decode_output_limit_exceeded` 结构化日志（含 `limit` 字段）。恰好等于上限视为解码成功；多段 `Content-Encoding` 逐段解码，每段各自受该上限约束。
+- **上游 TLS 校验方案集（`NoOpVerifier`）**：盲通/未开启上游校验时使用的 `NoOpVerifier` 会接受任意证书，但它向对端通告的签名校验方案**不是硬编码清单**，而是委托当前 crypto provider（`default_provider().signature_verification_algorithms.supported_schemes()`，见 `crates/tls-manager/src/client.rs`）。这保证 ClientHello 中通告的方案与运行时真正能校验的方案完全一致：此前手写清单漏掉 `RSA_PSS_SHA512`，会导致只能以该方案握手的对端被本端自己拒绝。provider 不支持的方案（如 ring 下的 ECDSA P-521 / Ed448）仍不通告，属预期行为，需更换 provider 才能覆盖。
 
 ## 10. 版本策略
 

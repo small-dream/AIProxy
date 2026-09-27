@@ -1063,6 +1063,15 @@ mod tests {
         encoder.finish().unwrap()
     }
 
+    fn encode_gzip(plain: &[u8]) -> Vec<u8> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(plain).unwrap();
+        encoder.finish().unwrap()
+    }
+
     // L2-1: zlib-wrapped deflate (standard servers) still decodes
     #[test]
     fn decode_body_bytes_deflate_zlib_wrapped() {
@@ -1116,5 +1125,54 @@ mod tests {
         let encoded = encode_raw_deflate(plain);
         let decoded = decode_body_bytes(&encoded, Some("  DeFLATE "));
         assert_eq!(decoded.as_deref(), Some(plain.as_slice()));
+    }
+
+    // -----------------------------------------------------------------------
+    // Body-decompression output cap (zip-bomb guard)
+    // -----------------------------------------------------------------------
+
+    // Boundary: an output of exactly `limit` bytes is a successful decode; only
+    // output that would exceed the limit is rejected.
+    #[test]
+    fn read_decoded_bounded_accepts_output_at_the_limit() {
+        let payload = [b'a'; 8];
+        let decoded = read_decoded_bounded(Cursor::new(&payload[..]), 8);
+        assert_eq!(decoded.as_deref(), Some(payload.as_slice()));
+    }
+
+    // One byte over the limit fails the decode instead of returning a truncated
+    // prefix, so a partial expansion can never be surfaced — or written back by
+    // a rewrite/script rule — as if it were the whole body.
+    #[test]
+    fn read_decoded_bounded_rejects_output_over_the_limit() {
+        let payload = [b'a'; 9];
+        assert_eq!(read_decoded_bounded(Cursor::new(&payload[..]), 8), None);
+    }
+
+    // End-to-end zip bomb: a tiny gzip wire body that expands past the cap must
+    // be reported as undecodable (callers fall back to the raw bytes) rather
+    // than allocating the expansion.
+    #[test]
+    fn decode_body_bytes_rejects_expansion_over_the_cap() {
+        let expansion = vec![0u8; MAX_DECOMPRESSED_BODY_BYTES + 1];
+        let encoded = encode_gzip(&expansion);
+        assert!(
+            encoded.len() < 1024 * 1024,
+            "fixture must stay a small wire body (encoded={})",
+            encoded.len()
+        );
+
+        assert_eq!(decode_body_bytes(&encoded, Some("gzip")), None);
+    }
+
+    // The cap must not disturb the normal path: a compressed body that decodes
+    // well below it still round-trips exactly.
+    #[test]
+    fn decode_body_bytes_gzip_roundtrips_under_the_cap() {
+        let plain: Vec<u8> = (0..100_000u32).flat_map(|i| i.to_le_bytes()).collect();
+        let encoded = encode_gzip(&plain);
+
+        let decoded = decode_body_bytes(&encoded, Some("gzip")).expect("gzip decodes");
+        assert_eq!(decoded, plain);
     }
 }
