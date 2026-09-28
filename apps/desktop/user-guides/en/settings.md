@@ -65,7 +65,7 @@ In addition to the master SSL switch in Proxy Presets, this section controls whi
 | Control | Description | Default |
 |---|---|---|
 | Intercept only the Include list | When on, only hosts matching an enabled Include entry are decrypted and the rest are relayed blind; when off, every host that is not excluded is decrypted | off |
-| Include list / Exclude list | Each host rule has its own enable switch and a remove icon. Disabled rules remain visible but do not affect matching | — |
+| Include list / Exclude list | Each host rule has its own enable switch and a remove icon. Disabled rules remain visible but do not affect matching. While the list's own master switch is off the whole list is inactive, so the entry switches are greyed out and labelled as kept but not applied | — |
 | Enable the Exclude list | Excluded hosts are never decrypted, even when matched by Include. Turning this off may break apps that pin their certificates (TikTok, iCloud, …) | on |
 
 A caption under the title reflects the active mode ("Decrypting everything except the excluded hosts." / "Decrypting only the enabled hosts under Include."). If SSL decryption is off in Proxy Presets, an informational notice appears instead and this policy stays inactive until SSL is back on.

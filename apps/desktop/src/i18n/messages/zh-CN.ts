@@ -373,6 +373,7 @@ export const zhCNMessages: Messages = {
     include: "包含列表",
     includeAddPlaceholder: "输入域名规则，回车添加",
     includeEmpty: "暂无条目 —— 开启上方开关后不抓取任何域名。",
+    listInactiveHint: "上方总开关已关闭，下列条目会保留，但当前不生效。",
     exclude: "排除列表",
     excludeAddPlaceholder: "输入域名规则，回车添加",
     excludeEmpty: "暂无排除条目。",

@@ -863,7 +863,7 @@ Settings Page
   - 启用时常驻一条 info `Alert` 说明「代理不可用时请求直接失败、不回退直连」
   - 填写密码时追加 warning `Alert` 说明凭据以明文存储于本地数据库
   - 切换协议时仅在当前端口仍是某个协议的默认值时才改写端口，手填端口不被静默覆盖
-- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各为一块列表（每条 pattern + 独立开关 + 删除 + 新增输入框），**总开关（`includeEnabled` / `excludeEnabled`）内联在各自列表标题行右侧**，与所控制的列表紧贴呈现；另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。
+- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各为一块列表（每条 pattern + 独立开关 + 删除 + 新增输入框），**总开关（`includeEnabled` / `excludeEnabled`）内联在各自列表标题行右侧**，与所控制的列表紧贴呈现；另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。**总开关关闭时，该列表整体处于不生效状态**：条目开关置灰禁用、列表整体降低不透明度，并在列表上方显示 `sslProxying.listInactiveHint` 说明「条目保留但不生效」，避免出现「总开关关闭、条目开关却仍是开启态」的误导。
 
 ## 9.9 Compare Page — `已实现发布硬化版`
 

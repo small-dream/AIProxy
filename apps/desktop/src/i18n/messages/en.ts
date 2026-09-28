@@ -381,6 +381,7 @@ export const enMessages = {
     include: "Include",
     includeAddPlaceholder: "Type a host pattern and press Enter to add",
     includeEmpty: "No entries yet — with the switch above on, nothing is captured.",
+    listInactiveHint: "The switch above is off, so these entries are kept but have no effect.",
     exclude: "Exclude",
     excludeAddPlaceholder: "Type a host pattern and press Enter to add",
     excludeEmpty: "No exclusions.",

@@ -64,6 +64,8 @@ function sslProxyingSettingsKey(settings: SslProxyingSettings): string {
  * A single rule list with per-entry switches and an add box, shared by the
  * include and exclude lists so both feel identical. Disabled entries are kept
  * around but do not apply, so switching scope never requires deleting rules.
+ * When the block's master switch is off the whole list is inert, so entry
+ * switches are disabled instead of rendering as "on" switches that do nothing.
  */
 function SslProxyListEditor({
   entries,
@@ -71,12 +73,14 @@ function SslProxyListEditor({
   addLabel,
   addPlaceholder,
   emptyText,
+  inactive = false,
 }: {
   entries: SslProxyEntry[];
   onChange: (next: SslProxyEntry[]) => void;
   addLabel: string;
   addPlaceholder: string;
   emptyText: string;
+  inactive?: boolean;
 }) {
   const { t } = useI18n();
   const [draftPattern, setDraftPattern] = useState("");
@@ -123,6 +127,12 @@ function SslProxyListEditor({
         </Button>
       </Stack>
 
+      {inactive && (
+        <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+          {t("sslProxying.listInactiveHint")}
+        </Typography>
+      )}
+
       <Box
         sx={{
           maxHeight: 240,
@@ -133,6 +143,7 @@ function SslProxyListEditor({
           borderRadius: 1,
           px: 1.5,
           py: 0.5,
+          opacity: inactive ? 0.65 : 1,
         }}
       >
         {entries.length === 0 ? (
@@ -159,6 +170,7 @@ function SslProxyListEditor({
               <Switch
                 size="small"
                 checked={entry.enabled}
+                disabled={inactive}
                 onChange={(event) =>
                   onChange(
                     entries.map((current, i) =>
@@ -425,6 +437,7 @@ export function SslProxyingSection() {
             addLabel={t("sslProxying.include")}
             addPlaceholder={t("sslProxying.includeAddPlaceholder")}
             emptyText={t("sslProxying.includeEmpty")}
+            inactive={!draft.includeEnabled}
           />
         </SslProxyListBlock>
 
@@ -441,6 +454,7 @@ export function SslProxyingSection() {
             addLabel={t("sslProxying.exclude")}
             addPlaceholder={t("sslProxying.excludeAddPlaceholder")}
             emptyText={t("sslProxying.excludeEmpty")}
+            inactive={!draft.excludeEnabled}
           />
         </SslProxyListBlock>
 

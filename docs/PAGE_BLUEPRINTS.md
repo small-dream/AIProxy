@@ -1125,7 +1125,7 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` �
 
 - **exclude 优先于 include**：exclude 是 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
 - **默认保持历史行为**：`includeEnabled` 默认关闭 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
-- **总开关 + 条目开关**：每个列表一个总开关（`includeEnabled` / `excludeEnabled`），每条规则带独立 `enabled` 开关；关闭的条目保留但不生效。总开关内联在对应列表标题行右侧，与列表紧贴。「只看一个域名」= 打开 include 总开关并只启用该条目，「看全部」= 关闭 include 总开关，全程无需删除/重加规则。
+- **总开关 + 条目开关**：每个列表一个总开关（`includeEnabled` / `excludeEnabled`），每条规则带独立 `enabled` 开关；关闭的条目保留但不生效。总开关内联在对应列表标题行右侧，与列表紧贴。「只看一个域名」= 打开 include 总开关并只启用该条目，「看全部」= 关闭 include 总开关，全程无需删除/重加规则。**总开关是列表的作用域开关**：关闭时整个列表不生效，因此 UI 必须让条目开关同步进入禁用态（置灰 + `sslProxying.listInactiveHint` 提示 + 列表整体降不透明度），条目 `enabled` 原始取值只作为保存的数据保留，绝不渲染成「貌似生效」的开启态。
 - **旧数据迁移**：升级前保存的 `{ include: string[], exclude: string[] }` 在 Rust 反序列化时自动迁移为条目形式（`includeEnabled = include 非空`、`excludeEnabled = true`、条目均 `enabled`），行为保持不变。
 - **「从未配置」≠「两个空列表」**：DB 列为空串时回退到内置推荐排除表，因此已有 workspace 升级后能直接获得保护，而不必手动配置。
 - **未解密仍然转发**：被排除的域名走 `tunnel_blind_relay`，与 `ssl_enabled=false` 是同一条代码路径，App 功能不受影响。
