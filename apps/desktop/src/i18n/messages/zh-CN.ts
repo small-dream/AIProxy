@@ -510,7 +510,7 @@ export const zhCNMessages: Messages = {
     priorityHint: "数值越大越优先。",
     copySuffix: "（副本）",
     duplicateRule: "复制规则",
-    listReorderHint: "拖拽行或按 Alt+↑/↓ 调整顺序——列表顺序即优先级。",
+    listReorderHint: "拖拽行或按 {{alt}} 调整顺序——列表顺序即优先级。",
     ruleActions: "规则操作",
     savedSuccess: "规则已保存。",
     quickBreakpointDescription: "启用全局断点，拦截所有请求或响应。",

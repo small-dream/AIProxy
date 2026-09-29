@@ -530,7 +530,7 @@ export const enMessages = {
     priorityHint: "Higher number = higher precedence.",
     copySuffix: " copy",
     duplicateRule: "Duplicate rule",
-    listReorderHint: "Drag rows or press Alt+↑/↓ to reorder — list order is the priority.",
+    listReorderHint: "Drag rows or press {{alt}} to reorder — list order is the priority.",
     ruleActions: "Rule actions",
     savedSuccess: "Rule saved.",
     requestStageOption: "Request (before forwarding)",

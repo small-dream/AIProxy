@@ -37,6 +37,8 @@ import {
   RuleEditorIdentity,
   RuleSection,
   UnsavedChangesIndicator,
+  reorderShortcutLabel,
+  useClearMutationErrorOnRuleChange,
 } from "@/features/rules/components/RulesSharedUi";
 import {
   applyOrderedIdsWithinList,
@@ -190,6 +192,8 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
       guard.confirmLeave,
       isDirty,
     ]);
+
+    useClearMutationErrorOnRuleChange(saveMutation, selectedRuleId);
 
     async function selectRule(rule: ScriptRule) {
       if (!(await guard.confirmLeave())) return;
@@ -553,7 +557,7 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
           listFooter={
             rules.length > 0 ? (
               <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.4 }}>
-                {t("rulesPage.listReorderHint")}
+                {t("rulesPage.listReorderHint", { alt: reorderShortcutLabel() })}
               </Typography>
             ) : undefined
           }

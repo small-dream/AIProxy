@@ -97,7 +97,10 @@ import {
   RuleSection,
   EditorActionBar,
   UnsavedChangesIndicator,
+  reorderShortcutLabel,
+  useClearMutationErrorOnRuleChange,
 } from "@/features/rules/components/RulesSharedUi";
+import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
 import {
   applyOrderedIdsWithinList,
   computeReorderedPriorities,
@@ -556,6 +559,8 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
       isDirty,
     ]);
 
+    useClearMutationErrorOnRuleChange(saveMutation, selectedRuleId);
+
     // Consuming a rewriteSeed replaces the in-flight draft, so a dirty editor
     // vetoes through the same guard as every other draft-discarding transition
     // (mirrors the mapLocalSeed flow in MapRulesPanel). Keyed by the history
@@ -955,7 +960,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
           listFooter={
             rules.length > 0 ? (
               <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.4 }}>
-                {t("rulesPage.listReorderHint")}
+                {t("rulesPage.listReorderHint", { alt: reorderShortcutLabel() })}
               </Typography>
             ) : undefined
           }
@@ -1043,51 +1048,12 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
                     placeholder={t("rulesPage.editor.urlPatternExample")}
                     fullWidth
                   />
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                    <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography
-                        variant="caption"
-                        id="rewrite-match-type-label"
-                        sx={{
-                          color: "text.secondary",
-                          fontWeight: 650,
-                        }}
-                      >
-                        {t("rulesPage.editor.matchType")}
-                      </Typography>
-                      <Select
-                        size="small"
-                        labelId="rewrite-match-type-label"
-                        value={draft.match.matchType ?? "contains"}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            match: { ...draft.match, matchType: e.target.value } as RuleMatch,
-                          })
-                        }
-                      >
-                        <MenuItem value="contains">
-                          {t("rulesPage.editor.matchTypes.contains")}
-                        </MenuItem>
-                        <MenuItem value="wildcard">
-                          {t("rulesPage.editor.matchTypes.wildcard")}
-                        </MenuItem>
-                        <MenuItem value="exact">{t("rulesPage.editor.matchTypes.exact")}</MenuItem>
-                        <MenuItem value="regex">{t("rulesPage.editor.matchTypes.regex")}</MenuItem>
-                      </Select>
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          color: "text.secondary",
-                          lineHeight: 1.35,
-                        }}
-                      >
-                        {t(
-                          `rulesPage.editor.matchTypes.${draft.match.matchType ?? "contains"}Hint`,
-                        )}
-                      </Typography>
-                    </Stack>
-                  </Stack>
+                  <MatchTypeSelect
+                    value={draft.match.matchType}
+                    onChange={(matchType) =>
+                      setDraft({ ...draft, match: { ...draft.match, matchType } })
+                    }
+                  />
                   <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                     <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
                       <Typography

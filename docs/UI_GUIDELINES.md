@@ -699,11 +699,14 @@ Rules Page
   方向键在列表行间移动焦点、Alt+↑/↓ 重排；除 Cmd/Ctrl+S 外，焦点在输入控件
   内时不触发。可发现性：Save 按钮 Tooltip 显示平台对应快捷键（⌘S / Ctrl+S），
   “...” 溢出菜单含 Keyboard shortcuts 对话框（列出全部四个快捷键），
-  规则列表底部常驻一行“拖拽或 Alt+↑/↓ 重排”提示
+  规则列表底部常驻一行“拖拽或 Alt+↑/↓ 重排”提示（macOS 显示 ⌥↑/↓，由
+  `reorderShortcutLabel()` 按平台生成，文案占位符为 `{{alt}}`）
 - 分区标题层级：FieldGroup 的区标题（WHEN / THEN / TEST 等）为 13px / 700 /
   大写字距，视觉上压过 13px 常规字重的字段标签，但保持克制的灰度呈现
 - 无障碍：所有纯图标 IconButton 带显式 aria-label；When 区的 Select 通过
-  labelId 与说明文字关联；列表行启停开关的 aria-label 含“启用/禁用 + 规则名”
+  labelId 与说明文字关联；共享 `MatchTypeSelect` 用 `useId()` 生成标签 id
+  并以 aria-labelledby 关联说明文字；`RuleEditorIdentity` 的 Enabled 标签 id
+  同样每实例唯一；列表行启停开关的 aria-label 含“启用/禁用 + 规则名”
 
 ### 2026-09 更新（工作台模式推广到 Mapping 与 Scripts）
 
@@ -721,6 +724,10 @@ Rules Page
 - 搜索过滤生效时重排：先经 `applyOrderedIdsWithinList` 把可见行的新顺序映射
   回全量列表（隐藏行保持原槽位），再用 `computeReorderedPriorities` 对**全量**
   规则重编号，避免只对可见子集重编号导致隐藏规则被越位
+- 失败提示不残留：写操作失败后 mutation 的 error 会一直保留到下一条 mutate，
+  因此切换到另一条规则时必须清空（共享 `useClearMutationErrorOnRuleChange`），
+  否则旧提示会挂在新选中的规则上；清理只发生在“选中项变化”时，刚出现的
+  失败提示必须保持可见，未被清空
 - 页面级快捷键在各域一致可用：Cmd/Ctrl+S 保存（经 `isEditableTarget` 判定，
   输入框内同样生效）、Alt+↑/↓ 重排、方向键列表导航；Save 按钮 Tooltip 按
   平台显示 ⌘S / Ctrl+S

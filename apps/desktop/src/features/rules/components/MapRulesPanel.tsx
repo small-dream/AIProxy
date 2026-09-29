@@ -58,6 +58,8 @@ import {
   RuleEditorIdentity,
   RuleSection,
   UnsavedChangesIndicator,
+  reorderShortcutLabel,
+  useClearMutationErrorOnRuleChange,
 } from "@/features/rules/components/RulesSharedUi";
 import {
   applyOrderedIdsWithinList,
@@ -184,6 +186,8 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
       guard.confirmLeave,
       isDirty,
     ]);
+
+    useClearMutationErrorOnRuleChange(saveMutation, selectedRuleId);
 
     // M-rules: when the user triggers "Map Local" from a captured request, the
     // sessions page navigates here with a mapLocalSeed; pre-fill the draft with
@@ -542,7 +546,7 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
           listFooter={
             rules.length > 0 ? (
               <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.4 }}>
-                {t("rulesPage.listReorderHint")}
+                {t("rulesPage.listReorderHint", { alt: reorderShortcutLabel() })}
               </Typography>
             ) : undefined
           }

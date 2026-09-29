@@ -1,4 +1,10 @@
-import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+} from "react";
 import DragIndicatorRoundedIcon from "@mui/icons-material/DragIndicatorRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
@@ -35,11 +41,17 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
+import { isMacPlatform } from "@/components/layout/hooks/helpers";
 import { useI18n } from "@/i18n";
 import type { TranslationFn } from "@/features/rules/rules.helpers";
 import { PriorityField } from "@/features/rules/components/PriorityField";
 import { moveRuleInOrder } from "@/features/rules/rules-priority.helpers";
 import { fontFamilies } from "@/themes/fonts";
+
+/** Platform-aware glyph for the reorder accelerator (⌥ on macOS, Alt elsewhere). */
+export function reorderShortcutLabel() {
+  return isMacPlatform() ? "⌥↑/↓" : "Alt+↑/↓";
+}
 
 /** Page-level shortcuts must not fire while the user is typing in a field. */
 export function isEditableTarget(target: EventTarget | null): boolean {
@@ -60,6 +72,25 @@ export function formatRuleFieldLabel(
   if (requirement === "required") return label;
 
   return `${label} (${t("rulesPage.fieldHints.optional")})`;
+}
+
+/**
+ * A failed write keeps its `error` until the next `mutate`, so switching to
+ * another rule would leave a stale alert describing the previous one. Clears
+ * the error only when the editor actually moves to a different rule — a fresh
+ * failure must stay visible.
+ */
+export function useClearMutationErrorOnRuleChange(
+  mutation: { isError: boolean; reset: () => void },
+  selectedRuleId: string | undefined,
+) {
+  const { isError, reset } = mutation;
+  const previousRuleIdRef = useRef(selectedRuleId);
+  useEffect(() => {
+    const selectionChanged = previousRuleIdRef.current !== selectedRuleId;
+    previousRuleIdRef.current = selectedRuleId;
+    if (selectionChanged && isError) reset();
+  }, [isError, reset, selectedRuleId]);
 }
 
 /* ── FieldGroup ───────────────────────────────────────────────────── */
@@ -186,6 +217,9 @@ export function RuleEditorIdentity(props: {
     onToggleAdvanced,
     onToggleEnabled,
   } = props;
+  // Per-instance id: a panel can mount more than one identity row, so a shared
+  // hardcoded id would produce duplicate DOM ids and a broken label target.
+  const enabledLabelId = useId();
 
   return (
     <Paper
@@ -237,7 +271,7 @@ export function RuleEditorIdentity(props: {
           >
             <Typography
               variant="caption"
-              id="rule-editor-enabled-label"
+              id={enabledLabelId}
               sx={{
                 color: "text.secondary",
               }}
@@ -248,7 +282,7 @@ export function RuleEditorIdentity(props: {
               size="small"
               checked={enabled}
               onChange={(event) => onToggleEnabled(event.target.checked)}
-              slotProps={{ input: { "aria-labelledby": "rule-editor-enabled-label" } }}
+              slotProps={{ input: { "aria-labelledby": enabledLabelId } }}
             />
           </Stack>
         </Stack>

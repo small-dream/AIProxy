@@ -9,20 +9,40 @@ import { BreakpointRulesPanel } from "./BreakpointRulesPanel";
 // query hook, so we drive it through a module-level mutable holder exactly the
 // way MapRulesPanel.test.tsx does.
 const rulesState: { current: BreakpointRule[] } = { current: [] };
+// A failed write keeps its `error` until the next mutate; the panel surfaces it
+// as an inline alert. `setRulesWriteFailure` makes the next write fail, which is
+// how the stale-error test drives the mutation into an error state.
+const setRulesErrorState: { current: Error | null } = { current: null };
+const setRulesWriteFailure: { next: Error | null } = { next: null };
 // Breakpoint rules persist as one whole list; every mutation (save / toggle /
 // delete / batch / reorder) goes through this single mock. onSuccess/onSettled
 // fire synchronously so dialogs close and selections reset like the real
 // mutation.
 const setRulesMutateMock = vi.fn(
   (_rules: BreakpointRule[], options?: { onSuccess?: () => void; onSettled?: () => void }) => {
+    if (setRulesWriteFailure.next) {
+      setRulesErrorState.current = setRulesWriteFailure.next;
+      setRulesWriteFailure.next = null;
+      return;
+    }
+    setRulesErrorState.current = null;
     options?.onSuccess?.();
     options?.onSettled?.();
   },
 );
+const setRulesResetMock = vi.fn(() => {
+  setRulesErrorState.current = null;
+});
 
 vi.mock("@/features/breakpoints/use-breakpoint-rules", () => ({
   useBreakpointRules: () => ({ data: rulesState.current, isError: false }),
-  useSetBreakpointRules: () => ({ mutate: setRulesMutateMock, isPending: false, error: null }),
+  useSetBreakpointRules: () => ({
+    mutate: setRulesMutateMock,
+    isPending: false,
+    error: setRulesErrorState.current,
+    isError: setRulesErrorState.current !== null,
+    reset: setRulesResetMock,
+  }),
 }));
 
 // P0-2 unsaved-changes guard: never blocked in these multi-action tests.
@@ -64,7 +84,10 @@ function openRemoveMenuItem() {
 
 beforeEach(() => {
   rulesState.current = [];
+  setRulesErrorState.current = null;
+  setRulesWriteFailure.next = null;
   setRulesMutateMock.mockClear();
+  setRulesResetMock.mockClear();
 });
 
 describe("BreakpointRulesPanel — empty state and create entry", () => {
@@ -320,5 +343,50 @@ describe("BreakpointRulesPanel — batch operations (R5)", () => {
     await waitFor(() => expect(setRulesMutateMock).toHaveBeenCalledTimes(1));
     const savedList = setRulesMutateMock.mock.calls[0]?.[0] as BreakpointRule[];
     expect(savedList).toEqual([]);
+  });
+});
+
+describe("BreakpointRulesPanel — stale write errors", () => {
+  function renderTwoRules() {
+    rulesState.current = [
+      makeRule({ id: "rule-a", urlPattern: "a.example.com" }),
+      makeRule({ id: "rule-b", urlPattern: "b.example.com" }),
+    ];
+    render(<BreakpointRulesPanel />);
+    expect(screen.getByDisplayValue("a.example.com")).toBeInTheDocument();
+  }
+
+  it("keeps a fresh failure visible while the same rule stays selected", async () => {
+    renderTwoRules();
+
+    setRulesWriteFailure.next = new Error("boom");
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.editor.saveRule" }));
+
+    await waitFor(() => expect(screen.getByText("boom")).toBeInTheDocument());
+    // Appearing must not immediately clear itself; only moving on does.
+    expect(setRulesResetMock).not.toHaveBeenCalled();
+  });
+
+  it("clears a failed write when the editor switches to another rule", async () => {
+    renderTwoRules();
+
+    setRulesWriteFailure.next = new Error("boom");
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.editor.saveRule" }));
+    await waitFor(() => expect(screen.getByText("boom")).toBeInTheDocument());
+
+    setRulesResetMock.mockClear();
+    fireEvent.click(screen.getByText("b.example.com"));
+
+    await waitFor(() => expect(screen.getByDisplayValue("b.example.com")).toBeInTheDocument());
+    expect(setRulesResetMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reset the mutation when no write has failed", async () => {
+    renderTwoRules();
+
+    fireEvent.click(screen.getByText("b.example.com"));
+
+    await waitFor(() => expect(screen.getByDisplayValue("b.example.com")).toBeInTheDocument());
+    expect(setRulesResetMock).not.toHaveBeenCalled();
   });
 });

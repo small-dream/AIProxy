@@ -49,6 +49,8 @@ import {
   RuleEditorIdentity,
   RuleSection,
   UnsavedChangesIndicator,
+  reorderShortcutLabel,
+  useClearMutationErrorOnRuleChange,
 } from "@/features/rules/components/RulesSharedUi";
 import {
   applyOrderedIdsWithinList,
@@ -132,6 +134,8 @@ export const BreakpointRulesPanel = forwardRef<RulesPanelHandle>(
       guard.confirmLeave,
       isDirty,
     ]);
+
+    useClearMutationErrorOnRuleChange(setRulesMutation, selectedRuleId);
 
     async function selectRule(rule: BreakpointRule) {
       if (!(await guard.confirmLeave())) return;
@@ -431,7 +435,7 @@ export const BreakpointRulesPanel = forwardRef<RulesPanelHandle>(
           listFooter={
             rules.length > 0 ? (
               <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.4 }}>
-                {t("rulesPage.listReorderHint")}
+                {t("rulesPage.listReorderHint", { alt: reorderShortcutLabel() })}
               </Typography>
             ) : undefined
           }
