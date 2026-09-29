@@ -616,11 +616,11 @@ Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite
 当前实现补充：
 
 - 顶部使用 `Tabs` 固定承载规则类型切换（`Breakpoint / Rewrite / Mapping / Script` 四个一级 tab；`Mapping` 内部再分段切换 Map Local / Map Remote / DNS）
-- Breakpoint 使用”快捷断点 + 规则列表 + 新增对话框”的轻量流
-- Rewrite 使用”左侧模板 + 规则列表，右侧 When / Then / Test”的桌面工作台流
-- Map / DNS 使用”左侧列表 + 右侧编辑器 + 即时预览”的桌面工作台流
-- Script 使用”左侧规则列表 + 右侧脚本编辑器”的工作台流：脚本为单文件 TypeScript，编辑器需展示运行阶段（请求 / 响应）与匹配条件；保存失败必须在面板内显式提示，不允许静默失败
-- 规则创建优先提供快捷模板，降低首次配置门槛
+- 四个一级 tab 统一使用“左侧创建入口 + 规则列表，右侧身份行 + 匹配/动作区 + 吸底操作栏”的内联工作台流（Breakpoint 于 2026-09 从新增对话框迁入，见下文更新记录）
+- Rewrite 的右侧编辑区为 When / Then / Test 三段 + 吸底操作栏
+- Map / DNS 的右侧编辑区为身份行 + Source & Target / Host & IP + 吸底操作栏
+- Script 的右侧编辑区为身份行 + 匹配条件 + 单文件 TypeScript 脚本编辑器，编辑器需展示运行阶段（请求 / 响应）与匹配条件；保存失败必须在面板内显式提示，不允许静默失败
+- 规则创建优先提供快捷模板或快捷动作（如断点的 Break on All Requests / Responses），降低首次配置门槛
 
 ### 页面结构树
 
@@ -649,8 +649,8 @@ Rules Page
 - 左侧规则列表用于查找与切换
 - 右侧编辑区必须能完整容纳复杂表单
 - 顶部规则类型切换必须常驻可见
-- Rewrite 的 Test 面板必须始终可见或易达，帮助用户保存前确认是否命中
-- Rewrite 无效组合必须在编辑器内直接提示，并阻止保存明显不会生效的配置
+- Rewrite 的 Test 面板必须始终可见或易达，帮助用户保存前确认是否命中；它是与 When / Then 同级的整宽卡片，支持从最近会话一键填充
+- Rewrite 无效组合必须在编辑器内直接提示（附跳转到问题控件的链接），并阻止保存明显不会生效的配置
 
 ### 2026-08 更新（评审 §4.6 / §4.7）
 
@@ -664,10 +664,103 @@ Rules Page
   优先级按 `(N - index) * 10` 重编，仅变化项落库，失败回滚
 - 导入导出：Tabs 行右端 Export / Import 按钮；导入走后端对话框 + 预览对话框
   （各类计数 + checkbox），导入规则默认禁用、全新 uuid
-- 优先级输入统一为 PriorityField（带"数值越大越优先；可拖拽调整顺序"提示）
+- 优先级输入统一为 PriorityField（带"数值越大越优先"提示）；Rewrite 中该字段收纳在编辑器 Advanced 折叠区，列表顺序即优先级
 - 断点放行前校验编辑过的 JSON body（Forward / Send Mock），坏 JSON 阻断
 - Map / DNS / Script / Throttle 规则编辑器补齐 matchType（contains / wildcard /
   exact / regex）选择器
+
+### 2026-09 更新（Rewrite 标签页重构）
+
+- 创建入口收敛：左侧五个类型按钮（Header / Query / Body / Redirect / From Template）
+  合并为 New rule 主按钮 + Templates 次按钮；动作类型在 Then 卡片内的类型 Select
+  中选择；列表空态直接内嵌 New rule / Browse templates 按钮
+- 编辑器头部分层：身份行（规则名 + Enabled 开关）与操作区分离；Save 是唯一
+  主按钮，位于编辑器固定页脚（EditorActionBar，经 ManagedRulesWorkbench 的
+  editorFooter 插槽渲染为滚动区下方的兄弟节点，不随内容滚动、永不遮挡表单）；
+  未保存脏标记圆点全局只显示一处（固定页脚内）；Duplicate / Remove /
+  Keyboard shortcuts 收进 “...” 溢出菜单
+- 删除确认对齐：单条删除与批量删除都必须经确认对话框（批量删除此前直接执行）
+- 优先级去数字化：新规则自动追加到列表末尾，列表顺序即优先级；拖拽仍是主交互，
+  另提供 Alt+↑/↓ 键盘重排选中规则（dnd-kit 仅支持指针，键盘重排补齐无障碍缺口）；
+  原始 Priority 数值字段移入 Advanced 折叠区
+- Rule tester 提升：从 320px 侧栏改为与 When / Then 同级的整宽卡片；新增
+  Pick from sessions 对话框（复用 sessions 查询层，含加载 / 空 / 错误态），选中
+  会话即填充 Sample URL / Method / Stage 并立即评估；Stage 下拉增加 Either，
+  可按规则原样测试；“规则未启用”“不命中”“命中但永远不会执行”是三种不同的
+  图标、颜色与文案——无效组合随 draft 持续评估并折叠进 verdict，命中一个
+  不可能生效的规则时显示警告而非绿色 matched；无效组合 Alert（含“转到命中
+  阶段”链接）也即时显示，不再等到点击 Save
+- 标签纪律：必填是默认态、不加后缀，只有真正可选的字段标注“（可选）”，
+  由共享的 formatRuleFieldLabel 统一实现
+- 作用域提示：URL Pattern 为 `*` 或 Match Type 为 regex 时，在 Enabled 开关
+  附近显示“对所有流量生效 / 正则可能命中更多流量”的双语提示；regex 模式
+  在保存前做语法校验
+- 页面级快捷键：Cmd/Ctrl+S 保存（输入框内也生效）、Cmd/Ctrl+D 复制当前规则、
+  方向键在列表行间移动焦点、Alt+↑/↓ 重排；除 Cmd/Ctrl+S 外，焦点在输入控件
+  内时不触发。可发现性：Save 按钮 Tooltip 显示平台对应快捷键（⌘S / Ctrl+S），
+  “...” 溢出菜单含 Keyboard shortcuts 对话框（列出全部四个快捷键），
+  规则列表底部常驻一行“拖拽或 Alt+↑/↓ 重排”提示
+- 分区标题层级：FieldGroup 的区标题（WHEN / THEN / TEST 等）为 13px / 700 /
+  大写字距，视觉上压过 13px 常规字重的字段标签，但保持克制的灰度呈现
+- 无障碍：所有纯图标 IconButton 带显式 aria-label；When 区的 Select 通过
+  labelId 与说明文字关联；列表行启停开关的 aria-label 含“启用/禁用 + 规则名”
+
+### 2026-09 更新（工作台模式推广到 Mapping 与 Scripts）
+
+- Rewrite 的重构模式升格为全部托管规则域（Map Local / Map Remote / DNS /
+  Scripts）的统一工作台标准，共享实现收敛在 `RulesSharedUi.tsx`：
+  `RuleEditorIdentity`（身份行：规则名 + Enabled 开关 + Advanced 折叠）、
+  `EditorActionBar`（固定页脚：脏标记 + Save 主按钮 + “...” 溢出菜单）、
+  `AdvancedPriorityField` 与 `isEditableTarget`（输入控件焦点判定）
+- 四个规则域的编辑器头部分层一致：身份行在上、固定页脚在下；新建 / 复制 /
+  模板草稿都追加到列表末尾，拖拽 / Alt+↑/↓ 重排，原始 Priority 数值收纳进
+  Advanced 折叠区。追加值由 `resolveNewRulePriority` 在**保存时**按当时的
+  列表重新推导，而不是创建草稿时写死：这样空白新草稿仍与其“空规则”脏检查
+  基线一致（新建后不会立刻显示未保存），创建后、保存前发生的重排也不会把
+  新规则卡在列表中间；用户在 Advanced 里手改过 Priority 时以用户值为准
+- 搜索过滤生效时重排：先经 `applyOrderedIdsWithinList` 把可见行的新顺序映射
+  回全量列表（隐藏行保持原槽位），再用 `computeReorderedPriorities` 对**全量**
+  规则重编号，避免只对可见子集重编号导致隐藏规则被越位
+- 页面级快捷键在各域一致可用：Cmd/Ctrl+S 保存（经 `isEditableTarget` 判定，
+  输入框内同样生效）、Alt+↑/↓ 重排、方向键列表导航；Save 按钮 Tooltip 按
+  平台显示 ⌘S / Ctrl+S
+- 批量删除确认全域统一：Mapping 与 Scripts 的批量删除也经确认对话框，
+  与 Rewrite 一致
+- 列表不再显示优先级数字 chip：Mapping（Map Local / Map Remote / DNS）与
+  Scripts 列表同 Rewrite 一样去掉优先级 chip，列表顺序即优先级
+- Scripts 创建入口收敛：原先五个并列按钮（New Script Rule + 三个模板按钮 +
+  Import File）合并为 New Script Rule 主按钮 + Templates 次按钮（打开
+  模板画廊对话框，含模板说明）+ Import File 低调文本按钮；同一组入口复用为
+  列表空态操作，保证空列表时仍可导入
+- 工作台模式至此覆盖全部四个一级 tab；Breakpoint 的迁移见下节
+
+### 2026-09 更新（Breakpoint 迁入内联工作台）
+
+- 断点规则管理从“快捷断点卡 + 规则列表 + Add Rule 模态对话框”改为与其他
+  三个域一致的内联 master-detail 工作台：创建 / 编辑都在右侧编辑区完成，
+  不再有模态对话框；产品决策为内联编辑统一胜出
+- 数据模型不变（BreakpointRule 无 name / priority 字段），因此共享的
+  RuleEditorIdentity 的 name 与 advanced 均为可选：断点身份行只渲染
+  Enabled 开关与作用域提示（`*` 显示“拦截该阶段全部流量”，regex 显示
+  “拦截范围可能超出预期”）
+- 匹配顺序即列表顺序：后端按数组顺序首个命中规则触发断点（first match
+  wins），因此保留拖拽 / Alt+↑/↓ 重排与列表底部重排提示，但没有数值
+  Priority 字段，也没有 Advanced 折叠区；搜索过滤时重排只作用于可见行，
+  隐藏行保持原位（applyOrderedIdsWithinList）
+- 创建入口：New Breakpoint Rule 主按钮 + Break on All Requests /
+  Break on All Responses 两个次按钮（快捷全局断点保持即时落盘，已有对应
+  阶段 catch-all 时按钮禁用）；空列表时表头隐藏（listControlsHidden），
+  空态内嵌同一组按钮
+- 持久化仍是整列表 setBreakpointRules：保存 = upsert（已存在则原位替换、
+  新规则追加到末尾）；行内启停开关即时保存已保存规则版本
+- 删除纪律与其他域一致：单条删除经确认对话框；新增行首 Checkbox 多选 +
+  批量条（启用 / 禁用 / 删除 / 完成），批量删除同样经确认对话框；未保存
+  的新草稿 Remove 直接丢弃、不弹确认
+- regex 语法校验保留，改为与其他域一致的字段级 helperText
+  （rulesPage.validation.regexPatternInvalid）；页面级快捷键 Cmd/Ctrl+S
+  保存（isEditableTarget 守卫）与 Alt+↑/↓ 重排同样生效
+- 注意区分：本节约束的是 Rules 页的断点规则管理 tab；断点命中后的实时
+  拦截面板（BreakpointInterceptPanel）不在本次改动范围内，交互保持不变
 
 ## 9.4.1 Compose Page 更新 — `2026-08`
 
@@ -687,7 +780,7 @@ Rules Page
 ### 交互要点
 
 - 切换规则类型时，列表与编辑器必须同步切换，不让用户在旧上下文里误编辑
-- 左侧列表项必须始终暴露：名称、启停、优先级、核心作用摘要
+- 左侧列表项必须始终暴露：名称、启停、核心作用摘要；所有托管规则域（Rewrite / Mapping / DNS / Scripts）的列表均不显示优先级数字（列表顺序即优先级），原始数值仅在编辑器 Advanced 折叠区内可见
 - 右侧编辑器应把“规则会命中谁”和“命中后会做什么”明确拆开
 - 预览卡应使用自然语言总结最终效果，避免用户只看表单字段猜结果
 

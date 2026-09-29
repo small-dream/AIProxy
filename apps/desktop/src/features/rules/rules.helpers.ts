@@ -12,6 +12,8 @@ import type {
 
 import { useI18n } from "@/i18n";
 
+import { DEFAULT_RULE_PRIORITY } from "@/features/rules/rules-priority.helpers";
+
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 const DEFAULT_WORKSPACE_ID = "default";
 
@@ -76,7 +78,7 @@ export function createEmptyRewriteRule(rewriteType: RewriteRuleType = "header"):
     workspaceId: DEFAULT_WORKSPACE_ID,
     name: "",
     enabled: true,
-    priority: 100,
+    priority: DEFAULT_RULE_PRIORITY,
     match: createEmptyRuleMatch(),
     note: "",
     rewriteType,
@@ -215,7 +217,7 @@ export function createEmptyMapRule(mode: MapRule["mode"]): MapRule {
     mode,
     name: "",
     enabled: true,
-    priority: 100,
+    priority: DEFAULT_RULE_PRIORITY,
     sourcePattern: "",
     targetValue: "",
     preservePath: true,
@@ -234,7 +236,7 @@ export function createEmptyDnsMappingRule(): DnsMappingRule {
     workspaceId: DEFAULT_WORKSPACE_ID,
     name: "",
     enabled: true,
-    priority: 100,
+    priority: DEFAULT_RULE_PRIORITY,
     hostPattern: "",
     targetIp: "",
     note: "",
@@ -247,7 +249,7 @@ export function createEmptyScriptRule(language: ScriptRule["language"] = "typesc
     workspaceId: DEFAULT_WORKSPACE_ID,
     name: "",
     enabled: true,
-    priority: 100,
+    priority: DEFAULT_RULE_PRIORITY,
     match: createEmptyRuleMatch(),
     note: "",
     language,
@@ -369,6 +371,22 @@ export function getRewriteValidationErrors(rule: RewriteRule, t: TranslationFn):
       errors[key("targetUrl")] = t("rulesPage.validation.redirectTargetRequired");
   });
 
+  return errors;
+}
+
+export function getBreakpointValidationErrors(
+  rule: BreakpointRule,
+  t: TranslationFn,
+): RuleFieldErrors {
+  const errors: RuleFieldErrors = {};
+  if (!rule.urlPattern.trim()) errors.urlPattern = t("rulesPage.validation.urlPatternRequired");
+  if (rule.matchType === "regex" && rule.urlPattern.trim()) {
+    try {
+      new RegExp(rule.urlPattern.trim());
+    } catch {
+      errors.urlPattern = t("rulesPage.validation.regexPatternInvalid");
+    }
+  }
   return errors;
 }
 

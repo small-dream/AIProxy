@@ -2,27 +2,41 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import ArrowDownwardRoundedIcon from "@mui/icons-material/ArrowDownwardRounded";
 import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
 import BugReportRoundedIcon from "@mui/icons-material/BugReportRounded";
+import CancelRoundedIcon from "@mui/icons-material/CancelRounded";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
-import FactCheckRoundedIcon from "@mui/icons-material/FactCheckRounded";
+import DoNotDisturbOnRoundedIcon from "@mui/icons-material/DoNotDisturbOnRounded";
+import KeyboardRoundedIcon from "@mui/icons-material/KeyboardRounded";
+import MoreVertRoundedIcon from "@mui/icons-material/MoreVert";
 import RouteRoundedIcon from "@mui/icons-material/RouteRounded";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
+import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import {
   Alert,
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogContent,
   DialogTitle,
   FormControl,
   IconButton,
+  InputAdornment,
   InputLabel,
+  Link,
+  List,
+  ListItemButton,
+  ListItemText,
+  Menu,
   MenuItem,
+  OutlinedInput,
   Paper,
   Select,
   Stack,
-  Switch,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -31,7 +45,7 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
-import { PriorityField } from "@/features/rules/components/PriorityField";
+import { isMacPlatform } from "@/components/layout/hooks/helpers";
 import {
   coerceAppError,
   type RewriteAction,
@@ -71,15 +85,27 @@ import {
   type TranslationFn,
 } from "@/features/rules/rules.helpers";
 import {
+  AdvancedPriorityField,
   FieldGroup,
   formatRuleFieldLabel,
   InlineSwitch,
+  isEditableTarget,
   ManagedRuleList,
   ManagedRulesWorkbench,
   RuleBatchBar,
+  RuleEditorIdentity,
   RuleSection,
+  EditorActionBar,
+  UnsavedChangesIndicator,
 } from "@/features/rules/components/RulesSharedUi";
-import { computeReorderedPriorities } from "@/features/rules/rules-priority.helpers";
+import {
+  applyOrderedIdsWithinList,
+  computeReorderedPriorities,
+  moveRuleInOrder,
+  nextAppendedPriority,
+  resolveNewRulePriority,
+} from "@/features/rules/rules-priority.helpers";
+import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n, type TranslationKey } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 
@@ -98,7 +124,7 @@ type RewriteTemplate = {
   build: () => RewriteRule;
 };
 
-type RuleTestInput = {
+export type RuleTestInput = {
   method: string;
   stage: RuleMatch["stage"];
   url: string;
@@ -135,19 +161,86 @@ function stageApplies(ruleStage: RuleMatch["stage"], currentStage: RuleMatch["st
   return ruleStage === "either" || ruleStage === currentStage;
 }
 
-function testRuleMatch(rule: RewriteRule, input: RuleTestInput, t: TranslationFn) {
-  if (!rule.enabled) return { ok: false, reason: t("rulesPage.rewrite.tester.reasons.disabled") };
-  if (!stageApplies(rule.match.stage, input.stage))
-    return { ok: false, reason: t("rulesPage.rewrite.tester.reasons.stageMismatch") };
+// The invalid-combination warning links here so users can reach the control
+// that usually needs to change.
+const MATCH_STAGE_SELECT_ID = "rewrite-match-stage-select";
+
+function focusMatchStageControl() {
+  const control = document.getElementById(MATCH_STAGE_SELECT_ID);
+  if (control && typeof control.scrollIntoView === "function") {
+    control.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  control?.focus();
+}
+
+/**
+ * Tester verdict. `disabled` separates "the rule is switched off" (fixable by
+ * enabling it) from a plain non-match — the two previously shared one gray
+ * icon. `blocked` is a third failure mode: the sample matches, but the
+ * stage/action combination can never fire, so a green "matched" would lie.
+ * A tester stage of "either" tests the rule as authored: the stage
+ * constraint is skipped instead of forcing a request/response guess.
+ */
+type RuleTestVerdict = { ok: boolean; disabled: boolean; blocked: boolean; reason: string };
+
+function testRuleMatch(
+  rule: RewriteRule,
+  input: RuleTestInput,
+  t: TranslationFn,
+): Omit<RuleTestVerdict, "blocked"> {
+  if (!rule.enabled)
+    return {
+      ok: false,
+      disabled: true,
+      reason: t("rulesPage.rewrite.tester.reasons.disabled"),
+    };
+  if (input.stage !== "either" && !stageApplies(rule.match.stage, input.stage))
+    return {
+      ok: false,
+      disabled: false,
+      reason: t("rulesPage.rewrite.tester.reasons.stageMismatch"),
+    };
   if (
     rule.match.methods.length > 0 &&
     !rule.match.methods.some((method) => method.toUpperCase() === input.method.toUpperCase())
   ) {
-    return { ok: false, reason: t("rulesPage.rewrite.tester.reasons.methodMismatch") };
+    return {
+      ok: false,
+      disabled: false,
+      reason: t("rulesPage.rewrite.tester.reasons.methodMismatch"),
+    };
   }
   if (!wildcardMatch(rule.match.urlPattern, input.url, rule.match.matchType))
-    return { ok: false, reason: t("rulesPage.rewrite.tester.reasons.urlMismatch") };
-  return { ok: true, reason: t("rulesPage.rewrite.tester.reasons.matched") };
+    return {
+      ok: false,
+      disabled: false,
+      reason: t("rulesPage.rewrite.tester.reasons.urlMismatch"),
+    };
+  return { ok: true, disabled: false, reason: t("rulesPage.rewrite.tester.reasons.matched") };
+}
+
+/**
+ * Full tester verdict: wraps the raw match result with the continuously
+ * evaluated invalid-combination check. When the sample matches but the
+ * stage/action combination can never fire, the verdict degrades to a
+ * distinct warning state instead of a misleading green "matched".
+ */
+export function resolveRuleTestVerdict(
+  rule: RewriteRule,
+  input: RuleTestInput,
+  invalidCombination: string | undefined,
+  t: TranslationFn,
+): RuleTestVerdict {
+  const base = testRuleMatch(rule, input, t);
+  if (base.ok && invalidCombination) {
+    return {
+      ok: false,
+      disabled: false,
+      blocked: true,
+      reason: t("rulesPage.rewrite.tester.reasons.invalidCombination"),
+    };
+  }
+  return { ...base, blocked: false };
 }
 
 function getInvalidRewriteCombination(rule: RewriteRule, t: TranslationFn) {
@@ -247,6 +340,8 @@ export type RewriteRulesPanelHandle = {
 export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
   function RewriteRulesPanel(_props, ref) {
     const { t } = useI18n();
+    // Platform-aware glyph for the Save tooltip and the shortcuts dialog.
+    const saveShortcutLabel = isMacPlatform() ? "⌘S" : "Ctrl+S";
     const queryClient = useQueryClient();
     const location = useLocation();
     const navigate = useNavigate();
@@ -258,7 +353,16 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
     const [selectedRuleId, setSelectedRuleId] = useState<string>();
     const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false);
+    const [actionsMenuAnchor, setActionsMenuAnchor] = useState<HTMLElement | null>(null);
+    const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+    const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
     const [draft, setDraft] = useState<RewriteRule>(createEmptyRewriteRule("header"));
+    // Priority handed to the current draft while it is still unsaved, so the
+    // save path can re-derive "append at the end" against the list as it looks
+    // THEN (see resolveNewRulePriority).
+    const autoPriorityRef = useRef<number | null>(null);
     const [testInput, setTestInput] = useState<RuleTestInput>({
       method: "GET",
       stage: "request",
@@ -476,6 +580,9 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
           return;
         }
         const seededRule = createSeededRule(seed);
+        // Seeded drafts keep their own priority: only create / duplicate /
+        // template drafts are auto-appended by the save path.
+        autoPriorityRef.current = null;
         // M22: pre-mark as synced so the selection effect does not overwrite
         // the seeded draft on the next rules[] refetch.
         lastSyncedRuleIdRef.current = seededRule.id;
@@ -501,19 +608,43 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
       setValidationAttempted(false);
     }
 
-    async function handleCreateRule(rewriteType: RewriteRuleType) {
+    async function handleCreateRule() {
       if (!(await guard.confirmLeave())) return;
-      const d = createEmptyRewriteRule(rewriteType);
-      d.name = `${getRewriteTypeLabel(rewriteType, t)} rewrite`;
+      const d = createEmptyRewriteRule("header");
+      d.name = t("rulesPage.rewrite.newRuleDefaultName");
+      // New rules append at the END of the list: the draft keeps the neutral
+      // default for now and resolveNewRulePriority derives the real value at
+      // save time, so a reorder in between cannot strand it mid-list.
+      autoPriorityRef.current = d.priority;
       lastSyncedRuleIdRef.current = d.id;
       setSelectedRuleId(d.id);
       setDraft(d);
       setValidationAttempted(false);
     }
 
+    async function handleDuplicateRule() {
+      if (!(await guard.confirmLeave())) return;
+      const priority = nextAppendedPriority(rules.map((rule) => rule.priority));
+      const copy: RewriteRule = {
+        ...draft,
+        id: crypto.randomUUID(),
+        name: `${draft.name.trim() || t("rulesPage.untitledRule")}${t("rulesPage.copySuffix")}`,
+        priority,
+        match: { ...draft.match, methods: [...draft.match.methods] },
+        actions: structuredClone(draft.actions),
+      };
+      autoPriorityRef.current = priority;
+      lastSyncedRuleIdRef.current = copy.id;
+      setSelectedRuleId(copy.id);
+      setDraft(copy);
+      setValidationAttempted(false);
+    }
+
     async function applyTemplate(template: RewriteTemplate) {
       if (!(await guard.confirmLeave())) return;
       const next = template.build();
+      next.priority = nextAppendedPriority(rules.map((rule) => rule.priority));
+      autoPriorityRef.current = next.priority;
       lastSyncedRuleIdRef.current = next.id;
       setSelectedRuleId(next.id);
       setDraft(next);
@@ -528,14 +659,20 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
       // UI_GUIDELINES §9.4: a combination that can never fire must not be
       // persisted; the warning Alert above the form explains why.
       if (invalidCombination) return;
-      saveMutation.mutate(draft, {
-        onSuccess: (saved) => {
-          lastSyncedRuleIdRef.current = saved.id;
-          setSelectedRuleId(saved.id);
-          setDraft(saved);
-          setValidationAttempted(false);
+      const priority = resolveNewRulePriority(draft, rules, autoPriorityRef.current);
+      saveMutation.mutate(
+        { ...draft, priority },
+        {
+          onSuccess: (saved) => {
+            autoPriorityRef.current = null;
+            lastSyncedRuleIdRef.current = saved.id;
+            setSelectedRuleId(saved.id);
+            setDraft(saved);
+            setValidationAttempted(false);
+            useNotificationStore.getState().push(t("rulesPage.savedSuccess"), "success");
+          },
         },
-      });
+      );
     }
 
     function handleDelete() {
@@ -568,7 +705,9 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
     const invalidCombination = getInvalidRewriteCombination(draft, t);
     const errors = getRewriteValidationErrors(draft, t);
     const saveError = saveMutation.error ? coerceAppError(saveMutation.error).message : undefined;
-    const testResult = testRuleMatch(draft, testInput, t);
+    // Continuous verdict: an impossible stage/action combination degrades a
+    // matching sample to a warning instead of a green "matched".
+    const testResult = resolveRuleTestVerdict(draft, testInput, invalidCombination, t);
     const httpMethodsLabel = formatRuleFieldLabel(t("rulesPage.labels.httpMethods"), "optional", t);
 
     function toggleSelect(id: string) {
@@ -598,9 +737,19 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
       );
     }
 
+    // Batch delete is as destructive as single delete, so it goes through the
+    // same confirmation step (previously it deleted immediately).
     function handleBatchDelete() {
+      if (selectedRuleIds.size === 0) return;
+      setBatchDeleteConfirmOpen(true);
+    }
+
+    function confirmBatchDelete() {
       const ids = [...selectedRuleIds];
-      if (ids.length === 0) return;
+      if (ids.length === 0) {
+        setBatchDeleteConfirmOpen(false);
+        return;
+      }
       void Promise.allSettled(
         ids.map((ruleId) => deleteRule({ ruleId, ruleType: "rewrite" })),
       ).then((results) => {
@@ -614,16 +763,33 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
             : t("rulesPage.batch.resultSuccess", { count: ids.length }),
         );
         clearSelection();
+        setBatchDeleteConfirmOpen(false);
       });
     }
 
+    function handlePickSession(session: SessionSummary) {
+      const method = session.method.toUpperCase();
+      setTestInput({
+        method: (HTTP_METHODS as readonly string[]).includes(method) ? method : testInput.method,
+        // A captured session always had a request stage; nothing in
+        // SessionSummary distinguishes it further.
+        stage: "request",
+        url: session.url,
+      });
+      setSessionPickerOpen(false);
+    }
+
     function handleReorder(orderedIds: string[]) {
+      // The list is reorderable while a search filter hides rules, so map the
+      // visible order back onto the full list before renumbering: hidden rules
+      // keep their slots and the priorities stay a complete, collision-free set.
+      const fullOrder = applyOrderedIdsWithinList(rules, orderedIds).map((rule) => rule.id);
       const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
-      const updates = computeReorderedPriorities(orderedIds, currentPriorities);
+      const updates = computeReorderedPriorities(fullOrder, currentPriorities);
       if (updates.length === 0) return;
 
       const previous = rules;
-      const reordered = orderedIds
+      const reordered = fullOrder
         .map((id) => rules.find((rule) => rule.id === id))
         .filter((rule): rule is RewriteRule => rule !== undefined);
       queryClient.setQueryData(REWRITE_RULES_QUERY_KEY, reordered);
@@ -637,6 +803,59 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
         },
       );
     }
+
+    // Page-scoped keyboard shortcuts (Rewrite tab unmounts detach them):
+    // Cmd/Ctrl+S saves (safe even inside text fields), Cmd/Ctrl+D duplicates,
+    // Alt+ArrowUp/ArrowDown reorders the selected rule. Everything except
+    // Cmd/Ctrl+S is ignored while focus is in an editable control.
+    const shortcutStateRef = useRef({ isDirty, selectedRuleId, filteredRules });
+    useEffect(() => {
+      shortcutStateRef.current = { isDirty, selectedRuleId, filteredRules };
+    }, [isDirty, selectedRuleId, filteredRules]);
+    const handleSaveRef = useRef(handleSave);
+    useEffect(() => {
+      handleSaveRef.current = handleSave;
+    });
+    const duplicateRuleRef = useRef(handleDuplicateRule);
+    useEffect(() => {
+      duplicateRuleRef.current = handleDuplicateRule;
+    });
+    const reorderRef = useRef(handleReorder);
+    useEffect(() => {
+      reorderRef.current = handleReorder;
+    });
+    useEffect(() => {
+      function handleKeyDown(event: KeyboardEvent) {
+        const isMod = event.metaKey || event.ctrlKey;
+        if (isMod && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          if (shortcutStateRef.current.isDirty) handleSaveRef.current();
+          return;
+        }
+        // List-row Alt+Arrow reorder marks the event handled; don't double-move.
+        if (event.defaultPrevented) return;
+        if (isEditableTarget(event.target)) return;
+        if (isMod && event.key.toLowerCase() === "d") {
+          event.preventDefault();
+          void duplicateRuleRef.current();
+          return;
+        }
+        if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+          const { selectedRuleId: selected, filteredRules: list } = shortcutStateRef.current;
+          if (!selected) return;
+          const next = moveRuleInOrder(
+            list.map((rule) => rule.id),
+            selected,
+            event.key === "ArrowUp" ? -1 : 1,
+          );
+          if (!next) return;
+          event.preventDefault();
+          reorderRef.current(next);
+        }
+      }
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }, []);
 
     return (
       <>
@@ -669,42 +888,53 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
             ) : undefined
           }
           searchPlaceholder={t("rulesPage.rewrite.searchPlaceholder")}
+          listControlsHidden={rules.length === 0}
           searchValue={searchValue}
           onSearchChange={setSearchValue}
           createActions={
-            <Stack
-              direction="row"
-              spacing={0.75}
-              useFlexGap
-              sx={{
-                flexWrap: "wrap",
-              }}
-            >
-              {(["header", "query", "body", "redirect"] as const).map((type) => (
-                <Button
-                  key={type}
-                  size="small"
-                  variant="outlined"
-                  disabled={isRulesError}
-                  startIcon={<AddRoundedIcon />}
-                  onClick={() => handleCreateRule(type)}
-                >
-                  {getRewriteTypeLabel(type, t)}
-                </Button>
-              ))}
+            <>
+              <Button
+                size="small"
+                variant="contained"
+                disabled={isRulesError}
+                startIcon={<AddRoundedIcon />}
+                onClick={() => handleCreateRule()}
+              >
+                {t("rulesPage.rewrite.newRule")}
+              </Button>
               <Button
                 size="small"
                 variant="outlined"
                 disabled={isRulesError}
-                startIcon={<AddRoundedIcon />}
                 onClick={() => setTemplateDialogOpen(true)}
               >
-                {t("rulesPage.rewrite.fromTemplate")}
+                {t("rulesPage.rewrite.templatesButton")}
               </Button>
-            </Stack>
+            </>
           }
           list={
             <ManagedRuleList
+              emptyActions={
+                <Stack direction="row" spacing={1} sx={{ justifyContent: "center" }}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disabled={isRulesError}
+                    startIcon={<AddRoundedIcon />}
+                    onClick={() => handleCreateRule()}
+                  >
+                    {t("rulesPage.rewrite.newRule")}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    disabled={isRulesError}
+                    onClick={() => setTemplateDialogOpen(true)}
+                  >
+                    {t("rulesPage.rewrite.browseTemplates")}
+                  </Button>
+                </Stack>
+              }
               emptyDescription={t("rulesPage.rewrite.emptyDescription")}
               onReorder={handleReorder}
               selectedIds={selectedRuleIds}
@@ -714,7 +944,6 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
                 enabled: rule.enabled,
                 name: rule.name || t("rulesPage.untitledRule"),
                 subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule, t)}`,
-                chipLabel: `${rule.priority}`,
                 onClick: () => selectRule(rule),
                 onSelectToggle: () => toggleSelect(rule.id),
                 // Persist the SAVED rule (not the in-flight draft) so the toggle
@@ -723,23 +952,72 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
               }))}
             />
           }
+          listFooter={
+            rules.length > 0 ? (
+              <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.4 }}>
+                {t("rulesPage.listReorderHint")}
+              </Typography>
+            ) : undefined
+          }
+          editorFooter={
+            <EditorActionBar>
+              {isDirty && (
+                <UnsavedChangesIndicator label={t("rulesPage.unsavedChangesIndicator")} />
+              )}
+              <Box sx={{ flex: 1 }} />
+              <Tooltip title={saveShortcutLabel}>
+                <span>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<SaveRoundedIcon />}
+                    onClick={handleSave}
+                    disabled={saveMutation.isPending || isRulesError}
+                  >
+                    {t("rulesPage.editor.saveRule")}
+                  </Button>
+                </span>
+              </Tooltip>
+              <IconButton
+                size="small"
+                aria-label={t("rulesPage.ruleActions")}
+                aria-haspopup="menu"
+                disabled={isRulesError}
+                onClick={(event) => setActionsMenuAnchor(event.currentTarget)}
+              >
+                <MoreVertRoundedIcon fontSize="small" />
+              </IconButton>
+            </EditorActionBar>
+          }
           editor={
             <Stack spacing={2}>
-              <RewriteEditorHeader
-                deletePending={deleteMutation.isPending}
+              <RewriteEditorIdentity
+                advancedOpen={advancedOpen}
                 draft={draft}
                 errors={errors}
-                isError={isRulesError}
                 onChange={setDraft}
-                onDelete={handleDelete}
-                onSave={handleSave}
-                savePending={saveMutation.isPending}
+                onToggleAdvanced={() => setAdvancedOpen((open) => !open)}
                 validationAttempted={validationAttempted}
               />
 
-              {validationAttempted && invalidCombination && (
+              {invalidCombination && (
                 <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
-                  <Typography variant="body2">{invalidCombination}</Typography>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1}
+                    sx={{ alignItems: { sm: "center" }, justifyContent: "space-between" }}
+                  >
+                    <Typography variant="body2">{invalidCombination}</Typography>
+                    <Link
+                      component="button"
+                      type="button"
+                      variant="body2"
+                      onClick={focusMatchStageControl}
+                      sx={{ flexShrink: 0, fontWeight: 650 }}
+                    >
+                      {t("rulesPage.rewrite.goToMatchStage")}
+                    </Link>
+                  </Stack>
                 </Alert>
               )}
 
@@ -749,172 +1027,192 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
                 </Alert>
               )}
 
-              <Box
-                sx={{
-                  display: "grid",
-                  gap: 2,
-                  gridTemplateColumns: { xs: "1fr", xl: "minmax(0, 1fr) 320px" },
-                }}
-              >
-                <Stack
-                  spacing={2}
-                  sx={{
-                    minWidth: 0,
-                  }}
-                >
-                  <RuleSection>
-                    <FieldGroup title={t("rulesPage.rewrite.whenSection")}>
-                      <TextField
+              <RuleSection>
+                <FieldGroup title={t("rulesPage.rewrite.whenSection")}>
+                  <TextField
+                    size="small"
+                    label={t("rulesPage.editor.urlPattern")}
+                    value={draft.match.urlPattern}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        match: { ...draft.match, urlPattern: e.target.value },
+                      })
+                    }
+                    {...ruleFieldProps(errors, validationAttempted, "match.urlPattern")}
+                    placeholder={t("rulesPage.editor.urlPatternExample")}
+                    fullWidth
+                  />
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                    <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography
+                        variant="caption"
+                        id="rewrite-match-type-label"
+                        sx={{
+                          color: "text.secondary",
+                          fontWeight: 650,
+                        }}
+                      >
+                        {t("rulesPage.editor.matchType")}
+                      </Typography>
+                      <Select
                         size="small"
-                        label={formatRuleFieldLabel(
-                          t("rulesPage.editor.urlPattern"),
-                          "required",
-                          t,
-                        )}
-                        value={draft.match.urlPattern}
+                        labelId="rewrite-match-type-label"
+                        value={draft.match.matchType ?? "contains"}
                         onChange={(e) =>
                           setDraft({
                             ...draft,
-                            match: { ...draft.match, urlPattern: e.target.value },
+                            match: { ...draft.match, matchType: e.target.value } as RuleMatch,
                           })
                         }
-                        {...ruleFieldProps(errors, validationAttempted, "match.urlPattern")}
-                        placeholder={t("rulesPage.editor.urlPatternExample")}
-                        fullWidth
-                      />
-                      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                        <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: "text.secondary",
-                              fontWeight: 650,
-                            }}
-                          >
-                            {t("rulesPage.editor.matchType")}
-                          </Typography>
-                          <Select
-                            size="small"
-                            value={draft.match.matchType ?? "contains"}
-                            onChange={(e) =>
-                              setDraft({
-                                ...draft,
-                                match: { ...draft.match, matchType: e.target.value } as RuleMatch,
-                              })
-                            }
-                          >
-                            <MenuItem value="contains">
-                              {t("rulesPage.editor.matchTypes.contains")}
-                            </MenuItem>
-                            <MenuItem value="wildcard">
-                              {t("rulesPage.editor.matchTypes.wildcard")}
-                            </MenuItem>
-                            <MenuItem value="exact">
-                              {t("rulesPage.editor.matchTypes.exact")}
-                            </MenuItem>
-                            <MenuItem value="regex">
-                              {t("rulesPage.editor.matchTypes.regex")}
-                            </MenuItem>
-                          </Select>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: "text.secondary",
-                              lineHeight: 1.35,
-                            }}
-                          >
-                            {t(
-                              `rulesPage.editor.matchTypes.${draft.match.matchType ?? "contains"}Hint`,
-                            )}
-                          </Typography>
-                        </Stack>
-                      </Stack>
-                      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                        <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: "text.secondary",
-                              fontWeight: 650,
-                            }}
-                          >
-                            {httpMethodsLabel}
-                          </Typography>
-                          <Select
-                            displayEmpty
-                            multiple
-                            size="small"
-                            value={draft.match.methods}
-                            onChange={(e) =>
-                              setDraft({
-                                ...draft,
-                                match: { ...draft.match, methods: e.target.value as string[] },
-                              })
-                            }
-                            renderValue={(s) =>
-                              s.length === 0 ? t("rulesPage.allMethods") : s.join(", ")
-                            }
-                          >
-                            {HTTP_METHODS.map((m) => (
-                              <MenuItem key={m} value={m}>
-                                {m}
-                              </MenuItem>
-                            ))}
-                          </Select>
-                        </Stack>
-                        <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: "text.secondary",
-                              fontWeight: 650,
-                            }}
-                          >
-                            {formatRuleFieldLabel(t("rulesPage.editor.matchStage"), "required", t)}
-                          </Typography>
-                          <Select
-                            size="small"
-                            value={draft.match.stage}
-                            onChange={(e) =>
-                              setDraft({
-                                ...draft,
-                                match: {
-                                  ...draft.match,
-                                  stage: e.target.value as RuleMatch["stage"],
-                                },
-                              })
-                            }
-                          >
-                            <MenuItem value="either">
-                              {t("rulesPage.editor.matchStageEither")}
-                            </MenuItem>
-                            <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
-                            <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
-                          </Select>
-                        </Stack>
-                      </Stack>
-                    </FieldGroup>
-                  </RuleSection>
+                      >
+                        <MenuItem value="contains">
+                          {t("rulesPage.editor.matchTypes.contains")}
+                        </MenuItem>
+                        <MenuItem value="wildcard">
+                          {t("rulesPage.editor.matchTypes.wildcard")}
+                        </MenuItem>
+                        <MenuItem value="exact">{t("rulesPage.editor.matchTypes.exact")}</MenuItem>
+                        <MenuItem value="regex">{t("rulesPage.editor.matchTypes.regex")}</MenuItem>
+                      </Select>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: "text.secondary",
+                          lineHeight: 1.35,
+                        }}
+                      >
+                        {t(
+                          `rulesPage.editor.matchTypes.${draft.match.matchType ?? "contains"}Hint`,
+                        )}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                    <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography
+                        variant="caption"
+                        id="rewrite-methods-label"
+                        sx={{
+                          color: "text.secondary",
+                          fontWeight: 650,
+                        }}
+                      >
+                        {httpMethodsLabel}
+                      </Typography>
+                      <Select
+                        displayEmpty
+                        multiple
+                        size="small"
+                        labelId="rewrite-methods-label"
+                        value={draft.match.methods}
+                        onChange={(e) =>
+                          setDraft({
+                            ...draft,
+                            match: { ...draft.match, methods: e.target.value as string[] },
+                          })
+                        }
+                        renderValue={(s) =>
+                          s.length === 0 ? t("rulesPage.allMethods") : s.join(", ")
+                        }
+                      >
+                        {HTTP_METHODS.map((m) => (
+                          <MenuItem key={m} value={m}>
+                            {m}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </Stack>
+                    <Stack spacing={0.5} sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography
+                        variant="caption"
+                        id="rewrite-match-stage-label"
+                        sx={{
+                          color: "text.secondary",
+                          fontWeight: 650,
+                        }}
+                      >
+                        {t("rulesPage.editor.matchStage")}
+                      </Typography>
+                      <Select
+                        size="small"
+                        labelId="rewrite-match-stage-label"
+                        SelectDisplayProps={{ id: MATCH_STAGE_SELECT_ID }}
+                        value={draft.match.stage}
+                        onChange={(e) =>
+                          setDraft({
+                            ...draft,
+                            match: {
+                              ...draft.match,
+                              stage: e.target.value as RuleMatch["stage"],
+                            },
+                          })
+                        }
+                      >
+                        <MenuItem value="either">{t("rulesPage.editor.matchStageEither")}</MenuItem>
+                        <MenuItem value="request">{t("rulesPage.stages.request")}</MenuItem>
+                        <MenuItem value="response">{t("rulesPage.stages.response")}</MenuItem>
+                      </Select>
+                    </Stack>
+                  </Stack>
+                </FieldGroup>
+              </RuleSection>
 
-                  <RuleSection>
-                    <FieldGroup title={t("rulesPage.rewrite.thenSection")}>
-                      <RewriteActionFields
-                        errors={errors}
-                        rule={draft}
-                        onChange={setDraft}
-                        validationAttempted={validationAttempted}
-                      />
-                    </FieldGroup>
-                  </RuleSection>
-                </Stack>
+              <RuleSection>
+                <FieldGroup title={t("rulesPage.rewrite.thenSection")}>
+                  <RewriteActionFields
+                    errors={errors}
+                    rule={draft}
+                    onChange={setDraft}
+                    validationAttempted={validationAttempted}
+                  />
+                </FieldGroup>
+              </RuleSection>
 
-                <RewriteRuleTester
-                  draft={draft}
-                  testInput={testInput}
-                  testResult={testResult}
-                  onChange={setTestInput}
-                />
-              </Box>
+              <RewriteRuleTester
+                draft={draft}
+                invalidCombination={invalidCombination}
+                testInput={testInput}
+                testResult={testResult}
+                onChange={setTestInput}
+                onOpenSessionPicker={() => setSessionPickerOpen(true)}
+              />
+
+              <Menu
+                anchorEl={actionsMenuAnchor}
+                open={actionsMenuAnchor !== null}
+                onClose={() => setActionsMenuAnchor(null)}
+              >
+                <MenuItem
+                  onClick={() => {
+                    setActionsMenuAnchor(null);
+                    void handleDuplicateRule();
+                  }}
+                >
+                  <ContentCopyRoundedIcon fontSize="small" sx={{ mr: 1 }} />
+                  {t("rulesPage.duplicateRule")}
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    setActionsMenuAnchor(null);
+                    setShortcutsDialogOpen(true);
+                  }}
+                >
+                  <KeyboardRoundedIcon fontSize="small" sx={{ mr: 1 }} />
+                  {t("rulesPage.rewrite.shortcuts.menuItem")}
+                </MenuItem>
+                <MenuItem
+                  disabled={deleteMutation.isPending}
+                  onClick={() => {
+                    setActionsMenuAnchor(null);
+                    handleDelete();
+                  }}
+                  sx={{ color: "error.main" }}
+                >
+                  <DeleteRoundedIcon fontSize="small" sx={{ mr: 1 }} />
+                  {t("common.actions.remove")}
+                </MenuItem>
+              </Menu>
             </Stack>
           }
         />
@@ -986,146 +1284,163 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
           onCancel={() => setDeleteConfirmOpen(false)}
           isConfirming={deleteMutation.isPending}
         />
+
+        <ConfirmDialog
+          open={batchDeleteConfirmOpen}
+          title={t("rulesPage.batch.deleteConfirmTitle")}
+          message={t("rulesPage.batch.deleteConfirmMessage", { count: selectedRuleIds.size })}
+          onConfirm={confirmBatchDelete}
+          onCancel={() => setBatchDeleteConfirmOpen(false)}
+        />
+
+        {sessionPickerOpen && (
+          <SessionPickerDialog
+            open={sessionPickerOpen}
+            onClose={() => setSessionPickerOpen(false)}
+            onPick={handlePickSession}
+          />
+        )}
+
+        <RewriteShortcutsDialog
+          open={shortcutsDialogOpen}
+          onClose={() => setShortcutsDialogOpen(false)}
+        />
       </>
     );
   },
 );
 
-function RewriteEditorHeader({
-  deletePending,
+function RewriteEditorIdentity({
+  advancedOpen,
   draft,
   errors,
-  isError = false,
   onChange,
-  onDelete,
-  onSave,
-  savePending,
+  onToggleAdvanced,
   validationAttempted,
 }: {
-  deletePending: boolean;
+  advancedOpen: boolean;
   draft: RewriteRule;
   errors: RuleFieldErrors;
-  isError?: boolean;
   onChange: (rule: RewriteRule) => void;
-  onDelete: () => void;
-  onSave: () => void;
-  savePending: boolean;
+  onToggleAdvanced: () => void;
   validationAttempted: boolean;
 }) {
   const { t } = useI18n();
+  const matchType = draft.match.matchType ?? "contains";
+  const scopeHint =
+    draft.match.urlPattern.trim() === "*"
+      ? t("rulesPage.rewrite.scopeHintAllTraffic")
+      : matchType === "regex"
+        ? t("rulesPage.rewrite.scopeHintRegex")
+        : undefined;
 
   return (
-    <Paper
-      elevation={0}
-      sx={(theme) => ({
-        bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.045),
-        border: 1,
-        borderColor: alpha(theme.palette.primary.main, 0.18),
-        borderRadius: "8px",
-        p: 1.5,
-        "& .MuiInputLabel-root.MuiInputLabel-shrink": {
-          bgcolor:
-            theme.palette.mode === "dark"
-              ? theme.palette.background.paper
-              : theme.palette.background.default,
-          px: 0.5,
-        },
-      })}
-    >
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        spacing={1.25}
-        sx={{
-          alignItems: { xs: "stretch", md: "center" },
-        }}
-      >
-        <TextField
-          size="small"
-          label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
-          value={draft.name}
-          onChange={(e) => onChange({ ...draft, name: e.target.value })}
-          {...ruleFieldProps(errors, validationAttempted, "name")}
-          sx={{ flex: 1 }}
-        />
-        <Stack
-          direction="row"
-          spacing={0.75}
-          sx={{
-            alignItems: "center",
-            border: 1,
-            borderColor: "divider",
-            borderRadius: "8px",
-            minHeight: 40,
-            px: 1,
-          }}
-        >
-          <Typography
-            variant="caption"
-            sx={{
-              color: "text.secondary",
-            }}
-          >
-            {t("rulesPage.editor.enabled")}
-          </Typography>
-          <Switch
-            size="small"
-            checked={draft.enabled}
-            onChange={(e) => onChange({ ...draft, enabled: e.target.checked })}
-          />
-        </Stack>
-        <PriorityField
+    <RuleEditorIdentity
+      advanced={
+        <AdvancedPriorityField
           value={draft.priority}
-          label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
           onCommit={(priority) => onChange({ ...draft, priority })}
-          sx={{ width: { xs: "100%", md: 136 } }}
         />
-        <Tooltip title={t("common.actions.remove")}>
-          <span>
-            <Button
-              size="small"
-              variant="outlined"
-              color="error"
-              startIcon={<DeleteRoundedIcon />}
-              onClick={onDelete}
-              disabled={deletePending || isError}
+      }
+      advancedOpen={advancedOpen}
+      enabled={draft.enabled}
+      hint={scopeHint}
+      name={draft.name}
+      nameFieldProps={ruleFieldProps(errors, validationAttempted, "name")}
+      onNameChange={(name) => onChange({ ...draft, name })}
+      onToggleAdvanced={onToggleAdvanced}
+      onToggleEnabled={(enabled) => onChange({ ...draft, enabled })}
+    />
+  );
+}
+
+/**
+ * Discoverability for the page-level shortcuts (P1a): the four accelerators
+ * are otherwise invisible. Modifiers follow the platform (⌘/⌥ on macOS,
+ * Ctrl/Alt elsewhere).
+ */
+function RewriteShortcutsDialog({ onClose, open }: { onClose: () => void; open: boolean }) {
+  const { t } = useI18n();
+  const mod = isMacPlatform() ? "⌘" : "Ctrl+";
+  const alt = isMacPlatform() ? "⌥" : "Alt+";
+  const rows = [
+    { keys: `${mod}S`, label: t("rulesPage.rewrite.shortcuts.save") },
+    { keys: `${mod}D`, label: t("rulesPage.rewrite.shortcuts.duplicate") },
+    { keys: `${alt}↑ / ${alt}↓`, label: t("rulesPage.rewrite.shortcuts.reorder") },
+    { keys: "↑ / ↓", label: t("rulesPage.rewrite.shortcuts.listNavigation") },
+  ];
+
+  return (
+    <Dialog fullWidth maxWidth="xs" open={open} onClose={onClose}>
+      <DialogTitle>{t("rulesPage.rewrite.shortcuts.title")}</DialogTitle>
+      <DialogContent dividers sx={{ p: 0 }}>
+        <List dense disablePadding>
+          {rows.map((row) => (
+            <Stack
+              key={row.label}
+              direction="row"
+              spacing={2}
+              sx={{
+                alignItems: "center",
+                justifyContent: "space-between",
+                px: 2,
+                py: 1,
+                "&:not(:last-child)": { borderBottom: 1, borderColor: "divider" },
+              }}
             >
-              {t("common.actions.remove")}
-            </Button>
-          </span>
-        </Tooltip>
-        <Button
-          size="small"
-          variant="contained"
-          startIcon={<SaveRoundedIcon />}
-          onClick={onSave}
-          disabled={savePending || isError}
-        >
-          {t("rulesPage.editor.saveRule")}
-        </Button>
-      </Stack>
-    </Paper>
+              <Typography variant="body2">{row.label}</Typography>
+              <Typography
+                component="kbd"
+                variant="caption"
+                sx={{
+                  bgcolor: (theme) =>
+                    alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.05),
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: "6px",
+                  fontFamily: fontFamilies.mono,
+                  fontSize: 11,
+                  px: 0.75,
+                  py: 0.25,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {row.keys}
+              </Typography>
+            </Stack>
+          ))}
+        </List>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function RewriteRuleTester({
   draft,
+  invalidCombination,
   onChange,
+  onOpenSessionPicker,
   testInput,
   testResult,
 }: {
   draft: RewriteRule;
+  /** Continuous invalid-combination message; shown as the verdict detail when blocked. */
+  invalidCombination: string | undefined;
   onChange: (input: RuleTestInput) => void;
+  onOpenSessionPicker: () => void;
   testInput: RuleTestInput;
-  testResult: { ok: boolean; reason: string };
+  testResult: RuleTestVerdict;
 }) {
   const { t } = useI18n();
-  const sampleUrlLabel = formatRuleFieldLabel(
-    t("rulesPage.rewrite.tester.sampleUrl"),
-    "optional",
-    t,
-  );
-  const methodLabel = formatRuleFieldLabel(t("rulesPage.rewrite.tester.method"), "optional", t);
-  const stageLabel = formatRuleFieldLabel(t("rulesPage.rewrite.tester.stage"), "optional", t);
+  const methodLabel = t("rulesPage.rewrite.tester.method");
+  const stageLabel = t("rulesPage.rewrite.tester.stage");
+  const verdictSeverity = testResult.blocked
+    ? "warning"
+    : testResult.ok
+      ? "success"
+      : testResult.disabled
+        ? "warning"
+        : "info";
 
   return (
     <RuleSection>
@@ -1137,18 +1452,34 @@ function RewriteRuleTester({
             alignItems: "center",
           }}
         >
-          <FactCheckRoundedIcon color={testResult.ok ? "success" : "disabled"} fontSize="small" />
-          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+          {testResult.blocked ? (
+            <WarningAmberRoundedIcon color="warning" fontSize="small" />
+          ) : testResult.ok ? (
+            <CheckCircleRoundedIcon color="success" fontSize="small" />
+          ) : testResult.disabled ? (
+            <DoNotDisturbOnRoundedIcon color="warning" fontSize="small" />
+          ) : (
+            <CancelRoundedIcon sx={{ color: "info.main" }} fontSize="small" />
+          )}
+          <Typography variant="body2" sx={{ fontWeight: 700, flex: 1 }}>
             {t("rulesPage.rewrite.tester.title")}
           </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={onOpenSessionPicker}
+            sx={{ flexShrink: 0 }}
+          >
+            {t("rulesPage.rewrite.tester.pickFromSessions")}
+          </Button>
         </Stack>
         <TextField
-          label={sampleUrlLabel}
+          label={t("rulesPage.rewrite.tester.sampleUrl")}
           onChange={(e) => onChange({ ...testInput, url: e.target.value })}
           size="small"
           value={testInput.url}
         />
-        <Stack direction="row" spacing={1}>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
           <FormControl size="small" fullWidth>
             <InputLabel>{methodLabel}</InputLabel>
             <Select
@@ -1172,12 +1503,13 @@ function RewriteRuleTester({
                 onChange({ ...testInput, stage: e.target.value as RuleMatch["stage"] })
               }
             >
+              <MenuItem value="either">{t("rulesPage.rewrite.tester.stageEither")}</MenuItem>
               <MenuItem value="request">{t("rulesPage.rewrite.tester.stageRequest")}</MenuItem>
               <MenuItem value="response">{t("rulesPage.rewrite.tester.stageResponse")}</MenuItem>
             </Select>
           </FormControl>
         </Stack>
-        <Alert severity={testResult.ok ? "success" : "info"} variant="outlined" sx={{ py: 0.25 }}>
+        <Alert severity={verdictSeverity} variant="outlined" sx={{ py: 0.25 }}>
           {testResult.reason}
         </Alert>
         <Typography
@@ -1186,14 +1518,137 @@ function RewriteRuleTester({
             color: "text.secondary",
           }}
         >
-          {testResult.ok
-            ? describeRewriteAction(draft, t)
-            : t("rulesPage.rewrite.tester.waiting", {
-                pattern: draft.match.urlPattern || "(url pattern)",
-              })}
+          {testResult.blocked
+            ? invalidCombination
+            : testResult.ok
+              ? describeRewriteAction(draft, t)
+              : t("rulesPage.rewrite.tester.waiting", {
+                  pattern: draft.match.urlPattern || "(url pattern)",
+                })}
         </Typography>
       </FieldGroup>
     </RuleSection>
+  );
+}
+
+/**
+ * Tester session picker: lists recent captured sessions from the shared
+ * sessions query layer and lets one fill the tester inputs. Rendered
+ * conditionally by the panel so the query only mounts while open.
+ */
+function SessionPickerDialog({
+  onClose,
+  onPick,
+  open,
+}: {
+  onClose: () => void;
+  onPick: (session: SessionSummary) => void;
+  open: boolean;
+}) {
+  const { t } = useI18n();
+  const { data: sessions = [], isError, isLoading } = useSessions();
+  const [query, setQuery] = useState("");
+  const recent = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const matched = q
+      ? sessions.filter((s) => `${s.method} ${s.host} ${s.path} ${s.url}`.toLowerCase().includes(q))
+      : sessions;
+    return matched.slice(0, 50);
+  }, [sessions, query]);
+
+  return (
+    <Dialog fullWidth maxWidth="sm" open={open} onClose={onClose}>
+      <DialogTitle>{t("rulesPage.rewrite.tester.sessionPickerTitle")}</DialogTitle>
+      <DialogContent dividers sx={{ minHeight: 200, p: 0 }}>
+        {isLoading ? (
+          <Stack spacing={1} sx={{ alignItems: "center", py: 6 }}>
+            <CircularProgress
+              size={28}
+              aria-label={t("rulesPage.rewrite.tester.sessionPickerLoading")}
+            />
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {t("rulesPage.rewrite.tester.sessionPickerLoading")}
+            </Typography>
+          </Stack>
+        ) : isError ? (
+          <Alert severity="error" sx={{ m: 2 }}>
+            {t("common.errors.queryFailed")}
+          </Alert>
+        ) : sessions.length === 0 ? (
+          <Typography
+            variant="body2"
+            sx={{ color: "text.secondary", px: 3, py: 6, textAlign: "center" }}
+          >
+            {t("rulesPage.rewrite.tester.sessionPickerEmpty")}
+          </Typography>
+        ) : (
+          <>
+            <Box sx={{ borderBottom: 1, borderColor: "divider", p: 1.5 }}>
+              <OutlinedInput
+                autoFocus
+                fullWidth
+                size="small"
+                placeholder={t("rulesPage.rewrite.tester.sessionPickerSearchPlaceholder")}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                startAdornment={
+                  <InputAdornment position="start">
+                    <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
+                  </InputAdornment>
+                }
+                sx={{ bgcolor: "background.paper", fontSize: 13, height: 36 }}
+              />
+            </Box>
+            {recent.length === 0 ? (
+              <Typography
+                variant="body2"
+                sx={{ color: "text.secondary", px: 3, py: 6, textAlign: "center" }}
+              >
+                {t("rulesPage.rewrite.tester.sessionPickerNoMatch")}
+              </Typography>
+            ) : (
+              <List dense disablePadding>
+                {recent.map((session) => (
+                  <ListItemButton
+                    key={session.id}
+                    onClick={() => onPick(session)}
+                    sx={{
+                      gap: 1,
+                      px: 2,
+                      py: 0.75,
+                      "&:not(:last-child)": { borderBottom: 1, borderColor: "divider" },
+                    }}
+                  >
+                    <Chip
+                      size="small"
+                      label={session.method.toUpperCase()}
+                      variant="outlined"
+                      sx={{
+                        fontFamily: fontFamilies.mono,
+                        fontSize: 10,
+                        height: 20,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <ListItemText
+                      primary={`${session.host}${session.path === "/" ? "" : session.path}`}
+                      secondary={session.url}
+                      slotProps={{
+                        primary: { noWrap: true, sx: { fontSize: 13, fontWeight: 600 } },
+                        secondary: {
+                          noWrap: true,
+                          sx: { fontFamily: fontFamilies.mono, fontSize: 11 },
+                        },
+                      }}
+                    />
+                  </ListItemButton>
+                ))}
+              </List>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1261,6 +1716,7 @@ function RewriteActionFields(props: {
             <FormControl size="small" sx={{ minWidth: 130 }}>
               <Select
                 value={action.rewriteType}
+                SelectDisplayProps={{ "aria-label": t("rulesPage.rewrite.actionType") }}
                 onChange={(e) =>
                   updateAction(index, createEmptyRewriteAction(e.target.value as RewriteRuleType))
                 }
@@ -1277,6 +1733,7 @@ function RewriteActionFields(props: {
               <span>
                 <IconButton
                   size="small"
+                  aria-label={t("common.actions.moveUp")}
                   disabled={index === 0}
                   onClick={() => moveAction(index, -1)}
                 >
@@ -1288,6 +1745,7 @@ function RewriteActionFields(props: {
               <span>
                 <IconButton
                   size="small"
+                  aria-label={t("common.actions.moveDown")}
                   disabled={index === rule.actions.length - 1}
                   onClick={() => moveAction(index, 1)}
                 >
@@ -1300,6 +1758,7 @@ function RewriteActionFields(props: {
                 <IconButton
                   size="small"
                   color="error"
+                  aria-label={t("common.actions.remove")}
                   disabled={rule.actions.length === 1}
                   onClick={() => removeAction(index)}
                 >

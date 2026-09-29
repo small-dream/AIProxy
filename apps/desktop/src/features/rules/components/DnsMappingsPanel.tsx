@@ -1,17 +1,30 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
+import MoreVertRoundedIcon from "@mui/icons-material/MoreVert";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
-import { Alert, Button, Stack, Switch, TextField, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  IconButton,
+  Menu,
+  MenuItem,
+  Stack,
+  TextField,
+  Tooltip,
+  Typography,
+} from "@mui/material";
 import { coerceAppError, type DnsMappingRule, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
 import { useQueryClient } from "@tanstack/react-query";
-import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { isMacPlatform } from "@/components/layout/hooks/helpers";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { deleteRule } from "@/services/commands";
 import { useNotificationStore } from "@/services/notification.store";
 import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
-import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
   createEmptyDnsMappingRule,
   getDnsMappingValidationErrors,
@@ -21,14 +34,25 @@ import {
   ruleFieldProps,
 } from "@/features/rules/rules.helpers";
 import {
+  AdvancedPriorityField,
+  EditorActionBar,
   FieldGroup,
   formatRuleFieldLabel,
+  isEditableTarget,
   ManagedRuleList,
   ManagedRulesWorkbench,
   RuleBatchBar,
+  RuleEditorIdentity,
   RuleSection,
+  UnsavedChangesIndicator,
 } from "@/features/rules/components/RulesSharedUi";
-import { computeReorderedPriorities } from "@/features/rules/rules-priority.helpers";
+import {
+  computeReorderedPriorities,
+  applyOrderedIdsWithinList,
+  moveRuleInOrder,
+  nextAppendedPriority,
+  resolveNewRulePriority,
+} from "@/features/rules/rules-priority.helpers";
 import {
   DNS_MAPPINGS_QUERY_KEY,
   useBulkUpdateRules,
@@ -41,6 +65,8 @@ import { useI18n } from "@/i18n";
 export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
   function DnsMappingsPanel(_props, ref) {
     const { t } = useI18n();
+    // Platform-aware glyph for the Save tooltip (⌘S on macOS, Ctrl+S elsewhere).
+    const saveShortcutLabel = isMacPlatform() ? "⌘S" : "Ctrl+S";
     const queryClient = useQueryClient();
     const { data: rules = [], isError: isRulesError } = useDnsMappings(DEFAULT_WORKSPACE_ID);
     const saveMutation = useSaveDnsMapping();
@@ -50,8 +76,15 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
     const [selectedRuleId, setSelectedRuleId] = useState<string>();
     const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false);
+    const [actionsMenuAnchor, setActionsMenuAnchor] = useState<HTMLElement | null>(null);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
     const [draft, setDraft] = useState<DnsMappingRule>(createEmptyDnsMappingRule());
     const [validationAttempted, setValidationAttempted] = useState(false);
+    // Priority handed to the current draft while it is still unsaved, so the
+    // save path can re-derive "append at the end" against the list as it looks
+    // THEN (see resolveNewRulePriority).
+    const autoPriorityRef = useRef<number | null>(null);
 
     const filteredRules = useMemo(() => {
       const q = searchValue.trim().toLowerCase();
@@ -94,8 +127,26 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
     async function handleCreateRule() {
       if (!(await guard.confirmLeave())) return;
       const d = createEmptyDnsMappingRule();
+      // New rules append at the END of the list; that priority is resolved at
+      // save time so the untouched draft still matches its empty-rule baseline.
+      autoPriorityRef.current = d.priority;
       setSelectedRuleId(d.id);
       setDraft(d);
+      setValidationAttempted(false);
+    }
+
+    async function handleDuplicateRule() {
+      if (!(await guard.confirmLeave())) return;
+      const priority = nextAppendedPriority(rules.map((rule) => rule.priority));
+      const copy: DnsMappingRule = {
+        ...draft,
+        id: crypto.randomUUID(),
+        name: `${draft.name.trim() || t("rulesPage.untitledRule")}${t("rulesPage.copySuffix")}`,
+        priority,
+      };
+      autoPriorityRef.current = priority;
+      setSelectedRuleId(copy.id);
+      setDraft(copy);
       setValidationAttempted(false);
     }
 
@@ -103,13 +154,19 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
       if (isRulesError) return;
       setValidationAttempted(true);
       if (hasRuleFieldErrors(errors)) return;
-      saveMutation.mutate(draft, {
-        onSuccess: (saved) => {
-          setSelectedRuleId(saved.id);
-          setDraft(saved);
-          setValidationAttempted(false);
+      const priority = resolveNewRulePriority(draft, rules, autoPriorityRef.current);
+      saveMutation.mutate(
+        { ...draft, priority },
+        {
+          onSuccess: (saved) => {
+            autoPriorityRef.current = null;
+            setSelectedRuleId(saved.id);
+            setDraft(saved);
+            setValidationAttempted(false);
+            useNotificationStore.getState().push(t("rulesPage.savedSuccess"), "success");
+          },
         },
-      });
+      );
     }
 
     function handleDelete() {
@@ -169,9 +226,19 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
       );
     }
 
+    // Batch delete is as destructive as single delete, so it goes through the
+    // same confirmation step (previously it deleted immediately).
     function handleBatchDelete() {
+      if (selectedRuleIds.size === 0) return;
+      setBatchDeleteConfirmOpen(true);
+    }
+
+    function confirmBatchDelete() {
       const ids = [...selectedRuleIds];
-      if (ids.length === 0) return;
+      if (ids.length === 0) {
+        setBatchDeleteConfirmOpen(false);
+        return;
+      }
       void Promise.allSettled(ids.map((ruleId) => deleteRule({ ruleId, ruleType: "dns" }))).then(
         (results) => {
           const failed = results.filter((result) => result.status === "rejected").length;
@@ -184,17 +251,22 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
               : t("rulesPage.batch.resultSuccess", { count: ids.length }),
           );
           clearSelection();
+          setBatchDeleteConfirmOpen(false);
         },
       );
     }
 
     function handleReorder(orderedIds: string[]) {
+      // The list is reorderable while a search filter hides rules, so map the
+      // visible order back onto the full list before renumbering: hidden rules
+      // keep their slots and the priorities stay a complete, collision-free set.
+      const fullOrder = applyOrderedIdsWithinList(rules, orderedIds).map((rule) => rule.id);
       const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
-      const updates = computeReorderedPriorities(orderedIds, currentPriorities);
+      const updates = computeReorderedPriorities(fullOrder, currentPriorities);
       if (updates.length === 0) return;
 
       const previous = rules;
-      const reordered = orderedIds
+      const reordered = fullOrder
         .map((id) => rules.find((rule) => rule.id === id))
         .filter((rule): rule is DnsMappingRule => rule !== undefined);
       queryClient.setQueryData([...DNS_MAPPINGS_QUERY_KEY, DEFAULT_WORKSPACE_ID], reordered);
@@ -208,6 +280,50 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
         },
       );
     }
+
+    // Page-scoped keyboard shortcuts (panel unmounts detach them): Cmd/Ctrl+S
+    // saves (safe even inside text fields), Alt+ArrowUp/ArrowDown reorders the
+    // selected rule. Everything except Cmd/Ctrl+S is ignored while focus is in
+    // an editable control.
+    const shortcutStateRef = useRef({ isDirty, selectedRuleId, filteredRules });
+    useEffect(() => {
+      shortcutStateRef.current = { isDirty, selectedRuleId, filteredRules };
+    }, [isDirty, selectedRuleId, filteredRules]);
+    const handleSaveRef = useRef(handleSave);
+    useEffect(() => {
+      handleSaveRef.current = handleSave;
+    });
+    const reorderRef = useRef(handleReorder);
+    useEffect(() => {
+      reorderRef.current = handleReorder;
+    });
+    useEffect(() => {
+      function handleKeyDown(event: KeyboardEvent) {
+        const isMod = event.metaKey || event.ctrlKey;
+        if (isMod && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          if (shortcutStateRef.current.isDirty) handleSaveRef.current();
+          return;
+        }
+        // List-row Alt+Arrow reorder marks the event handled; don't double-move.
+        if (event.defaultPrevented) return;
+        if (isEditableTarget(event.target)) return;
+        if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+          const { selectedRuleId: selected, filteredRules: list } = shortcutStateRef.current;
+          if (!selected) return;
+          const next = moveRuleInOrder(
+            list.map((rule) => rule.id),
+            selected,
+            event.key === "ArrowUp" ? -1 : 1,
+          );
+          if (!next) return;
+          event.preventDefault();
+          reorderRef.current(next);
+        }
+      }
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }, []);
 
     return (
       <>
@@ -230,12 +346,13 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
             ) : undefined
           }
           searchPlaceholder={t("rulesPage.dns.searchPlaceholder")}
+          listControlsHidden={rules.length === 0}
           searchValue={searchValue}
           onSearchChange={setSearchValue}
           createActions={
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               disabled={isRulesError}
               startIcon={<AddRoundedIcon />}
               onClick={handleCreateRule}
@@ -245,6 +362,17 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
           }
           list={
             <ManagedRuleList
+              emptyActions={
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={isRulesError}
+                  startIcon={<AddRoundedIcon />}
+                  onClick={handleCreateRule}
+                >
+                  {t("rulesPage.dns.createRule")}
+                </Button>
+              }
               emptyDescription={t("rulesPage.dns.emptyDescription")}
               onReorder={handleReorder}
               selectedIds={selectedRuleIds}
@@ -254,7 +382,6 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
                 enabled: rule.enabled,
                 name: rule.name || t("rulesPage.untitledRule"),
                 subtitle: `${rule.hostPattern || "*"} → ${rule.targetIp || t("rulesPage.notConfigured")}`,
-                chipLabel: `${rule.priority}`,
                 onClick: () => selectRule(rule),
                 onSelectToggle: () => toggleSelect(rule.id),
                 // Persist the SAVED rule (not the in-flight draft) so the toggle
@@ -263,79 +390,60 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
               }))}
             />
           }
+          listFooter={
+            rules.length > 0 ? (
+              <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.4 }}>
+                {t("rulesPage.listReorderHint")}
+              </Typography>
+            ) : undefined
+          }
+          editorFooter={
+            <EditorActionBar>
+              {isDirty && (
+                <UnsavedChangesIndicator label={t("rulesPage.unsavedChangesIndicator")} />
+              )}
+              <Box sx={{ flex: 1 }} />
+              <Tooltip title={saveShortcutLabel}>
+                <span>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<SaveRoundedIcon />}
+                    onClick={handleSave}
+                    disabled={saveMutation.isPending || isRulesError}
+                  >
+                    {t("rulesPage.editor.saveRule")}
+                  </Button>
+                </span>
+              </Tooltip>
+              <IconButton
+                size="small"
+                aria-label={t("rulesPage.ruleActions")}
+                aria-haspopup="menu"
+                disabled={isRulesError}
+                onClick={(event) => setActionsMenuAnchor(event.currentTarget)}
+              >
+                <MoreVertRoundedIcon fontSize="small" />
+              </IconButton>
+            </EditorActionBar>
+          }
           editor={
             <Stack spacing={2}>
-              {/* Top bar */}
-              <Stack
-                direction={{ xs: "column", md: "row" }}
-                spacing={1.25}
-                sx={{
-                  alignItems: { xs: "stretch", md: "center" },
-                  borderBottom: 1,
-                  borderColor: "divider",
-                  pb: 1.5,
-                }}
-              >
-                <TextField
-                  size="small"
-                  label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
-                  value={draft.name}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                  {...ruleFieldProps(errors, validationAttempted, "name")}
-                  sx={{ flex: 1 }}
-                />
-                <Stack
-                  direction="row"
-                  spacing={0.75}
-                  sx={{
-                    alignItems: "center",
-                    border: 1,
-                    borderColor: "divider",
-                    borderRadius: "8px",
-                    minHeight: 40,
-                    px: 1,
-                  }}
-                >
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: "text.secondary",
-                    }}
-                  >
-                    {t("rulesPage.editor.enabled")}
-                  </Typography>
-                  <Switch
-                    size="small"
-                    checked={draft.enabled}
-                    onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+              <RuleEditorIdentity
+                advanced={
+                  <AdvancedPriorityField
+                    value={draft.priority}
+                    onCommit={(priority) => setDraft({ ...draft, priority })}
                   />
-                </Stack>
-                <PriorityField
-                  value={draft.priority}
-                  label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
-                  onCommit={(priority) => setDraft({ ...draft, priority })}
-                  sx={{ width: { xs: "100%", md: 136 } }}
-                />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteRoundedIcon />}
-                  onClick={handleDelete}
-                  disabled={deleteMutation.isPending || isRulesError}
-                >
-                  {t("common.actions.remove")}
-                </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  startIcon={<SaveRoundedIcon />}
-                  onClick={handleSave}
-                  disabled={saveMutation.isPending || isRulesError}
-                >
-                  {t("rulesPage.editor.saveRule")}
-                </Button>
-              </Stack>
+                }
+                advancedOpen={advancedOpen}
+                enabled={draft.enabled}
+                name={draft.name}
+                nameFieldProps={ruleFieldProps(errors, validationAttempted, "name")}
+                onNameChange={(name) => setDraft({ ...draft, name })}
+                onToggleAdvanced={() => setAdvancedOpen((open) => !open)}
+                onToggleEnabled={(enabled) => setDraft({ ...draft, enabled })}
+              />
 
               {saveError && (
                 <Alert severity="error" variant="outlined">
@@ -395,6 +503,41 @@ export const DnsMappingsPanel = forwardRef<RulesPanelHandle>(
           onCancel={() => setDeleteConfirmOpen(false)}
           isConfirming={deleteMutation.isPending}
         />
+
+        <ConfirmDialog
+          open={batchDeleteConfirmOpen}
+          title={t("rulesPage.batch.deleteConfirmTitle")}
+          message={t("rulesPage.batch.deleteConfirmMessage", { count: selectedRuleIds.size })}
+          onConfirm={confirmBatchDelete}
+          onCancel={() => setBatchDeleteConfirmOpen(false)}
+        />
+
+        <Menu
+          anchorEl={actionsMenuAnchor}
+          open={actionsMenuAnchor !== null}
+          onClose={() => setActionsMenuAnchor(null)}
+        >
+          <MenuItem
+            onClick={() => {
+              setActionsMenuAnchor(null);
+              void handleDuplicateRule();
+            }}
+          >
+            <ContentCopyRoundedIcon fontSize="small" sx={{ mr: 1 }} />
+            {t("rulesPage.duplicateRule")}
+          </MenuItem>
+          <MenuItem
+            disabled={deleteMutation.isPending}
+            onClick={() => {
+              setActionsMenuAnchor(null);
+              handleDelete();
+            }}
+            sx={{ color: "error.main" }}
+          >
+            <DeleteRoundedIcon fontSize="small" sx={{ mr: 1 }} />
+            {t("common.actions.remove")}
+          </MenuItem>
+        </Menu>
       </>
     );
   },

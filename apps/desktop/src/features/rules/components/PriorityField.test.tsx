@@ -83,9 +83,7 @@ describe("PriorityField", () => {
       </AppProviders>,
     );
 
-    expect(
-      screen.getByText("Higher number = higher precedence. Drag rows in the list to reorder."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Higher number = higher precedence.")).toBeInTheDocument();
 
     rerender(
       <AppProviders>
@@ -93,8 +91,6 @@ describe("PriorityField", () => {
       </AppProviders>,
     );
 
-    expect(
-      screen.queryByText("Higher number = higher precedence. Drag rows in the list to reorder."),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Higher number = higher precedence.")).not.toBeInTheDocument();
   });
 });

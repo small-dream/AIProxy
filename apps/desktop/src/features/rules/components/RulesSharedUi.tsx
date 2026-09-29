@@ -1,5 +1,6 @@
-import { type ReactNode } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import DragIndicatorRoundedIcon from "@mui/icons-material/DragIndicatorRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
   DndContext,
@@ -20,6 +21,7 @@ import {
   Button,
   Checkbox,
   Chip,
+  Collapse,
   InputAdornment,
   List,
   ListItemButton,
@@ -28,25 +30,36 @@ import {
   Paper,
   Stack,
   Switch,
+  TextField,
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 
 import { useI18n } from "@/i18n";
 import type { TranslationFn } from "@/features/rules/rules.helpers";
+import { PriorityField } from "@/features/rules/components/PriorityField";
+import { moveRuleInOrder } from "@/features/rules/rules-priority.helpers";
 import { fontFamilies } from "@/themes/fonts";
+
+/** Page-level shortcuts must not fire while the user is typing in a field. */
+export function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return target.closest('[role="textbox"], [role="combobox"]') !== null;
+}
 
 export function formatRuleFieldLabel(
   label: string,
   requirement: "optional" | "required",
   t: TranslationFn,
 ) {
-  const hint =
-    requirement === "required"
-      ? t("rulesPage.fieldHints.required")
-      : t("rulesPage.fieldHints.optional");
+  // Label discipline: required is the default state of a form field and carries
+  // no suffix; only genuinely optional fields are marked.
+  if (requirement === "required") return label;
 
-  return `${label} (${hint})`;
+  return `${label} (${t("rulesPage.fieldHints.optional")})`;
 }
 
 /* ── FieldGroup ───────────────────────────────────────────────────── */
@@ -57,10 +70,10 @@ export function FieldGroup({ title, children }: { title: string; children: React
       <Typography
         variant="subtitle2"
         sx={{
-          color: "text.secondary",
-          fontSize: 11,
+          color: "text.primary",
+          fontSize: 13,
           fontWeight: 700,
-          letterSpacing: 0,
+          letterSpacing: 0.4,
           textTransform: "uppercase",
         }}
       >
@@ -130,6 +143,220 @@ export function RuleSection({ children }: { children: ReactNode }) {
   );
 }
 
+/* ── Editor status / action bars ──────────────────────────────────── */
+
+/**
+ * Editor identity row, shared by every managed-rule workbench (breakpoint /
+ * rewrite / map / dns / script): rule name + Enabled switch on a tinted card,
+ * with the raw priority number tucked into a collapsed "Advanced" disclosure
+ * (list order IS the priority; the number is an escape hatch). Save/Remove
+ * live in the EditorActionBar footer, not here.
+ *
+ * The name field and the Advanced disclosure are both optional: breakpoint
+ * rules have no name and no numeric priority in the data model, so that panel
+ * renders only the Enabled switch (plus an optional scope hint).
+ */
+export function RuleEditorIdentity(props: {
+  /** Content of the collapsed Advanced disclosure (typically a PriorityField).
+   *  When omitted, the disclosure is not rendered at all. */
+  advanced?: ReactNode;
+  advancedOpen?: boolean;
+  enabled: boolean;
+  /** Optional scope hint rendered below the identity row (e.g. "applies to
+   *  all traffic" for a catch-all pattern). */
+  hint?: string | undefined;
+  /** Rule name value; the name field renders only when `onNameChange` is
+   *  provided (breakpoint rules have no name field). */
+  name?: string;
+  /** Field-level validation props from ruleFieldProps (error/helperText). */
+  nameFieldProps?: { error: boolean; helperText?: string } | undefined;
+  onNameChange?: ((name: string) => void) | undefined;
+  onToggleAdvanced?: (() => void) | undefined;
+  onToggleEnabled: (enabled: boolean) => void;
+}) {
+  const { t } = useI18n();
+  const {
+    advanced,
+    advancedOpen = false,
+    enabled,
+    hint,
+    name,
+    nameFieldProps,
+    onNameChange,
+    onToggleAdvanced,
+    onToggleEnabled,
+  } = props;
+
+  return (
+    <Paper
+      elevation={0}
+      sx={(theme) => ({
+        bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.045),
+        border: 1,
+        borderColor: alpha(theme.palette.primary.main, 0.18),
+        borderRadius: "8px",
+        p: 1.5,
+        "& .MuiInputLabel-root.MuiInputLabel-shrink": {
+          bgcolor:
+            theme.palette.mode === "dark"
+              ? theme.palette.background.paper
+              : theme.palette.background.default,
+          px: 0.5,
+        },
+      })}
+    >
+      <Stack spacing={1}>
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={1.25}
+          sx={{
+            alignItems: { xs: "stretch", md: "center" },
+          }}
+        >
+          {onNameChange && (
+            <TextField
+              size="small"
+              label={t("rulesPage.editor.ruleName")}
+              value={name ?? ""}
+              onChange={(event) => onNameChange(event.target.value)}
+              {...nameFieldProps}
+              sx={{ flex: 1 }}
+            />
+          )}
+          <Stack
+            direction="row"
+            spacing={0.75}
+            sx={{
+              alignItems: "center",
+              border: 1,
+              borderColor: "divider",
+              borderRadius: "8px",
+              minHeight: 40,
+              px: 1,
+            }}
+          >
+            <Typography
+              variant="caption"
+              id="rule-editor-enabled-label"
+              sx={{
+                color: "text.secondary",
+              }}
+            >
+              {t("rulesPage.editor.enabled")}
+            </Typography>
+            <Switch
+              size="small"
+              checked={enabled}
+              onChange={(event) => onToggleEnabled(event.target.checked)}
+              slotProps={{ input: { "aria-labelledby": "rule-editor-enabled-label" } }}
+            />
+          </Stack>
+        </Stack>
+        {hint && (
+          <Typography
+            variant="caption"
+            sx={{
+              color: "warning.dark",
+              fontWeight: 600,
+            }}
+          >
+            {hint}
+          </Typography>
+        )}
+        {advanced !== undefined && (
+          <Box>
+            <Button
+              size="small"
+              aria-expanded={advancedOpen}
+              endIcon={
+                <ExpandMoreRoundedIcon
+                  fontSize="small"
+                  sx={{
+                    transform: advancedOpen ? "rotate(180deg)" : "none",
+                    transition: "transform 120ms ease",
+                  }}
+                />
+              }
+              onClick={onToggleAdvanced}
+              sx={{ color: "text.secondary", px: 0.5 }}
+            >
+              {t("rulesPage.editor.advanced")}
+            </Button>
+            <Collapse in={advancedOpen}>
+              <Box sx={{ pt: 1 }}>{advanced}</Box>
+            </Collapse>
+          </Box>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
+/** Shared priority input for the Advanced disclosure of RuleEditorIdentity. */
+export function AdvancedPriorityField({
+  onCommit,
+  value,
+}: {
+  onCommit: (priority: number) => void;
+  value: number;
+}) {
+  const { t } = useI18n();
+  return (
+    <PriorityField
+      value={value}
+      label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
+      onCommit={onCommit}
+      sx={{ width: { xs: "100%", md: 200 } }}
+    />
+  );
+}
+
+/** Dirty-state indicator: colored dot + caption, announced as a status. */
+export function UnsavedChangesIndicator({ label }: { label: string }) {
+  return (
+    <Stack direction="row" spacing={0.75} role="status" sx={{ alignItems: "center" }}>
+      <Box
+        aria-hidden
+        sx={{
+          bgcolor: "warning.main",
+          borderRadius: "50%",
+          flexShrink: 0,
+          height: 8,
+          width: 8,
+        }}
+      />
+      <Typography variant="caption" sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>
+        {label}
+      </Typography>
+    </Stack>
+  );
+}
+
+/**
+ * Fixed (non-scrolling) action bar for long editor forms: keeps the primary
+ * action (Save) always visible. Passed to ManagedRulesWorkbench via the
+ * editorFooter slot, which renders it as a sibling below the editor's scroll
+ * area — no sticky positioning, so it can never overlap scrolling content.
+ */
+export function EditorActionBar({ children }: { children: ReactNode }) {
+  return (
+    <Box
+      sx={{
+        alignItems: "center",
+        bgcolor: "background.paper",
+        borderTop: 1,
+        borderColor: "divider",
+        display: "flex",
+        gap: 1,
+        px: 2,
+        py: 1,
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
 /* ── ManagedRulesWorkbench ────────────────────────────────────────── */
 
 export function ManagedRulesWorkbench(props: {
@@ -137,13 +364,31 @@ export function ManagedRulesWorkbench(props: {
   batchBar?: ReactNode;
   createActions: ReactNode;
   editor: ReactNode;
+  /** Optional fixed action bar pinned below the editor scroll area (e.g.
+   *  EditorActionBar with the primary Save action). Never overlaps content. */
+  editorFooter?: ReactNode;
   list: ReactNode;
+  /** When true (e.g. the rule list is empty), hides the search/create/batch
+   *  header so the list's own empty state is the single call to action. */
+  listControlsHidden?: boolean;
+  /** Optional hint pinned below the list scroll area (e.g. reorder help). */
+  listFooter?: ReactNode;
   onSearchChange: (value: string) => void;
   searchPlaceholder: string;
   searchValue: string;
 }) {
-  const { batchBar, createActions, editor, list, onSearchChange, searchPlaceholder, searchValue } =
-    props;
+  const {
+    batchBar,
+    createActions,
+    editor,
+    editorFooter,
+    list,
+    listControlsHidden = false,
+    listFooter,
+    onSearchChange,
+    searchPlaceholder,
+    searchValue,
+  } = props;
 
   return (
     <Box
@@ -178,37 +423,42 @@ export function ManagedRulesWorkbench(props: {
           overflow: "hidden",
         }}
       >
-        <Stack spacing={1.25} sx={{ borderBottom: 1, borderColor: "divider", p: 1.5 }}>
-          <OutlinedInput
-            size="small"
-            placeholder={searchPlaceholder}
-            value={searchValue}
-            onChange={(e) => onSearchChange(e.target.value)}
-            startAdornment={
-              <InputAdornment position="start">
-                <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
-              </InputAdornment>
-            }
-            sx={{
-              bgcolor: "background.paper",
-              fontSize: 13,
-              height: 36,
-            }}
-          />
-          <Stack
-            direction="row"
-            spacing={0.75}
-            useFlexGap
-            sx={{
-              flexWrap: "wrap",
-            }}
-          >
-            {createActions}
+        {listControlsHidden ? null : (
+          <Stack spacing={1.25} sx={{ borderBottom: 1, borderColor: "divider", p: 1.5 }}>
+            <OutlinedInput
+              size="small"
+              placeholder={searchPlaceholder}
+              value={searchValue}
+              onChange={(e) => onSearchChange(e.target.value)}
+              startAdornment={
+                <InputAdornment position="start">
+                  <SearchRoundedIcon sx={{ color: "text.secondary", fontSize: 18 }} />
+                </InputAdornment>
+              }
+              sx={{
+                bgcolor: "background.paper",
+                fontSize: 13,
+                height: 36,
+              }}
+            />
+            <Stack
+              direction="row"
+              spacing={0.75}
+              useFlexGap
+              sx={{
+                flexWrap: "wrap",
+              }}
+            >
+              {createActions}
+            </Stack>
+            {batchBar}
           </Stack>
-          {batchBar}
-        </Stack>
+        )}
 
         <Box sx={{ flex: 1, minHeight: 220, overflow: "auto", p: 1 }}>{list}</Box>
+        {listFooter && (
+          <Box sx={{ borderTop: 1, borderColor: "divider", px: 1.5, py: 1 }}>{listFooter}</Box>
+        )}
       </Paper>
       <Box
         aria-hidden
@@ -234,13 +484,19 @@ export function ManagedRulesWorkbench(props: {
           border: 0,
           borderColor: "divider",
           borderRadius: 0,
+          display: "flex",
+          flexDirection: "column",
           height: "100%",
+          // Grid items default to min-height:auto, which would let a long form
+          // grow the pane past the grid and hand scrolling to an outer
+          // container.
+          minHeight: 0,
           minWidth: 0,
-          overflow: "auto",
-          p: 2,
+          overflow: "hidden",
         }}
       >
-        {editor}
+        <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", p: 2 }}>{editor}</Box>
+        {editorFooter}
       </Paper>
     </Box>
   );
@@ -250,7 +506,9 @@ export function ManagedRulesWorkbench(props: {
 
 export type ManagedRuleListItem = {
   active: boolean;
-  chipLabel: string;
+  /** Optional trailing chip (e.g. a priority number). Panels where list order
+   *  IS the priority omit it so the number does not compete with drag order. */
+  chipLabel?: string;
   enabled: boolean;
   id: string;
   name: string;
@@ -264,6 +522,8 @@ export type ManagedRuleListItem = {
 };
 
 export function ManagedRuleList(props: {
+  /** Optional actions rendered inside the empty state (e.g. "New rule"). */
+  emptyActions?: ReactNode;
   emptyDescription: string;
   items: ManagedRuleListItem[];
   /** When provided, the list becomes sortable and reports the new order. */
@@ -271,12 +531,13 @@ export function ManagedRuleList(props: {
   /** Ids currently selected via the row checkboxes. */
   selectedIds?: Set<string>;
 }) {
-  const { emptyDescription, items, onReorder, selectedIds } = props;
+  const { emptyActions, emptyDescription, items, onReorder, selectedIds } = props;
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   if (items.length === 0) {
     return (
-      <Box
+      <Stack
+        spacing={1.5}
         sx={{
           alignItems: "center",
           border: 1,
@@ -284,17 +545,22 @@ export function ManagedRuleList(props: {
           borderRadius: "8px",
           color: "text.secondary",
           display: "flex",
+          justifyContent: "center",
           minHeight: 180,
           px: 2,
+          py: 2.5,
           textAlign: "center",
         }}
       >
         <Typography variant="body2" sx={{ fontSize: 13 }}>
           {emptyDescription}
         </Typography>
-      </Box>
+        {emptyActions}
+      </Stack>
     );
   }
+
+  const orderedIds = items.map((item) => item.id);
 
   const content = (
     <List disablePadding dense sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
@@ -302,6 +568,14 @@ export function ManagedRuleList(props: {
         <ManagedRuleListRow
           key={item.id}
           item={item}
+          onKeyboardMove={
+            onReorder
+              ? (direction) => {
+                  const next = moveRuleInOrder(orderedIds, item.id, direction);
+                  if (next) onReorder(next);
+                }
+              : undefined
+          }
           onReorder={onReorder}
           selected={selectedIds?.has(item.id) ?? false}
         />
@@ -341,10 +615,13 @@ export function ManagedRuleList(props: {
 
 function ManagedRuleListRow({
   item,
+  onKeyboardMove,
   onReorder,
   selected,
 }: {
   item: ManagedRuleListItem;
+  /** Alt+ArrowUp/ArrowDown reorder, reported as a one-slot move of this row. */
+  onKeyboardMove?: ((direction: -1 | 1) => void) | undefined;
   onReorder?: ((orderedIds: string[]) => void) | undefined;
   selected: boolean;
 }) {
@@ -352,11 +629,32 @@ function ManagedRuleListRow({
   const sortable = useSortable({ id: item.id, disabled: !onReorder });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
 
+  // Keyboard access to the two pointer-only interactions on this row:
+  // ArrowUp/ArrowDown move focus between rows; Alt+ArrowUp/ArrowDown reorders.
+  function handleRowKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      if (!onKeyboardMove) return;
+      event.preventDefault();
+      onKeyboardMove(event.key === "ArrowUp" ? -1 : 1);
+      return;
+    }
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const rows = Array.from(
+        event.currentTarget.closest("ul")?.querySelectorAll<HTMLElement>("[data-rule-row]") ?? [],
+      );
+      const index = rows.indexOf(event.currentTarget);
+      rows[event.key === "ArrowDown" ? index + 1 : index - 1]?.focus();
+    }
+  }
+
   return (
     <ListItemButton
       ref={setNodeRef}
       selected={item.active}
       onClick={item.onClick}
+      onKeyDown={handleRowKeyDown}
+      data-rule-row
       style={{
         transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
         transition,
@@ -390,7 +688,9 @@ function ManagedRuleListRow({
             item.onSelectToggle?.();
           }}
           onClick={(event) => event.stopPropagation()}
-          slotProps={{ input: { "aria-label": `select ${item.name}` } }}
+          slotProps={{
+            input: { "aria-label": t("rulesPage.batch.selectRule", { name: item.name }) },
+          }}
           sx={{ ml: -0.5, mr: 0.25 }}
         />
       )}
@@ -442,7 +742,16 @@ function ManagedRuleListRow({
                     item.onToggleEnabled?.(event.target.checked);
                   }}
                   onClick={(event) => event.stopPropagation()}
-                  slotProps={{ input: { "aria-label": item.name } }}
+                  slotProps={{
+                    input: {
+                      "aria-label": t(
+                        item.enabled
+                          ? "rulesPage.listRow.disableRule"
+                          : "rulesPage.listRow.enableRule",
+                        { name: item.name },
+                      ),
+                    },
+                  }}
                 />
               ) : (
                 !item.enabled && (
@@ -454,16 +763,18 @@ function ManagedRuleListRow({
                   />
                 )
               )}
-              <Chip
-                size="small"
-                label={item.chipLabel}
-                variant={item.active ? "filled" : "outlined"}
-                sx={{
-                  fontFamily: fontFamilies.mono,
-                  fontSize: 11,
-                  height: 20,
-                }}
-              />
+              {item.chipLabel !== undefined && (
+                <Chip
+                  size="small"
+                  label={item.chipLabel}
+                  variant={item.active ? "filled" : "outlined"}
+                  sx={{
+                    fontFamily: fontFamilies.mono,
+                    fontSize: 11,
+                    height: 20,
+                  }}
+                />
+              )}
             </Stack>
           </Stack>
         }

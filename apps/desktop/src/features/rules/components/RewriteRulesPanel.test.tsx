@@ -1,19 +1,34 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { RewriteRule } from "@aiproxy/shared-types";
+import type { RewriteRule, SessionSummary } from "@aiproxy/shared-types";
 import { createRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RewriteRulesPanel, type RewriteRulesPanelHandle } from "./RewriteRulesPanel";
+import {
+  RewriteRulesPanel,
+  resolveRuleTestVerdict,
+  type RewriteRulesPanelHandle,
+} from "./RewriteRulesPanel";
+import { useI18n } from "@/i18n";
 
 const rulesState: { current: RewriteRule[] } = { current: [] };
+const sessionsState: { current: SessionSummary[] } = { current: [] };
 const saveMutateMock = vi.fn();
 const deleteMutateMock = vi.fn();
+const deleteRuleMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 
 vi.mock("@/features/rules/use-rule-center", () => ({
   useRewriteRules: () => ({ data: rulesState.current, isError: false }),
   useSaveRewriteRule: () => ({ mutate: saveMutateMock, isPending: false }),
   useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
   useBulkUpdateRules: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock("@/features/sessions/use-sessions", () => ({
+  useSessions: () => ({ data: sessionsState.current, isLoading: false, isError: false }),
+}));
+
+vi.mock("@/services/commands", () => ({
+  deleteRule: deleteRuleMock,
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -82,17 +97,67 @@ function makeRule(overrides: Partial<RewriteRule> = {}): RewriteRule {
 
 beforeEach(() => {
   rulesState.current = [];
+  sessionsState.current = [];
   saveMutateMock.mockClear();
   deleteMutateMock.mockClear();
+  deleteRuleMock.mockClear();
   navigateMock.mockClear();
   routerState.current = null;
+});
+
+// ── P0: tester verdict must fold in the invalid-combination check ────────
+describe("resolveRuleTestVerdict", () => {
+  const { t } = useI18n();
+  const input = { method: "GET", stage: "request" as const, url: "https://api.example.com/x" };
+
+  it("degrades a match to the blocked warning when the combination is invalid", () => {
+    const verdict = resolveRuleTestVerdict(makeRule(), input, "some problem", t);
+    expect(verdict).toEqual({
+      ok: false,
+      disabled: false,
+      blocked: true,
+      reason: "rulesPage.rewrite.tester.reasons.invalidCombination",
+    });
+  });
+
+  it("keeps the green verdict when the combination is valid", () => {
+    const verdict = resolveRuleTestVerdict(makeRule(), input, undefined, t);
+    expect(verdict).toEqual({
+      ok: true,
+      disabled: false,
+      blocked: false,
+      reason: "rulesPage.rewrite.tester.reasons.matched",
+    });
+  });
+
+  it("does not mask a plain non-match behind the blocked state", () => {
+    const verdict = resolveRuleTestVerdict(
+      makeRule({ match: { urlPattern: "nomatch", methods: [], stage: "request" } }),
+      input,
+      "some problem",
+      t,
+    );
+    expect(verdict.blocked).toBe(false);
+    expect(verdict.reason).toBe("rulesPage.rewrite.tester.reasons.urlMismatch");
+  });
+
+  it("keeps the disabled state distinct from blocked", () => {
+    const verdict = resolveRuleTestVerdict(makeRule({ enabled: false }), input, "some problem", t);
+    expect(verdict).toEqual({
+      ok: false,
+      disabled: true,
+      blocked: false,
+      reason: "rulesPage.rewrite.tester.reasons.disabled",
+    });
+  });
 });
 
 describe("RewriteRulesPanel — multi-action rules (R1)", () => {
   it("saves a rule with multiple ordered actions", async () => {
     render(<RewriteRulesPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "rulesPage.rewrite.types.header" }));
+    // "New rule" appears both in the create bar and inside the empty state.
+    fireEvent.click(screen.getAllByRole("button", { name: "rulesPage.rewrite.newRule" })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "rulesPage.rewrite.addAction" }));
 
     // Two action cards are now listed.
@@ -182,14 +247,166 @@ describe("RewriteRulesPanel — multi-action rules (R1)", () => {
 
     render(<RewriteRulesPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "rulesPage.editor.saveRule" }));
-
+    // P0: the warning is continuous — visible BEFORE any save attempt.
     await waitFor(() => {
       expect(
         screen.getByText("rulesPage.rewrite.invalidCombination.queryRedirectOnResponse"),
       ).toBeInTheDocument();
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.editor.saveRule" }));
     expect(saveMutateMock).not.toHaveBeenCalled();
+  });
+
+  // P0: a sample that matches an impossible rule must not show a green
+  // "matched" — the verdict degrades to a distinct warning state.
+  it("warns instead of matching when the sample matches an impossible rule", async () => {
+    rulesState.current = [
+      makeRule({
+        id: "rule-blocked",
+        name: "Request rule, response header",
+        match: { urlPattern: "*", methods: [], stage: "request" },
+        actions: [
+          {
+            rewriteType: "header",
+            payload: { target: "response", operation: "set", headerName: "x-a", value: "1" },
+          },
+        ],
+        rewriteType: "header",
+      }),
+    ];
+
+    render(<RewriteRulesPanel />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("rulesPage.rewrite.tester.reasons.invalidCombination"),
+      ).toBeInTheDocument();
+    });
+    // The specific problem is named (deep-link Alert + tester detail caption).
+    expect(
+      screen.getAllByText("rulesPage.rewrite.invalidCombination.headerTargetMismatchRequest")
+        .length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("rulesPage.rewrite.tester.reasons.matched")).not.toBeInTheDocument();
+  });
+});
+
+// ── Restructure brief: priority auto-assign, batch-delete confirmation,
+// overflow-menu duplicate, tester session picker ────────────────────────────
+describe("RewriteRulesPanel — restructure behaviors", () => {
+  function fillRequiredDraftFields() {
+    fireEvent.change(screen.getByLabelText(/rulesPage\.editor\.urlPattern/), {
+      target: { value: "example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/rulesPage\.rewrite\.headerName/), {
+      target: { value: "x-debug" },
+    });
+    fireEvent.change(screen.getByLabelText(/rulesPage\.rewrite\.headerValue/), {
+      target: { value: "true" },
+    });
+  }
+
+  it("appends a new rule at the end of the priority order", async () => {
+    rulesState.current = [
+      makeRule({ id: "rule-top", name: "Top", priority: 50 }),
+      makeRule({ id: "rule-bottom", name: "Bottom", priority: 30 }),
+    ];
+    render(<RewriteRulesPanel />);
+
+    // Wait for the initial selection, then create through the bar button.
+    await waitFor(() =>
+      expect((screen.getByLabelText(/rulesPage\.editor\.ruleName/) as HTMLInputElement).value).toBe(
+        "Top",
+      ),
+    );
+    fireEvent.click(
+      screen
+        .getAllByRole("button", { name: "rulesPage.rewrite.newRule" })
+        .find((button) => button.className.includes("contained"))!,
+    );
+    // handleCreateRule awaits the unsaved-changes guard, so the draft switch
+    // lands a microtask later; editing before it would touch the old draft.
+    await waitFor(() =>
+      expect((screen.getByLabelText(/rulesPage\.editor\.ruleName/) as HTMLInputElement).value).toBe(
+        "rulesPage.rewrite.newRuleDefaultName",
+      ),
+    );
+    fillRequiredDraftFields();
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.editor.saveRule" }));
+
+    await waitFor(() => expect(saveMutateMock).toHaveBeenCalledTimes(1));
+    const saved = saveMutateMock.mock.calls[0]?.[0] as RewriteRule;
+    expect(saved.priority).toBe(20);
+  });
+
+  it("asks for confirmation before batch-deleting selected rules", async () => {
+    rulesState.current = [
+      makeRule({ id: "rule-a", name: "Alpha", priority: 200 }),
+      makeRule({ id: "rule-b", name: "Beta", priority: 100 }),
+    ];
+    render(<RewriteRulesPanel />);
+
+    fireEvent.click(screen.getAllByLabelText("rulesPage.batch.selectRule")[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.batch.delete" }));
+
+    // No deletion happens before the confirmation is accepted.
+    expect(deleteRuleMock).not.toHaveBeenCalled();
+    expect(screen.getByText("rulesPage.batch.deleteConfirmTitle")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.delete" }));
+    await waitFor(() => expect(deleteRuleMock).toHaveBeenCalledTimes(1));
+    expect(deleteRuleMock).toHaveBeenCalledWith({ ruleId: "rule-a", ruleType: "rewrite" });
+  });
+
+  it("duplicates the current rule through the overflow menu", async () => {
+    rulesState.current = [makeRule({ id: "rule-a", name: "Alpha", priority: 200 })];
+    render(<RewriteRulesPanel />);
+
+    await waitFor(() =>
+      expect((screen.getByLabelText(/rulesPage\.editor\.ruleName/) as HTMLInputElement).value).toBe(
+        "Alpha",
+      ),
+    );
+    fireEvent.click(screen.getByLabelText("rulesPage.ruleActions"));
+    fireEvent.click(screen.getByRole("menuitem", { name: /rulesPage\.duplicateRule/ }));
+
+    await waitFor(() => {
+      const field = screen.getByLabelText(/rulesPage\.editor\.ruleName/) as HTMLInputElement;
+      expect(field.value).toBe("AlpharulesPage.copySuffix");
+    });
+  });
+
+  it("fills the tester inputs from a picked session", async () => {
+    sessionsState.current = [
+      {
+        id: "session-1",
+        method: "POST",
+        host: "api.example.com",
+        path: "/v1/login",
+        protocol: "http/1.1",
+        startedAt: "2026-09-29T00:00:00Z",
+        finishedAt: "2026-09-29T00:00:01Z",
+        durationMs: 1000,
+        sizeBytes: 128,
+        statusCode: 200,
+        url: "https://api.example.com/v1/login",
+      },
+    ];
+    rulesState.current = [makeRule({ id: "rule-a", name: "Alpha", priority: 200 })];
+    render(<RewriteRulesPanel />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "rulesPage.rewrite.tester.pickFromSessions" }),
+    );
+    fireEvent.click(screen.getByText("api.example.com/v1/login"));
+
+    await waitFor(() => {
+      const urlField = screen.getByLabelText(
+        /rulesPage\.rewrite\.tester\.sampleUrl/,
+      ) as HTMLInputElement;
+      expect(urlField.value).toBe("https://api.example.com/v1/login");
+    });
   });
 });
 

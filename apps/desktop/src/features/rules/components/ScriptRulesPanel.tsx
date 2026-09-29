@@ -1,15 +1,24 @@
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
+import CodeRoundedIcon from "@mui/icons-material/CodeRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import FileOpenRoundedIcon from "@mui/icons-material/FileOpenRounded";
+import MoreVertRoundedIcon from "@mui/icons-material/MoreVert";
 import SaveRoundedIcon from "@mui/icons-material/SaveRounded";
 import {
   Alert,
+  Box,
   Button,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Menu,
   MenuItem,
   Select,
   Stack,
-  Switch,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { coerceAppError, type RuleMatch, type ScriptRule } from "@aiproxy/shared-types";
@@ -17,14 +26,25 @@ import { useQueryClient } from "@tanstack/react-query";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 
 import {
+  AdvancedPriorityField,
+  EditorActionBar,
   FieldGroup,
   formatRuleFieldLabel,
+  isEditableTarget,
   ManagedRuleList,
   ManagedRulesWorkbench,
   RuleBatchBar,
+  RuleEditorIdentity,
   RuleSection,
+  UnsavedChangesIndicator,
 } from "@/features/rules/components/RulesSharedUi";
-import { computeReorderedPriorities } from "@/features/rules/rules-priority.helpers";
+import {
+  applyOrderedIdsWithinList,
+  computeReorderedPriorities,
+  moveRuleInOrder,
+  nextAppendedPriority,
+  resolveNewRulePriority,
+} from "@/features/rules/rules-priority.helpers";
 import {
   createEmptyScriptRule,
   formatRuleMatch,
@@ -37,8 +57,8 @@ import {
 } from "@/features/rules/rules.helpers";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { isMacPlatform } from "@/components/layout/hooks/helpers";
 import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
-import { PriorityField } from "@/features/rules/components/PriorityField";
 import {
   SCRIPT_RULES_QUERY_KEY,
   useBulkUpdateRules,
@@ -85,6 +105,8 @@ const EXTRACT_TEMPLATE = `export function onResponse(ctx) {
 export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
   function ScriptRulesPanel(_props, ref) {
     const { t } = useI18n();
+    // Platform-aware glyph for the Save tooltip (⌘S on macOS, Ctrl+S elsewhere).
+    const saveShortcutLabel = isMacPlatform() ? "⌘S" : "Ctrl+S";
     const queryClient = useQueryClient();
     const { data: rules = [], isError: isRulesError } = useScriptRules();
     const saveMutation = useSaveScriptRule();
@@ -94,8 +116,16 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
     const [selectedRuleId, setSelectedRuleId] = useState<string>();
     const [selectedRuleIds, setSelectedRuleIds] = useState<Set<string>>(new Set());
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false);
+    const [actionsMenuAnchor, setActionsMenuAnchor] = useState<HTMLElement | null>(null);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
+    const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
     const [draft, setDraft] = useState<ScriptRule>(createEmptyScriptRule());
     const [validationAttempted, setValidationAttempted] = useState(false);
+    // Priority handed to the current draft while it is still unsaved, so the
+    // save path can re-derive "append at the end" against the list as it looks
+    // THEN (see resolveNewRulePriority).
+    const autoPriorityRef = useRef<number | null>(null);
     // M22/M25: track the last id we synced a draft FROM, so a TanStack Query
     // refetch (new `rules[]`/`filteredRules[]` array identity) does NOT re-run
     // the draft-sync and clobber an in-flight edit or an in-flight import. The
@@ -185,9 +215,31 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
         next.entrypoints = { onRequest: false, onResponse: true };
         next.match.stage = "response";
       }
+      // New rules append at the END of the list; that priority is resolved at
+      // save time so the untouched draft still matches its empty-rule baseline.
+      autoPriorityRef.current = next.priority;
       lastSyncedRuleIdRef.current = next.id;
       setSelectedRuleId(next.id);
       setDraft(next);
+      setTemplateDialogOpen(false);
+      setValidationAttempted(false);
+    }
+
+    async function handleDuplicateRule() {
+      if (!(await guard.confirmLeave())) return;
+      const priority = nextAppendedPriority(rules.map((rule) => rule.priority));
+      const copy: ScriptRule = {
+        ...draft,
+        id: crypto.randomUUID(),
+        name: `${draft.name.trim() || t("rulesPage.untitledRule")}${t("rulesPage.copySuffix")}`,
+        priority,
+        match: { ...draft.match, methods: [...draft.match.methods] },
+        entrypoints: { ...draft.entrypoints },
+      };
+      autoPriorityRef.current = priority;
+      lastSyncedRuleIdRef.current = copy.id;
+      setSelectedRuleId(copy.id);
+      setDraft(copy);
       setValidationAttempted(false);
     }
 
@@ -224,14 +276,20 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
       if (isRulesError) return;
       setValidationAttempted(true);
       if (hasRuleFieldErrors(errors)) return;
-      saveMutation.mutate(draft, {
-        onSuccess: (saved) => {
-          lastSyncedRuleIdRef.current = saved.id;
-          setSelectedRuleId(saved.id);
-          setDraft(saved);
-          setValidationAttempted(false);
+      const priority = resolveNewRulePriority(draft, rules, autoPriorityRef.current);
+      saveMutation.mutate(
+        { ...draft, priority },
+        {
+          onSuccess: (saved) => {
+            autoPriorityRef.current = null;
+            lastSyncedRuleIdRef.current = saved.id;
+            setSelectedRuleId(saved.id);
+            setDraft(saved);
+            setValidationAttempted(false);
+            useNotificationStore.getState().push(t("rulesPage.savedSuccess"), "success");
+          },
         },
-      });
+      );
     }
 
     function handleDelete() {
@@ -293,9 +351,19 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
       );
     }
 
+    // Batch delete is as destructive as single delete, so it goes through the
+    // same confirmation step (previously it deleted immediately).
     function handleBatchDelete() {
+      if (selectedRuleIds.size === 0) return;
+      setBatchDeleteConfirmOpen(true);
+    }
+
+    function confirmBatchDelete() {
       const ids = [...selectedRuleIds];
-      if (ids.length === 0) return;
+      if (ids.length === 0) {
+        setBatchDeleteConfirmOpen(false);
+        return;
+      }
       void Promise.allSettled(ids.map((ruleId) => deleteRule({ ruleId, ruleType: "script" }))).then(
         (results) => {
           const failed = results.filter((result) => result.status === "rejected").length;
@@ -308,17 +376,22 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
               : t("rulesPage.batch.resultSuccess", { count: ids.length }),
           );
           clearSelection();
+          setBatchDeleteConfirmOpen(false);
         },
       );
     }
 
     function handleReorder(orderedIds: string[]) {
+      // The list is reorderable while a search filter hides rules, so map the
+      // visible order back onto the full list before renumbering: hidden rules
+      // keep their slots and the priorities stay a complete, collision-free set.
+      const fullOrder = applyOrderedIdsWithinList(rules, orderedIds).map((rule) => rule.id);
       const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
-      const updates = computeReorderedPriorities(orderedIds, currentPriorities);
+      const updates = computeReorderedPriorities(fullOrder, currentPriorities);
       if (updates.length === 0) return;
 
       const previous = rules;
-      const reordered = orderedIds
+      const reordered = fullOrder
         .map((id) => rules.find((rule) => rule.id === id))
         .filter((rule): rule is ScriptRule => rule !== undefined);
       queryClient.setQueryData(SCRIPT_RULES_QUERY_KEY, reordered);
@@ -332,6 +405,105 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
         },
       );
     }
+
+    // Page-scoped keyboard shortcuts (panel unmounts detach them): Cmd/Ctrl+S
+    // saves (safe even inside text fields), Alt+ArrowUp/ArrowDown reorders the
+    // selected rule. Everything except Cmd/Ctrl+S is ignored while focus is in
+    // an editable control.
+    const shortcutStateRef = useRef({ isDirty, selectedRuleId, filteredRules });
+    useEffect(() => {
+      shortcutStateRef.current = { isDirty, selectedRuleId, filteredRules };
+    }, [isDirty, selectedRuleId, filteredRules]);
+    const handleSaveRef = useRef(handleSave);
+    useEffect(() => {
+      handleSaveRef.current = handleSave;
+    });
+    const reorderRef = useRef(handleReorder);
+    useEffect(() => {
+      reorderRef.current = handleReorder;
+    });
+    useEffect(() => {
+      function handleKeyDown(event: KeyboardEvent) {
+        const isMod = event.metaKey || event.ctrlKey;
+        if (isMod && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          if (shortcutStateRef.current.isDirty) handleSaveRef.current();
+          return;
+        }
+        // List-row Alt+Arrow reorder marks the event handled; don't double-move.
+        if (event.defaultPrevented) return;
+        if (isEditableTarget(event.target)) return;
+        if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+          const { selectedRuleId: selected, filteredRules: list } = shortcutStateRef.current;
+          if (!selected) return;
+          const next = moveRuleInOrder(
+            list.map((rule) => rule.id),
+            selected,
+            event.key === "ArrowUp" ? -1 : 1,
+          );
+          if (!next) return;
+          event.preventDefault();
+          reorderRef.current(next);
+        }
+      }
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }, []);
+
+    const scriptTemplates = [
+      {
+        description: t("rulesPage.script.templates.headerDescription"),
+        label: t("rulesPage.script.templates.header"),
+        template: "header" as const,
+      },
+      {
+        description: t("rulesPage.script.templates.mockDescription"),
+        label: t("rulesPage.script.templates.mock"),
+        template: "mock" as const,
+      },
+      {
+        description: t("rulesPage.script.templates.extractDescription"),
+        label: t("rulesPage.script.templates.extract"),
+        template: "extract" as const,
+      },
+    ];
+
+    // One consolidated create entry: primary "New Script Rule", secondary
+    // "Templates" (gallery dialog), and Import File demoted to a quiet text
+    // button. Shared by the header row and the list's empty state.
+    const createEntryButtons = (
+      <>
+        <Button
+          size="small"
+          variant="contained"
+          disabled={isRulesError}
+          startIcon={<AddRoundedIcon />}
+          onClick={() => handleCreate()}
+        >
+          {t("rulesPage.script.createRule")}
+        </Button>
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={isRulesError}
+          onClick={() => setTemplateDialogOpen(true)}
+        >
+          {t("rulesPage.script.templatesButton")}
+        </Button>
+        <Button
+          size="small"
+          variant="text"
+          disabled={isRulesError}
+          startIcon={<FileOpenRoundedIcon />}
+          onClick={() => {
+            void handleImportFile();
+          }}
+          sx={{ color: "text.secondary" }}
+        >
+          {t("rulesPage.script.importFile")}
+        </Button>
+      </>
+    );
 
     return (
       <>
@@ -354,65 +526,13 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
             ) : undefined
           }
           searchPlaceholder={t("rulesPage.script.searchPlaceholder")}
+          listControlsHidden={rules.length === 0}
           searchValue={searchValue}
           onSearchChange={setSearchValue}
-          createActions={
-            <Stack
-              direction="row"
-              spacing={0.75}
-              useFlexGap
-              sx={{
-                flexWrap: "wrap",
-              }}
-            >
-              <Button
-                size="small"
-                variant="outlined"
-                disabled={isRulesError}
-                startIcon={<AddRoundedIcon />}
-                onClick={() => handleCreate()}
-              >
-                {t("rulesPage.script.createRule")}
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                disabled={isRulesError}
-                onClick={() => handleCreate("header")}
-              >
-                {t("rulesPage.script.templates.header")}
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                disabled={isRulesError}
-                onClick={() => handleCreate("mock")}
-              >
-                {t("rulesPage.script.templates.mock")}
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                disabled={isRulesError}
-                onClick={() => handleCreate("extract")}
-              >
-                {t("rulesPage.script.templates.extract")}
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                disabled={isRulesError}
-                startIcon={<FileOpenRoundedIcon />}
-                onClick={() => {
-                  void handleImportFile();
-                }}
-              >
-                {t("rulesPage.script.importFile")}
-              </Button>
-            </Stack>
-          }
+          createActions={createEntryButtons}
           list={
             <ManagedRuleList
+              emptyActions={createEntryButtons}
               emptyDescription={t("rulesPage.script.emptyDescription")}
               onReorder={handleReorder}
               selectedIds={selectedRuleIds}
@@ -422,7 +542,6 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
                 enabled: rule.enabled,
                 name: rule.name || t("rulesPage.untitledRule"),
                 subtitle: `${formatRuleMatch(rule.match)} • ${rule.language.toUpperCase()}`,
-                chipLabel: `${rule.priority}`,
                 onClick: () => selectRule(rule),
                 onSelectToggle: () => toggleSelect(rule.id),
                 // Persist the SAVED rule (not the in-flight draft) so the toggle
@@ -431,78 +550,60 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
               }))}
             />
           }
+          listFooter={
+            rules.length > 0 ? (
+              <Typography variant="caption" sx={{ color: "text.secondary", lineHeight: 1.4 }}>
+                {t("rulesPage.listReorderHint")}
+              </Typography>
+            ) : undefined
+          }
+          editorFooter={
+            <EditorActionBar>
+              {isDirty && (
+                <UnsavedChangesIndicator label={t("rulesPage.unsavedChangesIndicator")} />
+              )}
+              <Box sx={{ flex: 1 }} />
+              <Tooltip title={saveShortcutLabel}>
+                <span>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<SaveRoundedIcon />}
+                    onClick={handleSave}
+                    disabled={saveMutation.isPending || isRulesError}
+                  >
+                    {t("rulesPage.editor.saveRule")}
+                  </Button>
+                </span>
+              </Tooltip>
+              <IconButton
+                size="small"
+                aria-label={t("rulesPage.ruleActions")}
+                aria-haspopup="menu"
+                disabled={isRulesError}
+                onClick={(event) => setActionsMenuAnchor(event.currentTarget)}
+              >
+                <MoreVertRoundedIcon fontSize="small" />
+              </IconButton>
+            </EditorActionBar>
+          }
           editor={
             <Stack spacing={2}>
-              <Stack
-                direction={{ xs: "column", md: "row" }}
-                spacing={1.25}
-                sx={{
-                  alignItems: { xs: "stretch", md: "center" },
-                  borderBottom: 1,
-                  borderColor: "divider",
-                  pb: 1.5,
-                }}
-              >
-                <TextField
-                  size="small"
-                  label={formatRuleFieldLabel(t("rulesPage.editor.ruleName"), "required", t)}
-                  value={draft.name}
-                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                  {...ruleFieldProps(errors, validationAttempted, "name")}
-                  sx={{ flex: 1 }}
-                />
-                <Stack
-                  direction="row"
-                  spacing={0.75}
-                  sx={{
-                    alignItems: "center",
-                    border: 1,
-                    borderColor: "divider",
-                    borderRadius: "8px",
-                    minHeight: 40,
-                    px: 1,
-                  }}
-                >
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: "text.secondary",
-                    }}
-                  >
-                    {t("rulesPage.editor.enabled")}
-                  </Typography>
-                  <Switch
-                    size="small"
-                    checked={draft.enabled}
-                    onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
+              <RuleEditorIdentity
+                advanced={
+                  <AdvancedPriorityField
+                    value={draft.priority}
+                    onCommit={(priority) => setDraft({ ...draft, priority })}
                   />
-                </Stack>
-                <PriorityField
-                  value={draft.priority}
-                  label={formatRuleFieldLabel(t("rulesPage.editor.priority"), "optional", t)}
-                  onCommit={(priority) => setDraft({ ...draft, priority })}
-                  sx={{ width: { xs: "100%", md: 136 } }}
-                />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteRoundedIcon />}
-                  onClick={handleDelete}
-                  disabled={deleteMutation.isPending || isRulesError}
-                >
-                  {t("common.actions.remove")}
-                </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  startIcon={<SaveRoundedIcon />}
-                  onClick={handleSave}
-                  disabled={saveMutation.isPending || isRulesError}
-                >
-                  {t("rulesPage.editor.saveRule")}
-                </Button>
-              </Stack>
+                }
+                advancedOpen={advancedOpen}
+                enabled={draft.enabled}
+                name={draft.name}
+                nameFieldProps={ruleFieldProps(errors, validationAttempted, "name")}
+                onNameChange={(name) => setDraft({ ...draft, name })}
+                onToggleAdvanced={() => setAdvancedOpen((open) => !open)}
+                onToggleEnabled={(enabled) => setDraft({ ...draft, enabled })}
+              />
 
               {saveError && (
                 <Alert severity="error" variant="outlined">
@@ -674,6 +775,86 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
           onCancel={() => setDeleteConfirmOpen(false)}
           isConfirming={deleteMutation.isPending}
         />
+
+        <ConfirmDialog
+          open={batchDeleteConfirmOpen}
+          title={t("rulesPage.batch.deleteConfirmTitle")}
+          message={t("rulesPage.batch.deleteConfirmMessage", { count: selectedRuleIds.size })}
+          onConfirm={confirmBatchDelete}
+          onCancel={() => setBatchDeleteConfirmOpen(false)}
+        />
+
+        <Menu
+          anchorEl={actionsMenuAnchor}
+          open={actionsMenuAnchor !== null}
+          onClose={() => setActionsMenuAnchor(null)}
+        >
+          <MenuItem
+            onClick={() => {
+              setActionsMenuAnchor(null);
+              void handleDuplicateRule();
+            }}
+          >
+            <ContentCopyRoundedIcon fontSize="small" sx={{ mr: 1 }} />
+            {t("rulesPage.duplicateRule")}
+          </MenuItem>
+          <MenuItem
+            disabled={deleteMutation.isPending}
+            onClick={() => {
+              setActionsMenuAnchor(null);
+              handleDelete();
+            }}
+            sx={{ color: "error.main" }}
+          >
+            <DeleteRoundedIcon fontSize="small" sx={{ mr: 1 }} />
+            {t("common.actions.remove")}
+          </MenuItem>
+        </Menu>
+
+        <Dialog
+          fullWidth
+          maxWidth="sm"
+          open={templateDialogOpen}
+          onClose={() => setTemplateDialogOpen(false)}
+        >
+          <DialogTitle>{t("rulesPage.script.templatesTitle")}</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1} sx={{ pb: 1 }}>
+              {scriptTemplates.map((template) => (
+                <Button
+                  key={template.template}
+                  color="inherit"
+                  onClick={() => handleCreate(template.template)}
+                  size="small"
+                  startIcon={<CodeRoundedIcon fontSize="small" />}
+                  sx={{
+                    alignItems: "flex-start",
+                    border: 1,
+                    borderColor: "divider",
+                    justifyContent: "flex-start",
+                    px: 1,
+                    py: 0.85,
+                    textAlign: "left",
+                  }}
+                >
+                  <Stack spacing={0.15}>
+                    <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 700 }}>
+                      {template.label}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: "text.secondary",
+                      }}
+                    >
+                      {template.description}
+                    </Typography>
+                  </Stack>
+                </Button>
+              ))}
+            </Stack>
+          </DialogContent>
+        </Dialog>
       </>
     );
   },

@@ -546,55 +546,71 @@ RulesPage
 │  ├─ RuleTypeTabs (Breakpoint / Rewrite / Mapping / Script；Mapping 内部分段 Map Local / Map Remote / DNS)
 │  └─ ActiveWorkbench
 │     ├─ BreakpointRulesPanel
-│     │  ├─ SectionCard "Quick Breakpoint"
-│     │  ├─ SectionCard "Breakpoint Rules"
-│     │  └─ Dialog "Add Breakpoint Rule"
+│     │  ├─ ManagedRulesWorkbench
+│     │  │  ├─ Left Pane
+│     │  │  │  ├─ Create Actions（New Breakpoint Rule 主按钮 + Break on All Requests /
+│     │  │  │  │   Break on All Responses 次按钮，已有对应阶段 catch-all 时禁用）
+│     │  │  │  ├─ Rule Search Field
+│     │  │  │  ├─ RuleBatchBar（行首 Checkbox 多选时出现）
+│     │  │  │  ├─ ManagedRuleList（空态内嵌同一组创建按钮；无数值 chip；
+│     │  │  │  │   列表顺序即匹配顺序，首个命中规则触发断点）
+│     │  │  │  └─ List Footer（拖拽 / Alt+↑/↓ 重排一行提示）
+│     │  │  └─ Right Pane
+│     │  │     ├─ RuleEditorIdentity（Enabled 开关 + catch-all / regex 作用域提示；
+│     │  │     │   断点规则无 name / priority 字段，身份行不含名称输入与 Advanced 折叠区）
+│     │  │     ├─ RuleSection "Match Conditions"（URL Pattern（含 regex 校验）/ Match Type / Methods / Stage）
+│     │  │     ├─ EditorActionBar（editorFooter：脏标记 + Save 主按钮（⌘S/Ctrl+S Tooltip）+ “...” 溢出菜单）
+│     │  │     └─ Dialogs（单条删除确认 / 批量删除确认 / 溢出菜单（Duplicate / Remove））
 │     ├─ RewriteRulesPanel
 │     │  ├─ ManagedRulesWorkbench
 │     │  │  ├─ Left Pane
-│     │  │  │  ├─ Quick Create Buttons
+│     │  │  │  ├─ Create Actions（New rule 主按钮 + Templates 次按钮，动作类型在 Then 卡片内选择）
 │     │  │  │  ├─ Rule Search Field
-│     │  │  │  └─ ManagedRuleList
+│     │  │  │  ├─ RuleBatchBar（行首 Checkbox 多选时出现）
+│     │  │  │  ├─ ManagedRuleList（空态内含 New rule / Browse templates 按钮）
+│     │  │  │  └─ List Footer（拖拽 / Alt+↑/↓ 重排一行提示）
 │     │  │  └─ Right Pane
-│     │  │     ├─ SectionCard "Basic Information"
-│     │  │     ├─ MatchConditionsCard
-│     │  │     ├─ RewriteActionEditor
-│     │  │     └─ RulePreviewCard
+│     │  │     ├─ RewriteEditorIdentity（规则名 + Enabled 开关；Advanced 折叠区收纳 Priority 数值）
+│     │  │     ├─ RuleSection "When"（URL Pattern / Match Type / Methods / Stage）
+│     │  │     ├─ RuleSection "Then"（动作卡片列表：类型 Select + per-action 表单）
+│     │  │     ├─ RewriteRuleTester（与 When / Then 同级的整宽 Test 卡 + Pick from sessions 会话选择对话框）
+│     │  │     ├─ EditorActionBar（editorFooter 固定页脚，不参与滚动：脏标记 + Save 唯一主按钮（Tooltip 含 ⌘S/Ctrl+S）+ “...” 溢出菜单）
+│     │  │     └─ Dialogs（模板选择 / 单条删除确认 / 批量删除确认 / 会话选择 / 键盘快捷键）
 │     ├─ MapRulesPanel (local / remote)
 │        ├─ ManagedRulesWorkbench
 │        │  ├─ Left Pane
-│        │  │  ├─ Create Rule Button
+│        │  │  ├─ Create Rule 主按钮（空态时表头隐藏，空态内嵌同一按钮）
 │        │  │  ├─ Rule Search Field
-│        │  │  └─ ManagedRuleList
+│        │  │  ├─ RuleBatchBar（行首 Checkbox 多选时出现）
+│        │  │  ├─ ManagedRuleList（列表顺序即优先级，不再显示优先级数字 chip）
+│        │  │  └─ List Footer（拖拽 / Alt+↑/↓ 重排一行提示）
 │        │  └─ Right Pane
-│        │     ├─ SectionCard "Basic Information"
-│        │     ├─ SectionCard "Source & Target"
-│        │     └─ RulePreviewCard
+│        │     ├─ RuleEditorIdentity（规则名 + Enabled 开关；Advanced 折叠区收纳 Priority 数值）
+│        │     ├─ RuleSection "Match / Source & Target"（Source Pattern / Match Type / Target + Preserve 开关）
+│        │     ├─ EditorActionBar（editorFooter：脏标记 + Save 主按钮（⌘S/Ctrl+S Tooltip）+ “...” 溢出菜单）
+│        │     └─ Dialogs（单条删除确认 / 批量删除确认 / 溢出菜单（Duplicate / Remove））
 │     ├─ DnsMappingsPanel
-│        ├─ ManagedRulesWorkbench
-│        │  ├─ Left Pane
-│        │  │  ├─ Create Rule Button
-│        │  │  ├─ Rule Search Field
-│        │  │  └─ ManagedRuleList
-│        │  └─ Right Pane
-│        │     ├─ FieldGroup "Rule Name"
-│        │     ├─ FieldGroup "Host Pattern"
-│        │     ├─ FieldGroup "Target IP"
-│        │     └─ FieldGroup "Priority / Enabled / Note"
+│        ├─ ManagedRulesWorkbench（结构同 MapRulesPanel：身份行 + Advanced Priority + editorFooter + 溢出菜单）
+│        │  ├─ Left Pane（Create Rule 主按钮 / Search / BatchBar / ManagedRuleList / 重排提示）
+│        │  └─ Right Pane（RuleEditorIdentity + RuleSection "Host Pattern / Target IP" + EditorActionBar + Dialogs）
 │     └─ ScriptRulesPanel
 │        ├─ ManagedRulesWorkbench
 │        │  ├─ Left Pane
-│        │  │  ├─ Quick Templates (Header / Mock / Extract)
-│        │  │  ├─ Import Script File
-│        │  │  ├─ Create Rule Button
+│        │  │  ├─ Create Actions（New Script Rule 主按钮 + Templates 次按钮 + Import File 文本按钮；
+│        │  │  │   Header / Mock / Extract 三个模板收进 Templates 对话框）
 │        │  │  ├─ Rule Search Field
-│        │  │  └─ ManagedRuleList
+│        │  │  ├─ RuleBatchBar（行首 Checkbox 多选时出现）
+│        │  │  ├─ ManagedRuleList（空态内嵌同一组创建按钮；不显示优先级数字 chip）
+│        │  │  └─ List Footer（拖拽 / Alt+↑/↓ 重排一行提示）
 │        │  └─ Right Pane
-│        │     ├─ FieldGroup "Rule Name / Enabled / Priority"
-│        │     ├─ FieldGroup "Match Conditions" (URL Pattern / HTTP Methods / Stage)
-│        │     ├─ FieldGroup "Script Source" (TypeScript 单文件脚本编辑器)
-│        │     └─ Save Error Alert
+│        │     ├─ RuleEditorIdentity（规则名 + Enabled 开关；Advanced 折叠区收纳 Priority 数值）
+│        │     ├─ RuleSection "Match Conditions"（URL Pattern / Match Type / Methods / Stage / Language）
+│        │     ├─ RuleSection "Script Source"（TypeScript 单文件脚本编辑器）
+│        │     ├─ EditorActionBar（editorFooter：脏标记 + Save 主按钮（⌘S/Ctrl+S Tooltip）+ “...” 溢出菜单）
+│        │     └─ Dialogs（模板选择 / 单条删除确认 / 批量删除确认 / 溢出菜单（Duplicate / Remove））
 ```
+
+各规则面板通用的页面级快捷键：Cmd/Ctrl+S 保存、Alt+↑/↓ 键盘重排选中规则、方向键在列表行间移动焦点。
 
 断点拦截面板（独立组件，在 AppShell 中渲染）：
 
@@ -699,6 +715,66 @@ User switches rule type
    -> 预览对话框（各类计数 + checkbox）-> 追加合并（全新 uuid、enabled=false）
 -> 断点 Forward/Send Mock 前校验编辑过的 JSON body，坏 JSON 阻断
 -> Map/DNS/Script/Throttle 编辑器补 matchType 选择器
+
+2026-09 Rewrite 重构：
+-> 创建入口收敛：左侧五个类型按钮合并为 New rule 主按钮 + Templates 次按钮，
+   动作类型在 Then 卡片内通过类型 Select 切换；空态内直接提供 New rule / Browse templates
+-> 新规则自动追加到列表末尾（resolveNewRulePriority 在保存时按当前最低优先级
+   - 10 推导，而不是创建时写死：空白新草稿不会立刻变脏，创建后发生的重排也
+   不会把新规则卡在中间；Advanced 里手改过则尊重用户值），列表顺序即优先级；
+   拖拽为主，Alt+↑/↓ 键盘重排选中规则（moveRuleInOrder），Priority 数值字段
+   移入编辑器 Advanced 折叠区
+-> 编辑器头部分层：身份行（规则名 / Enabled）+ 吸底操作栏
+   （Save 唯一主按钮 + 脏标记圆点（全局唯一一处）+ “...” 溢出菜单承载
+   Duplicate / Remove / Keyboard shortcuts）；
+   单条删除与批量删除都经确认对话框（批量删除此前无确认）
+-> Rule tester 从窄侧栏提升为与 When / Then 同级的整宽卡片；支持
+   Pick from sessions（复用 sessions 查询层的最近会话对话框，选中即填充
+   Sample URL / Method / Stage 并立即评估）；Stage 下拉增加 Either；
+   “规则未启用”“不命中”“命中但永远不会执行”是三种不同的图标、颜色与文案
+   （第三种由持续评估的 getInvalidRewriteCombination 折叠进 verdict，
+   无效组合警告随 draft 即时显示，不再等到点击 Save）
+-> 页面级快捷键：Cmd/Ctrl+S 保存（输入框内也生效）、Cmd/Ctrl+D 复制当前规则、
+   方向键在列表行间移动焦点、Alt+↑/↓ 重排；除 Cmd/Ctrl+S 外在输入控件聚焦时不触发；
+   可发现性：Save 按钮 Tooltip 显示平台快捷键、溢出菜单含快捷键对话框、
+   列表底部有一行重排提示
+-> 无效组合警告附带“转到命中阶段”跳转链接，直达需要修改的控件
+
+2026-09 工作台模式推广（Mapping / Scripts 对齐 Rewrite）：
+-> 共享组件收敛到 RulesSharedUi：RuleEditorIdentity（身份行 + Advanced Priority）、
+   EditorActionBar（editorFooter 固定页脚）、isEditableTarget、emptyActions、
+   listControlsHidden（空列表时隐藏表头控件，空态成为唯一行动入口）
+-> Map / DNS / Script 面板全部切换到：身份行 + Advanced 折叠 Priority +
+   editorFooter（脏标记唯一一处 + Save 主按钮带 ⌘S/Ctrl+S Tooltip +
+   “...” 溢出菜单承载 Duplicate / Remove）；新规则保存时由 resolveNewRulePriority
+   追加到末尾（创建时只保留中性默认值，所以空白草稿不算未保存）；
+   列表不再显示优先级数字 chip（列表顺序即优先级）
+-> 过滤态重排：可见行的新顺序先经 applyOrderedIdsWithinList 映射回全量列表
+   （隐藏行保持原槽位），再对全量规则重编号，避免隐藏规则被越位
+-> Scripts 创建入口收敛：五个平级按钮（New Script Rule / Set Header / Mock Response /
+   Extract Data / Import File）合并为 New Script Rule 主按钮 + Templates 次按钮
+   （三个模板进对话框画廊）+ Import File 降级为文本按钮
+-> 批量删除统一经确认对话框（Map / DNS / Script 此前与 Rewrite 一样直接执行）；
+   各面板均支持 Cmd/Ctrl+S 保存与 Alt+↑/↓ 键盘重排（isEditableTarget 守卫）
+
+2026-09 工作台模式补全（Breakpoint 对齐）：
+-> 断点规则从“列表 + Add Rule 模态对话框”切换为与其他三个域一致的内联
+   master-detail 工作台：RuleEditorIdentity（Enabled 开关）+ RuleSection
+   （URL Pattern / Match Type / Methods / Stage）+ editorFooter 固定页脚
+   （脏标记 + Save 主按钮 + “...” 溢出菜单承载 Duplicate / Remove）
+-> 数据模型不变：BreakpointRule 无 name / priority 字段，因此身份行不渲染
+   名称输入与 Advanced 折叠区（RuleEditorIdentity 的 name / advanced 变为可选）；
+   持久化仍是整列表 setBreakpointRules，保存为 upsert（已存在则原位替换，
+   新规则追加到列表末尾）
+-> 匹配语义即排序语义：后端 find_matching_rule_id 按数组顺序首个命中即触发，
+   因此保留拖拽 / Alt+↑/↓ 重排（applyOrderedIdsWithinList 在搜索过滤时只重排
+   可见行、隐藏行保持原位），无数值 Priority 字段
+-> 创建入口：New Breakpoint Rule 主按钮 + 两个快捷全局断点次按钮
+   （Break on All Requests / Responses，已有对应阶段 catch-all 时禁用，
+   仍即时落盘）；空态内嵌同一组按钮 + listControlsHidden
+-> 单条删除保持确认；新增行首 Checkbox 多选与批量条（启用 / 禁用 / 删除 /
+   完成），批量删除同样经确认对话框；未保存的新草稿 Remove 直接丢弃不确认
+   （与其他域一致）；regex 校验保留为字段级 helperText
 
 ## 6.6 Throttling Page — `已实现 P0/P1`
 
