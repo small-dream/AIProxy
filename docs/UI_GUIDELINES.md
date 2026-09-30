@@ -227,6 +227,7 @@ App Shell
 - 保持轻量，不承载会话级筛选输入
 - 左侧展示上下文，右侧展示全局入口
 - 代理运行状态必须持续可见
+- Start / Stop Proxy 是全局唯一主操作，尺寸大于其他图标按钮（medium / 40px）；录制中在 Stop 按钮旁显示红色脉冲圆点 + 已录制时长（mm:ss，超 1 小时为 h:mm:ss），动画遵循 `prefers-reduced-motion`
 
 ## 8.3 左侧导航规范
 
@@ -314,6 +315,8 @@ Capture Workspace
 - 错误提示或后台任务提示
 
 系统代理恢复失败警告（`proxyStatus.systemProxyRecoveryWarning` 存在时）必须在状态栏渲染一个 warning 色 StatusItem（图标 + 短标签，tooltip 展示原因，点击跳转设置页）——恢复失败意味着整机可能断网，不允许只留在设置页。
+
+录制中且系统代理未开启（`proxyStatus.running && !systemProxyEnabled`）时，系统代理 StatusItem 图标必须显示 warning 色，tooltip 说明「仅抓取手动指向代理端口的流量」并引导点击开启——Recording 状态不能被误解为整机抓包。
 
 ## 9. 页面规范
 

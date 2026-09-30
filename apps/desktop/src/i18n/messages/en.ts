@@ -155,6 +155,7 @@ export const enMessages = {
     resolvePortConflictTitle: "Resolve Port Conflict",
     startOnDifferentPort: "Start on a different port",
     proxyPortValidation: "Enter a valid TCP port between 1 and 65535.",
+    recordingElapsed: "Recording for {{duration}}",
     settings: "Settings",
     sslOn: "SSL On",
     sslReady: "SSL Ready",
@@ -172,6 +173,8 @@ export const enMessages = {
     statusDisableSystemProxy: "Disable the system proxy",
     statusEnableSystemProxy: "Enable the system proxy",
     systemProxyOff: "System Proxy Off",
+    systemProxyOffWhileRecording:
+      "Recording is on, but the system proxy is off — only traffic explicitly routed to :{{port}} is captured. Click to enable the system proxy.",
     systemProxyOn: "System Proxy On",
     systemProxyReapplyWarning:
       "The proxy is running, but the system proxy could not be re-applied: {{error}}. Your OS proxy settings may be stale.",

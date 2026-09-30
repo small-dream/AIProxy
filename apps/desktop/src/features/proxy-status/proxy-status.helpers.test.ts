@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDefaultProxyStatus } from "@aiproxy/shared-types";
 
 import { enMessages } from "@/i18n/messages/en";
-import { getProxyStatusPresentation } from "./proxy-status.helpers";
+import { formatRecordingDuration, getProxyStatusPresentation } from "./proxy-status.helpers";
 
 describe("getProxyStatusPresentation", () => {
   it("returns a loading label when the status is not yet available", () => {
@@ -53,5 +53,26 @@ describe("getProxyStatusPresentation", () => {
     expect(running.label).toBe("Running 8080 / 8080");
     expect(ready.label).toBe("Ready 8080 / 8080");
     expect(idle.label).toBe("Idle 8080 / 8080");
+  });
+});
+
+describe("formatRecordingDuration", () => {
+  it("formats sub-hour durations as m:ss", () => {
+    expect(formatRecordingDuration(0)).toBe("0:00");
+    expect(formatRecordingDuration(59_000)).toBe("0:59");
+    expect(formatRecordingDuration(3_500)).toBe("0:03");
+    expect(formatRecordingDuration(222_000)).toBe("3:42");
+    expect(formatRecordingDuration(3_599_000)).toBe("59:59");
+  });
+
+  it("formats hour-long durations as h:mm:ss", () => {
+    expect(formatRecordingDuration(3_600_000)).toBe("1:00:00");
+    expect(formatRecordingDuration(3_661_000)).toBe("1:01:01");
+    expect(formatRecordingDuration(36_000_000)).toBe("10:00:00");
+  });
+
+  it("clamps negative and non-finite input to 0:00", () => {
+    expect(formatRecordingDuration(-5_000)).toBe("0:00");
+    expect(formatRecordingDuration(Number.NaN)).toBe("0:00");
   });
 });

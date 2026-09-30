@@ -37,3 +37,15 @@ export function getProxyStatusPresentation(
     label: messages.idleWithPort.replaceAll("{{port}}", String(status.port)),
   };
 }
+
+// Format elapsed recording time for the top-controls indicator: mm:ss under
+// an hour, h:mm:ss beyond that. Negative or non-finite input clamps to 0:00.
+export function formatRecordingDuration(elapsedMs: number): string {
+  const totalSeconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${minutes}:${ss}`;
+}

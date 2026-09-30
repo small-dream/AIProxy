@@ -154,6 +154,7 @@ export const zhCNMessages: Messages = {
     resolvePortConflictTitle: "解决端口冲突",
     startOnDifferentPort: "在其他端口启动",
     proxyPortValidation: "请输入 1 到 65535 之间的有效 TCP 端口。",
+    recordingElapsed: "已录制 {{duration}}",
     settings: "设置",
     sslOn: "SSL 已开启",
     sslReady: "SSL 已就绪",
@@ -171,6 +172,8 @@ export const zhCNMessages: Messages = {
     statusDisableSystemProxy: "关闭系统代理",
     statusEnableSystemProxy: "启用系统代理",
     systemProxyOff: "系统代理已关闭",
+    systemProxyOffWhileRecording:
+      "正在录制，但系统代理未开启——仅抓取手动指向 :{{port}} 的流量。点击启用系统代理。",
     systemProxyOn: "系统代理已启用",
     systemProxyReapplyWarning:
       "代理已在运行，但系统代理重新应用失败：{{error}}。系统代理可能仍指向旧端口。",

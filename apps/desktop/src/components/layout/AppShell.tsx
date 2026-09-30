@@ -224,6 +224,7 @@ export function AppShell() {
           void handleSystemProxyToggle();
         }}
         proxyRunning={proxyStatus?.running ?? false}
+        recordingStartedAt={proxyStatus?.startedAt}
         startProxyLabel={
           certificateStatus?.trusted
             ? t("common.actions.startHttpsProxy")

@@ -63,6 +63,11 @@
 - `AppShell` 通过 `useSystemProxyWarning()` 订阅后端 `system-proxy-warning` 事件（代理启动/重启成功但系统代理按新端口 reapply 失败时发射）。
 - 收到事件后经全局通知队列（`useNotificationStore`）以 warning 级 Snackbar 提示「系统代理可能仍指向旧端口」，代理本身保持运行。
 
+### 3.6 全局录制状态反馈
+
+- 顶部控制的 Start/Stop Proxy 是全局唯一主操作，使用 medium 尺寸（40px）以区别于其他图标按钮；录制中在 Stop 按钮旁渲染 `RecordingDurationIndicator`（`components/layout/RecordingDurationIndicator.tsx`）：红色脉冲圆点 + 等宽字体已录制时长（`formatRecordingDuration`，mm:ss / h:mm:ss），数据来自 `proxyStatus.startedAt`，1s 本地计时，遵循 `prefers-reduced-motion`。
+- 底部状态栏的系统代理项：当 `proxyStatus.running && !systemProxyEnabled` 时图标显示 warning 色，tooltip 说明「仅抓取手动指向代理端口的流量」并引导点击开启——避免 Recording 被误解为整机抓包。
+
 ## 4. Sessions Page
 
 ### 4.1 页面目标 — `已实现首版`
