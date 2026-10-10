@@ -427,6 +427,8 @@ Sessions Page
 - 菜单项应按动作组分块，并使用 `Divider` 分隔
 - JSON 树视图中右键节点提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，对象/数组以格式化 JSON 输出，字符串不带引号）
 - 代码块视图（JSON Text、Raw、Text Body）中选中文字后右键提供 `Copy`（复制选中文字）和 `Search`（用选中文字激活搜索栏）
+- JSON Text 视图双击按语义 token 吸附选区：字符串与键名选中引号内的内容，数字、`true` / `false` / `null` 选中整个字面量；三击选中光标所在行（忽略缩进与行尾空白）；按住 Option / Shift / Command 的双击仍交回系统原生选择
+- JSON Text 视图右键时按指针位置解析 token，提供 `Copy Key`（键名）或 `Copy Value`（字符串不带引号）与 `Copy Path`（`$.store.book[0].title` 形式的路径，文本不是可解析 JSON 时不显示）；选中内容与该 token 完全相同时合并为一项 `Copy`
 - 媒体预览区（图片）右键提供 `Copy Image`（复制图片到剪贴板）、`Save Image As...`（图片另存为）、`Copy Image URL`（复制图片地址）、`Open in Browser`（在浏览器中打开）
 - 媒体预览区（音频/视频）右键提供 `Save As...`（另存为）、`Copy URL`（复制地址）、`Open in Browser`（在浏览器中打开）
 

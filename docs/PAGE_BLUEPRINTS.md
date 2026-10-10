@@ -309,12 +309,26 @@ User right clicks a folder node (URL path branch) or a host node
 ```text
 User selects text and right clicks in a code block view (JSON Text / Raw / Text Body)
 -> SearchableCodeBlock prevents browser native context menu
--> stores anchorPosition + selected text
--> Context menu opens with Copy / Search options
+-> resolves the JSON token under the pointer (quoted string, literal, or key)
+-> stores anchorPosition + selected text + token
+-> Context menu opens with the available options
    Copy  -> navigator.clipboard.writeText(selectedText)
+   Copy Key / Copy Value -> navigator.clipboard.writeText(token copy text)
+   Copy Path -> navigator.clipboard.writeText(token JSON path)
    Search -> onSearchWithText(selectedText)
           -> parent pane opens search bar with selected text as query
 -> menu closes after action
+```
+
+JSON token 交互（JSON Text 视图）：
+
+```text
+User double clicks a token in the JSON Text view
+-> SearchableCodeBlock maps the pointer position to a character offset
+   (virtualized lines rebase through their data-line-start offset)
+-> snaps the selection to the token, strings exclude their quotes
+-> triple click selects the trimmed line instead of the whole body
+-> modified double clicks (Option / Shift / Command) keep native behaviour
 ```
 
 ### 4.8 当前实现说明
@@ -323,6 +337,7 @@ User selects text and right clicks in a code block view (JSON Text / Raw / Text 
 - Inspector Request Overview 的 General 分组包含 `Route`（出网路径）行，取值为 `Direct`（直连）/ `Via upstream proxy`（经上游代理）/ `N/A`。`N/A` 对应 `viaUpstreamProxy` 为空的情况——mock / Map Local / script 合成响应根本没有出网，以及该字段存在之前抓的历史会话；这类会话不显示为 `Direct`，否则会被误读成「上游代理被绕过了」。
 - JSON 树视图（Response JSON Tab）中右键节点弹出独立菜单，提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，字符串不带引号，对象/数组以格式化 JSON 输出）。
 - 代码块视图（JSON Text、Raw、Text Body 等 Tab）中选中文字右键弹出独立菜单，提供 `Copy`（复制选中文字到剪贴板）和 `Search`（用选中文字激活搜索栏并填入搜索词）。仅当有文字选中且 `onSearchWithText` 回调存在时，`Search` 选项才显示。
+- JSON Text 视图额外支持语义 token 交互：双击把选区吸附到指针下的 token（字符串不含引号），三击选中整行；右键按指针下的 token 提供 `Copy Key` / `Copy Value` 与 `Copy Path`（`$` 前缀的 JSON 路径，文本不可解析时不显示），选中内容与 token 相同时只保留一项 `Copy`。实现位于 `features/sessions/components/json-text-token.helpers.ts`，虚拟化代码块通过每行的 `data-line-start` 把指针位置映射回源文本偏移。
 - 会话树的三类节点各有一套右键菜单：叶子节点 → `SessionContextMenu`，host 节点 → `DomainContextMenu`，URL 路径目录节点 → `SessionFolderContextMenu`；三者共用同一套锚点状态，打开任一菜单会关闭另外两个。
 - 「保存所有文件」的落盘范围覆盖所选节点的整个子树；WebSocket 会话、无响应体的请求，以及仅存在于渲染层的 HAR 导入会话不会落盘，计入 Snackbar 的跳过数。
 - 落盘层级为去掉域名后的**完整 URL 路径**：右键 `assets` 得到 `所选目录/assets/...`。右键哪一层结果一致，同一站点多次保存到同一目录会自然合并。

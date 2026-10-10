@@ -19,6 +19,52 @@ function mockWindowSelection(text: string) {
   } as Selection);
 }
 
+function findTextNode(container: HTMLElement, text: string): Text {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+
+  while (node) {
+    if (node.textContent?.includes(text)) {
+      return node as Text;
+    }
+    node = walker.nextNode();
+  }
+
+  throw new Error(`Text node not found: ${text}`);
+}
+
+// jsdom has no hit testing, so the pointer position is stubbed with the caret
+// range the real engine would return for the same coordinates.
+function mockCaretRangeFromPoint(position: { node: Node; offset: number } | null) {
+  Object.defineProperty(document, "caretRangeFromPoint", {
+    configurable: true,
+    value: vi.fn(() => {
+      if (!position) return null;
+      const range = document.createRange();
+      range.setStart(position.node, position.offset);
+      range.collapse(true);
+      return range;
+    }),
+  });
+}
+
+function mockWritableSelection(text = "") {
+  const ranges: Range[] = [];
+  vi.spyOn(window, "getSelection").mockReturnValue({
+    addRange: (range: Range) => {
+      ranges.push(range);
+    },
+    removeAllRanges: vi.fn(),
+    toString: () => text,
+  } as unknown as Selection);
+
+  return ranges;
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(document, "caretRangeFromPoint");
+});
+
 describe("InspectorKeyValueTable", () => {
   afterEach(() => {
     useAppPreferencesStore.setState({ languagePreference: "en" });
@@ -266,5 +312,179 @@ describe("SearchableCodeBlock", () => {
 
       getSelectionSpy.mockRestore();
     });
+  });
+});
+
+describe("SearchableCodeBlock JSON token interaction", () => {
+  const jsonCode = '{\n  "profile": {\n    "name": "Hello world"\n  }\n}';
+
+  function renderJsonBlock(onSearchWithText?: (text: string) => void) {
+    const result = renderWithProviders(
+      <SearchableCodeBlock
+        code={jsonCode}
+        language="json"
+        onSearchWithText={onSearchWithText}
+        searchQuery=""
+      />,
+    );
+
+    return { ...result, pre: result.container.querySelector("pre") as HTMLElement };
+  }
+
+  it("snaps a double-click to the string value without its quotes", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    const ranges = mockWritableSelection();
+
+    act(() => {
+      fireEvent.doubleClick(pre, { clientX: 20, clientY: 20 });
+    });
+
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0]?.toString()).toBe("Hello world");
+  });
+
+  it("keeps modified double-clicks with the platform selection", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    const ranges = mockWritableSelection();
+
+    act(() => {
+      fireEvent.doubleClick(pre, { altKey: true, clientX: 20, clientY: 20 });
+    });
+
+    expect(ranges).toHaveLength(0);
+  });
+
+  it("selects the trimmed line on the third click", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    const ranges = mockWritableSelection();
+
+    act(() => {
+      fireEvent.click(pre, { clientX: 20, clientY: 20, detail: 3 });
+    });
+
+    expect(ranges[0]?.toString()).toBe('"name": "Hello world"');
+  });
+
+  it("offers token actions when right-clicking without a selection", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const onSearchWithText = vi.fn();
+    const { pre } = renderJsonBlock(onSearchWithText);
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    mockWritableSelection("");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+
+    expect(screen.getByText("Copy Value")).toBeInTheDocument();
+    expect(screen.getByText("Copy Path")).toBeInTheDocument();
+    expect(screen.queryByText("Copy")).not.toBeInTheDocument();
+
+    act(() => {
+      fireEvent.click(screen.getByText("Copy Path"));
+    });
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("$.profile.name");
+    });
+  });
+
+  it("labels the token action for keys and limits the path to parseable JSON", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, '"name"'), offset: 3 });
+    mockWritableSelection("");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+
+    expect(screen.getByText("Copy Key")).toBeInTheDocument();
+  });
+
+  it("keeps the generic Copy only for selections that differ from the token", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    mockWritableSelection("Hello");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+
+    expect(screen.getByText("Copy")).toBeInTheDocument();
+    expect(screen.getByText("Copy Value")).toBeInTheDocument();
+  });
+
+  it("hides the generic Copy when the selection is the snapped token", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    mockWritableSelection("Hello world");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+
+    expect(screen.queryByText("Copy")).not.toBeInTheDocument();
+    expect(screen.getByText("Copy Value")).toBeInTheDocument();
+  });
+
+  it("searches the token under the pointer when nothing is selected", () => {
+    const onSearchWithText = vi.fn();
+    const { pre } = renderJsonBlock(onSearchWithText);
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    mockWritableSelection("");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+    act(() => {
+      fireEvent.click(screen.getByText("Search"));
+    });
+
+    expect(onSearchWithText).toHaveBeenCalledWith("Hello world");
+  });
+
+  it("ignores token actions for plain text blocks", () => {
+    const { container } = renderWithProviders(
+      <SearchableCodeBlock code="hello world" searchQuery="" />,
+    );
+    const pre = container.querySelector("pre") as HTMLElement;
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "hello"), offset: 2 });
+    const ranges = mockWritableSelection();
+
+    act(() => {
+      fireEvent.doubleClick(pre, { clientX: 20, clientY: 20 });
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+
+    expect(ranges).toHaveLength(0);
+    expect(screen.queryByText("Copy Value")).not.toBeInTheDocument();
+  });
+
+  it("maps pointer positions onto virtualized lines", () => {
+    const code = `{\n${Array.from(
+      { length: 400 },
+      (_value, index) => `  "key${index}": "value${index}"`,
+    ).join(",\n")}\n}`;
+    const { container } = renderWithProviders(
+      <SearchableCodeBlock code={code} language="json" searchQuery="" />,
+    );
+    const virtualContainer = container.firstChild as HTMLElement;
+    const keyNode = findTextNode(virtualContainer, '"key1"');
+    mockCaretRangeFromPoint({ node: keyNode, offset: 3 });
+    const ranges = mockWritableSelection();
+
+    act(() => {
+      fireEvent.doubleClick(virtualContainer, { clientX: 20, clientY: 20 });
+    });
+
+    expect(ranges[0]?.toString()).toBe("key1");
   });
 });

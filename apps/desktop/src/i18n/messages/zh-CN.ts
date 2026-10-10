@@ -1506,6 +1506,7 @@ export const zhCNMessages: Messages = {
       array: "数组 [{{count}}]",
       boolean: "布尔值",
       copyKey: "复制键",
+      copyPath: "复制路径",
       copyValue: "复制值",
       integer: "整数",
       null: "空值",

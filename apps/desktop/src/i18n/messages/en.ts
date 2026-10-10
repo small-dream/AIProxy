@@ -1578,6 +1578,7 @@ export const enMessages = {
       array: "Array [{{count}}]",
       boolean: "Boolean",
       copyKey: "Copy Key",
+      copyPath: "Copy Path",
       copyValue: "Copy Value",
       integer: "Integer",
       null: "Null",
