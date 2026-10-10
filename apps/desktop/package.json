@@ -1,6 +1,6 @@
 {
   "name": "@aiproxy/desktop",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "private": true,
   "license": "MIT",
   "type": "module",
