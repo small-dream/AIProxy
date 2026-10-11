@@ -1,4 +1,7 @@
+import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import DataObjectRoundedIcon from "@mui/icons-material/DataObjectRounded";
+import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
@@ -1447,13 +1450,17 @@ export function SearchableCodeBlock({
         ) : null}
         {contextMenu?.token ? (
           <MenuItem onClick={handleCopyTokenText} sx={codeBlockMenuItemSx}>
-            <ContentCopyRoundedIcon sx={{ fontSize: 17 }} />
+            {contextMenu.token.isKey ? (
+              <KeyRoundedIcon sx={{ fontSize: 17 }} />
+            ) : (
+              <DataObjectRoundedIcon sx={{ fontSize: 17 }} />
+            )}
             {contextMenu.token.isKey ? t("inspector.json.copyKey") : t("inspector.json.copyValue")}
           </MenuItem>
         ) : null}
         {contextMenu?.token?.path ? (
           <MenuItem onClick={handleCopyTokenPath} sx={codeBlockMenuItemSx}>
-            <ContentCopyRoundedIcon sx={{ fontSize: 17 }} />
+            <AccountTreeRoundedIcon sx={{ fontSize: 17 }} />
             {t("inspector.json.copyPath")}
           </MenuItem>
         ) : null}

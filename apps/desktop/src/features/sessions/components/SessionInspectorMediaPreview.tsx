@@ -1,4 +1,5 @@
-import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
+import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
 import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
 import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
 import {
@@ -355,7 +356,7 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
             }}
           >
             <ListItemIcon sx={(theme) => getContextMenuIconSx(theme)}>
-              <ContentCopyRoundedIcon fontSize="small" />
+              <ImageOutlinedIcon fontSize="small" />
             </ListItemIcon>
             <ListItemText
               {...contextMenuItemTextProps}
@@ -387,7 +388,7 @@ export const SessionInspectorMediaPreview = function SessionInspectorMediaPrevie
           }}
         >
           <ListItemIcon sx={(theme) => getContextMenuIconSx(theme)}>
-            <ContentCopyRoundedIcon fontSize="small" />
+            <LinkRoundedIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText
             {...contextMenuItemTextProps}

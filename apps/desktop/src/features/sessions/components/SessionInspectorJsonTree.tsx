@@ -1,5 +1,5 @@
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
-import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import DataObjectRoundedIcon from "@mui/icons-material/DataObjectRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import FolderRoundedIcon from "@mui/icons-material/FolderRounded";
@@ -429,7 +429,7 @@ export function SessionInspectorJsonTree({
           sx={menuItemSx}
         >
           <ListItemIcon sx={iconSx}>
-            <ContentCopyRoundedIcon fontSize="small" />
+            <DataObjectRoundedIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText {...contextMenuItemTextProps}>{t("inspector.json.copyValue")}</ListItemText>
         </MenuItem>
