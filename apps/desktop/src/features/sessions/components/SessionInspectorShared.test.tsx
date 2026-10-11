@@ -61,6 +61,34 @@ function mockWritableSelection(text = "") {
   return ranges;
 }
 
+// The real engines hand the block a live `Range` for the platform selection;
+// stubbing it keeps the highlight and the restore paths under test even though
+// jsdom ships no selection implementation.
+function mockRangeSelection(range: Range | null, text = "") {
+  const added: Range[] = [];
+  const removeAllRanges = vi.fn();
+  vi.spyOn(window, "getSelection").mockReturnValue({
+    addRange: (addedRange: Range) => {
+      added.push(addedRange);
+    },
+    anchorNode: range?.startContainer ?? null,
+    getRangeAt: () => range,
+    isCollapsed: range ? range.collapsed : true,
+    rangeCount: range ? 1 : 0,
+    removeAllRanges,
+    toString: () => text,
+  } as unknown as Selection);
+
+  return { added, removeAllRanges };
+}
+
+function createTextRange(node: Text, start: number, end: number) {
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  return range;
+}
+
 afterEach(() => {
   Reflect.deleteProperty(document, "caretRangeFromPoint");
 });
@@ -466,6 +494,140 @@ describe("SearchableCodeBlock JSON token interaction", () => {
 
     expect(ranges).toHaveLength(0);
     expect(screen.queryByText("Copy Value")).not.toBeInTheDocument();
+  });
+
+  it("paints the selection itself while the context menu is open", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    // The string token owns its quotes, so the body starts one character in.
+    const range = createTextRange(findTextNode(pre, "Hello world"), 2, 8);
+    const { removeAllRanges } = mockRangeSelection(range, "ello w");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+
+    const highlights = pre.querySelectorAll('[data-selection-highlight="true"]');
+
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0]?.textContent).toBe("ello w");
+    // The platform selection is dropped so the block paints one highlight only.
+    expect(removeAllRanges).toHaveBeenCalled();
+  });
+
+  it("outlines the token under the pointer when nothing is selected", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    mockWritableSelection("");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+
+    const highlights = pre.querySelectorAll('[data-selection-highlight="true"]');
+
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0]?.textContent).toBe("Hello world");
+  });
+
+  it("hands the selection back after a copy action", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    const range = createTextRange(findTextNode(pre, "Hello world"), 2, 8);
+    const { added } = mockRangeSelection(range, "ello w");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+    act(() => {
+      fireEvent.click(screen.getByText("Copy"));
+    });
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("ello w");
+    });
+    expect(added.map((item) => item.toString())).toEqual(["ello w"]);
+    expect(pre.querySelectorAll('[data-selection-highlight="true"]')).toHaveLength(0);
+  });
+
+  it("drops the selection when the menu is dismissed from outside", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    const range = createTextRange(findTextNode(pre, "Hello world"), 2, 8);
+    const { added } = mockRangeSelection(range, "ello w");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+    act(() => {
+      fireEvent.click(document.querySelector(".MuiBackdrop-root")!);
+    });
+
+    expect(added).toHaveLength(0);
+    expect(pre.querySelectorAll('[data-selection-highlight="true"]')).toHaveLength(0);
+  });
+
+  it("hands the selection back on escape", () => {
+    const { pre } = renderJsonBlock();
+    mockCaretRangeFromPoint({ node: findTextNode(pre, "Hello world"), offset: 3 });
+    const range = createTextRange(findTextNode(pre, "Hello world"), 2, 8);
+    const { added } = mockRangeSelection(range, "ello w");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+    act(() => {
+      fireEvent.keyDown(document.querySelector(".MuiModal-root")!, { key: "Escape" });
+    });
+
+    expect(screen.queryByText("Copy")).not.toBeInTheDocument();
+    expect(added.map((item) => item.toString())).toEqual(["ello w"]);
+  });
+
+  it("keeps the selection painted for plain text blocks", () => {
+    const { container } = renderWithProviders(
+      <SearchableCodeBlock code="hello world" searchQuery="" />,
+    );
+    const pre = container.querySelector("pre") as HTMLElement;
+    const range = createTextRange(findTextNode(pre, "hello world"), 0, 5);
+    mockRangeSelection(range, "hello");
+
+    act(() => {
+      fireEvent.contextMenu(pre, { clientX: 20, clientY: 20 });
+    });
+
+    const highlights = pre.querySelectorAll('[data-selection-highlight="true"]');
+
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0]?.textContent).toBe("hello");
+  });
+
+  it("clips the highlight to the virtualized lines that are rendered", () => {
+    const code = `{\n${Array.from(
+      { length: 400 },
+      (_value, index) => `  "key${index}": "value${index}"`,
+    ).join(",\n")}\n}`;
+    const { container } = renderWithProviders(
+      <SearchableCodeBlock code={code} language="json" searchQuery="" />,
+    );
+    const virtualContainer = container.firstChild as HTMLElement;
+    const range = createTextRange(findTextNode(virtualContainer, '"key1"'), 1, 5);
+    mockRangeSelection(range, "key1");
+
+    act(() => {
+      fireEvent.contextMenu(virtualContainer, { clientX: 20, clientY: 20 });
+    });
+
+    const highlights = virtualContainer.querySelectorAll('[data-selection-highlight="true"]');
+
+    expect(highlights).toHaveLength(1);
+    expect(highlights[0]?.textContent).toBe("key1");
   });
 
   it("maps pointer positions onto virtualized lines", () => {

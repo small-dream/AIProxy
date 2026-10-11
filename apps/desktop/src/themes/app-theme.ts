@@ -25,6 +25,16 @@ export function getSurfaceShadow(mode: PaletteMode) {
   return mode === "dark" ? "0 14px 40px rgba(0, 0, 0, 0.28)" : "0 10px 30px rgba(15, 23, 42, 0.06)";
 }
 
+/**
+ * The colour of a text selection. Custom highlights (for example the range the
+ * JSON text view paints while its context menu is open) reuse it so a highlight
+ * drawn by a component is indistinguishable from the platform selection.
+ */
+export function getSelectionHighlightColor(mode: PaletteMode) {
+  const colors = colorTokens[mode];
+  return alpha(colors.primary, mode === "dark" ? 0.34 : 0.2);
+}
+
 export function getHoverShadow(mode: PaletteMode) {
   return mode === "dark" ? "0 10px 26px rgba(0, 0, 0, 0.32)" : "0 8px 20px rgba(15, 23, 42, 0.08)";
 }
@@ -176,7 +186,7 @@ export function createAppTheme(
             backgroundColor: alpha(colors.textSecondary, mode === "dark" ? 0.58 : 0.42),
           },
           "::selection": {
-            backgroundColor: alpha(colors.primary, mode === "dark" ? 0.34 : 0.2),
+            backgroundColor: getSelectionHighlightColor(mode),
           },
         },
       },
