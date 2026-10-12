@@ -1495,12 +1495,6 @@ export const zhCNMessages: Messages = {
     pseudo: "伪标头",
     waterfall: {
       unavailable: "时序数据不可用",
-      dns: "DNS",
-      connect: "连接",
-      tls: "TLS",
-      send: "发送",
-      wait: "等待",
-      download: "下载",
     },
     json: {
       array: "数组 [{{count}}]",

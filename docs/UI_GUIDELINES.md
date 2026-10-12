@@ -1062,7 +1062,7 @@ Insights Page
 - `KeyValueEditor`
 - `BodyEditor`
 - `TimingPanel`
-- `WaterfallChart` — 水平堆叠条形图，展示请求 timing 各阶段（dns / connect / tls / request_send / waiting / response_read / total）耗时；根据 `timingSource` 调整展示粒度，每个阶段使用不同颜色并支持 Tooltip
+- `WaterfallChart` — 时序细条堆叠图（10px 高、无图例），展示请求 timing 各阶段（dns / connect / tls / request_send / waiting / response_read）耗时占比；总耗时放在「时序」分组标题的数值列，未采集阶段不绘制占位色块，根据 `timingSource` 调整展示粒度。阶段配色为低饱和主题色（明暗主题各一套），阶段与下方字段行通过行首色点一一对应；悬停字段行时高亮对应阶段、其余阶段降透明度，Tooltip 显示「阶段 · 耗时 · 占比」，阶段文案复用 `inspector.request.overview.fields.*`
 - `CookiePanel`
 - `RawPanel`
 - `RuleList`

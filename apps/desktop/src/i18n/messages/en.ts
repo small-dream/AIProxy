@@ -1567,12 +1567,6 @@ export const enMessages = {
     pseudo: "pseudo",
     waterfall: {
       unavailable: "Timing unavailable",
-      dns: "DNS",
-      connect: "Connect",
-      tls: "TLS",
-      send: "Send",
-      wait: "Wait",
-      download: "Download",
     },
     json: {
       array: "Array [{{count}}]",

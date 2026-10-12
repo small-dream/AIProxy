@@ -22,12 +22,20 @@ import {
   getSessionProtocolMetadata,
 } from "@/features/sessions/session-protocol.helpers";
 import { formatTiming, isClientCancelledStatus } from "./session-inspector.helpers";
-import { WaterfallChart } from "./WaterfallChart";
+import {
+  TimingPhaseSwatch,
+  TimingPhaseSwatchSlot,
+  WaterfallChart,
+  type TimingPhaseId,
+} from "./WaterfallChart";
+
+type OverviewItem = [label: string, value: string, phase?: TimingPhaseId];
 
 type OverviewSection = {
   key: string;
   title: string;
-  items: Array<[string, string]>;
+  items: OverviewItem[];
+  headerValue?: string | undefined;
 };
 
 type OverviewSizeGroup = {
@@ -44,6 +52,7 @@ type OverviewSizeBreakdown = {
 };
 
 type OverviewBlock = {
+  headerValue?: string | undefined;
   key: string;
   title: string;
   content: ReactNode;
@@ -71,21 +80,18 @@ export function SessionInspectorOverview({
   const overviewBlocks = useMemo<OverviewBlock[]>(
     () => [
       ...sections.map((section) => ({
+        headerValue: section.headerValue,
         key: section.key,
         title: section.title,
-        content: (
-          <Stack spacing={0}>
-            {section.key === "timing" ? (
-              <Box sx={{ mb: 0.75, pl: 3.25 }}>
-                <WaterfallChart timing={detail?.timing} />
-              </Box>
-            ) : null}
+        content:
+          section.key === "timing" ? (
+            <OverviewTimingSection items={section.items} timing={detail?.timing} />
+          ) : (
             <OverviewDefinitionList
               indent={section.key === "general" ? 0 : 3.25}
               items={section.items}
             />
-          </Stack>
-        ),
+          ),
       })),
       {
         key: "size",
@@ -137,6 +143,7 @@ export function SessionInspectorOverview({
                       }));
                     }}
                     title={block.title}
+                    value={block.headerValue}
                   />
                 )}
 
@@ -209,14 +216,36 @@ function OverviewTreeHeader({
   );
 }
 
+function OverviewTimingSection({
+  items,
+  timing,
+}: {
+  items: OverviewItem[];
+  timing: SessionDetail["timing"];
+}) {
+  const [activePhase, setActivePhase] = useState<TimingPhaseId | undefined>(undefined);
+
+  return (
+    <Stack spacing={0}>
+      <Box sx={{ mb: 0.75, pl: 3.25 }}>
+        <WaterfallChart activePhase={activePhase} timing={timing} />
+      </Box>
+      <OverviewDefinitionList indent={3.25} items={items} onRowHover={setActivePhase} />
+    </Stack>
+  );
+}
+
 function OverviewDefinitionList({
   indent = 0,
   items,
+  onRowHover,
 }: {
   indent?: number;
-  items: Array<[string, string]>;
+  items: OverviewItem[];
+  onRowHover?: ((phase: TimingPhaseId | undefined) => void) | undefined;
 }) {
   const { t } = useI18n();
+  const hasPhaseSwatch = items.some(([, , phase]) => phase != null);
 
   if (items.length === 0) {
     return (
@@ -228,15 +257,30 @@ function OverviewDefinitionList({
 
   return (
     <Stack spacing={0}>
-      {items.map(([label, value]) => (
+      {items.map(([label, value, phase]) => (
         <OverviewGridRow
           key={`${label}:${value}`}
           label={
-            <Typography sx={inspectorKeyTypographySx} variant="body2">
-              {label}
-            </Typography>
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+              {hasPhaseSwatch ? (
+                phase != null ? (
+                  <TimingPhaseSwatch phase={phase} />
+                ) : (
+                  <TimingPhaseSwatchSlot />
+                )
+              ) : null}
+              <Typography sx={inspectorKeyTypographySx} variant="body2">
+                {label}
+              </Typography>
+            </Stack>
           }
           labelIndent={indent}
+          onHoverChange={
+            onRowHover != null && phase != null
+              ? (hovered) => onRowHover(hovered ? phase : undefined)
+              : undefined
+          }
+          phase={phase}
           value={value}
         />
       ))}
@@ -245,16 +289,23 @@ function OverviewDefinitionList({
 }
 
 function OverviewGridRow({
+  phase,
   label,
   labelIndent = 0,
+  onHoverChange,
   value,
 }: {
+  phase?: TimingPhaseId | undefined;
   label: ReactNode;
   labelIndent?: number;
+  onHoverChange?: ((hovered: boolean) => void) | undefined;
   value?: string | undefined;
 }) {
   return (
     <Box
+      data-phase-row={phase}
+      onMouseEnter={onHoverChange ? () => onHoverChange(true) : undefined}
+      onMouseLeave={onHoverChange ? () => onHoverChange(false) : undefined}
       sx={{
         alignItems: "center",
         columnGap: 3,
@@ -505,6 +556,7 @@ function buildOverviewSections({
       {
         key: "timing",
         title: t("inspector.request.overview.sections.timing"),
+        headerValue: formatTiming(timing?.totalMs ?? session.durationMs, fallback),
         items: [
           [t("inspector.request.overview.fields.requestStartTime"), startedAt],
           [t("inspector.request.overview.fields.requestEndTime"), requestEndTime],
@@ -523,6 +575,7 @@ function buildOverviewSections({
               fallback,
               unavailable,
             ),
+            "dns",
           ],
           [
             t("inspector.request.overview.fields.connect"),
@@ -533,6 +586,7 @@ function buildOverviewSections({
               fallback,
               unavailable,
             ),
+            "connect",
           ],
           [
             t("inspector.request.overview.fields.tlsHandshake"),
@@ -545,18 +599,22 @@ function buildOverviewSections({
               unavailable,
               t,
             ),
+            "tls",
           ],
           [
             t("inspector.request.overview.fields.request"),
             formatRequestPhaseTiming(timing, isImportedTiming, fallback, unavailable),
-          ],
-          [
-            t("inspector.request.overview.fields.response"),
-            formatTiming(timing?.responseReadMs, fallback),
+            "send",
           ],
           [
             t("inspector.request.overview.fields.latency"),
             formatTiming(timing?.waitingMs, fallback),
+            "wait",
+          ],
+          [
+            t("inspector.request.overview.fields.response"),
+            formatTiming(timing?.responseReadMs, fallback),
+            "download",
           ],
           [
             t("inspector.request.overview.fields.speed"),

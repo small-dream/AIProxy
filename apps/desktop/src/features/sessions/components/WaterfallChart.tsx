@@ -1,72 +1,126 @@
-import { Box, Stack, Tooltip, Typography } from "@mui/material";
+import { Box, Tooltip, Typography, useTheme } from "@mui/material";
+import type { Theme } from "@mui/material/styles";
 import type { TimingBreakdown } from "@aiproxy/shared-types";
 
 import { useI18n, type TranslationKey } from "@/i18n";
+import { formatTiming } from "./session-inspector.helpers";
 
-type WaterfallPhase = {
-  color: string;
+export type TimingPhaseId = "dns" | "connect" | "tls" | "send" | "wait" | "download";
+
+type TimingPhaseDefinition = {
+  field: keyof TimingBreakdown;
+  id: TimingPhaseId;
   labelKey: TranslationKey;
-  valueMs: number | undefined;
 };
 
-const PHASE_COLORS = {
-  dns: "#6baed6",
-  connect: "#fd8d3c",
-  tls: "#74c476",
-  send: "#9e9e9e",
-  wait: "#e6550d",
-  download: "#756bb1",
-} as const;
+export type TimingSegment = {
+  color: string;
+  id: TimingPhaseId;
+  labelKey: TranslationKey;
+  percent: number;
+  valueMs: number;
+};
 
-const GAP_MARKER_WIDTH = 2;
+type PaletteMode = Theme["palette"]["mode"];
 
-const PHASE_KEYS = [
+const BAR_HEIGHT = 10;
+const SWATCH_SIZE = 8;
+const DIM_OPACITY = 0.3;
+
+// Muted chart palette: the phases stay distinguishable inside a thin strip
+// without competing with the neutral key/value rows around them.
+const PHASE_COLORS: Record<TimingPhaseId, Record<PaletteMode, string>> = {
+  connect: { dark: "#dfae7c", light: "#c9925c" },
+  dns: { dark: "#7fb3d0", light: "#6a9fbf" },
+  download: { dark: "#a29ed0", light: "#8a86b8" },
+  send: { dark: "#a8afb6", light: "#98a0a8" },
+  tls: { dark: "#93bd93", light: "#7ba97b" },
+  wait: { dark: "#d98a5a", light: "#c1662f" },
+};
+
+// Phase labels reuse the overview field labels so the strip and the rows below
+// it never describe the same phase with two different words.
+const TIMING_PHASES: readonly TimingPhaseDefinition[] = [
+  { field: "dnsMs", id: "dns", labelKey: "inspector.request.overview.fields.dns" },
+  { field: "connectMs", id: "connect", labelKey: "inspector.request.overview.fields.connect" },
+  { field: "tlsMs", id: "tls", labelKey: "inspector.request.overview.fields.tlsHandshake" },
+  { field: "requestSendMs", id: "send", labelKey: "inspector.request.overview.fields.request" },
+  { field: "waitingMs", id: "wait", labelKey: "inspector.request.overview.fields.latency" },
   {
-    color: PHASE_COLORS.dns,
-    labelKey: "inspector.waterfall.dns" as TranslationKey,
-    field: "dnsMs" as const,
-  },
-  {
-    color: PHASE_COLORS.connect,
-    labelKey: "inspector.waterfall.connect" as TranslationKey,
-    field: "connectMs" as const,
-  },
-  {
-    color: PHASE_COLORS.tls,
-    labelKey: "inspector.waterfall.tls" as TranslationKey,
-    field: "tlsMs" as const,
-  },
-  {
-    color: PHASE_COLORS.send,
-    labelKey: "inspector.waterfall.send" as TranslationKey,
-    field: "requestSendMs" as const,
-  },
-  {
-    color: PHASE_COLORS.wait,
-    labelKey: "inspector.waterfall.wait" as TranslationKey,
-    field: "waitingMs" as const,
-  },
-  {
-    color: PHASE_COLORS.download,
-    labelKey: "inspector.waterfall.download" as TranslationKey,
-    field: "responseReadMs" as const,
+    field: "responseReadMs",
+    id: "download",
+    labelKey: "inspector.request.overview.fields.response",
   },
 ];
 
-export function WaterfallChart({ timing }: { timing: TimingBreakdown | undefined }) {
+export function getTimingPhaseColor(phase: TimingPhaseId, mode: PaletteMode): string {
+  return PHASE_COLORS[phase][mode];
+}
+
+/**
+ * Builds the timing strip segments. Unmeasured phases are dropped instead of
+ * being drawn as placeholders, so the strip never shows unexplained slivers.
+ */
+export function buildTimingSegments({
+  mode,
+  timing,
+}: {
+  mode: PaletteMode;
+  timing: TimingBreakdown | undefined;
+}): TimingSegment[] {
+  const measured = TIMING_PHASES.flatMap((definition) => {
+    const valueMs = timing?.[definition.field];
+
+    return valueMs == null ? [] : [{ ...definition, valueMs }];
+  });
+  const scale = resolveScale(
+    measured.map((phase) => phase.valueMs),
+    timing?.totalMs,
+  );
+
+  return measured.map((phase) => ({
+    color: getTimingPhaseColor(phase.id, mode),
+    id: phase.id,
+    labelKey: phase.labelKey,
+    percent: (phase.valueMs / scale) * 100,
+    valueMs: phase.valueMs,
+  }));
+}
+
+export function TimingPhaseSwatch({ phase }: { phase: TimingPhaseId }) {
+  const theme = useTheme();
+
+  return (
+    <Box
+      aria-hidden
+      sx={{
+        bgcolor: getTimingPhaseColor(phase, theme.palette.mode),
+        borderRadius: "50%",
+        flex: "0 0 auto",
+        height: SWATCH_SIZE,
+        width: SWATCH_SIZE,
+      }}
+    />
+  );
+}
+
+/** Keeps labels aligned in lists where only some rows carry a phase swatch. */
+export function TimingPhaseSwatchSlot() {
+  return <Box aria-hidden sx={{ flex: "0 0 auto", height: SWATCH_SIZE, width: SWATCH_SIZE }} />;
+}
+
+export function WaterfallChart({
+  activePhase,
+  timing,
+}: {
+  activePhase?: TimingPhaseId | undefined;
+  timing: TimingBreakdown | undefined;
+}) {
   const { t } = useI18n();
+  const theme = useTheme();
+  const segments = buildTimingSegments({ mode: theme.palette.mode, timing });
 
-  const totalMs = timing?.totalMs;
-  const hasTimingData =
-    timing &&
-    (timing.dnsMs != null ||
-      timing.connectMs != null ||
-      timing.tlsMs != null ||
-      timing.requestSendMs != null ||
-      timing.waitingMs != null ||
-      timing.responseReadMs != null);
-
-  if (!hasTimingData && (totalMs == null || totalMs === 0)) {
+  if (segments.length === 0 && (timing?.totalMs == null || timing.totalMs === 0)) {
     return (
       <Typography
         variant="body2"
@@ -88,168 +142,55 @@ export function WaterfallChart({ timing }: { timing: TimingBreakdown | undefined
     );
   }
 
-  const phases: WaterfallPhase[] = PHASE_KEYS.map((def) => ({
-    color: def.color,
-    labelKey: def.labelKey,
-    valueMs: timing?.[def.field],
-  }));
-
-  const scale = resolveScale(phases, totalMs);
-
-  return (
-    <Stack spacing={0.5}>
-      <Stack
-        direction="row"
-        spacing={1}
-        sx={{
-          alignItems: "center",
-        }}
-      >
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <WaterfallBar phases={phases} scale={scale} />
-        </Box>
-        <Typography
-          sx={{
-            color: "text.secondary",
-            flex: "0 0 auto",
-            fontSize: (theme) => {
-              const scale = theme.typography.fontSize / 14;
-              return `${scale * 12}px`;
-            },
-            fontWeight: 500,
-            lineHeight: 1,
-            minWidth: 48,
-            textAlign: "right",
-            fontVariantNumeric: "tabular-nums",
-          }}
-          variant="body2"
-        >
-          {totalMs != null ? `${totalMs} ms` : ""}
-        </Typography>
-      </Stack>
-      <WaterfallLegend phases={phases} />
-    </Stack>
-  );
-}
-
-function WaterfallBar({ phases, scale }: { phases: WaterfallPhase[]; scale: number }) {
   return (
     <Box
+      data-timing-bar=""
       sx={{
         alignItems: "stretch",
-        bgcolor: (theme) =>
-          theme.palette.mode === "dark" ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)",
-        borderRadius: 0.5,
+        bgcolor: "action.hover",
+        borderRadius: 0.25,
         display: "flex",
-        height: 24,
+        height: BAR_HEIGHT,
         overflow: "hidden",
         width: "100%",
       }}
     >
-      {phases.map((phase) => {
-        if (phase.valueMs == null) {
-          return (
-            <Box
-              key={phase.labelKey}
-              sx={{
-                bgcolor: "rgba(128, 128, 128, 0.3)",
-                width: GAP_MARKER_WIDTH,
-              }}
-            />
-          );
-        }
-
-        const percentage = (phase.valueMs / scale) * 100;
-
-        return (
+      {segments.length === 0 ? (
+        <Box sx={{ bgcolor: "action.disabledBackground", width: "100%" }} />
+      ) : (
+        segments.map((segment) => (
           <Tooltip
-            key={phase.labelKey}
-            title={`${phase.valueMs} ms`}
             arrow
             enterDelay={200}
+            key={segment.id}
             placement="top"
+            title={`${t(segment.labelKey)} · ${formatTiming(segment.valueMs)} · ${Math.round(
+              segment.percent,
+            )}%`}
           >
             <Box
+              data-timing-phase={segment.id}
               sx={{
-                bgcolor: phase.color,
+                bgcolor: segment.color,
                 minWidth: 2,
-                width: `${percentage}%`,
-                "&:hover": {
-                  filter: "brightness(1.2)",
-                },
-                transition: "filter 120ms ease",
+                opacity: activePhase == null || activePhase === segment.id ? 1 : DIM_OPACITY,
+                transition: "opacity 120ms ease",
+                width: `${segment.percent}%`,
               }}
             />
           </Tooltip>
-        );
-      })}
+        ))
+      )}
     </Box>
   );
 }
 
-function WaterfallLegend({ phases }: { phases: WaterfallPhase[] }) {
-  const { t } = useI18n();
-
-  return (
-    <Stack
-      direction="row"
-      spacing={1.25}
-      sx={{
-        flexWrap: "wrap",
-        pt: 0.25,
-      }}
-    >
-      {phases.map((phase) => (
-        <Stack
-          key={phase.labelKey}
-          direction="row"
-          spacing={0.5}
-          sx={{
-            alignItems: "center",
-          }}
-        >
-          <Box
-            sx={{
-              bgcolor: phase.color,
-              borderRadius: 0.25,
-              height: 8,
-              width: 8,
-            }}
-          />
-          <Typography
-            sx={{
-              color: "text.secondary",
-
-              fontSize: (theme) => {
-                const scale = theme.typography.fontSize / 14;
-                return `${scale * 10.5}px`;
-              },
-
-              lineHeight: 1.25,
-            }}
-          >
-            {t(phase.labelKey)}
-          </Typography>
-        </Stack>
-      ))}
-    </Stack>
-  );
-}
-
-function resolveScale(phases: WaterfallPhase[], totalMs: number | undefined): number {
+function resolveScale(values: number[], totalMs: number | undefined): number {
   if (totalMs != null && totalMs > 0) {
     return totalMs;
   }
 
-  let sum = 0;
-  let hasValue = false;
+  const sum = values.reduce((total, value) => total + value, 0);
 
-  for (const phase of phases) {
-    if (phase.valueMs != null) {
-      sum += phase.valueMs;
-      hasValue = true;
-    }
-  }
-
-  return hasValue && sum > 0 ? sum : 1;
+  return sum > 0 ? sum : 1;
 }
