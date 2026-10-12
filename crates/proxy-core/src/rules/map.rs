@@ -150,6 +150,7 @@ fn build_local_file_response(path: &Path) -> Result<UpstreamResponse, String> {
         connect_ms: 0,
         dns_ms: 0,
         connection_reused: None,
+        connection_wait_ms: None,
         request_send_ms: None,
         response_body_size_bytes: body.len(),
         response_body: body,

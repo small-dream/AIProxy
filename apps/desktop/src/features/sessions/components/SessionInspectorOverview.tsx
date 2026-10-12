@@ -508,6 +508,12 @@ function buildOverviewSections({
   // session was noise, not information.
   const requestSendMs = timing?.requestSendMs ?? undefined;
   const hasRequestSendTiming = requestSendMs != null;
+  // Waiting inside the upstream connection pool for another request's in-flight
+  // dial is real latency that belongs to no phase of its own: the request never
+  // dialed, so DNS/Connect/TLS only report "Connection reused". Surface it as
+  // its own row so the phases add up to the duration.
+  const connectionWaitMs = timing?.connectionWaitMs ?? undefined;
+  const hasConnectionWait = connectionWaitMs != null && connectionWaitMs > 0;
   const requestQueryBytes = estimateQueryStringBytes(session.url);
   const requestCookieBytes = detail
     ? estimateCookieBytes(detail.requestHeaders, "cookie")
@@ -533,6 +539,13 @@ function buildOverviewSections({
     [t("inspector.request.overview.fields.responseStartTime"), responseStartTime],
     [t("inspector.request.overview.fields.responseEndTime"), responseEndTime],
     [t("common.labels.duration"), formatTiming(timing?.totalMs ?? session.durationMs, fallback)],
+    ...conditionalRows(hasConnectionWait, [
+      [
+        t("inspector.request.overview.fields.connectionWait"),
+        formatTiming(connectionWaitMs, fallback),
+        "pool",
+      ],
+    ]),
     [
       t("inspector.request.overview.fields.dns"),
       formatConnectionPhaseTiming(

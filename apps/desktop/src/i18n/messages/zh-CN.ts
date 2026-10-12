@@ -1533,6 +1533,7 @@ export const zhCNMessages: Messages = {
           clientSettings: "客户端设置",
           compression: "压缩",
           connect: "连接",
+          connectionWait: "连接等待",
           contentType: "Content-Type",
           cookies: "Cookies",
           dns: "DNS",

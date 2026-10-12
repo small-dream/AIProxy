@@ -242,6 +242,11 @@ type TimingBreakdown = {
   // - 缺省：该捕获路径没有观测到出网连接（mock / Map Local / script 合成响应、
   //   Compose 发送的请求），或该字段出现之前抓取的历史会话
   connectionReused?: boolean;
+  // 该请求在上游连接池里排队等待的毫秒数：等另一条同主机请求正在建立的连接
+  // 就绪，或等一个 h1 连接被释放。它属于请求真实耗时，但既不是本请求自己的
+  // 拨号（dnsMs/connectMs/tlsMs），也不在 waitingMs 之内，因此单独成项。
+  // - 缺省：该捕获路径没有上游连接池（合成响应、Compose、HAR 导入）
+  connectionWaitMs?: number;
 };
 
 // Timing 来源标识：
@@ -958,6 +963,7 @@ type GetSessionDetailOutput = SessionDetail;
 - 大体积 raw/body 内容可返回 `rawRequestDeferred`、`rawResponseDeferred`、`textDeferred`、`base64Deferred`，由 `get_session_detail_content` 按需加载
 - 当 `BodyReference.truncated` 为 `true` 时，UI 在请求和响应 Inspector 面板中显示 Alert 警告提示用户 body 已被截断
 - 代理捕获会话的 `timing` 由 `TimingConnector`（hyper）采集，其中 **新建上游连接** 时 `dnsMs`、`connectMs`、`tlsMs` 为实测值，并置 `connectionReused: false`；**复用连接池中的连接** 时置 `connectionReused: true`，`dnsMs`/`connectMs` 为 0、`tlsMs` 缺省，UI 据此显示「复用连接」而不是 0 ms / 缺数据。`waitingMs`、`responseReadMs`、`totalMs` 始终有值
+- `connectionWaitMs` 记录请求在上游连接池里排队的时间（等另一条同主机请求的在途拨号完成，或等 h1 连接释放）。并发冷连接时它会达到与拨号同量级的数百毫秒，此时 `dnsMs`/`connectMs` 为 0（本请求没有拨号），若只展示连接阶段会表现为「总时长 > 各阶段之和」，因此 UI 在 `connectionWaitMs > 0` 时单独显示「连接等待」
 - `requestSendMs`（以及由它推导的请求结束时间、请求速度）对代理捕获会话**始终缺省**：hyper 的 `send_request` 只在拿到响应头之后才 resolve，「请求写完」这一边界在当前架构下不可观测。仅 `"har-import"` 的会话会填充该字段
 - mock / Map Local / script 合成响应没有出网，`connectionReused` 缺省，UI 对连接类阶段显示 `N/A`
 - `timingSource` 标识 timing 数据来源：`"proxy"`（代理捕获，全阶段）、`"compose"`（Compose 发送，仅部分阶段）、`"har-import"`（HAR 导入，取决于原始数据）

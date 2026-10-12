@@ -71,6 +71,19 @@ const IMPORTED_TIMING: SessionDetail["timing"] = {
   waitingMs: 344,
 };
 
+// A pooled request that had to queue behind another request's in-flight dial:
+// it never dialed, so the phases only account for everything after the socket
+// became available.
+const QUEUED_POOL_TIMING: SessionDetail["timing"] = {
+  connectMs: 0,
+  connectionReused: true,
+  connectionWaitMs: 632,
+  dnsMs: 0,
+  responseReadMs: 0,
+  totalMs: 2030,
+  waitingMs: 1398,
+};
+
 function timingHeader() {
   return screen.getByRole("button", { name: /Timing/ });
 }
@@ -136,6 +149,24 @@ describe("SessionInspectorOverview timing section", () => {
 
     expect(within(section).getAllByText("N/A")).toHaveLength(3);
     expect(within(section).queryByText("Connection reused")).not.toBeInTheDocument();
+  });
+
+  it("shows the pool wait ahead of the connection phases and draws it in the strip", () => {
+    const { container } = renderOverview(createSessionDetail({ timing: QUEUED_POOL_TIMING }));
+    const section = timingSection();
+
+    const waitRow = within(section).getByText("Connection wait");
+    const dnsRow = within(section).getByText("DNS");
+
+    expect(within(section).getByText("632 ms")).toBeInTheDocument();
+    expect(waitRow.compareDocumentPosition(dnsRow)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(phaseAttributes(container)).toEqual(["pool", "wait"]);
+  });
+
+  it("hides the pool wait row when the request never queued", () => {
+    renderOverview(createSessionDetail({ timing: { ...PROXY_TIMING, connectionWaitMs: 0 } }));
+
+    expect(within(timingSection()).queryByText("Connection wait")).not.toBeInTheDocument();
   });
 
   it("only lists the request send rows when the timing carries them", () => {

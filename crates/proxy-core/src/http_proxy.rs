@@ -144,6 +144,7 @@ async fn build_upstream_error_response_and_session(
         ProxyTimingBreakdown {
             connect_ms: None,
             connection_reused: None,
+            connection_wait_ms: None,
             dns_ms: None,
             request_send_ms: None,
             response_read_ms: Some(0),
@@ -199,6 +200,7 @@ fn build_upstream_session_detail(
         ProxyTimingBreakdown {
             connect_ms: Some(upstream_response.connect_ms),
             connection_reused: upstream_response.connection_reused,
+            connection_wait_ms: upstream_response.connection_wait_ms,
             dns_ms: Some(upstream_response.dns_ms),
             request_send_ms: upstream_response.request_send_ms,
             response_read_ms: Some(upstream_response.response_read_ms),
@@ -554,6 +556,7 @@ async fn stage_intercept_request_breakpoint(
                             ProxyTimingBreakdown {
                                 connect_ms: None,
                                 connection_reused: None,
+                                connection_wait_ms: None,
                                 dns_ms: None,
                                 request_send_ms: None,
                                 response_read_ms: Some(0),
@@ -602,6 +605,7 @@ async fn stage_intercept_request_breakpoint(
                 ProxyTimingBreakdown {
                     connect_ms: None,
                     connection_reused: None,
+                    connection_wait_ms: None,
                     dns_ms: None,
                     request_send_ms: None,
                     response_read_ms: Some(0),
@@ -822,6 +826,7 @@ async fn stage_forward_upstream(
                         ProxyTimingBreakdown {
                             connect_ms: None,
                             connection_reused: None,
+                            connection_wait_ms: None,
                             dns_ms: None,
                             request_send_ms: None,
                             response_read_ms: Some(0),
@@ -908,6 +913,7 @@ async fn stage_process_upstream_response(
                     ProxyTimingBreakdown {
                         connect_ms: Some(upstream_response.connect_ms),
                         connection_reused: upstream_response.connection_reused,
+                        connection_wait_ms: upstream_response.connection_wait_ms,
                         dns_ms: Some(upstream_response.dns_ms),
                         request_send_ms: upstream_response.request_send_ms,
                         response_read_ms: Some(upstream_response.response_read_ms),
@@ -1252,6 +1258,7 @@ pub(crate) async fn handle_http_request(
                 ProxyTimingBreakdown {
                     connect_ms: None,
                     connection_reused: None,
+                    connection_wait_ms: None,
                     dns_ms: None,
                     request_send_ms: None,
                     response_read_ms: Some(0),
@@ -1868,6 +1875,7 @@ async fn build_throttle_failure_response(
         ProxyTimingBreakdown {
             connect_ms: None,
             connection_reused: None,
+            connection_wait_ms: None,
             dns_ms: None,
             request_send_ms: None,
             response_read_ms: Some(0),
@@ -1988,6 +1996,7 @@ impl Drop for PendingRequestCancellationGuard {
             ProxyTimingBreakdown {
                 connect_ms: None,
                 connection_reused: None,
+                connection_wait_ms: None,
                 dns_ms: None,
                 request_send_ms: None,
                 response_read_ms: Some(0),

@@ -770,8 +770,9 @@ describe("parseSessionDetail", () => {
         timing,
       }).timing;
 
-    expect(detail({ connection_reused: true, total_ms: 3 })).toEqual({
+    expect(detail({ connection_reused: true, connection_wait_ms: 632, total_ms: 3 })).toEqual({
       connectionReused: true,
+      connectionWaitMs: 632,
       totalMs: 3,
     });
     expect(detail({ connectionReused: false, totalMs: 3 })).toEqual({
@@ -784,6 +785,7 @@ describe("parseSessionDetail", () => {
   it("rejects a non-boolean connectionReused marker", () => {
     expect(isTimingBreakdown({ connectionReused: 1, totalMs: 3 })).toBe(false);
     expect(isTimingBreakdown({ connection_reused: "yes", total_ms: 3 })).toBe(false);
+    expect(isTimingBreakdown({ connection_wait_ms: "632", total_ms: 3 })).toBe(false);
     expect(isTimingBreakdown({ connectionReused: null, totalMs: 3 })).toBe(true);
   });
 

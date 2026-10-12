@@ -459,6 +459,7 @@ pub(crate) fn build_pending_session_detail(
         timing: Some(ProxyTimingBreakdown {
             connect_ms: None,
             connection_reused: None,
+            connection_wait_ms: None,
             dns_ms: None,
             request_send_ms: None,
             response_read_ms: None,

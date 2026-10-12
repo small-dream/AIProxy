@@ -886,6 +886,7 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
         connect_ms: 0,
         dns_ms: 0,
         connection_reused: None,
+        connection_wait_ms: None,
         request_send_ms: None,
         response_body: body,
         response_body_size_bytes: body_len,

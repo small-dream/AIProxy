@@ -1605,6 +1605,7 @@ export const enMessages = {
           clientSettings: "Client Settings",
           compression: "Compression",
           connect: "Connect",
+          connectionWait: "Connection wait",
           contentType: "Content-Type",
           cookies: "Cookies",
           dns: "DNS",

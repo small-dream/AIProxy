@@ -211,6 +211,7 @@ fn applies_breakpoint_response_status_edits() {
         connect_ms: 0,
         dns_ms: 0,
         connection_reused: None,
+        connection_wait_ms: None,
         request_send_ms: None,
         response_body: b"{}".to_vec(),
         response_body_size_bytes: 2,
@@ -249,6 +250,7 @@ fn applies_breakpoint_response_body_edits_as_plain_body() {
         connect_ms: 0,
         dns_ms: 0,
         connection_reused: None,
+        connection_wait_ms: None,
         request_send_ms: None,
         response_body: b"original".to_vec(),
         response_body_size_bytes: 8,
@@ -392,6 +394,7 @@ fn serializes_raw_messages_from_heads_and_body_references() {
         timing: Some(ProxyTimingBreakdown {
             connect_ms: None,
             connection_reused: None,
+            connection_wait_ms: None,
             dns_ms: None,
             request_send_ms: None,
             response_read_ms: Some(1),
@@ -746,6 +749,7 @@ fn applies_response_body_rewrite_as_plain_body() {
         connect_ms: 0,
         dns_ms: 0,
         connection_reused: None,
+        connection_wait_ms: None,
         request_send_ms: None,
         response_body: b"original".to_vec(),
         response_body_size_bytes: 8,
@@ -835,6 +839,7 @@ fn m3_response_body_rewrite_noop_preserves_integrity_headers() {
         connect_ms: 0,
         dns_ms: 0,
         connection_reused: None,
+        connection_wait_ms: None,
         request_send_ms: None,
         response_body: br#"{"unchanged":true}"#.to_vec(),
         response_body_size_bytes: 18,
@@ -1276,6 +1281,7 @@ fn isolates_a_failing_response_rewrite_rule_and_continues_cascade() {
         connect_ms: 0,
         dns_ms: 0,
         connection_reused: None,
+        connection_wait_ms: None,
         request_send_ms: None,
         response_body: b"plain-text-not-json".to_vec(),
         response_body_size_bytes: 20,
@@ -1448,6 +1454,7 @@ fn applies_response_body_rewrite_to_json_array_fields() {
         connect_ms: 0,
         dns_ms: 0,
         connection_reused: None,
+        connection_wait_ms: None,
         request_send_ms: None,
         response_body: br#"{"items":[{"name":"original"},{"count":1}]}"#.to_vec(),
         response_body_size_bytes: 41,
@@ -2699,6 +2706,12 @@ async fn session_timing_distinguishes_a_fresh_dial_from_a_pooled_reuse() {
     assert!(timings
         .iter()
         .all(|timing| timing.request_send_ms.is_none()));
+
+    // Sequential requests never queue for a connection, so the pool wait must
+    // stay at zero rather than absorbing the dial it did not wait for.
+    assert!(timings
+        .iter()
+        .all(|timing| timing.connection_wait_ms == Some(0)));
 
     proxy.server_handle.shutdown().await;
     upstream_task.await.unwrap();

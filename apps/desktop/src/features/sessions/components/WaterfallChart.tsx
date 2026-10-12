@@ -5,12 +5,13 @@ import type { TimingBreakdown } from "@aiproxy/shared-types";
 import { useI18n, type TranslationKey } from "@/i18n";
 import { formatTiming } from "./session-inspector.helpers";
 
-export type TimingPhaseId = "dns" | "connect" | "tls" | "send" | "wait" | "download";
+export type TimingPhaseId = "pool" | "dns" | "connect" | "tls" | "send" | "wait" | "download";
 
 // `TimingBreakdown` also carries non-numeric markers (e.g. `connectionReused`);
 // only the millisecond fields can be drawn as segments.
 export type TimingPhaseField =
   | "connectMs"
+  | "connectionWaitMs"
   | "dnsMs"
   | "requestSendMs"
   | "responseReadMs"
@@ -43,6 +44,7 @@ const PHASE_COLORS: Record<TimingPhaseId, Record<PaletteMode, string>> = {
   connect: { dark: "#dfae7c", light: "#c9925c" },
   dns: { dark: "#7fb3d0", light: "#6a9fbf" },
   download: { dark: "#a29ed0", light: "#8a86b8" },
+  pool: { dark: "#c2be75", light: "#a8a45e" },
   send: { dark: "#a8afb6", light: "#98a0a8" },
   tls: { dark: "#93bd93", light: "#7ba97b" },
   wait: { dark: "#d98a5a", light: "#c1662f" },
@@ -51,6 +53,11 @@ const PHASE_COLORS: Record<TimingPhaseId, Record<PaletteMode, string>> = {
 // Phase labels reuse the overview field labels so the strip and the rows below
 // it never describe the same phase with two different words.
 const TIMING_PHASES: readonly TimingPhaseDefinition[] = [
+  {
+    field: "connectionWaitMs",
+    id: "pool",
+    labelKey: "inspector.request.overview.fields.connectionWait",
+  },
   { field: "dnsMs", id: "dns", labelKey: "inspector.request.overview.fields.dns" },
   { field: "connectMs", id: "connect", labelKey: "inspector.request.overview.fields.connect" },
   { field: "tlsMs", id: "tls", labelKey: "inspector.request.overview.fields.tlsHandshake" },

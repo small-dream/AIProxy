@@ -1062,8 +1062,9 @@ Insights Page
 - `KeyValueEditor`
 - `BodyEditor`
 - `TimingPanel`
-- `WaterfallChart` — 时序细条堆叠图（10px 高、无图例），展示请求 timing 各阶段（dns / connect / tls / request_send / waiting / response_read）耗时占比；总耗时放在「时序」分组标题的数值列，未采集阶段与 0 ms 阶段都不绘制色块（0 ms 若绘制会因 2px 最小宽度被误读成占了时间），根据 `timingSource` 调整展示粒度。阶段配色为低饱和主题色（明暗主题各一套），阶段与下方字段行通过行首色点一一对应；悬停字段行时高亮对应阶段、其余阶段降透明度，Tooltip 显示「阶段 · 耗时 · 占比」，阶段文案复用 `inspector.request.overview.fields.*`
+- `WaterfallChart` — 时序细条堆叠图（10px 高、无图例），展示请求 timing 各阶段（连接等待 / dns / connect / tls / request_send / waiting / response_read）耗时占比；总耗时放在「时序」分组标题的数值列，未采集阶段与 0 ms 阶段都不绘制色块（0 ms 若绘制会因 2px 最小宽度被误读成占了时间），根据 `timingSource` 调整展示粒度。阶段配色为低饱和主题色（明暗主题各一套），阶段与下方字段行通过行首色点一一对应；悬停字段行时高亮对应阶段、其余阶段降透明度，Tooltip 显示「阶段 · 耗时 · 占比」，阶段文案复用 `inspector.request.overview.fields.*`
 - 时序阶段取值遵循「有多少说多少」：连接类阶段（DNS / Connect / TLS Handshake）**新建连接**给实测毫秒，**复用连接**（`connectionReused: true`）统一显示「复用连接」，**未观测到出网**或缺字段时显示 `N/A`，不使用 `Unavailable`；只有真正被采集过的阶段（当前仅 HAR 导入的 `requestSendMs`）才渲染对应字段行，缺数据的行直接不出现，而不是占一行 `Unavailable`
+- 「连接等待」（`connectionWaitMs`）与其它阶段一样只在有值时出现：它是请求在连接池里排队等连接就绪的时间，并发冷连接时会明显到数百毫秒，必须单独成行/成段，否则各阶段加起来会小于总时长，用户无法解释差在哪
 - `CookiePanel`
 - `RawPanel`
 - `RuleList`

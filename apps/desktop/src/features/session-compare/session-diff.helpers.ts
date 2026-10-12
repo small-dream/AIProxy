@@ -88,6 +88,7 @@ function diffTiming(
 ): SessionDiffSection {
   // Millisecond phases only — `connectionReused` is a marker, not a duration.
   const keys = [
+    "connectionWaitMs",
     "dnsMs",
     "connectMs",
     "tlsMs",

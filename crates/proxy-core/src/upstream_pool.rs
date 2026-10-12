@@ -15,6 +15,13 @@ const MAX_H1_CONNECTIONS_PER_KEY: usize = 4;
 
 use crate::timing_connector::ConnectionTiming;
 
+/// Test-only hook that delays the dial of one specific `host:port` so tests can
+/// observe a request waiting inside the pool for another request's in-flight
+/// dial. Scoped to a single key (never a global switch) so parallel tests that
+/// dial other hosts are unaffected.
+#[cfg(test)]
+pub(crate) static TEST_DIAL_DELAY: Mutex<Option<(String, u16, Duration)>> = Mutex::new(None);
+
 pub(crate) type H1RequestBody = BoxBody<Bytes, Infallible>;
 pub(crate) type H1Sender = hyper::client::conn::http1::SendRequest<H1RequestBody>;
 type H2RequestBody = BoxBody<Bytes, String>;
@@ -385,6 +392,11 @@ impl UpstreamConnectionPool {
     /// new h1 or h2 connection. H1 contention is bounded independently from
     /// the request head timeout; busy connections may grow up to the per-key
     /// limit before callers wait briefly for a lease to be released.
+    ///
+    /// Also reports how long this caller spent queued inside the pool: waiting
+    /// for another request's in-flight dial to finish, or for an h1 lease to be
+    /// released. That wait is real request latency but belongs to no dial of
+    /// its own, so the caller surfaces it as a separate timing phase.
     pub(crate) async fn get_or_connect(
         self: &Arc<Self>,
         key: &UpstreamKey,
@@ -392,7 +404,9 @@ impl UpstreamConnectionPool {
         verify_upstream_tls: bool,
         tls_verify_hosts: Arc<[String]>,
         upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
-    ) -> Result<UpstreamConnection, String> {
+    ) -> Result<(UpstreamConnection, u128), String> {
+        let mut waited_ms = 0_u128;
+
         loop {
             enum Action {
                 Wait(watch::Receiver<Option<Arc<PooledConnection>>>),
@@ -417,7 +431,7 @@ impl UpstreamConnectionPool {
 
                     for connection in entries.iter().cloned() {
                         if let Some(acquired) = PooledConnection::try_acquire(connection, None) {
-                            return Ok(acquired);
+                            return Ok((acquired, waited_ms));
                         }
                     }
 
@@ -471,6 +485,7 @@ impl UpstreamConnectionPool {
 
             match action {
                 Action::Queue => {
+                    let waited_started_at = Instant::now();
                     tokio::time::timeout(
                         crate::timeout_for(crate::TimeoutKind::UpstreamPoolH1LeaseWait),
                         self.h1_notify.notified(),
@@ -482,11 +497,14 @@ impl UpstreamConnectionPool {
                             crate::timeout_for(crate::TimeoutKind::UpstreamPoolH1LeaseWait)
                         )
                     })?;
+                    waited_ms += waited_started_at.elapsed().as_millis();
                 }
                 Action::Wait(mut rx) => {
+                    let waited_started_at = Instant::now();
                     if rx.changed().await.is_err() {
                         remove_pending_entry_if_current(&self.pending, key, &rx);
                     }
+                    waited_ms += waited_started_at.elapsed().as_millis();
                 }
                 Action::Connect {
                     pending,
@@ -534,7 +552,7 @@ impl UpstreamConnectionPool {
                                 Arc::clone(&pooled),
                                 Some(connection_timing),
                             ) {
-                                return Ok(connection);
+                                return Ok((connection, waited_ms));
                             }
                             self.evict_if_same(key, &pooled).await;
                             return Err("newly connected upstream is unavailable".to_string());
@@ -560,6 +578,19 @@ impl UpstreamConnectionPool {
         tls_verify_hosts: Arc<[String]>,
         upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
     ) -> Result<(Arc<PooledConnection>, ConnectionTiming), String> {
+        #[cfg(test)]
+        {
+            let dial_delay = TEST_DIAL_DELAY
+                .lock()
+                .ok()
+                .and_then(|guard| guard.as_ref().cloned())
+                .filter(|(host, port, _)| host == &key.host && *port == key.port)
+                .map(|(_, _, delay)| delay);
+            if let Some(delay) = dial_delay {
+                tokio::time::sleep(delay).await;
+            }
+        }
+
         let mut connector = crate::timing_connector::TimingConnector::new(
             dns_override_ip,
             verify_upstream_tls,
@@ -1086,5 +1117,99 @@ mod tests {
     fn pool_default_idle_timeout() {
         let pool = UpstreamConnectionPool::new();
         assert_eq!(pool.idle_timeout, Duration::from_secs(60));
+    }
+
+    /// Clears the dial-delay hook even when the test panics, so a leftover
+    /// delay can never slow down (or hang) an unrelated test that later binds
+    /// the same port.
+    struct DialDelayGuard;
+
+    impl Drop for DialDelayGuard {
+        fn drop(&mut self) {
+            *TEST_DIAL_DELAY
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        }
+    }
+
+    fn delay_dial_for(host: &str, port: u16, delay: Duration) -> DialDelayGuard {
+        *TEST_DIAL_DELAY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((host.to_string(), port, delay));
+        DialDelayGuard
+    }
+
+    /// A caller that arrives while another request is still dialing the same
+    /// key must report how long it waited for that dial. The wait is real
+    /// request latency, but it belongs to no dial of its own, so the pool
+    /// hands it back to the caller instead of letting it vanish into the
+    /// request's total.
+    #[tokio::test]
+    async fn get_or_connect_reports_waiting_for_another_requests_in_flight_dial() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let upstream_port = listener.local_addr().unwrap().port();
+        // The pool only needs the dial itself to succeed; a peer that never
+        // speaks HTTP/1.1 keeps the h1 connection alive for the whole test.
+        let upstream_task = tokio::spawn(async move {
+            let mut accepted = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                accepted.push(socket);
+            }
+        });
+
+        let pool = Arc::new(UpstreamConnectionPool::new());
+        let key = UpstreamKey {
+            scheme: "http".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: upstream_port,
+        };
+        let _delay_guard = delay_dial_for("127.0.0.1", upstream_port, Duration::from_millis(400));
+
+        let connect = {
+            let pool = Arc::clone(&pool);
+            let key = key.clone();
+            move || {
+                let pool = Arc::clone(&pool);
+                let key = key.clone();
+                async move {
+                    pool.get_or_connect(&key, None, false, Arc::from(Vec::<String>::new()), None)
+                        .await
+                }
+            }
+        };
+
+        let dialer = tokio::spawn(connect());
+        // Let the first caller register its pending dial and enter the connector.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let queued = tokio::spawn(connect());
+        // The second caller is now parked on the in-flight dial, so a longer
+        // delay can no longer shorten what it observes.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        *TEST_DIAL_DELAY
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+
+        let (dialer_connection, dialer_wait_ms) = dialer.await.unwrap().unwrap();
+        let (queued_connection, queued_wait_ms) = queued.await.unwrap().unwrap();
+
+        // The dialer went straight to the connector and never queued.
+        assert!(matches!(dialer_connection, UpstreamConnection::H1 { .. }));
+        assert_eq!(dialer_wait_ms, 0);
+
+        // The follower paid the wait for that dial and reports it instead of
+        // reporting a dial of its own that took no time.
+        assert!(matches!(queued_connection, UpstreamConnection::H1 { .. }));
+        assert!(
+            queued_wait_ms >= 200,
+            "expected the queued caller to report the in-flight dial it waited for, got {queued_wait_ms} ms"
+        );
+
+        drop(dialer_connection);
+        drop(queued_connection);
+        pool.shutdown().await;
+        upstream_task.abort();
     }
 }

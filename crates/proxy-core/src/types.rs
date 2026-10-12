@@ -436,6 +436,11 @@ pub struct ProxyTimingBreakdown {
     /// responses) or when the capture path never observes the dial, so the UI
     /// can tell "reused the connection" apart from an unmeasured phase.
     pub connection_reused: Option<bool>,
+    /// Time this request spent queued inside the upstream connection pool,
+    /// waiting for another request's in-flight dial to finish (or for an h1
+    /// lease to be released). `None` when the capture path has no upstream
+    /// connection to check out.
+    pub connection_wait_ms: Option<u128>,
     pub dns_ms: Option<u128>,
     pub request_send_ms: Option<u128>,
     pub response_read_ms: Option<u128>,
@@ -712,6 +717,9 @@ pub(crate) struct UpstreamResponse {
     /// connection pool. `None` for synthesized responses (mock, Map Local,
     /// script override) that never dialed.
     pub(crate) connection_reused: Option<bool>,
+    /// Time spent waiting inside the connection pool before this request could
+    /// use (or dial) its upstream connection. `None` for synthesized responses.
+    pub(crate) connection_wait_ms: Option<u128>,
     pub(crate) dns_ms: u128,
     /// Time spent writing the request to the socket. Always `None` for
     /// proxy-captured traffic: hyper resolves `send_request` only once the
