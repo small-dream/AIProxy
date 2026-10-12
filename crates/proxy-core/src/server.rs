@@ -760,6 +760,7 @@ pub async fn send_direct_request_bytes(
 
     let timing = ProxyTimingBreakdown {
         connect_ms: None,
+        connection_reused: None,
         dns_ms: None,
         request_send_ms: None,
         response_read_ms: Some(response_read_ms),

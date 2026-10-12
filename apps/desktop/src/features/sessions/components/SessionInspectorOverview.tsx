@@ -31,6 +31,12 @@ import {
 
 type OverviewItem = [label: string, value: string, phase?: TimingPhaseId];
 
+/** Contributes rows only when `condition` holds, so conditional rows keep their
+ * place in the list without pushing the rest of the list around. */
+function conditionalRows(condition: boolean, rows: OverviewItem[]): OverviewItem[] {
+  return condition ? rows : [];
+}
+
 type OverviewSection = {
   key: string;
   title: string;
@@ -486,19 +492,22 @@ function buildOverviewSections({
   const timing = detail?.timing;
   const startedAt = formatTimestamp(session.startedAt, fallback);
   const isImportedTiming = isImportedHarSession(session);
-  const unavailable = t("common.states.unavailable");
+  const reusedConnection = t("common.states.reusedConnection");
+  const na = t("common.states.na");
   const responseStartOffsetMs = getResponseStartOffsetMs(timing);
-  const requestEndTime = formatOffsetTimestamp(
-    session.startedAt,
-    getRequestEndOffsetMs(timing, isImportedTiming),
-    fallback,
-  );
   const responseStartTime = formatOffsetTimestamp(
     session.startedAt,
     responseStartOffsetMs,
     fallback,
   );
   const responseEndTime = formatTimestamp(session.finishedAt, fallback);
+  // The proxy cannot observe when a request finished being written (hyper only
+  // resolves `send_request` once the response head arrives), so the request
+  // send/end/speed rows only exist for capture paths that actually measure it
+  // — currently HAR imports. Showing them as "Unavailable" for every proxied
+  // session was noise, not information.
+  const requestSendMs = timing?.requestSendMs ?? undefined;
+  const hasRequestSendTiming = requestSendMs != null;
   const requestQueryBytes = estimateQueryStringBytes(session.url);
   const requestCookieBytes = detail
     ? estimateCookieBytes(detail.requestHeaders, "cookie")
@@ -513,6 +522,86 @@ function buildOverviewSections({
     : session.statusCode > 0
       ? t("inspector.request.overview.complete")
       : t("common.states.pending");
+  const timingItems: OverviewItem[] = [
+    [t("inspector.request.overview.fields.requestStartTime"), startedAt],
+    ...conditionalRows(hasRequestSendTiming, [
+      [
+        t("inspector.request.overview.fields.requestEndTime"),
+        formatOffsetTimestamp(session.startedAt, getRequestEndOffsetMs(timing), fallback),
+      ],
+    ]),
+    [t("inspector.request.overview.fields.responseStartTime"), responseStartTime],
+    [t("inspector.request.overview.fields.responseEndTime"), responseEndTime],
+    [t("common.labels.duration"), formatTiming(timing?.totalMs ?? session.durationMs, fallback)],
+    [
+      t("inspector.request.overview.fields.dns"),
+      formatConnectionPhaseTiming(
+        timing?.dnsMs,
+        timing,
+        isImportedTiming,
+        fallback,
+        reusedConnection,
+        na,
+      ),
+      "dns",
+    ],
+    [
+      t("inspector.request.overview.fields.connect"),
+      formatConnectionPhaseTiming(
+        timing?.connectMs,
+        timing,
+        isImportedTiming,
+        fallback,
+        reusedConnection,
+        na,
+      ),
+      "connect",
+    ],
+    [
+      t("inspector.request.overview.fields.tlsHandshake"),
+      formatTlsTiming(
+        timing?.tlsMs,
+        timing,
+        protocolMetadata.scheme,
+        isImportedTiming,
+        fallback,
+        reusedConnection,
+        na,
+      ),
+      "tls",
+    ],
+    ...conditionalRows(hasRequestSendTiming, [
+      [
+        t("inspector.request.overview.fields.request"),
+        formatTiming(requestSendMs, fallback),
+        "send",
+      ],
+    ]),
+    [
+      t("inspector.request.overview.fields.latency"),
+      formatTiming(timing?.waitingMs, fallback),
+      "wait",
+    ],
+    [
+      t("inspector.request.overview.fields.response"),
+      formatTiming(timing?.responseReadMs, fallback),
+      "download",
+    ],
+    [
+      t("inspector.request.overview.fields.speed"),
+      formatBytesPerSecond(totalBytes, timing?.totalMs ?? session.durationMs, fallback, t),
+    ],
+    ...conditionalRows(hasRequestSendTiming, [
+      [
+        t("inspector.request.overview.fields.requestSpeed"),
+        formatBytesPerSecond(requestTotalBytes, requestSendMs, fallback, t),
+      ],
+    ]),
+    [
+      t("inspector.request.overview.fields.responseSpeed"),
+      formatBytesPerSecond(responseTotalBytes, timing?.responseReadMs, fallback, t),
+    ],
+  ];
 
   return {
     sections: [
@@ -557,85 +646,7 @@ function buildOverviewSections({
         key: "timing",
         title: t("inspector.request.overview.sections.timing"),
         headerValue: formatTiming(timing?.totalMs ?? session.durationMs, fallback),
-        items: [
-          [t("inspector.request.overview.fields.requestStartTime"), startedAt],
-          [t("inspector.request.overview.fields.requestEndTime"), requestEndTime],
-          [t("inspector.request.overview.fields.responseStartTime"), responseStartTime],
-          [t("inspector.request.overview.fields.responseEndTime"), responseEndTime],
-          [
-            t("common.labels.duration"),
-            formatTiming(timing?.totalMs ?? session.durationMs, fallback),
-          ],
-          [
-            t("inspector.request.overview.fields.dns"),
-            formatConnectionPhaseTiming(
-              timing?.dnsMs,
-              timing,
-              isImportedTiming,
-              fallback,
-              unavailable,
-            ),
-            "dns",
-          ],
-          [
-            t("inspector.request.overview.fields.connect"),
-            formatConnectionPhaseTiming(
-              timing?.connectMs,
-              timing,
-              isImportedTiming,
-              fallback,
-              unavailable,
-            ),
-            "connect",
-          ],
-          [
-            t("inspector.request.overview.fields.tlsHandshake"),
-            formatTlsTiming(
-              timing?.tlsMs,
-              timing,
-              protocolMetadata.scheme,
-              isImportedTiming,
-              fallback,
-              unavailable,
-              t,
-            ),
-            "tls",
-          ],
-          [
-            t("inspector.request.overview.fields.request"),
-            formatRequestPhaseTiming(timing, isImportedTiming, fallback, unavailable),
-            "send",
-          ],
-          [
-            t("inspector.request.overview.fields.latency"),
-            formatTiming(timing?.waitingMs, fallback),
-            "wait",
-          ],
-          [
-            t("inspector.request.overview.fields.response"),
-            formatTiming(timing?.responseReadMs, fallback),
-            "download",
-          ],
-          [
-            t("inspector.request.overview.fields.speed"),
-            formatBytesPerSecond(totalBytes, timing?.totalMs ?? session.durationMs, fallback, t),
-          ],
-          [
-            t("inspector.request.overview.fields.requestSpeed"),
-            formatRequestBytesPerSecond(
-              requestTotalBytes,
-              timing,
-              isImportedTiming,
-              fallback,
-              unavailable,
-              t,
-            ),
-          ],
-          [
-            t("inspector.request.overview.fields.responseSpeed"),
-            formatBytesPerSecond(responseTotalBytes, timing?.responseReadMs, fallback, t),
-          ],
-        ],
+        items: timingItems,
       },
     ],
     sizeBreakdown: {
@@ -751,19 +762,12 @@ function getResponseStartOffsetMs(timing: SessionDetail["timing"] | undefined) {
   );
 }
 
-function getRequestEndOffsetMs(
-  timing: SessionDetail["timing"] | undefined,
-  isImportedTiming: boolean,
-) {
+function getRequestEndOffsetMs(timing: SessionDetail["timing"] | undefined) {
   if (!timing) {
     return undefined;
   }
 
-  if (isImportedTiming && timing.requestSendMs != null) {
-    return sumMilliseconds(timing.dnsMs, timing.connectMs, timing.tlsMs, timing.requestSendMs);
-  }
-
-  return undefined;
+  return sumMilliseconds(timing.dnsMs, timing.connectMs, timing.tlsMs, timing.requestSendMs);
 }
 
 function formatConnectionPhaseTiming(
@@ -771,13 +775,18 @@ function formatConnectionPhaseTiming(
   timing: SessionDetail["timing"] | undefined,
   isImportedTiming: boolean,
   fallback: string,
-  unavailable: string,
+  reused: string,
+  na: string,
 ) {
+  if (timing?.connectionReused === true) {
+    return reused;
+  }
+
   if (value != null) {
     return formatTiming(value, fallback);
   }
 
-  return timing && !isImportedTiming ? unavailable : fallback;
+  return timing && !isImportedTiming ? na : fallback;
 }
 
 function formatTlsTiming(
@@ -786,42 +795,22 @@ function formatTlsTiming(
   protocol: string,
   isImportedTiming: boolean,
   fallback: string,
-  unavailable: string,
-  t: ReturnType<typeof useI18n>["t"],
+  reused: string,
+  na: string,
 ) {
+  if (protocol.toLowerCase() === "http") {
+    return na;
+  }
+
+  if (timing?.connectionReused === true) {
+    return reused;
+  }
+
   if (value != null) {
     return formatTiming(value, fallback);
   }
 
-  if (protocol.toLowerCase() === "http") {
-    return t("common.states.na");
-  }
-
-  return timing && !isImportedTiming ? unavailable : fallback;
-}
-
-function hasDetailedRequestSendTiming(
-  timing: SessionDetail["timing"] | undefined,
-  isImportedTiming: boolean,
-) {
-  if (timing?.requestSendMs == null) {
-    return false;
-  }
-
-  return isImportedTiming;
-}
-
-function formatRequestPhaseTiming(
-  timing: SessionDetail["timing"] | undefined,
-  isImportedTiming: boolean,
-  fallback: string,
-  unavailable: string,
-) {
-  if (hasDetailedRequestSendTiming(timing, isImportedTiming)) {
-    return formatTiming(timing?.requestSendMs, fallback);
-  }
-
-  return timing && !isImportedTiming ? unavailable : fallback;
+  return timing && !isImportedTiming ? na : fallback;
 }
 
 function formatTimestamp(value: string | undefined, fallback: string) {
@@ -893,25 +882,6 @@ function formatBytesPerSecondValue(bytesPerSecond: number, t: ReturnType<typeof 
   }
 
   return t("common.tech.bytesPerSecond", { value: Math.round(bytesPerSecond) });
-}
-
-function formatRequestBytesPerSecond(
-  bytes: number,
-  timing: SessionDetail["timing"] | undefined,
-  isImportedTiming: boolean,
-  fallback: string,
-  unavailable: string,
-  t: ReturnType<typeof useI18n>["t"],
-) {
-  if (!timing) {
-    return fallback;
-  }
-
-  if (!hasDetailedRequestSendTiming(timing, isImportedTiming)) {
-    return isImportedTiming ? fallback : unavailable;
-  }
-
-  return formatBytesPerSecond(bytes, timing.requestSendMs, fallback, t);
 }
 
 function formatCompression(

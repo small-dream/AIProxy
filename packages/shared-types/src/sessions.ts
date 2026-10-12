@@ -47,6 +47,10 @@ export type BodyReference = {
 
 export type TimingBreakdown = {
   connectMs?: number;
+  // True when the upstream connection was pooled rather than dialed for this
+  // request; undefined when no upstream connection happened (mock / Map Local /
+  // script / compose) or the capture path does not report it.
+  connectionReused?: boolean;
   dnsMs?: number;
   requestSendMs?: number;
   responseReadMs?: number;
@@ -294,6 +298,7 @@ export function isBodyReference(value: unknown): value is BodyReference {
 
 type WireTimingBreakdown = TimingBreakdown & {
   connect_ms?: number | null;
+  connection_reused?: boolean | null;
   dns_ms?: number | null;
   request_send_ms?: number | null;
   response_read_ms?: number | null;
@@ -325,7 +330,9 @@ export function isTimingBreakdown(value: unknown): value is TimingBreakdown {
     candidate.waiting_ms,
   ];
 
-  return timingFields.every(isNullableNumber);
+  const connectionFields = [candidate.connectionReused, candidate.connection_reused];
+
+  return timingFields.every(isNullableNumber) && connectionFields.every(isNullableBoolean);
 }
 
 export function isSessionDetail(value: unknown): value is SessionDetail {
@@ -753,6 +760,7 @@ function mergeBodyReferenceContent(
 
 function normalizeTimingBreakdown(timing: WireTimingBreakdown): TimingBreakdown {
   const connectMs = timing.connectMs ?? timing.connect_ms;
+  const connectionReused = timing.connectionReused ?? timing.connection_reused;
   const dnsMs = timing.dnsMs ?? timing.dns_ms;
   const requestSendMs = timing.requestSendMs ?? timing.request_send_ms;
   const responseReadMs = timing.responseReadMs ?? timing.response_read_ms;
@@ -762,6 +770,7 @@ function normalizeTimingBreakdown(timing: WireTimingBreakdown): TimingBreakdown 
 
   return {
     ...(connectMs !== null && connectMs !== undefined ? { connectMs } : {}),
+    ...(connectionReused !== null && connectionReused !== undefined ? { connectionReused } : {}),
     ...(dnsMs !== null && dnsMs !== undefined ? { dnsMs } : {}),
     ...(requestSendMs !== null && requestSendMs !== undefined ? { requestSendMs } : {}),
     ...(responseReadMs !== null && responseReadMs !== undefined ? { responseReadMs } : {}),

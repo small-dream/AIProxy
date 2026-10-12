@@ -95,9 +95,9 @@ export const zhCNMessages: Messages = {
       pending: "等待中",
       present: "已存在",
       recording: "记录中",
+      reusedConnection: "复用连接",
       running: "运行中",
       trusted: "已信任",
-      unavailable: "不可用",
       unknown: "未知",
     },
     tech: {

@@ -80,6 +80,7 @@ async fn send_ws_upstream_error_session(
         started_at_instant,
         ProxyTimingBreakdown {
             connect_ms: None,
+            connection_reused: None,
             dns_ms: None,
             request_send_ms: None,
             response_read_ms: Some(0),
@@ -408,6 +409,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         started_at_instant,
         ProxyTimingBreakdown {
             connect_ms: None,
+            connection_reused: None,
             dns_ms: None,
             request_send_ms: None,
             response_read_ms: Some(0),

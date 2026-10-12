@@ -271,6 +271,7 @@ pub(crate) fn detail_row_to_proxy(
             .get("connect_ms")
             .and_then(|v| v.as_u64())
             .map(|v| v as u128),
+        connection_reused: v.get("connection_reused").and_then(|v| v.as_bool()),
         dns_ms: v.get("dns_ms").and_then(|v| v.as_u64()).map(|v| v as u128),
         request_send_ms: v
             .get("request_send_ms")
@@ -388,6 +389,9 @@ pub(crate) fn proxy_detail_to_row(
         let mut v = serde_json::json!({});
         if let Some(ms) = t.connect_ms {
             v["connect_ms"] = serde_json::json!(ms);
+        }
+        if let Some(reused) = t.connection_reused {
+            v["connection_reused"] = serde_json::json!(reused);
         }
         if let Some(ms) = t.dns_ms {
             v["dns_ms"] = serde_json::json!(ms);

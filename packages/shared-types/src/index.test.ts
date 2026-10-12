@@ -11,6 +11,7 @@ import {
   isProxyStatus,
   isPortOccupant,
   isSessionSummary,
+  isTimingBreakdown,
   isUpstreamProxyProtocol,
   isSslProxyingSettings,
   isSslProxyEntry,
@@ -743,6 +744,47 @@ describe("parseSessionDetail", () => {
       totalMs: 3,
       waitingMs: 0,
     });
+  });
+
+  it("normalizes the connectionReused marker from pooled upstream connections", () => {
+    const detail = (timing: Record<string, unknown>) =>
+      parseSessionDetail({
+        cookies: [],
+        id: "session-1",
+        queryParams: [],
+        requestHeaders: [],
+        responseHeaders: [],
+        summary: {
+          durationMs: 42,
+          finishedAt: "2026-04-11T16:00:01.000Z",
+          host: "example.com",
+          id: "session-1",
+          method: "GET",
+          path: "/hello",
+          protocol: "https",
+          sizeBytes: 512,
+          startedAt: "2026-04-11T16:00:00.000Z",
+          statusCode: 200,
+          url: "https://example.com/hello",
+        },
+        timing,
+      }).timing;
+
+    expect(detail({ connection_reused: true, total_ms: 3 })).toEqual({
+      connectionReused: true,
+      totalMs: 3,
+    });
+    expect(detail({ connectionReused: false, totalMs: 3 })).toEqual({
+      connectionReused: false,
+      totalMs: 3,
+    });
+    expect(detail({ totalMs: 3 })).toEqual({ totalMs: 3 });
+  });
+
+  it("rejects a non-boolean connectionReused marker", () => {
+    expect(isTimingBreakdown({ connectionReused: 1, totalMs: 3 })).toBe(false);
+    expect(isTimingBreakdown({ connection_reused: "yes", total_ms: 3 })).toBe(false);
+    expect(isTimingBreakdown({ connectionReused: null, totalMs: 3 })).toBe(true);
   });
 
   it("preserves rewriteTraces, scriptTraces, trailers, and h2StreamId", () => {

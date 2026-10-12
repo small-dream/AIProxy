@@ -7,8 +7,18 @@ import { formatTiming } from "./session-inspector.helpers";
 
 export type TimingPhaseId = "dns" | "connect" | "tls" | "send" | "wait" | "download";
 
+// `TimingBreakdown` also carries non-numeric markers (e.g. `connectionReused`);
+// only the millisecond fields can be drawn as segments.
+export type TimingPhaseField =
+  | "connectMs"
+  | "dnsMs"
+  | "requestSendMs"
+  | "responseReadMs"
+  | "tlsMs"
+  | "waitingMs";
+
 type TimingPhaseDefinition = {
-  field: keyof TimingBreakdown;
+  field: TimingPhaseField;
   id: TimingPhaseId;
   labelKey: TranslationKey;
 };
@@ -60,6 +70,9 @@ export function getTimingPhaseColor(phase: TimingPhaseId, mode: PaletteMode): st
 /**
  * Builds the timing strip segments. Unmeasured phases are dropped instead of
  * being drawn as placeholders, so the strip never shows unexplained slivers.
+ * Zero-millisecond phases are dropped as well: they carry no duration, and the
+ * bar's 2px minimum width would otherwise render them as a phase that visibly
+ * took time.
  */
 export function buildTimingSegments({
   mode,
@@ -71,7 +84,7 @@ export function buildTimingSegments({
   const measured = TIMING_PHASES.flatMap((definition) => {
     const valueMs = timing?.[definition.field];
 
-    return valueMs == null ? [] : [{ ...definition, valueMs }];
+    return valueMs == null || valueMs === 0 ? [] : [{ ...definition, valueMs }];
   });
   const scale = resolveScale(
     measured.map((phase) => phase.valueMs),

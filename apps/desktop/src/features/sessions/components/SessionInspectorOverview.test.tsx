@@ -48,9 +48,22 @@ function renderOverview(detail: SessionDetail) {
   );
 }
 
-const FULL_TIMING: SessionDetail["timing"] = {
+// A freshly dialed proxy connection: every connection phase was measured.
+const PROXY_TIMING: SessionDetail["timing"] = {
   connectMs: 14,
-  dnsMs: 0,
+  connectionReused: false,
+  dnsMs: 6,
+  responseReadMs: 9,
+  tlsMs: 21,
+  totalMs: 391,
+  waitingMs: 344,
+};
+
+// A HAR import is the only capture path that reports how long writing the
+// request took, so it is the only one that carries `requestSendMs`.
+const IMPORTED_TIMING: SessionDetail["timing"] = {
+  connectMs: 14,
+  dnsMs: 6,
   requestSendMs: 3,
   responseReadMs: 9,
   tlsMs: 21,
@@ -74,13 +87,13 @@ function phaseAttributes(container: HTMLElement) {
 
 describe("SessionInspectorOverview timing section", () => {
   it("reports the total in the section header and lists phases in timeline order", () => {
-    renderOverview(createSessionDetail({ timing: FULL_TIMING }));
+    renderOverview(createSessionDetail({ timing: PROXY_TIMING }));
 
     const section = timingSection();
 
     expect(timingHeader()).toHaveTextContent("391 ms");
 
-    const labels = ["DNS", "Connect", "TLS Handshake", "Request", "Latency", "Response"];
+    const labels = ["DNS", "Connect", "TLS Handshake", "Latency", "Response"];
     const rows = labels.map((label) => within(section).getByText(label));
 
     for (let index = 1; index < rows.length; index += 1) {
@@ -88,6 +101,63 @@ describe("SessionInspectorOverview timing section", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
     }
+
+    expect(within(section).queryByText("Request")).not.toBeInTheDocument();
+    expect(within(section).queryByText("Request End Time")).not.toBeInTheDocument();
+  });
+
+  it("reports a reused pooled connection instead of 0 ms and a missing TLS phase", () => {
+    renderOverview(
+      createSessionDetail({
+        timing: {
+          connectMs: 0,
+          connectionReused: true,
+          dnsMs: 0,
+          responseReadMs: 9,
+          totalMs: 391,
+          waitingMs: 344,
+        },
+      }),
+    );
+
+    const section = timingSection();
+
+    // DNS, Connect, TLS Handshake: all three describe the same reused socket.
+    expect(within(section).getAllByText("Connection reused")).toHaveLength(3);
+    expect(within(section).queryByText("<1 ms")).not.toBeInTheDocument();
+  });
+
+  it("marks phases no capture path measured as not applicable", () => {
+    renderOverview(
+      createSessionDetail({ timing: { responseReadMs: 0, totalMs: 12, waitingMs: 12 } }),
+    );
+
+    const section = timingSection();
+
+    expect(within(section).getAllByText("N/A")).toHaveLength(3);
+    expect(within(section).queryByText("Connection reused")).not.toBeInTheDocument();
+  });
+
+  it("only lists the request send rows when the timing carries them", () => {
+    const { unmount } = renderOverview(
+      createSessionDetail({
+        timing: IMPORTED_TIMING,
+        summary: createSessionSummary({ id: "imported-har-1" }),
+      }),
+    );
+
+    const importedSection = timingSection();
+
+    expect(within(importedSection).getByText("Request")).toBeInTheDocument();
+    expect(within(importedSection).getByText("3 ms")).toBeInTheDocument();
+    expect(within(importedSection).getByText("Request Speed")).toBeInTheDocument();
+    expect(within(importedSection).getByText("Request End Time")).toBeInTheDocument();
+
+    unmount();
+
+    renderOverview(createSessionDetail({ timing: PROXY_TIMING }));
+
+    expect(within(timingSection()).queryByText("Request Speed")).not.toBeInTheDocument();
   });
 
   it("draws one segment per measured phase and none for unmeasured phases", () => {
@@ -99,7 +169,7 @@ describe("SessionInspectorOverview timing section", () => {
   });
 
   it("dims the other segments while a phase row is hovered", () => {
-    const { container } = renderOverview(createSessionDetail({ timing: FULL_TIMING }));
+    const { container } = renderOverview(createSessionDetail({ timing: PROXY_TIMING }));
     const row = container.querySelector('[data-phase-row="wait"]');
 
     fireEvent.mouseEnter(row as Element);

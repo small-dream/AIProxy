@@ -44,6 +44,15 @@ describe("buildTimingSegments", () => {
     expect(segments[0]?.percent).toBe(100);
   });
 
+  it("drops zero-millisecond phases instead of drawing minimum-width slivers", () => {
+    const segments = buildTimingSegments({
+      mode: "light",
+      timing: { connectMs: 0, dnsMs: 0, totalMs: 100, tlsMs: 0, waitingMs: 100 },
+    });
+
+    expect(segments.map((segment) => segment.id)).toEqual(["wait"]);
+  });
+
   it("falls back to the summed phases when no total is reported", () => {
     const segments = buildTimingSegments({
       mode: "light",

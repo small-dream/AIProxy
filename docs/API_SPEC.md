@@ -236,10 +236,17 @@ type TimingBreakdown = {
   waitingMs?: number;
   responseReadMs?: number;
   totalMs?: number;
+  // 该请求是否复用了连接池中的上游连接。
+  // - true：复用连接，本次请求没有重新拨号，dnsMs/connectMs 为 0、tlsMs 缺失都是「未拨号」而非「0 耗时」
+  // - false：本次请求新建了上游连接，dnsMs/connectMs/tlsMs 为实测值
+  // - 缺省：该捕获路径没有观测到出网连接（mock / Map Local / script 合成响应、
+  //   Compose 发送的请求），或该字段出现之前抓取的历史会话
+  connectionReused?: boolean;
 };
 
 // Timing 来源标识：
-// - "proxy": 代理捕获的会话，通过 TimingConnector（hyper）采集全部 7 个阶段
+// - "proxy": 代理捕获的会话，通过 TimingConnector（hyper）采集连接、等待与响应阶段；
+//   新建连接时有 dnsMs/connectMs/tlsMs，复用连接时 connectionReused=true，requestSendMs 始终缺省
 // - "compose": Compose 发送的请求，通过 reqwest 采集（仅 totalMs/waitingMs/responseReadMs）
 // - "har-import": 从 HAR 文件导入的会话，字段取决于 HAR 原始数据
 
@@ -950,7 +957,9 @@ type GetSessionDetailOutput = SessionDetail;
 - `requestBody` 与 `responseBody` 对小体积内容优先返回 `inlineText`，非 UTF-8 内容回退到 `base64Text`
 - 大体积 raw/body 内容可返回 `rawRequestDeferred`、`rawResponseDeferred`、`textDeferred`、`base64Deferred`，由 `get_session_detail_content` 按需加载
 - 当 `BodyReference.truncated` 为 `true` 时，UI 在请求和响应 Inspector 面板中显示 Alert 警告提示用户 body 已被截断
-- `timing` 所有 7 个阶段（`dnsMs`、`connectMs`、`tlsMs`、`requestSendMs`、`waitingMs`、`responseReadMs`、`totalMs`）在代理捕获会话中均已通过 `TimingConnector`（hyper）完整填充
+- 代理捕获会话的 `timing` 由 `TimingConnector`（hyper）采集，其中 **新建上游连接** 时 `dnsMs`、`connectMs`、`tlsMs` 为实测值，并置 `connectionReused: false`；**复用连接池中的连接** 时置 `connectionReused: true`，`dnsMs`/`connectMs` 为 0、`tlsMs` 缺省，UI 据此显示「复用连接」而不是 0 ms / 缺数据。`waitingMs`、`responseReadMs`、`totalMs` 始终有值
+- `requestSendMs`（以及由它推导的请求结束时间、请求速度）对代理捕获会话**始终缺省**：hyper 的 `send_request` 只在拿到响应头之后才 resolve，「请求写完」这一边界在当前架构下不可观测。仅 `"har-import"` 的会话会填充该字段
+- mock / Map Local / script 合成响应没有出网，`connectionReused` 缺省，UI 对连接类阶段显示 `N/A`
 - `timingSource` 标识 timing 数据来源：`"proxy"`（代理捕获，全阶段）、`"compose"`（Compose 发送，仅部分阶段）、`"har-import"`（HAR 导入，取决于原始数据）
 - Compose 发送的请求仍通过 `reqwest`，仅提供 `totalMs`、`waitingMs`、`responseReadMs`
 

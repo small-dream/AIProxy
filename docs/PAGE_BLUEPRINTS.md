@@ -339,7 +339,8 @@ User double clicks a token in the JSON Text view
 
 ### 4.8 当前实现说明
 
-- Inspector Response Overview 的「时序」分组顶部内嵌 `WaterfallChart` 组件：一条 10px 高的细条水平堆叠图（dns / connect / tls / request_send / waiting / response_read），阶段使用低饱和主题色区分、Tooltip 显示「阶段 · 耗时 · 占比」。总耗时不再悬浮在条尾，而是显示在该分组标题的数值列（与其它字段共用键值网格）。每个阶段在下方字段行行首对应一个同色圆点，悬停该行会高亮对应阶段、其余阶段降透明度（行内联动，无需独立图例）。阶段字段行的排列顺序与时间轴一致，文案与字段行复用同一套 `inspector.request.overview.fields.*`。未采集到的阶段不绘制占位色块，仅在字段行显示「未采集 / 不可用」。WaterfallChart 根据 `timingSource` 自动调整展示粒度：`"proxy"` 显示全部 6 个阶段，`"compose"` 仅显示已采集的阶段，`"har-import"` 取决于导入数据。
+- Inspector Response Overview 的「时序」分组顶部内嵌 `WaterfallChart` 组件：一条 10px 高的细条水平堆叠图（dns / connect / tls / request_send / waiting / response_read），阶段使用低饱和主题色区分、Tooltip 显示「阶段 · 耗时 · 占比」。总耗时不再悬浮在条尾，而是显示在该分组标题的数值列（与其它字段共用键值网格）。每个阶段在下方字段行行首对应一个同色圆点，悬停该行会高亮对应阶段、其余阶段降透明度（行内联动，无需独立图例）。阶段字段行的排列顺序与时间轴一致，文案与字段行复用同一套 `inspector.request.overview.fields.*`。未采集到、以及耗时为 0 ms 的阶段都不绘制色块（0 ms 阶段若绘制会因 2px 最小宽度被误读成「花掉了时间」），仅在字段行给出取值。WaterfallChart 根据 `timingSource` 自动调整展示粒度：`"proxy"` 显示已采集的连接/等待/响应阶段，`"compose"` 仅显示已采集的阶段，`"har-import"` 取决于导入数据。
+- 「时序」分组的连接类阶段（DNS / Connect / TLS Handshake）使用三态取值，避免同一件事出现三种说法：新建连接 → 实测毫秒；`connectionReused` 为 `true`（复用连接池连接）→「复用连接」，此时 DNS/Connect 不再显示 0 ms、TLS 不再显示缺数据；未观测到出网连接（mock / Map Local / script 合成响应、Compose）或字段缺省 → `N/A`。纯 HTTP 会话的 TLS 行始终为 `N/A`。`Request`（请求发送耗时）、`Request End Time`、`Request Speed` 三行仅在 `timing.requestSendMs` 有值时渲染——代理捕获会话无法观测「请求写完」边界，这三行此前对每条代理会话都恒显示 `Unavailable`。
 - Inspector Request Overview 的 General 分组包含 `Route`（出网路径）行，取值为 `Direct`（直连）/ `Via upstream proxy`（经上游代理）/ `N/A`。`N/A` 对应 `viaUpstreamProxy` 为空的情况——mock / Map Local / script 合成响应根本没有出网，以及该字段存在之前抓的历史会话；这类会话不显示为 `Direct`，否则会被误读成「上游代理被绕过了」。
 - JSON 树视图（Response JSON Tab）中右键节点弹出独立菜单，提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，字符串不带引号，对象/数组以格式化 JSON 输出）。
 - 代码块视图（JSON Text、Raw、Text Body 等 Tab）中选中文字右键弹出独立菜单，提供 `Copy`（复制选中文字到剪贴板）和 `Search`（用选中文字激活搜索栏并填入搜索词）。仅当有文字选中且 `onSearchWithText` 回调存在时，`Search` 选项才显示。

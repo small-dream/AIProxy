@@ -93,9 +93,9 @@ export const enMessages = {
       pending: "Pending",
       present: "Present",
       recording: "Recording",
+      reusedConnection: "Connection reused",
       running: "Running",
       trusted: "Trusted",
-      unavailable: "Unavailable",
       unknown: "unknown",
     },
     tech: {

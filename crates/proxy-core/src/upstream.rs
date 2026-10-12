@@ -246,7 +246,10 @@ pub(crate) async fn forward_request(
         _ => None,
     };
     if let Some((mut h2_sender, timing)) = h2_pooled {
-        // Pooled h2 path — reuse the cached connection.
+        // Pooled h2 path — reuse the cached connection. A missing timing means
+        // the pool handed back an already-established connection, i.e. this
+        // request never dialed and has no fresh DNS/TCP/TLS numbers to report.
+        let connection_reused = timing.is_none();
         let timing = timing.unwrap_or_else(|| crate::timing_connector::ConnectionTiming {
             dns_ms: 0,
             connect_ms: 0,
@@ -434,8 +437,14 @@ pub(crate) async fn forward_request(
         // the pooled connection dying during the body) must also evict the key —
         // otherwise the next request to this host reuses the now-broken pooled
         // connection and fails again.
-        let result =
-            build_upstream_response_from_hyper(response, request, timing, waiting_ms).await;
+        let result = build_upstream_response_from_hyper(
+            response,
+            request,
+            timing,
+            connection_reused,
+            waiting_ms,
+        )
+        .await;
         if let Err(error) = &result {
             if let Some(ref p) = pool {
                 p.evict_key(&pool_key).await;
@@ -610,6 +619,9 @@ async fn forward_h1_request(
         key: pool_key.clone(),
         connection: Some(lease.connection()),
     });
+    // A pooled lease without a timing was established by an earlier request, so
+    // this one reused it; a lease that carries a fresh timing just dialed.
+    let pooled_reused_connection = pooled.as_ref().is_some_and(|(_, timing)| timing.is_none());
     let pooled_timing = pooled.as_ref().and_then(|(_, timing)| timing.clone());
     let (mut sender_handle, direct_timing) = if let Some((lease, _)) = pooled {
         (H1SenderHandle::Pooled(lease), None)
@@ -730,8 +742,14 @@ async fn forward_h1_request(
                 .is_some_and(|proxy| !proxy.should_bypass(&request.host)),
         }
     });
-    let result =
-        build_upstream_response_from_hyper(response, request, connection_timing, waiting_ms).await;
+    let result = build_upstream_response_from_hyper(
+        response,
+        request,
+        connection_timing,
+        pooled_reused_connection,
+        waiting_ms,
+    )
+    .await;
     if was_pooled && (!reusable || result.is_err()) {
         if let Some(ref mut guard) = pooled_guard {
             guard.evict().await;
@@ -771,6 +789,7 @@ async fn build_upstream_response_from_hyper(
     response: hyper::Response<hyper::body::Incoming>,
     request: &ParsedProxyRequest,
     connection_timing: crate::timing_connector::ConnectionTiming,
+    connection_reused: bool,
     waiting_ms: u128,
 ) -> Result<UpstreamResponse, ProxyError> {
     let status_code =
@@ -834,8 +853,9 @@ async fn build_upstream_response_from_hyper(
     Ok(UpstreamResponse {
         body_truncated,
         connect_ms: connection_timing.connect_ms,
+        connection_reused: Some(connection_reused),
         dns_ms: connection_timing.dns_ms,
-        request_send_ms: 0,
+        request_send_ms: None,
         response_body,
         response_body_size_bytes,
         response_headers,
