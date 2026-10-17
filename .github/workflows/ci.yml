@@ -93,6 +93,9 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --check --all
 
+      - name: Build MCP sidecar
+        run: node scripts/build-mcp-sidecar.mjs --profile debug
+
       - name: Check Rust clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
