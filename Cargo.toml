@@ -13,7 +13,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-version = "0.1.44"
+version = "0.1.45"
 repository = "https://github.com/small-dream/AIProxy"
 
 [profile.release]
