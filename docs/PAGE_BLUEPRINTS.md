@@ -1100,39 +1100,51 @@ type SettingsPageState = {
 };
 ```
 
-### 8.4.1 Agent Access Section — `已实现（只读 MVP）`
+### 8.4.1 Agent Access Section — `已实现（只读 MVP · 紧凑版）`
 
 页面目标：
 
-- 在连接 Agent 前展示 sidecar、数据库 schema 与配置状态
+- 以低噪音状态头展示 sidecar、版本与连接状态
 - 让用户显式开启会话、Body、WebSocket 与未脱敏 Body 权限
-- 为 Codex、Claude Code、Cursor 提供一键写入 MCP 配置、复制片段与 Skill 安装
+- 为 Codex、Claude Code、Cursor 提供一键连接（写 MCP 配置 + 安装 Skill）
 - 展示仅含元数据的审计日志
 
 组件树：
 
 ```text
 AgentAccessSection
-├─ StatusCard (Switch / status chips / paths / Test configuration)
-├─ PermissionsCard (SettingsGroup + Save)
-├─ ClientGrid
-│  ├─ AgentClientConfigCard Codex
-│  ├─ AgentClientConfigCard Claude Code
-│  └─ AgentClientConfigCard Cursor
-├─ AgentAuditTable
+├─ StatusCard
+│  ├─ Enable Switch + one-line service summary
+│  ├─ UnsavedChangesAlert (Save / Discard)
+│  └─ Diagnostics (collapsed)
+│     ├─ PathValue x4 (single-line + tooltip + copy)
+│     └─ Test configuration
+├─ ClientList
+│  ├─ AgentClientRow Codex
+│  ├─ AgentClientRow Claude Code
+│  └─ AgentClientRow Cursor
+│     ├─ primary Connect / Update / Reconnect
+│     └─ overflow menu (config only / Skill only / manual setup)
+├─ PermissionsCard
+│  ├─ General permissions
+│  ├─ Advanced permissions (collapsed)
+│  └─ Save / Discard
+├─ AgentAuditTable (collapsed summary by default)
 ├─ SecurityNote
+├─ ConfirmDialog (config overwrite)
 └─ ConfirmDialog (custom Skill overwrite)
 ```
 
 关键交互：
 
-1. 权限开关先写入本地草稿，点击 Save 才持久化；关闭 `readBodies` 会立即在草稿中关闭 `readRawBodies`。
-2. Test configuration 调用 `aiproxy-mcp --doctor`，失败原因内联展示，不使用全局 toast。
-3. Codex / Cursor 卡片可一键写入用户级配置；Claude Code 先选择项目根目录，再写入项目级 `.mcp.json`。目标文件不存在时直接创建；覆盖已有文件前展示目标路径、二次确认并先备份。配置片段默认折叠在“手动配置（可选）”内作为兜底。
-4. Cursor 卡片明确提示目标为 `~/.cursor/mcp.json`，片段保持标准 `mcpServers` 结构。
-5. Install Skill 先写管理标记；命中非 AIProxy 管理的同名文件时弹确认框，确认后才覆盖。
-6. 一键配置使用确认框展示目标路径；解析失败或结构冲突时不覆盖原文件。
-7. 审计表按时间倒序展示最近调用，刷新时重新读取 JSONL。
+1. 顶部启用开关和权限开关先写入本地草稿；只有 `Save changes` 才持久化。草稿与已保存值不一致时，状态头显示 `Unsaved`，状态头和权限区同时提供保存 / 放弃。关闭 `readBodies` 会立即在草稿中关闭 `readRawBodies`。
+2. Test configuration 位于默认折叠的诊断区，调用 `aiproxy-mcp --doctor`，失败原因内联展示，不使用全局 toast。
+3. 客户端主操作是“连接”：先写 MCP 配置，再安装 Skill。Codex / Cursor 写入用户级配置；Claude Code 先选择项目根目录，再写入项目级 `.mcp.json`。
+4. 目标文件不存在时直接创建；覆盖已有文件前展示目标路径、二次确认并先备份。Skill 命中非 AIProxy 管理的同名文件时再次确认覆盖。
+5. 连接流程必须处理部分成功：配置已写入但 Skill 安装失败或用户取消覆盖时，界面明确提示配置已生效、Skill 未完成，并保持该客户端为 `需要更新`。
+6. 更多菜单提供“仅写入 MCP 配置”“仅安装 Skill”“手动配置”。手动配置展开后展示单行路径、Skill 路径、配置片段与复制操作；路径禁止跨行断词。
+7. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor；Claude Code 固定显示 `按项目连接`。
+8. 审计表默认只显示最近调用数量摘要；展开后按时间倒序展示明细，刷新时重新读取 JSONL。
 
 状态：
 
@@ -1143,9 +1155,24 @@ type AgentAccessSectionState = {
     permissions: AgentAccessPermissions;
     limits: AgentAccessLimits;
   };
-  feedback: { severity: "success" | "info" | "warning" | "error"; message: string } | null;
-  pendingInstall: AgentClientInfo | null;
-  installStatus: Partial<Record<AgentClient, InstallAgentSkillStatus>>;
+  feedback: {
+    area: "client" | "diagnostics" | "permissions" | "settings";
+    severity: "success" | "info" | "warning" | "error";
+    message: string;
+  } | null;
+  pendingConfigInstall: {
+    info: AgentClientInfo;
+    projectDir?: string;
+    purpose: "config" | "connect";
+  } | null;
+  pendingSkillOverwrite: {
+    info: AgentClientInfo;
+    origin: "connect" | "skill";
+    configPath?: string;
+    backupPath?: string | null;
+  } | null;
+  diagnosticsOpen: boolean;
+  advancedOpen: boolean;
 };
 ```
 

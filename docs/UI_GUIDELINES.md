@@ -964,8 +964,13 @@ Settings Page
 当前实现说明：
 
 - 当前桌面端已落地 `Proxy Presets`、`Upstream Proxy`、`SSL Proxying`、`Agent Access`、`AI Model`、`Software Updates`、`About`、`Language & Region` 与 `Appearance` 等设置区块（单一滚动页面，已启用左侧二级目录与设置搜索；字体等外观偏好并入 `Appearance` 区块）
-- Agent Access 客户端卡片统一使用 `SectionCard`；主操作是一键写入。目标文件不存在时直接创建，覆盖已有文件前必须显示目标路径、二次确认并自动备份。配置片段默认折叠在“手动配置（可选）”内，仅在需要手写或排障时展开复制，避免把粘贴当成主流程。Cursor 目标固定展示为 `~/.cursor/mcp.json`。
-- 高风险权限（`readRawBodies`）使用 warning 色开关与常驻风险说明；`readBodies` 关闭时 raw 开关必须禁用。
+- Agent Access 顶部使用紧凑状态头：只展示启用开关、单行服务状态与版本；sidecar / 数据目录 / 配置 / 审计路径全部收进默认折叠的“诊断信息”。关闭状态只保留一条短 warning，不再用大块 info Alert 解释正常状态。
+- 客户端连接排在权限之前，并使用纵向紧凑列表而非三列大卡片。每行只保留一个主操作（连接 / 更新连接 / 重新连接），次级操作收进更多菜单：仅写配置、仅安装 Skill、手动配置。配置片段与 Skill 路径仅在手动配置展开后出现。Cursor 目标固定展示为 `~/.cursor/mcp.json`。
+- 连接主流程同时完成写 MCP 配置与安装 Skill，并明确处理部分成功：配置已写入但 Skill 失败 / 被跳过时必须提示“配置已生效、Skill 未完成”，不能吞掉结果。覆盖已有配置仍必须显示目标路径、二次确认并先备份。
+- 状态词统一为 `已连接` / `需要更新` / `未连接` / `按项目连接`。Claude Code 因读取项目级 `.mcp.json`，固定显示 `按项目连接`，不参与全局配置检测。
+- 常规权限直接展示；未脱敏 Body 与查询上限放入默认折叠的“高级权限”。高风险权限（`readRawBodies`）使用 warning 色开关与风险说明；`readBodies` 关闭时 raw 开关必须禁用。审计日志默认折叠为摘要，展开后保留表格、刷新与空状态。
+- 顶部开关和权限都写入草稿。出现任何差异时，状态头显示 `未保存`，并同时在状态头与权限区提供 `保存更改` / `放弃`，避免开关被误认为即时生效。
+- 所有绝对路径必须单行省略，通过 Tooltip 展示完整值，并提供复制按钮；禁止使用 `word-break: break-all` 在多行中间截断路径。
 
 - `ProxyPresetsSection`：代理预设管理，`SectionCard` 内含预设列表（`List` + `ListItemButton`，活跃预设有 `CheckCircleRoundedIcon` 标记，hover 阴影提升）、操作栏（New Preset / Apply / Save 按钮）、展开式编辑表单（name, port, SSL Switch）。数据由 `useWorkspaces` 等 hooks 驱动，底层继续复用 workspace 命名接口
 - `UpstreamProxySection`：上游（链式）代理配置，独立 `SectionCard`，沿用 `compactFieldSx` / `compactAlertSx` 紧凑样式。结构为启用开关 + `Test Connection` / `Save` 操作栏、协议 `Select` 与地址/端口字段、可选凭据字段（密码框在用户名为空时禁用）、换行分隔的绕行列表 `TextField`。交互约束：

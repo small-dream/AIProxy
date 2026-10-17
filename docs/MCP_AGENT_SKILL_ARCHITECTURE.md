@@ -857,29 +857,26 @@ Agent 回答建议固定为：
 - `settings-search.ts` 增加 Agent Access、权限、审计、Skill 等搜索项。
 - section 复用现有 Settings 的标题、说明和滚动布局。
 
-建议组件：
+当前组件：
 
 ```text
 apps/desktop/src/pages/settings/sections/AgentAccessSection.tsx
 apps/desktop/src/features/agent-access/
-├─ AgentAccessStatusCard.tsx
-├─ AgentPermissionList.tsx
-├─ AgentClientConfigCard.tsx
-├─ AgentSkillInstallCard.tsx
-├─ AgentAuditTable.tsx
-└─ use-agent-access.ts
+├─ AgentClientRow.tsx
+├─ AgentPathValue.tsx
+├─ agent-access.helpers.ts
+└─ AgentAuditTable.tsx
 ```
 
 ### 11.2 页面信息架构
 
 `Agent Access` 区块从上到下：
 
-1. **总开关**：`Enable local Agent access`。
-2. **状态卡**：sidecar 路径、数据目录、数据库可读性、配置可读性、最近一次检查结果。
-3. **权限卡**：读取会话、读取 Body、读取未脱敏 Body、读取 WebSocket、导出快照（后置）。
-4. **客户端配置卡**：Codex、Claude Code、Cursor 的一键写入配置与复制兜底。
-5. **Skill 安装卡**：检测到的客户端目录、目标路径、安装/更新按钮。
-6. **审计卡**：最近调用记录、结果、耗时、返回字节数；不展示敏感值。
+1. **紧凑状态头**：总开关、单行 sidecar 状态与版本；路径、诊断与连通性测试收进默认折叠区。
+2. **客户端连接列表**：Codex、Claude Code、Cursor 统一使用单行客户端行；主操作一次完成“写 MCP 配置 + 安装 Skill”，更多菜单提供仅写配置、仅安装 Skill 和手动配置。
+3. **权限卡**：常规权限直接展示；未脱敏 Body 与查询上限放入默认折叠的高级权限。所有草稿修改显式标记未保存，并提供保存 / 放弃。
+4. **审计卡**：默认只展示最近调用数量摘要；展开后展示结果、耗时、返回字节数，不展示敏感值。
+5. **安全说明**：说明数据留在本机，并将抓包内容视为不可信证据。
 
 ### 11.3 建议命令与类型
 
