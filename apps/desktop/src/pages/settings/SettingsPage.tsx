@@ -23,6 +23,7 @@ import {
 } from "./settings-navigation";
 import { SETTINGS_SEARCH_ENTRIES, type SettingsSearchEntry } from "./settings-search";
 import { AboutSection } from "./sections/AboutSection";
+import { AgentAccessSection } from "./sections/AgentAccessSection";
 import { AiModelSettingsSection } from "./sections/AiModelSettingsSection";
 import { AppearanceSettingsSection } from "./sections/AppearanceSettingsSection";
 import { BehaviorSettingsSection } from "./sections/BehaviorSettingsSection";
@@ -40,6 +41,7 @@ const SECTION_TITLE_KEYS: Record<SettingsSectionId, TranslationKey> = {
   proxy: "settingsNavigation.proxy",
   upstream: "settingsNavigation.upstream",
   ssl: "settingsNavigation.ssl",
+  agent: "settingsNavigation.agent",
   ai: "settingsNavigation.ai",
   appearance: "settingsNavigation.appearance",
   behavior: "settingsNavigation.behavior",
@@ -219,6 +221,7 @@ export function SettingsPage() {
         {sectionId === "proxy" ? <ProxySettingsSection /> : null}
         {sectionId === "upstream" ? <UpstreamProxySection /> : null}
         {sectionId === "ssl" ? <SslProxyingSection /> : null}
+        {sectionId === "agent" ? <AgentAccessSection /> : null}
         {sectionId === "ai" ? <AiModelSettingsSection /> : null}
         {sectionId === "appearance" ? <AppearanceSettingsSection /> : null}
         {sectionId === "behavior" ? <BehaviorSettingsSection /> : null}

@@ -925,6 +925,7 @@ Settings Page 负责应用级默认配置与代理预设管理，不再提供独
 - 代理预设：列表选择、创建、编辑、应用
 - 上游代理：协议/地址/端口/认证/绕行列表配置与连通性测试
 - SSL 代理：逐域名的 include / exclude 解密策略，每个列表带总开关、每条规则带独立开关，含「恢复推荐列表」与证书绑定说明
+- Agent Access：MCP sidecar 状态、只读权限、Body 上限、Codex / Claude Code / Cursor 配置片段、Skill 安装与审计日志
 - 语言与外观偏好均为应用级持久化设置
 
 ### 页面结构树
@@ -937,12 +938,14 @@ Settings Page
 │  ├─ Proxy
 │  ├─ Certificates
 │  ├─ Session Storage
+│  ├─ Agent Access
 │  ├─ Appearance
 │  ├─ Shortcuts
 │  └─ Advanced
 └─ Settings Content Pane
    ├─ Section Header
    ├─ Setting Rows
+   ├─ Agent Client Cards
    ├─ Inline Validation
    └─ Save / Reset Actions
 ```
@@ -956,11 +959,13 @@ Settings Page
 - Appearance
 - Shortcuts
 - Advanced
+- Agent Access
 
 当前实现说明：
 
-- 当前桌面端已落地 `Proxy Presets`、`Upstream Proxy`、`SSL Proxying`、`AI Model`、`Software Updates`、`About`、`Language & Region` 与 `Appearance` 等设置区块（单一滚动页面，未启用左侧设置导航；字体等外观偏好并入 `Appearance` 区块）
-- 后续如扩展左侧设置导航，需保持当前字段归属不变
+- 当前桌面端已落地 `Proxy Presets`、`Upstream Proxy`、`SSL Proxying`、`Agent Access`、`AI Model`、`Software Updates`、`About`、`Language & Region` 与 `Appearance` 等设置区块（单一滚动页面，已启用左侧二级目录与设置搜索；字体等外观偏好并入 `Appearance` 区块）
+- Agent Access 客户端卡片统一使用 `SectionCard`；主操作是一键写入。目标文件不存在时直接创建，覆盖已有文件前必须显示目标路径、二次确认并自动备份。配置片段默认折叠在“手动配置（可选）”内，仅在需要手写或排障时展开复制，避免把粘贴当成主流程。Cursor 目标固定展示为 `~/.cursor/mcp.json`。
+- 高风险权限（`readRawBodies`）使用 warning 色开关与常驻风险说明；`readBodies` 关闭时 raw 开关必须禁用。
 
 - `ProxyPresetsSection`：代理预设管理，`SectionCard` 内含预设列表（`List` + `ListItemButton`，活跃预设有 `CheckCircleRoundedIcon` 标记，hover 阴影提升）、操作栏（New Preset / Apply / Save 按钮）、展开式编辑表单（name, port, SSL Switch）。数据由 `useWorkspaces` 等 hooks 驱动，底层继续复用 workspace 命名接口
 - `UpstreamProxySection`：上游（链式）代理配置，独立 `SectionCard`，沿用 `compactFieldSx` / `compactAlertSx` 紧凑样式。结构为启用开关 + `Test Connection` / `Save` 操作栏、协议 `Select` 与地址/端口字段、可选凭据字段（密码框在用户名为空时禁用）、换行分隔的绕行列表 `TextField`。交互约束：

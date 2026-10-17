@@ -1035,7 +1035,7 @@ type CertificatesPageState = {
 - 在「General」区统一管理语言、主题、界面字体、内容字体与字号偏好
 - 管理危险操作确认开关（Clear All Sessions 确认可关闭并在此恢复）
 - 支持 `system` 级别的自动解析与持久化
-- 通过页面内二级目录在 Proxy Presets、Upstream Proxy、SSL / TLS、AI Model、Appearance & Language、Notifications & Confirmations、Software Updates 与 About 之间切换
+- 通过页面内二级目录在 Proxy Presets、Upstream Proxy、SSL / TLS、Agent Access、AI Model、Appearance & Language、Notifications & Confirmations、Software Updates 与 About 之间切换
 - 通过设置搜索定位具体设置项；结果按当前界面语言匹配标签、描述和补充关键词，并支持分区深链 `/settings?section=<sectionId>`
 
 ### 8.2 低保真线框
@@ -1049,7 +1049,7 @@ type CertificatesPageState = {
 │ Proxy         ├──────────────────────────────────────────────────────────────┤
 │ Upstream      │ Active section content                                       │
 │ SSL / TLS     │ (Proxy / Upstream / SSL / AI / Appearance / Behavior /       │
-│ AI Model      │  Updates / About)                                            │
+│ Agent Access  │  Updates / About)                                            │
 │ Appearance    │                                                              │
 │ Behavior      │ Search result click => switch section => scroll/highlight    │
 │ Updates       │ target row                                                   │
@@ -1070,6 +1070,7 @@ SettingsPage
    ├─ ProxySettingsSection
    ├─ UpstreamProxySection
    ├─ SslProxyingSection
+   ├─ AgentAccessSection
    ├─ AiModelSettingsSection
    ├─ AppearanceSettingsSection
    ├─ BehaviorSettingsSection
@@ -1087,6 +1088,7 @@ type SettingsPageState = {
       | "proxy"
       | "upstream"
       | "ssl"
+      | "agent"
       | "ai"
       | "appearance"
       | "behavior"
@@ -1095,6 +1097,55 @@ type SettingsPageState = {
     searchText: string;
     activeItemId: string | null;
   };
+};
+```
+
+### 8.4.1 Agent Access Section — `已实现（只读 MVP）`
+
+页面目标：
+
+- 在连接 Agent 前展示 sidecar、数据库 schema 与配置状态
+- 让用户显式开启会话、Body、WebSocket 与未脱敏 Body 权限
+- 为 Codex、Claude Code、Cursor 提供一键写入 MCP 配置、复制片段与 Skill 安装
+- 展示仅含元数据的审计日志
+
+组件树：
+
+```text
+AgentAccessSection
+├─ StatusCard (Switch / status chips / paths / Test configuration)
+├─ PermissionsCard (SettingsGroup + Save)
+├─ ClientGrid
+│  ├─ AgentClientConfigCard Codex
+│  ├─ AgentClientConfigCard Claude Code
+│  └─ AgentClientConfigCard Cursor
+├─ AgentAuditTable
+├─ SecurityNote
+└─ ConfirmDialog (custom Skill overwrite)
+```
+
+关键交互：
+
+1. 权限开关先写入本地草稿，点击 Save 才持久化；关闭 `readBodies` 会立即在草稿中关闭 `readRawBodies`。
+2. Test configuration 调用 `aiproxy-mcp --doctor`，失败原因内联展示，不使用全局 toast。
+3. Codex / Cursor 卡片可一键写入用户级配置；Claude Code 先选择项目根目录，再写入项目级 `.mcp.json`。目标文件不存在时直接创建；覆盖已有文件前展示目标路径、二次确认并先备份。配置片段默认折叠在“手动配置（可选）”内作为兜底。
+4. Cursor 卡片明确提示目标为 `~/.cursor/mcp.json`，片段保持标准 `mcpServers` 结构。
+5. Install Skill 先写管理标记；命中非 AIProxy 管理的同名文件时弹确认框，确认后才覆盖。
+6. 一键配置使用确认框展示目标路径；解析失败或结构冲突时不覆盖原文件。
+7. 审计表按时间倒序展示最近调用，刷新时重新读取 JSONL。
+
+状态：
+
+```ts
+type AgentAccessSectionState = {
+  draft: {
+    enabled: boolean;
+    permissions: AgentAccessPermissions;
+    limits: AgentAccessLimits;
+  };
+  feedback: { severity: "success" | "info" | "warning" | "error"; message: string } | null;
+  pendingInstall: AgentClientInfo | null;
+  installStatus: Partial<Record<AgentClient, InstallAgentSkillStatus>>;
 };
 ```
 

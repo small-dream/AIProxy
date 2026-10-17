@@ -2260,6 +2260,193 @@ type ShowLogFileOutput = string; // 日志文件的绝对路径
 - 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
 - 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
 
+## 6.14 Agent Access / MCP Commands — `已实现（只读 MVP）`
+
+Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
+
+- `agent-access.json`：权限与限制，Unix `0600`，Windows 仅当前用户 ACL。
+- `agent-audit.jsonl`：仅记录工具名、客户端、耗时、字节数、脱敏/截断状态和错误码；不记录载荷。
+
+### `get_agent_access_settings`
+
+请求：无参数。
+
+响应：
+
+```ts
+type AgentAccessSettings = {
+  version: number;
+  enabled: boolean;
+  transport: "stdio";
+  permissions: {
+    readSessions: boolean;
+    readBodies: boolean;
+    readRawBodies: boolean;
+    readWebSocket: boolean;
+    exportSnapshots: boolean;
+  };
+  limits: { maxSessions: number; maxBodyBytes: number; maxResponseBytes: number };
+  updatedAt?: string | null;
+  dataDir: string;
+  databasePath: string;
+  configPath: string;
+  auditPath: string;
+  configExists: boolean;
+  configError?: string | null;
+  sidecarPath?: string | null;
+  sidecarAvailable: boolean;
+  sidecarVersion?: string | null;
+  clients: AgentClientInfo[];
+};
+
+type AgentClientInfo = {
+  client: "codex" | "claude" | "cursor";
+  configPath?: string | null;
+  configExists: boolean;
+  configInstalled: boolean;
+  skillPath: string;
+  skillInstalled: boolean;
+  skillManaged: boolean;
+  configFormat: "json" | "toml";
+  configSnippet: string;
+};
+```
+
+说明：
+
+- 配置缺失时返回默认值（关闭、只读会话、Body/WebSocket/raw 关闭），不视为命令失败。
+- `clients` 生成可复制片段；实际写入由 `install_agent_client_config` 完成。
+- Cursor 目标为 `~/.cursor/mcp.json`，使用标准 `mcpServers` 结构且不写 `type` 字段。
+- Codex 目标为 `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）。
+- Claude Code 展示项目根目录 `.mcp.json` 片段。
+
+### `update_agent_access_settings`
+
+请求：
+
+```ts
+type UpdateAgentAccessSettingsInput = {
+  enabled: boolean;
+  permissions: AgentAccessSettings["permissions"];
+  limits: AgentAccessSettings["limits"];
+};
+```
+
+响应：`AgentAccessSettings`。
+
+说明：服务端会归一化权限（关闭 `readBodies` 时强制关闭 `readRawBodies`）并钳制限制值；写入使用临时文件原子替换。
+
+### `test_agent_access`
+
+请求：无参数。
+
+响应：
+
+```ts
+type AgentAccessTestResult = {
+  ok: boolean;
+  message: string;
+  sidecarPath?: string | null;
+  sidecarVersion?: string | null;
+  details?: Record<string, unknown> | null;
+};
+```
+
+说明：调用 `aiproxy-mcp --doctor`，验证 sidecar、配置和数据库 schema。诊断失败返回 `ok=false`，不抛出命令错误。
+
+### `install_agent_skill`
+
+请求：
+
+```ts
+type InstallAgentSkillInput = { client: "codex" | "claude" | "cursor"; overwrite?: boolean };
+```
+
+响应：
+
+```ts
+type InstallAgentSkillResult = {
+  status: "installed" | "upToDate" | "overwriteRequired";
+  client: "codex" | "claude" | "cursor";
+  path: string;
+  managedExisting: boolean;
+};
+```
+
+说明：
+
+- Codex：`$CODEX_HOME/skills/aiproxy/SKILL.md`。
+- Claude Code：`~/.claude/skills/aiproxy/SKILL.md`。
+- Cursor：`~/.cursor/skills/aiproxy/SKILL.md`。
+- 文件含 `<!-- aiproxy-managed-skill: v1 -->` 标记。AIProxy 管理的旧版本可自动升级；非管理文件必须 `overwrite=true` 才会替换。
+
+### `install_agent_client_config`
+
+请求：
+
+```ts
+type InstallAgentClientConfigInput = {
+  client: "codex" | "claude" | "cursor";
+  projectDir?: string; // Claude Code 必填；其他客户端忽略
+};
+```
+
+响应：
+
+```ts
+type InstallAgentClientConfigResult = {
+  status: "installed" | "upToDate";
+  client: "codex" | "claude" | "cursor";
+  path: string;
+  backupPath?: string | null;
+};
+```
+
+说明：
+
+- Codex 使用 `toml_edit` 合并 `$CODEX_HOME/config.toml` 的 `[mcp_servers.aiproxy]`，保留其他配置、注释与既有 `aiproxy` 扩展字段。
+- Cursor 合并 `~/.cursor/mcp.json` 的 `mcpServers.aiproxy`，保留其他服务并移除 `type` 字段。
+- Claude Code 需要 `projectDir`，合并项目根目录 `.mcp.json` 的 `mcpServers.aiproxy`，并写入 `type: "stdio"`。
+- 目标文件已存在且内容将变化时，先写入同目录 `.aiproxy-backup-<timestamp>` 备份，再原子替换；解析失败、根结构不是对象或目标是符号链接时拒绝写入。
+
+### `get_agent_audit_log`
+
+请求：`{ limit?: number }`，默认 50，最大 200。
+
+响应：
+
+```ts
+type AgentAuditLog = {
+  entries: Array<{
+    timestamp?: string | null;
+    clientName?: string | null;
+    clientVersion?: string | null;
+    tool?: string | null;
+    outcome?: string | null;
+    durationMs?: number | null;
+    returnedBytes?: number | null;
+    redacted?: boolean | null;
+    truncated?: boolean | null;
+    errorCode?: string | null;
+  }>;
+  path: string;
+  truncated: boolean;
+};
+```
+
+### MCP stdio tool contract
+
+`aiproxy-mcp` 只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
+
+所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。稳定排序：
+
+- `search_sessions`：`started_at DESC, id DESC`，不透明 cursor。
+- `get_websocket_messages`：`timestamp ASC, id ASC`，不透明 cursor。
+
+`get_session` 默认对 Header、Query、Cookie 和规则 trace 统一脱敏：规则 trace 的 `before` / `after` / `message` 经过文本脱敏，`sourcePattern` / `mappedUrl` 的敏感查询参数会被遮蔽；只有 `redactionMode=raw` 且具备 `readRawBodies` 权限时才返回原值。
+
+stdio 模式下 stdout 只输出协议消息；日志固定写 stderr。
+
 ## 7. Event Specification
 
 ## 7.1 会话事件

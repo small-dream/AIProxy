@@ -1,3 +1,4 @@
+mod agent_access;
 mod ai;
 mod app;
 mod certificates;
@@ -16,6 +17,7 @@ mod throttling;
 mod workspaces;
 mod ws;
 
+pub use agent_access::*;
 pub use ai::*;
 pub use app::*;
 pub use certificates::*;

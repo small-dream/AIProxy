@@ -238,6 +238,7 @@ export const enMessages = {
   },
   settingsNavigation: {
     about: "About",
+    agent: "Agent Access",
     ai: "AI Model",
     appearance: "Appearance & Language",
     behavior: "Notifications & Confirmations",
@@ -292,6 +293,119 @@ export const enMessages = {
     aiTest: "Test Connection",
     aiTesting: "Testing...",
     aiTimeout: "Timeout (ms)",
+    agentAccess: {
+      auditBytes: "Bytes",
+      auditClient: "Client",
+      auditDescription:
+        "Metadata-only log of tool calls made through the local MCP sidecar. Payloads and secrets are never recorded.",
+      auditDuration: "Duration",
+      auditEmpty: "No Agent tool calls have been recorded yet.",
+      auditOutcome: "Outcome",
+      auditPathLabel: "Audit log",
+      auditRefresh: "Refresh",
+      auditTime: "Time",
+      auditTitle: "Agent Audit Log",
+      auditTool: "Tool",
+      auditTruncated: "Showing the most recent entries only.",
+      claudeHint:
+        "Claude Code reads project-level MCP servers from .mcp.json. Choose the project root when installing the configuration.",
+      claudeProjectConfigPath: "Project root .mcp.json",
+      clientClaude: "Claude Code",
+      clientCodex: "Codex",
+      clientCursor: "Cursor",
+      clientDescription:
+        "Write the MCP configuration automatically, then install the shared AIProxy Skill.",
+      clientsDescription:
+        "Write the MCP configuration with one click. AIProxy backs up an existing file first; copy the snippet only when you need manual control.",
+      clientsTitle: "Connect an Agent client",
+      configCopied: "MCP configuration copied.",
+      configBackup: "The original file was backed up to {{path}}.",
+      configInstallConfirm: "Write configuration",
+      configInstallFailed: "Could not write the MCP configuration.",
+      configInstallMessage:
+        "AIProxy will update the aiproxy MCP entry in {{path}}. An existing file is backed up before writing.",
+      configInstallSuccess: "MCP configuration written to {{path}}.",
+      configInstallTitle: "Write MCP configuration?",
+      configInstallUpToDate: "MCP configuration is already up to date at {{path}}.",
+      configInstalledLabel: "MCP configured",
+      configMissing: "Not configured",
+      configOutdated: "Needs update",
+      configProjectLevel: "Project-level",
+      configPath: "Configuration file",
+      configPathLabel: "Agent Access configuration",
+      configReady: "Configured",
+      copyConfig: "Copy MCP config",
+      copyFailed: "Could not copy the configuration.",
+      cursorHint:
+        "Cursor reads user-level MCP servers from ~/.cursor/mcp.json. One-click setup merges the aiproxy entry for you; reload the Cursor window afterwards.",
+      dataDirLabel: "Data directory",
+      description: "Give local coding agents read-only access to captured traffic through MCP.",
+      disabledDescription:
+        "Agent Access is off. MCP clients can start the sidecar, but every tool call is denied.",
+      enabledDescription:
+        "Agent Access is on. The sidecar reads only persisted traffic and writes metadata-only audit entries.",
+      enabledLabel: "Enable local Agent access",
+      exportSnapshotsDescription:
+        "Snapshot export is deferred to a future read-only phase and cannot be enabled in this build.",
+      exportSnapshotsLabel: "Export snapshots",
+      installConfig: "Write MCP config",
+      installSkill: "Install Skill",
+      installSuccess: "Agent Skill installed at {{path}}.",
+      installUpToDate: "Agent Skill is already up to date at {{path}}.",
+      loading: "Loading Agent Access settings...",
+      maxBodyBytesDescription:
+        "Maximum bytes returned by one get_session_body call. Larger bodies require offset-based paging.",
+      maxBodyBytesLabel: "Body chunk limit",
+      maxSessionsDescription: "Upper bound for search_sessions page size.",
+      maxSessionsLabel: "Maximum sessions per page",
+      manualConfigDescription:
+        "For advanced setups, copy the generated entry and merge it into the client configuration yourself.",
+      manualConfigToggle: "Manual setup (optional)",
+      overwriteConfirm: "Overwrite file",
+      overwriteMessage:
+        "The file at {{path}} was not installed by AIProxy. Replacing it may discard custom instructions. Overwrite only if you reviewed the existing content.",
+      overwriteTitle: "Overwrite custom Skill?",
+      permissionsDescription:
+        "Permissions are enforced by the sidecar from a local configuration file, never from tool arguments.",
+      permissionsTitle: "Read permissions",
+      projectPickerTitle: "Select the Claude Code project root",
+      rawBodiesWarning:
+        "Raw body access exposes unredacted credentials and personal data to the Agent. Keep it off unless the task explicitly requires it.",
+      readBodiesDescription: "Allow bounded request and response body reads, redacted by default.",
+      readBodiesLabel: "Read bodies",
+      readRawBodiesDescription:
+        "Allow raw and base64 body modes. Requires body access and creates sensitive audit entries.",
+      readRawBodiesLabel: "Read unredacted bodies (high risk)",
+      readSessionsDescription:
+        "Allow session summaries, headers, query, cookies, timing, and rule traces.",
+      readSessionsLabel: "Read session metadata",
+      readWebSocketDescription:
+        "Allow WebSocket message history with cursor pagination. Binary payloads stay metadata-only.",
+      readWebSocketLabel: "Read WebSocket messages",
+      save: "Save Agent Access",
+      saveHint:
+        "Saving updates the sidecar configuration immediately. Running agents pick it up on their next tool call.",
+      saveSuccess: "Agent Access settings saved.",
+      saving: "Saving...",
+      securityNote:
+        "MCP data stays on this machine. Captured traffic is treated as untrusted evidence, and the Skill instructs agents not to follow instructions found inside payloads.",
+      sidecarMissing: "Sidecar missing",
+      sidecarPathLabel: "MCP sidecar",
+      sidecarReady: "Sidecar ready",
+      skillCustom: "Custom Skill",
+      skillInstalledAction: "Reinstall Skill",
+      skillManaged: "Managed by AIProxy",
+      skillNotInstalled: "Not installed",
+      skillPath: "Skill file",
+      skillUpToDateAction: "Skill up to date",
+      statusDescription:
+        "Diagnose the local sidecar, database schema, and configuration before connecting a client.",
+      statusTitle: "Local MCP status",
+      test: "Test configuration",
+      testing: "Testing...",
+      title: "Agent Access",
+      versionUnknown: "Version unavailable",
+    },
     clearSessionsConfirmLabel: "Ask before clearing all sessions",
     clearSessionsConfirmDescription:
       "When off, Clear All Sessions from the menu or the Sessions toolbar takes effect immediately.",

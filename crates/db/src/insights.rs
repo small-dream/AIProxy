@@ -67,6 +67,11 @@ pub struct InsightsFilter {
     pub host_exact: Option<String>,
     pub session_ids: Vec<String>,
     pub host_keyword: Option<String>,
+    pub methods: Vec<String>,
+    pub status_min: Option<u16>,
+    pub status_max: Option<u16>,
+    pub started_after: Option<String>,
+    pub started_before: Option<String>,
 }
 
 fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>) {
@@ -122,6 +127,62 @@ fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>)
     {
         conditions.push(format!("LOWER(host) = ?{param_idx}"));
         params.push(rusqlite::types::Value::Text(host));
+        param_idx += 1;
+    }
+
+    if !filter.methods.is_empty() {
+        let placeholders: Vec<String> = filter
+            .methods
+            .iter()
+            .filter(|method| !method.trim().is_empty())
+            .map(|_| {
+                let placeholder = format!("?{param_idx}");
+                param_idx += 1;
+                placeholder
+            })
+            .collect();
+        if !placeholders.is_empty() {
+            conditions.push(format!("UPPER(method) IN ({})", placeholders.join(", ")));
+            for method in &filter.methods {
+                let method = method.trim();
+                if !method.is_empty() {
+                    params.push(rusqlite::types::Value::Text(method.to_uppercase()));
+                }
+            }
+        }
+    }
+
+    if let Some(status_min) = filter.status_min {
+        conditions.push(format!("status_code >= ?{param_idx}"));
+        params.push(rusqlite::types::Value::Integer(i64::from(status_min)));
+        param_idx += 1;
+    }
+
+    if let Some(status_max) = filter.status_max {
+        conditions.push(format!("status_code <= ?{param_idx}"));
+        params.push(rusqlite::types::Value::Integer(i64::from(status_max)));
+        param_idx += 1;
+    }
+
+    if let Some(started_after) = filter
+        .started_after
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        conditions.push(format!("started_at >= ?{param_idx}"));
+        params.push(rusqlite::types::Value::Text(started_after.to_string()));
+        param_idx += 1;
+    }
+
+    if let Some(started_before) = filter
+        .started_before
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    {
+        conditions.push(format!("started_at <= ?{param_idx}"));
+        params.push(rusqlite::types::Value::Text(started_before.to_string()));
         param_idx += 1;
     }
 

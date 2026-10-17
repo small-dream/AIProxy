@@ -1,12 +1,22 @@
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 
 use crate::DbError;
 use std::path::{Component, Path, PathBuf};
 
 /// Manages session body files on disk.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BodyStore {
     base_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BodyRange {
+    pub bytes: Vec<u8>,
+    pub original_size_bytes: u64,
+    pub offset: u64,
+    pub returned_bytes: usize,
+    pub truncated: bool,
 }
 
 impl BodyStore {
@@ -57,6 +67,45 @@ impl BodyStore {
     pub fn read_body(&self, relative_path: &str) -> Result<Vec<u8>, DbError> {
         let full_path = self.checked_resolve_body_path(relative_path)?;
         fs::read(&full_path).map_err(DbError::Io)
+    }
+
+    /// Read a bounded byte range from a body file without loading the whole file.
+    pub fn read_body_range(
+        &self,
+        relative_path: &str,
+        offset: u64,
+        max_bytes: usize,
+    ) -> Result<BodyRange, DbError> {
+        let full_path = self.checked_existing_body_path(relative_path)?;
+        let metadata = fs::symlink_metadata(&full_path).map_err(DbError::Io)?;
+        if metadata.file_type().is_symlink() || is_reparse_point(&metadata) || !metadata.is_file() {
+            return Err(DbError::Validation(format!(
+                "body path is not a regular file: {relative_path}"
+            )));
+        }
+
+        let original_size_bytes = metadata.len();
+        if offset > original_size_bytes {
+            return Err(DbError::Validation(
+                "body offset exceeds file size".to_string(),
+            ));
+        }
+
+        let mut file = open_body_file(&full_path)?;
+        file.seek(SeekFrom::Start(offset)).map_err(DbError::Io)?;
+        let mut bytes = Vec::with_capacity(max_bytes.min((original_size_bytes - offset) as usize));
+        file.take(max_bytes as u64)
+            .read_to_end(&mut bytes)
+            .map_err(DbError::Io)?;
+        let returned_bytes = bytes.len();
+
+        Ok(BodyRange {
+            bytes,
+            original_size_bytes,
+            offset,
+            returned_bytes,
+            truncated: offset + (returned_bytes as u64) < original_size_bytes,
+        })
     }
 
     /// Remove all body files for a session.
@@ -156,6 +205,55 @@ impl BodyStore {
 
         Ok(self.base_dir.join(path))
     }
+
+    fn checked_existing_body_path(&self, relative_path: &str) -> Result<PathBuf, DbError> {
+        let full_path = self.checked_resolve_body_path(relative_path)?;
+        let base_dir = self.base_dir.canonicalize().map_err(|error| {
+            DbError::Validation(format!("body store directory is unavailable: {error}"))
+        })?;
+        let file_name = full_path
+            .file_name()
+            .ok_or_else(|| DbError::Validation("invalid body path".to_string()))?;
+        let parent = full_path
+            .parent()
+            .ok_or_else(|| DbError::Validation("invalid body path".to_string()))?
+            .canonicalize()
+            .map_err(DbError::Io)?;
+        if !parent.starts_with(&base_dir) {
+            return Err(DbError::Validation(format!(
+                "body path escapes body store: {relative_path}"
+            )));
+        }
+        Ok(parent.join(file_name))
+    }
+}
+
+#[cfg(windows)]
+fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(_metadata: &fs::Metadata) -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn open_body_file(path: &Path) -> Result<fs::File, DbError> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(DbError::Io)
+}
+
+#[cfg(not(unix))]
+fn open_body_file(path: &Path) -> Result<fs::File, DbError> {
+    fs::File::open(path).map_err(DbError::Io)
 }
 
 /// Join the components of a relative path with `/` separators.
@@ -197,6 +295,16 @@ pub const BODY_FILE_THRESHOLD: usize = 256 * 1024;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_dir(name: &str) -> PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("aiproxy_body_test_{name}_{unique}"));
+        let _ = fs::remove_dir_all(&dir);
+        dir
+    }
     use proptest::prelude::*;
 
     // P6-1: Strings containing slash or backslash are always rejected
@@ -409,5 +517,59 @@ mod tests {
             resolved.starts_with(&dir) && resolved != dir.join("__invalid_body_path__"),
             "round-tripped path must resolve under the store, got: {resolved:?}"
         );
+    }
+
+    #[test]
+    fn read_body_range_returns_bounded_chunks() {
+        let dir = test_dir("range");
+        let store = BodyStore::new(dir.join("bodies"));
+        store.ensure_dir().unwrap();
+        let relative = store
+            .write_body("range-session", "response", b"0123456789")
+            .unwrap();
+
+        let range = store.read_body_range(&relative, 3, 4).unwrap();
+        assert_eq!(range.bytes, b"3456");
+        assert_eq!(range.offset, 3);
+        assert_eq!(range.returned_bytes, 4);
+        assert_eq!(range.original_size_bytes, 10);
+        assert!(range.truncated);
+
+        let tail = store.read_body_range(&relative, 8, 100).unwrap();
+        assert_eq!(tail.bytes, b"89");
+        assert!(!tail.truncated);
+    }
+
+    #[test]
+    fn read_body_range_rejects_path_traversal() {
+        let dir = test_dir("traversal");
+        let store = BodyStore::new(dir.join("bodies"));
+        store.ensure_dir().unwrap();
+        assert!(store.read_body_range("../aiproxy.db", 0, 16).is_err());
+        assert!(store
+            .read_body_range("session/../../aiproxy.db", 0, 16)
+            .is_err());
+        assert!(store
+            .read_body_range("session\\..\\aiproxy.db", 0, 16)
+            .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_body_range_rejects_symlinked_leaf() {
+        use std::os::unix::fs::symlink;
+
+        let dir = test_dir("symlink");
+        let store = BodyStore::new(dir.join("bodies"));
+        store.ensure_dir().unwrap();
+        let session_dir = dir.join("bodies").join("linked-session");
+        fs::create_dir_all(&session_dir).unwrap();
+        let outside = dir.join("outside.txt");
+        fs::write(&outside, b"secret").unwrap();
+        symlink(&outside, session_dir.join("response.body")).unwrap();
+
+        assert!(store
+            .read_body_range("linked-session/response.body", 0, 16)
+            .is_err());
     }
 }
