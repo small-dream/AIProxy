@@ -4,6 +4,7 @@ import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -13,6 +14,7 @@ import {
   Select,
   Stack,
   Switch,
+  TextField,
   Typography,
 } from "@mui/material";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -23,6 +25,7 @@ import {
   coerceAppError,
   type AgentAccessLimits,
   type AgentAccessPermissions,
+  type AgentAccessRedaction,
   type AgentAccessSettings,
   type AgentClientInfo,
   type InstallAgentClientConfigResult,
@@ -50,6 +53,8 @@ import {
 } from "@/services/commands";
 import {
   compactAlertSx,
+  compactFieldSx,
+  rowControlSx,
   SettingsFooter,
   SettingsGroup,
   SettingsRow,
@@ -406,6 +411,15 @@ export function AgentAccessSection() {
   function updateLimit(key: keyof AgentAccessLimits, value: number) {
     setDraft((current) =>
       current ? { ...current, limits: { ...current.limits, [key]: value } } : current,
+    );
+  }
+
+  function updateRedaction<K extends keyof AgentAccessRedaction>(
+    key: K,
+    value: AgentAccessRedaction[K],
+  ) {
+    setDraft((current) =>
+      current ? { ...current, redaction: { ...current.redaction, [key]: value } } : current,
     );
   }
 
@@ -794,6 +808,70 @@ export function AgentAccessSection() {
                     />
                   </SettingsRow>
                   <SettingsRow
+                    itemId="agent-detect-sensitive-values"
+                    label={t("settingsPage.agentAccess.detectSensitiveValuesLabel")}
+                    description={t("settingsPage.agentAccess.detectSensitiveValuesDescription")}
+                  >
+                    <Switch
+                      size="small"
+                      checked={draft.redaction.detectSensitiveValues}
+                      onChange={(event) =>
+                        updateRedaction("detectSensitiveValues", event.target.checked)
+                      }
+                      slotProps={{
+                        input: {
+                          "aria-label": t("settingsPage.agentAccess.detectSensitiveValuesLabel"),
+                        },
+                      }}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    itemId="agent-hash-identifiers"
+                    label={t("settingsPage.agentAccess.hashIdentifiersLabel")}
+                    description={t("settingsPage.agentAccess.hashIdentifiersDescription")}
+                  >
+                    <Switch
+                      size="small"
+                      checked={draft.redaction.hashIdentifiers}
+                      disabled={!draft.redaction.detectSensitiveValues}
+                      onChange={(event) => updateRedaction("hashIdentifiers", event.target.checked)}
+                      slotProps={{
+                        input: {
+                          "aria-label": t("settingsPage.agentAccess.hashIdentifiersLabel"),
+                        },
+                      }}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    itemId="agent-custom-sensitive-keys"
+                    label={t("settingsPage.agentAccess.customSensitiveKeysLabel")}
+                    description={t("settingsPage.agentAccess.customSensitiveKeysDescription")}
+                  >
+                    <Autocomplete
+                      multiple
+                      freeSolo
+                      size="small"
+                      options={[] as string[]}
+                      value={draft.redaction.customSensitiveKeys}
+                      disabled={!draft.redaction.detectSensitiveValues}
+                      onChange={(_, value) =>
+                        updateRedaction(
+                          "customSensitiveKeys",
+                          Array.from(
+                            new Set(value.map((item) => item.trim().toLowerCase()).filter(Boolean)),
+                          ),
+                        )
+                      }
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          placeholder={t("settingsPage.agentAccess.customSensitiveKeysPlaceholder")}
+                          sx={{ ...rowControlSx, ...compactFieldSx }}
+                        />
+                      )}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
                     itemId="agent-max-sessions"
                     label={t("settingsPage.agentAccess.maxSessionsLabel")}
                     description={t("settingsPage.agentAccess.maxSessionsDescription")}
@@ -1016,6 +1094,11 @@ function draftFromSettings(settings: AgentAccessSettings): AgentAccessDraft {
     enabled: settings.enabled,
     permissions: { ...settings.permissions },
     limits: { ...settings.limits },
+    redaction: {
+      ...settings.redaction,
+      customSensitiveKeys: [...settings.redaction.customSensitiveKeys],
+      customPatterns: settings.redaction.customPatterns.map((rule) => ({ ...rule })),
+    },
   };
 }
 
@@ -1035,6 +1118,7 @@ function draftsEqual(current: AgentAccessDraft, saved: AgentAccessDraft) {
   ];
   return (
     permissionKeys.every((key) => current.permissions[key] === saved.permissions[key]) &&
-    limitKeys.every((key) => current.limits[key] === saved.limits[key])
+    limitKeys.every((key) => current.limits[key] === saved.limits[key]) &&
+    JSON.stringify(current.redaction) === JSON.stringify(saved.redaction)
   );
 }

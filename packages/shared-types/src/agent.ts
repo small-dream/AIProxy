@@ -14,6 +14,21 @@ export type AgentAccessLimits = {
   maxResponseBytes: number;
 };
 
+export type RedactionAction = "redact" | "hash";
+
+export type RedactionPattern = {
+  name: string;
+  pattern: string;
+  action: RedactionAction;
+};
+
+export type AgentAccessRedaction = {
+  detectSensitiveValues: boolean;
+  hashIdentifiers: boolean;
+  customSensitiveKeys: string[];
+  customPatterns: RedactionPattern[];
+};
+
 export type AgentClientInfo = {
   client: AgentClient;
   configPath?: string | null;
@@ -32,6 +47,7 @@ export type AgentAccessSettings = {
   transport: string;
   permissions: AgentAccessPermissions;
   limits: AgentAccessLimits;
+  redaction: AgentAccessRedaction;
   updatedAt?: string | null;
   dataDir: string;
   databasePath: string;
@@ -49,6 +65,7 @@ export type UpdateAgentAccessSettingsInput = {
   enabled: boolean;
   permissions: AgentAccessPermissions;
   limits: AgentAccessLimits;
+  redaction: AgentAccessRedaction;
 };
 
 export type AgentAccessTestResult = {

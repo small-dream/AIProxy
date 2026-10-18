@@ -21,8 +21,22 @@ pub struct InsightsResult {
     pub by_host: Vec<HostInsight>,
     pub by_status_code: Vec<StatusCodeDistribution>,
     pub by_method: Vec<MethodDistribution>,
+    pub groups: Vec<InsightGroup>,
     pub slow_requests: Vec<SlowRequest>,
     pub largest_requests: Vec<SlowRequest>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightGroup {
+    pub key: String,
+    pub request_count: i64,
+    pub error_count: i64,
+    pub error_rate: f64,
+    pub avg_duration_ms: f64,
+    pub p50_duration_ms: f64,
+    pub p95_duration_ms: f64,
+    pub total_bytes: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,17 +75,30 @@ pub struct SlowRequest {
     pub size_bytes: i64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum InsightGroupBy {
+    #[default]
+    None,
+    Host,
+    Path,
+    QueryParam,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct InsightsFilter {
     pub excluded_hosts: Vec<String>,
     pub host_exact: Option<String>,
     pub session_ids: Vec<String>,
     pub host_keyword: Option<String>,
+    pub path_keyword: Option<String>,
+    pub query_params: Vec<(String, String)>,
     pub methods: Vec<String>,
     pub status_min: Option<u16>,
     pub status_max: Option<u16>,
     pub started_after: Option<String>,
     pub started_before: Option<String>,
+    pub group_by: InsightGroupBy,
+    pub group_query_param: Option<String>,
 }
 
 fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>) {
@@ -128,6 +155,39 @@ fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>)
         conditions.push(format!("LOWER(host) = ?{param_idx}"));
         params.push(rusqlite::types::Value::Text(host));
         param_idx += 1;
+    }
+
+    if let Some(keyword) = filter
+        .path_keyword
+        .as_ref()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+    {
+        conditions.push(format!("LOWER(path) LIKE ?{param_idx} ESCAPE '\\'"));
+        params.push(rusqlite::types::Value::Text(format!(
+            "%{}%",
+            crate::sessions::escape_like_pattern(&keyword)
+        )));
+        param_idx += 1;
+    }
+
+    for (name, value) in &filter.query_params {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM session_details d \
+             WHERE d.session_summary_id = session_summaries.id \
+             AND json_valid(d.query_params) \
+             AND EXISTS (SELECT 1 FROM json_each(d.query_params) qp \
+                         WHERE json_extract(qp.value, '$.name') = ?{param_idx} \
+                         AND json_extract(qp.value, '$.value') = ?{next}))",
+            next = param_idx + 1
+        ));
+        params.push(rusqlite::types::Value::Text(name.to_string()));
+        params.push(rusqlite::types::Value::Text(value.clone()));
+        param_idx += 2;
     }
 
     if !filter.methods.is_empty() {
@@ -493,6 +553,8 @@ pub fn compute_insights(
         rows?
     };
 
+    let groups = compute_groups(conn, &where_clause, &where_params, filter)?;
+
     Ok(InsightsResult {
         total_requests,
         total_errors,
@@ -505,9 +567,121 @@ pub fn compute_insights(
         by_host,
         by_status_code,
         by_method,
+        groups,
         slow_requests,
         largest_requests,
     })
+}
+
+fn compute_groups(
+    conn: &Connection,
+    where_clause: &str,
+    where_params: &[rusqlite::types::Value],
+    filter: &InsightsFilter,
+) -> Result<Vec<InsightGroup>, DbError> {
+    if filter.group_by == InsightGroupBy::None {
+        return Ok(Vec::new());
+    }
+
+    let mut params = where_params.to_vec();
+    let key_expression = match filter.group_by {
+        InsightGroupBy::None => return Ok(Vec::new()),
+        InsightGroupBy::Host => "LOWER(host)".to_string(),
+        InsightGroupBy::Path => "path".to_string(),
+        InsightGroupBy::QueryParam => {
+            let name = filter
+                .group_query_param
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    DbError::Validation(
+                        "groupQueryParam is required when groupBy=queryParam".to_string(),
+                    )
+                })?;
+            let index = params.len() + 1;
+            params.push(rusqlite::types::Value::Text(name.to_string()));
+            format!(
+                "COALESCE((SELECT json_extract(qp.value, '$.value') \
+                  FROM session_details d, json_each(d.query_params) qp \
+                  WHERE d.session_summary_id = session_summaries.id \
+                  AND json_valid(d.query_params) \
+                  AND json_extract(qp.value, '$.name') = ?{index} \
+                  LIMIT 1), '(missing)')"
+            )
+        }
+    };
+    let query = format!(
+        "SELECT {key_expression} AS group_key, status_code, duration_ms, size_bytes
+         FROM session_summaries{where_clause}"
+    );
+    let mut statement = conn
+        .prepare(&query)
+        .map_err(|error| DbError::query("insights groups prepare", error))?;
+    let rows = statement
+        .query_map(rusqlite::params_from_iter(params), |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                row.get::<_, i64>(1)?.max(0),
+                row.get::<_, i64>(2)?.max(0),
+                row.get::<_, i64>(3)?.max(0),
+            ))
+        })
+        .map_err(|error| DbError::query("insights groups query", error))?;
+
+    #[derive(Default)]
+    struct Accumulator {
+        count: i64,
+        errors: i64,
+        durations: Vec<i64>,
+        total_bytes: i64,
+    }
+
+    let mut groups: std::collections::BTreeMap<String, Accumulator> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        let (key, status_code, duration_ms, size_bytes) =
+            row.map_err(|error| DbError::query("decode insight group row", error))?;
+        let accumulator = groups.entry(key).or_default();
+        accumulator.count += 1;
+        accumulator.errors += i64::from(status_code >= 400);
+        accumulator.durations.push(duration_ms);
+        accumulator.total_bytes += size_bytes;
+    }
+
+    let mut output = groups
+        .into_iter()
+        .map(|(key, mut accumulator)| {
+            accumulator.durations.sort_unstable();
+            let request_count = accumulator.count;
+            InsightGroup {
+                key,
+                request_count,
+                error_count: accumulator.errors,
+                error_rate: if request_count > 0 {
+                    accumulator.errors as f64 / request_count as f64
+                } else {
+                    0.0
+                },
+                avg_duration_ms: if request_count > 0 {
+                    accumulator.durations.iter().sum::<i64>() as f64 / request_count as f64
+                } else {
+                    0.0
+                },
+                p50_duration_ms: percentile(&accumulator.durations, 50),
+                p95_duration_ms: percentile(&accumulator.durations, 95),
+                total_bytes: accumulator.total_bytes,
+            }
+        })
+        .collect::<Vec<_>>();
+    output.sort_by(|left, right| {
+        right
+            .request_count
+            .cmp(&left.request_count)
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    output.truncate(50);
+    Ok(output)
 }
 
 // ---------------------------------------------------------------------------
@@ -595,6 +769,43 @@ mod tests {
                 url,
                 started_at
             ],
+        )
+        .unwrap();
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn insert_session_path_query(
+        conn: &Connection,
+        id: &str,
+        path: &str,
+        status_code: i32,
+        duration_ms: i64,
+        size_bytes: i64,
+        query_params: &str,
+    ) {
+        let host = "api.example.com";
+        conn.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, scheme, http_version,
+                 transport_protocol, application_protocol, started_at, finished_at,
+                 duration_ms, size_bytes, status_code, url)
+             VALUES (?1, 'POST', ?2, ?3, 'HTTP/1.1', 'https', '1.1', 'tcp', 'http',
+                     '2026-05-25T00:00:00Z', '2026-05-25T00:00:01Z', ?4, ?5, ?6, ?7)",
+            params![
+                id,
+                host,
+                path,
+                duration_ms,
+                size_bytes,
+                status_code,
+                format!("https://{host}{path}")
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_details (id, session_summary_id, query_params)
+             VALUES (?1, ?2, ?3)",
+            params![format!("{id}-detail"), id, query_params],
         )
         .unwrap();
     }
@@ -1038,5 +1249,138 @@ mod tests {
         let result = compute_insights(&conn, &filter).unwrap();
         assert_eq!(result.total_requests, 1);
         assert_eq!(result.by_host[0].host, "api_example.com");
+    }
+
+    #[test]
+    fn path_and_query_filters_skip_malformed_details() {
+        let conn = test_conn();
+        insert_session_path_query(&conn, "broken", "/v1/app.launch", 200, 100, 10, "not-json");
+        insert_session_path_query(
+            &conn,
+            "valid",
+            "/v1/app.launch",
+            500,
+            200,
+            20,
+            r#"[{"name":"_method","value":"app.launch"}]"#,
+        );
+        insert_session_path_query(
+            &conn,
+            "other",
+            "/v1/other",
+            200,
+            50,
+            30,
+            r#"[{"name":"_method","value":"app.launch"}]"#,
+        );
+
+        let by_path = compute_insights(
+            &conn,
+            &InsightsFilter {
+                path_keyword: Some("app.launch".into()),
+                query_params: vec![("_method".into(), "app.launch".into())],
+                ..InsightsFilter::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(by_path.total_requests, 1);
+        assert_eq!(by_path.by_host[0].request_count, 1);
+
+        let by_query = compute_insights(
+            &conn,
+            &InsightsFilter {
+                query_params: vec![("_method".into(), "app.launch".into())],
+                ..InsightsFilter::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(by_query.total_requests, 2);
+    }
+
+    #[test]
+    fn groups_by_path_and_query_param_with_stats() {
+        let conn = test_conn();
+        insert_session_path_query(
+            &conn,
+            "a1",
+            "/a",
+            200,
+            100,
+            10,
+            r#"[{"name":"env","value":"A"}]"#,
+        );
+        insert_session_path_query(
+            &conn,
+            "a2",
+            "/a",
+            500,
+            300,
+            20,
+            r#"[{"name":"env","value":"A"}]"#,
+        );
+        insert_session_path_query(
+            &conn,
+            "b1",
+            "/b",
+            200,
+            200,
+            30,
+            r#"[{"name":"env","value":"B"}]"#,
+        );
+        insert_session_path_query(&conn, "b2", "/b", 200, 400, 40, "[]");
+
+        let by_path = compute_insights(
+            &conn,
+            &InsightsFilter {
+                group_by: InsightGroupBy::Path,
+                ..InsightsFilter::default()
+            },
+        )
+        .unwrap();
+        let path_a = by_path
+            .groups
+            .iter()
+            .find(|group| group.key == "/a")
+            .unwrap();
+        assert_eq!(path_a.request_count, 2);
+        assert_eq!(path_a.error_count, 1);
+        assert_eq!(path_a.p95_duration_ms, 300.0);
+        assert_eq!(path_a.total_bytes, 30);
+        let path_b = by_path
+            .groups
+            .iter()
+            .find(|group| group.key == "/b")
+            .unwrap();
+        assert_eq!(path_b.request_count, 2);
+        assert_eq!(path_b.error_rate, 0.0);
+        assert_eq!(path_b.p95_duration_ms, 400.0);
+        assert_eq!(path_b.total_bytes, 70);
+
+        let by_query = compute_insights(
+            &conn,
+            &InsightsFilter {
+                group_by: InsightGroupBy::QueryParam,
+                group_query_param: Some("env".into()),
+                ..InsightsFilter::default()
+            },
+        )
+        .unwrap();
+        let group_a = by_query
+            .groups
+            .iter()
+            .find(|group| group.key == "A")
+            .unwrap();
+        assert_eq!(group_a.request_count, 2);
+        assert_eq!(group_a.error_count, 1);
+        assert_eq!(group_a.total_bytes, 30);
+        assert_eq!(
+            by_query
+                .groups
+                .iter()
+                .find(|group| group.key == "(missing)")
+                .unwrap()
+                .request_count,
+            1
+        );
     }
 }

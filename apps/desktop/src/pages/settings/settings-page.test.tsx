@@ -53,6 +53,18 @@ describe("SettingsPage navigation", () => {
     expect(screen.getByLabelText("Appearance Theme")).toBeInTheDocument();
   });
 
+  it("finds the Agent redaction policy from settings search", async () => {
+    renderSettings();
+
+    fireEvent.change(screen.getByLabelText("Search settings"), {
+      target: { value: "JWT" },
+    });
+
+    fireEvent.click(screen.getByText("Data redaction"));
+
+    expect(await screen.findByText("Read permissions")).toBeInTheDocument();
+  });
+
   it("shows a compact Agent client list with manual setup in the overflow menu", async () => {
     renderSettings("/settings?section=agent");
 

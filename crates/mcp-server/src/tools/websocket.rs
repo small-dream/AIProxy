@@ -5,7 +5,9 @@ use serde_json::{json, Value};
 
 use crate::context::AppContext;
 use crate::protocol::{ToolError, ToolMeta};
-use crate::redaction::redact_text;
+use crate::redaction::Redactor;
+
+use super::sessions::require_session_id;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -35,7 +37,9 @@ pub async fn get_messages(
         }
     }
 
-    let session_id = request.session_id;
+    let redactor = Redactor::from_config(&config, &state.paths.data_dir)
+        .map_err(|message| ToolError::new("INVALID_REDACTION_CONFIG", message))?;
+    let session_id = require_session_id(state, &request.session_id).await?;
     let direction = request.direction;
     let keyword = request.keyword;
     let limit = request.limit.unwrap_or(50).clamp(1, 100);
@@ -63,7 +67,7 @@ pub async fn get_messages(
             } else {
                 match message.payload_text {
                     Some(text) => {
-                        let redacted = redact_text(&text);
+                        let redacted = redactor.redact_text(&text);
                         (Value::String(redacted.value), redacted.fields)
                     }
                     None => (Value::Null, Vec::new()),

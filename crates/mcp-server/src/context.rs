@@ -191,6 +191,7 @@ pub fn available_tools() -> Vec<&'static str> {
         "search_sessions",
         "get_session",
         "get_session_body",
+        "get_session_fields",
         "get_websocket_messages",
         "get_insights",
         "compare_sessions",

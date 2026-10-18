@@ -6,7 +6,7 @@ use std::process::Command;
 
 use aiproxy_mcp::config::{
     read_config, write_config, AgentAccessConfig, AgentAccessLimits, AgentAccessPermissions,
-    AppPaths, ConfigReadError, AGENT_ACCESS_CONFIG_VERSION,
+    AgentAccessRedaction, AppPaths, ConfigReadError, AGENT_ACCESS_CONFIG_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -46,6 +46,7 @@ pub struct AgentAccessSettings {
     pub transport: String,
     pub permissions: AgentAccessPermissions,
     pub limits: AgentAccessLimits,
+    pub redaction: AgentAccessRedaction,
     pub updated_at: Option<String>,
     pub data_dir: String,
     pub database_path: String,
@@ -65,6 +66,7 @@ pub struct UpdateAgentAccessSettingsInput {
     pub enabled: bool,
     pub permissions: AgentAccessPermissions,
     pub limits: AgentAccessLimits,
+    pub redaction: AgentAccessRedaction,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -150,6 +152,7 @@ pub async fn update_agent_access_settings(
         config.enabled = input.enabled;
         config.permissions = input.permissions;
         config.limits = input.limits;
+        config.redaction = input.redaction;
         config.updated_at = Some(chrono::Utc::now().to_rfc3339());
         write_config(&paths.config_path, &config).map_err(|error| {
             tracing::error!(
@@ -168,6 +171,8 @@ pub async fn update_agent_access_settings(
             read_bodies = config.permissions.read_bodies,
             read_raw_bodies = config.permissions.read_raw_bodies,
             read_web_socket = config.permissions.read_web_socket,
+            detect_sensitive_values = config.redaction.detect_sensitive_values,
+            hash_identifiers = config.redaction.hash_identifiers,
             "agent_access_config_updated"
         );
         build_settings()
@@ -479,6 +484,7 @@ fn build_settings() -> Result<AgentAccessSettings, String> {
         transport: config.transport,
         permissions: config.permissions,
         limits: config.limits,
+        redaction: config.redaction,
         updated_at: config.updated_at,
         data_dir: paths.data_dir.display().to_string(),
         database_path: paths.db_path.display().to_string(),
@@ -668,7 +674,7 @@ fn client_info(
         config_exists: config_path.as_deref().is_some_and(Path::is_file),
         config_installed,
         skill_path: skill_path.display().to_string(),
-        skill_installed: skill_contents.is_some(),
+        skill_installed: skill_is_current(skill_contents.as_deref()),
         skill_managed: skill_contents.as_deref().is_some_and(is_managed_skill),
         config_format,
         config_snippet,
@@ -951,6 +957,10 @@ fn is_managed_skill(contents: &str) -> bool {
     contents.contains(SKILL_MARKER)
 }
 
+fn skill_is_current(contents: Option<&str>) -> bool {
+    contents == Some(SKILL_CONTENT)
+}
+
 fn write_skill_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -1013,6 +1023,13 @@ mod tests {
     fn skill_marker_detects_managed_content() {
         assert!(is_managed_skill(SKILL_CONTENT));
         assert!(!is_managed_skill("# my custom skill"));
+    }
+
+    #[test]
+    fn skill_installation_requires_current_content() {
+        assert!(skill_is_current(Some(SKILL_CONTENT)));
+        assert!(!skill_is_current(Some("# my custom skill")));
+        assert!(!skill_is_current(None));
     }
 
     #[test]

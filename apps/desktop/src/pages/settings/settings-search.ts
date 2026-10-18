@@ -4,6 +4,7 @@ import type { SettingsSectionId } from "./settings-navigation";
 
 export type SettingsSearchEntry = {
   id: string;
+  targetId?: string;
   sectionId: SettingsSectionId;
   labelKey: TranslationKey;
   descriptionKeys: readonly TranslationKey[];
@@ -89,11 +90,40 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["mcp", "agent", "skill", "codex", "claude", "cursor", "代理", "智能体"],
   },
   {
-    id: "agent-permissions",
+    id: "agent-redaction",
+    targetId: "agent-permissions",
     sectionId: "agent",
     labelKey: "settingsPage.agentAccess.permissionsTitle",
     descriptionKeys: ["settingsPage.agentAccess.permissionsDescription"],
-    keywords: ["permission", "body", "websocket", "raw", "权限", "脱敏"],
+    keywords: ["permission", "body", "websocket", "raw", "权限"],
+  },
+  {
+    id: "agent-permissions",
+    sectionId: "agent",
+    labelKey: "settingsPage.agentAccess.redactionTitle",
+    descriptionKeys: [
+      "settingsPage.agentAccess.detectSensitiveValuesDescription",
+      "settingsPage.agentAccess.hashIdentifiersDescription",
+      "settingsPage.agentAccess.customSensitiveKeysDescription",
+    ],
+    keywords: [
+      "redaction",
+      "sensitive",
+      "jwt",
+      "email",
+      "phone",
+      "device id",
+      "hash",
+      "pseudonym",
+      "regex",
+      "脱敏",
+      "敏感",
+      "邮箱",
+      "手机号",
+      "设备",
+      "哈希",
+      "正则",
+    ],
   },
   {
     id: "agent-cursor",

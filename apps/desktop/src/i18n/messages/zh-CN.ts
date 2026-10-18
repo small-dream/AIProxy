@@ -308,7 +308,7 @@ export const zhCNMessages: Messages = {
       auditSummary: "最近 {{count}} 次工具调用",
       auditSummaryEmpty: "尚无 Agent 调用记录",
       advancedPermissions: "高级权限",
-      advancedPermissionsDescription: "未脱敏 Body 读取与查询上限",
+      advancedPermissionsDescription: "未脱敏 Body 读取、脱敏策略与查询上限",
       claudeHint: "Claude Code 从项目级 .mcp.json 读取 MCP 服务。一键配置时会让你选择项目根目录。",
       claudeProjectConfigPath: "项目根目录 .mcp.json",
       clientClaude: "Claude Code",
@@ -351,9 +351,16 @@ export const zhCNMessages: Messages = {
       copyFailed: "复制配置失败。",
       copiedToClipboard: "已复制到剪贴板。",
       copyPath: "复制路径",
+      customSensitiveKeysDescription:
+        "补充需要脱敏的 Header、Query 或 JSON 字段名，输入后按 Enter。自定义正则仍可在 agent-access.json 中配置。",
+      customSensitiveKeysLabel: "自定义敏感字段名",
+      customSensitiveKeysPlaceholder: "例如 employee_id",
       cursorHint:
         "Cursor 从 ~/.cursor/mcp.json 读取用户级 MCP 服务。一键配置会自动合并 aiproxy 条目，完成后重新加载 Cursor 窗口即可。",
       dataDirLabel: "数据目录",
+      detectSensitiveValuesDescription:
+        "即使字段名不常见，也会按格式识别 JWT、邮箱、手机号、设备 ID、地址等敏感值。",
+      detectSensitiveValuesLabel: "按格式识别敏感值",
       description: "通过 MCP 让本地编码 Agent 以只读方式访问已抓取的流量。",
       diagnostics: "诊断信息",
       discardChanges: "放弃",
@@ -367,6 +374,9 @@ export const zhCNMessages: Messages = {
       hideAuditLog: "收起日志",
       hideDiagnostics: "收起诊断信息",
       hideManualConfig: "收起手动配置",
+      hashIdentifiersDescription:
+        "把标识符替换为稳定的本地哈希，既保留跨请求关联能力，又不暴露原值。",
+      hashIdentifiersLabel: "标识符稳定哈希",
       installConfig: "一键写入配置",
       installSkill: "安装 Skill",
       installSkillOnly: "仅安装 Skill",
@@ -392,6 +402,7 @@ export const zhCNMessages: Messages = {
       rawBodiesWarning:
         "未脱敏 Body 会把 Authorization、Cookie 和个人数据暴露给 Agent。除非任务明确需要，否则请保持关闭。",
       rawBodiesEnabled: "未脱敏读取已开启",
+      redactionTitle: "数据脱敏",
       reconnect: "重新连接",
       readBodiesDescription: "允许按范围读取请求和响应 Body，默认仍然脱敏。",
       readBodiesLabel: "读取 Body",

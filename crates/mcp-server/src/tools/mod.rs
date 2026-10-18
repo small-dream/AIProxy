@@ -33,6 +33,25 @@ pub fn finish_success(
 ) -> CallToolResult {
     let (client_name, client_version) = client_identity(context);
     let returned_bytes = serde_json::to_vec(&data).map(|bytes| bytes.len()).ok();
+    if let Some(result_bytes) = returned_bytes {
+        let max_response_bytes = state.max_response_bytes();
+        if result_bytes > max_response_bytes {
+            return finish_error(
+                state,
+                context,
+                tool,
+                ToolError::new(
+                    "RESULT_TOO_LARGE",
+                    "The tool result exceeds the configured Agent Access response limit. Narrow the query or request fewer fields.",
+                )
+                .with_details(serde_json::json!({
+                    "resultBytes": result_bytes,
+                    "maxResponseBytes": max_response_bytes,
+                })),
+                started,
+            );
+        }
+    }
     let audit_ok = state.record_audit(
         started,
         AuditRecord {

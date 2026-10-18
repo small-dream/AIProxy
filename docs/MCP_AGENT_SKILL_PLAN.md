@@ -3,11 +3,11 @@
 ## 1. 文档信息
 
 - 文档类型：产品与技术规划
-- 文档状态：`Implemented v1.0（只读 MVP 已实现）`
-- 更新日期：`2026-10-17`
+- 文档状态：`Implemented v1.1（只读增强版已实现）`
+- 更新日期：`2026-10-18`
 - 适用范围：AIProxy Desktop、Rust 核心、Codex / Claude Code / Cursor 等 Agent 客户端
 - 本轮评审重点：MVP 只读边界、stdio sidecar、工具契约、Agent Access 权限与审计
-> 实现说明：2026-10-17 已落地只读 MVP。实际实现与本文档的差异、验证结果和后续项见文末「实现状态」；本文档保留作为产品与技术决策记录。
+> 实现说明：2026-10-18 已落地 schema 2.0、字段提取、批量字段、结构化比较、搜索排序和可配置脱敏。实际实现与本文档的差异、验证结果和后续项见文末「实现状态」；本文档保留作为产品与技术决策记录。
 
 - 关联文档：
   - `docs/MCP_AGENT_SKILL_ARCHITECTURE.md`
@@ -215,20 +215,22 @@ AIProxy 不需要在应用内再造一个聊天界面。人类继续使用 Sessi
 
 | 工具 | 用途 | 关键输入 | 关键输出 | 限制 |
 |---|---|---|---|---|
-| `list_workspaces` | 获取可用工作区 | 无 | 工作区 ID、名称、代理端口、SSL / HTTP/2 配置、`runtimeStatus=unknown` | 纯 stdio MVP 不读取实时运行状态 |
-| `search_sessions` | 检索会话 | host、method、status、protocol、mime、duration、size、时间范围、关键词、limit、cursor | 会话摘要列表 | 默认 20 条，最大 100 条；只返回摘要 |
+| `list_workspaces` | 获取可用工作区 | 无 | 工作区配置、全局 `sessionCount`、`latestSessionAt`、`runtimeStatus=unknown` | 纯 stdio MVP 不读取实时运行状态 |
+| `search_sessions` | 检索会话 | host、pathContains、queryParams、method、status、时间、since、关键词、排序、compact、fields、cursor | 会话摘要列表 | 默认 20 条，最大 100 条；只返回摘要 |
 | `get_session` | 获取单个会话详情 | `sessionId`、include 列表、`redactionMode` | summary、headers、query、cookies、timing、TLS、HTTP/2、规则 trace | 默认不返回 Body；cookies 默认脱敏；`raw` 需要单独权限 |
-| `get_session_body` | 按需读取 Body | `sessionId`、request/response、`redactionMode`、text/base64、offset、maxBytes | Body 片段、size、truncated、redactedFields | 默认 `redacted-text`；单次上限建议 256KB；`raw` 需要单独权限 |
+| `get_session_body` | 按需读取 Body | `sessionId`、request/response、`redactionMode`、`jsonPaths`、`textQuery`、offset、maxBytes | 目标字段、文本命中、wire/decoded/view size、截断原因 | 默认 `redacted-text`；完整扫描上限 8 MiB；`raw` 需要单独权限 |
+| `get_session_fields` | 批量字段提取 | 最多 20 个 `sessionIds`、request/response、最多 20 个 `jsonPaths` | 每项独立结果或错误 | 只支持 `redacted-text` / `raw`；单项失败不拖垮整批 |
 | `get_websocket_messages` | 读取 WebSocket 消息 | `sessionId`、direction、keyword、limit、cursor | 消息列表、payload 类型、截断状态 | 二进制只返回摘要 |
-| `get_insights` | 聚合分析 | host、status、method、时间范围（至少一个范围条件） | 概览、host/status/method 分布、慢请求、大响应 | 复用 `aiproxy_db::insights`；禁止无界全库聚合 |
-| `compare_sessions` | 比较两个会话 | 左右 `sessionId`、是否包含 Body | 状态、Header、Body、Timing 差异 | MVP 支持单请求；会话组比较后续增强 |
+| `get_insights` | 聚合分析 | host、path、query、status、method、时间（至少一个范围条件）、groupBy | 概览、host/path/queryParam 分组、慢请求、大响应 | 复用 `aiproxy_db::insights`；禁止无界全库聚合 |
+| `compare_sessions` | 比较两个会话 | 左右 `sessionId`、是否包含 Body、jsonPaths、diffMode | 状态、Header、结构化 Body、Timing 差异 | 单请求比较；任一侧超过 8 MiB 扫描上限返回 `BODY_TOO_LARGE` |
 
 `export_snapshot` 会写文件，不属于只读 MVP。它应放到 Phase 2，并要求显式授权目标目录；MVP 中 Agent 需要引用证据时，直接返回 `sessionId` 与字段片段，不落盘。
 
 MVP 补充约束：
 
 - `search_sessions` 的关键词默认只匹配 URL、host、path、method 和有限 Header 字段，不默认扫描完整 Body。
-- `compare_sessions` 的 Body diff 必须显式请求，并复用现有截断与 size guard，避免一次性加载两个大 Body。
+- `search_sessions` 的 `queryParams` 匹配 query 名称与值；损坏 query JSON 跳过，不使整次搜索失败。
+- `compare_sessions` 的 Body diff 必须显式请求；JSON 模式要求两侧均为完整可解析 JSON，扫描截断不静默比较不完整 Body。
 - `get_session` 的 `include` 使用白名单，不接受任意列名或任意 JSON path 读取。
 
 ### 7.4 工具契约
@@ -245,7 +247,7 @@ MVP 补充约束：
     "redacted": true,
     "nextCursor": null,
     "tookMs": 12,
-    "schemaVersion": "1.0"
+    "schemaVersion": "2.0"
   }
 }
 ```
@@ -267,7 +269,8 @@ MVP 补充约束：
 
 - 工具名、参数名、错误码必须稳定，变更走 `schemaVersion`。
 - 列表接口必须有稳定排序与 cursor 分页，不能依赖 offset 漂移。
-- Body 读取必须显式声明 `truncated`、`originalSizeBytes`、`returnedBytes`。
+- Body 读取必须显式声明 `wireSizeBytes`、`decodedSizeBytes`、`viewSizeBytes`、`hasMore`、`captureTruncated`、`scanTruncated` 和 `truncatedReasons`。
+- `offset` 的基准必须通过 `offsetUnit` 明确：`redacted-text` 为 `decodedViewBytes`，`raw` / `base64` 为 `decodedBodyBytes`，`metadata` 为 `none`。
 - 所有文本输出必须经过统一脱敏层；不可依赖各工具自行处理。
 - 工具描述要写清楚“什么时候用、不要什么时候用、返回什么”，因为 Agent 会根据描述选择工具。
 
@@ -405,8 +408,10 @@ Skill 应要求 Agent 用固定结构回答，降低“看起来很懂但没有�
 - **本地优先**：stdio 模式不监听端口；HTTP 模式只绑定 `127.0.0.1`。
 - **只读优先**：MVP 只读；写工具必须单独授权，且默认禁用。
 - **固定查询**：不暴露任意 SQL；所有查询在 Rust 侧参数化。
-- **统一脱敏**：Authorization、Cookie、Set-Cookie、token、password、secret、apiKey、常见 PII 字段默认遮蔽。
-- **Body 分层脱敏**：Header 默认全量遮蔽；JSON / form 文本按字段名遮蔽；无法解析的二进制只返回摘要；`raw` 模式必须显式授权并在审计中记录。
+- **统一脱敏**：Authorization、Cookie、Set-Cookie、token、password、secret、apiKey、JWT、邮箱、手机号、设备 ID 和地址默认处理。
+- **稳定关联**：session/user/device 等标识符使用本地稳定 HMAC 伪名，可在同一数据目录内跨请求关联，不暴露原值。
+- **可配置规则**：设置页支持格式识别、稳定哈希和自定义敏感字段；配置文件支持自定义正则与 `redact|hash` 动作。
+- **Body 分层脱敏**：Header 默认全量遮蔽；JSON 完整解析后整体脱敏，再按 path 提取；无法解析的二进制只返回摘要；`raw` 模式必须显式授权并在审计中记录。
 - **Body 限制**：默认不返回 Body；文本单次上限建议 256KB；超出返回截断元信息。
 - **路径限制**：body store 必须做 canonicalize + 允许根目录校验；未来导出目录单独授权并做同样校验。
 - **审计日志**：记录时间、客户端、工具、过滤条件摘要、返回条数、耗时、是否脱敏；不记录完整敏感 Body。
@@ -438,6 +443,11 @@ MVP 不实现写工具。Phase 2 若实现，必须满足：
   - 读取 WebSocket 消息
   - 导出 Snapshot
   - 生成规则草稿（后续）
+- 脱敏策略：
+  - 按格式识别敏感值
+  - 标识符稳定哈希
+  - 自定义敏感字段名
+  - 自定义正则在配置文件层维护
 - 操作：
   - 复制 Codex 配置
   - 复制 Claude 配置
@@ -607,7 +617,7 @@ Claude Desktop（示例）：
 
 - 过滤条件构造与 SQL 参数化。
 - cursor 分页稳定性。
-- Body 截断与 `returnedBytes` / `originalSizeBytes`。
+- Body 截断与 `wireSizeBytes` / `decodedSizeBytes` / `viewSizeBytes` / `truncatedReasons`。
 - 脱敏规则：Authorization、Cookie、Set-Cookie、token、password、apiKey、常见 PII。
 - 路径校验：拒绝 `..`、符号链接逃逸、非允许根目录。
 - 错误码与 envelope 序列化。
@@ -739,13 +749,13 @@ MVP 稳定后再评估：
 在上述文档同步完成前，本文件仅作为规划稿，不构成实现承诺。
 
 
-## 20. 实现状态（2026-10-17）
+## 20. 实现状态（2026-10-18）
 
 已完成：
 
-- `crates/mcp-server`：7 个只读 MCP 工具、stdio transport、统一 envelope、schema 探测、权限、脱敏、审计、cursor 分页。
-- `crates/db`：只读连接、schema capabilities、Body 范围读取与路径安全检查、Session/WebSocket 稳定 cursor、Insights 扩展过滤。
-- 桌面端：Settings > Agent Access、6 个 Tauri 命令、权限/限制保存、诊断、客户端配置一键写入/复制、Skill 安装、审计表。
+- `crates/mcp-server`：8 个只读 MCP 工具、schema 2.0、stdio transport、统一 envelope、字段提取、批量字段、结构化比较、权限、脱敏、审计、cursor 分页。
+- `crates/db`：只读连接、schema capabilities、Body 范围读取与路径安全检查、Session v2 排序 cursor、WebSocket 稳定 cursor、Insights path/query 分组。
+- 桌面端：Settings > Agent Access、6 个 Tauri 命令、权限/限制/脱敏策略保存、诊断、客户端配置一键写入/复制、Skill 安装、审计表。
 - 客户端：Codex、Claude Code、Cursor。Cursor 用户级配置目标为 `~/.cursor/mcp.json`，Skill 目标为 `~/.cursor/skills/aiproxy/SKILL.md`。
 - 打包：`scripts/build-mcp-sidecar.mjs` 构建 `aiproxy-mcp-<target-triple>`，Tauri `externalBin` 与 Skill resources 已配置。
 - 文档：`PRD.md`、`ARCHITECTURE.md`、`API_SPEC.md`、`UI_GUIDELINES.md`、`PAGE_BLUEPRINTS.md`、`ADR-006` 已同步。

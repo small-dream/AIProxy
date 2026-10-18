@@ -119,7 +119,7 @@ export function SettingsPage() {
   function handleSearchResultClick(entry: SearchResult) {
     setSearchText("");
     updateSection(entry.sectionId);
-    setActiveItemId(entry.id);
+    setActiveItemId(entry.targetId ?? entry.id);
   }
 
   return (

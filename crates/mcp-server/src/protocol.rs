@@ -3,7 +3,7 @@ use chrono::Utc;
 use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
 
-pub const MCP_TOOL_SCHEMA_VERSION: &str = "1.0";
+pub const MCP_TOOL_SCHEMA_VERSION: &str = "2.0";
 
 #[derive(Debug, Clone, Default)]
 pub struct ToolMeta {

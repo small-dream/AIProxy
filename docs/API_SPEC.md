@@ -2286,6 +2286,12 @@ type AgentAccessSettings = {
     exportSnapshots: boolean;
   };
   limits: { maxSessions: number; maxBodyBytes: number; maxResponseBytes: number };
+  redaction: {
+    detectSensitiveValues: boolean;
+    hashIdentifiers: boolean;
+    customSensitiveKeys: string[];
+    customPatterns: { name: string; pattern: string; action: "redact" | "hash" }[];
+  };
   updatedAt?: string | null;
   dataDir: string;
   databasePath: string;
@@ -2305,7 +2311,7 @@ type AgentClientInfo = {
   configExists: boolean;
   configInstalled: boolean;
   skillPath: string;
-  skillInstalled: boolean;
+  skillInstalled: boolean; // 已安装且内容与当前版本一致
   skillManaged: boolean;
   configFormat: "json" | "toml";
   configSnippet: string;
@@ -2329,12 +2335,13 @@ type UpdateAgentAccessSettingsInput = {
   enabled: boolean;
   permissions: AgentAccessSettings["permissions"];
   limits: AgentAccessSettings["limits"];
+  redaction: AgentAccessSettings["redaction"];
 };
 ```
 
 响应：`AgentAccessSettings`。
 
-说明：服务端会归一化权限（关闭 `readBodies` 时强制关闭 `readRawBodies`）并钳制限制值；写入使用临时文件原子替换。
+说明：服务端会归一化权限（关闭 `readBodies` 时强制关闭 `readRawBodies`）、脱敏规则和限制值；写入使用临时文件原子替换。
 
 ### `test_agent_access`
 
@@ -2436,14 +2443,44 @@ type AgentAuditLog = {
 
 ### MCP stdio tool contract
 
-`aiproxy-mcp` 只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
+`aiproxy-mcp` 当前工具契约版本为 `2.0`，提供 8 个只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
 
 所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。稳定排序：
 
-- `search_sessions`：`started_at DESC, id DESC`，不透明 cursor。
+- 每次成功调用都会按 `limits.maxResponseBytes` 检查 `data` 的序列化大小；超限返回 `RESULT_TOO_LARGE`，`details` 包含 `resultBytes` 与 `maxResponseBytes`。调用方应减少 `limit`、改用 `compact` / `fields`，或拆分批量请求，不得静默截断后当作完整结果。
+
+- `search_sessions`：支持 `sortBy=startedAt|durationMs|sizeBytes|statusCode` 与 `sortOrder=asc|desc`；同值按 `started_at`、`id` 确定性排序。cursor v2 绑定排序字段、方向和当前排序值，不匹配时返回 `CURSOR_INVALID`。
 - `get_websocket_messages`：`timestamp ASC, id ASC`，不透明 cursor。
 
 `get_session` 默认对 Header、Query、Cookie 和规则 trace 统一脱敏：规则 trace 的 `before` / `after` / `message` 经过文本脱敏，`sourcePattern` / `mappedUrl` 的敏感查询参数会被遮蔽；只有 `redactionMode=raw` 且具备 `readRawBodies` 权限时才返回原值。
+
+会话参数与检索：
+
+- `sessionId` 先做精确匹配；失败后允许至少 8 字符的唯一前缀。0 条返回 `SESSION_NOT_FOUND`，多条返回 `SESSION_ID_AMBIGUOUS`，`details.candidates` 最多 5 条。
+- `search_sessions` 支持 `pathContains`、`queryParams`、`since`、`compact`、`fields`。`queryParams` 同时匹配参数名和值；损坏的 query JSON 会被跳过。
+- `searchIn` 严格取值为 `url`、`host`、`path`、`method`、`headers`、`query`。
+
+Body 与字段提取：
+
+- `get_session_body` 支持 `metadata`、`redacted-text`、`base64`、`raw`；`jsonPaths` 支持 `$`、点号 key、方括号 key、数组索引和 `*` 通配符，不支持过滤表达式、递归下降或脚本。
+- JSON 模式会读取不超过 8 MiB 的完整 Body、完整解析、整体脱敏，再提取字段。扫描超限返回 `BODY_TOO_LARGE`；非 JSON 返回 `BODY_NOT_JSON`；非法 path 返回 `JSON_PATH_INVALID`。
+- `textQuery` 在脱敏文本视图中搜索，最多 20 个命中，`contextBytes` 默认 120、最大 1024。
+- `get_session_fields` 接受最多 20 个 `sessionIds` 和 20 个 `jsonPaths`，逐项返回成功或错误。
+- Body 大小字段固定为 `wireSizeBytes`（网络传输/压缩后）、`decodedSizeBytes`（解码后完整）、`viewSizeBytes`（脱敏/解析视图）。完整性使用 `hasMore`、`captureTruncated`、`scanTruncated`、`truncatedReasons`，不得根据 `returnedBytes` 推断。
+- `offsetUnit=decodedViewBytes` 表示 `redacted-text` offset 基于脱敏视图；`decodedBodyBytes` 表示 `raw` / `base64`；`metadata` 无 offset。
+
+聚合与比较：
+
+- `get_insights` 支持 `pathContains`、`queryParams` 和 `groupBy=host|path|queryParam`；`queryParam` 需提供 `groupQueryParam`。每组返回 `key`、`requestCount`、`errorCount`、`errorRate`、`avgDurationMs`、`p50DurationMs`、`p95DurationMs`、`totalBytes`。
+- `compare_sessions` 支持 `jsonPaths` 与 `diffMode=auto|json|text`。`diffMode=json` 对非 JSON 返回 `BODY_NOT_JSON`；任一侧 Body 扫描超过 8 MiB 返回 `BODY_TOO_LARGE`，不比较不完整内容。
+- `list_workspaces` 额外返回全局 `sessionCount`、`latestSessionAt`、`latestSessionId`、`sessionScope="global"`；`runtimeStatus` 仍为 `unknown`。
+
+脱敏配置位于 `agent-access.json` 的 `redaction` 字段，版本为 `2`：
+
+- `detectSensitiveValues`：按值格式识别 JWT、Bearer、邮箱、手机号、设备 ID、地址等。
+- `hashIdentifiers`：标识符使用本地稳定 HMAC 伪名，例如 `[ID:xxxxxxxx]`，仅用于关联，不可反推。
+- `customSensitiveKeys`：最多 50 个自定义敏感字段名。
+- `customPatterns`：最多 20 条 `{ name, pattern, action: "redact" | "hash" }`，单条 pattern 最长 512 字符；无效正则返回 `INVALID_REDACTION_CONFIG`。
 
 stdio 模式下 stdout 只输出协议消息；日志固定写 stderr。
 

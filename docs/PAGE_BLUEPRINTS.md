@@ -1100,12 +1100,13 @@ type SettingsPageState = {
 };
 ```
 
-### 8.4.1 Agent Access Section — `已实现（只读 MVP · 紧凑版）`
+### 8.4.1 Agent Access Section — `已实现（只读增强版 · 紧凑版）`
 
 页面目标：
 
 - 以低噪音状态头展示 sidecar、版本与连接状态
 - 让用户显式开启会话、Body、WebSocket 与未脱敏 Body 权限
+- 让用户配置格式识别、稳定哈希和自定义敏感字段
 - 为 Codex、Claude Code、Cursor 提供一键连接（写 MCP 配置 + 安装 Skill）
 - 展示仅含元数据的审计日志
 
@@ -1128,6 +1129,11 @@ AgentAccessSection
 ├─ PermissionsCard
 │  ├─ General permissions
 │  ├─ Advanced permissions (collapsed)
+│  │  ├─ Raw body access
+│  │  ├─ Sensitive-value detection
+│  │  ├─ Stable identifier hashing
+│  │  ├─ Custom sensitive field names
+│  │  └─ Query limits
 │  └─ Save / Discard
 ├─ AgentAuditTable (collapsed summary by default)
 ├─ SecurityNote
@@ -1154,6 +1160,7 @@ type AgentAccessSectionState = {
     enabled: boolean;
     permissions: AgentAccessPermissions;
     limits: AgentAccessLimits;
+    redaction: AgentAccessRedaction;
   };
   feedback: {
     area: "client" | "diagnostics" | "permissions" | "settings";

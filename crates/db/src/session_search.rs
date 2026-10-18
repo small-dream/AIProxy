@@ -6,9 +6,68 @@ use serde::{Deserialize, Serialize};
 use crate::sessions::{escape_like_pattern, SessionSummaryRow};
 use crate::DbError;
 
-pub const SESSION_SEARCH_SCHEMA_VERSION: u32 = 1;
+pub const SESSION_SEARCH_SCHEMA_VERSION: u32 = 2;
 pub const DEFAULT_SESSION_SEARCH_LIMIT: usize = 20;
 pub const MAX_SESSION_SEARCH_LIMIT: usize = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SessionSortField {
+    #[default]
+    StartedAt,
+    DurationMs,
+    SizeBytes,
+    StatusCode,
+}
+
+impl SessionSortField {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::StartedAt => "startedAt",
+            Self::DurationMs => "durationMs",
+            Self::SizeBytes => "sizeBytes",
+            Self::StatusCode => "statusCode",
+        }
+    }
+
+    fn sql_column(self) -> Option<&'static str> {
+        match self {
+            Self::StartedAt => None,
+            Self::DurationMs => Some("s.duration_ms"),
+            Self::SizeBytes => Some("s.size_bytes"),
+            Self::StatusCode => Some("s.status_code"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SortOrder {
+    #[default]
+    Desc,
+    Asc,
+}
+
+impl SortOrder {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Desc => "desc",
+            Self::Asc => "asc",
+        }
+    }
+
+    fn sql(self) -> &'static str {
+        match self {
+            Self::Desc => "DESC",
+            Self::Asc => "ASC",
+        }
+    }
+
+    fn comparison(self) -> &'static str {
+        match self {
+            Self::Desc => "<",
+            Self::Asc => ">",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionSearchField {
@@ -24,6 +83,8 @@ pub enum SessionSearchField {
 pub struct SessionSearchFilter {
     pub host: Option<String>,
     pub host_contains: Option<String>,
+    pub path_contains: Option<String>,
+    pub query_params: Vec<(String, String)>,
     pub method: Option<String>,
     pub status_min: Option<u16>,
     pub status_max: Option<u16>,
@@ -35,6 +96,8 @@ pub struct SessionSearchFilter {
     pub max_duration_ms: Option<u64>,
     pub keyword: Option<String>,
     pub search_in: Vec<SessionSearchField>,
+    pub sort_by: SessionSortField,
+    pub sort_order: SortOrder,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -49,8 +112,11 @@ pub struct SessionSearchPage {
 #[serde(rename_all = "camelCase")]
 struct CursorPayload {
     version: u32,
+    sort_by: String,
+    sort_order: String,
     started_at: String,
     id: String,
+    sort_value: Option<i64>,
 }
 
 /// Search persisted session summaries with deterministic cursor pagination.
@@ -105,6 +171,34 @@ pub fn search_sessions(
             escape_like_pattern(&host_contains.to_lowercase())
         )));
         index += 1;
+    }
+
+    if let Some(path_contains) = filter
+        .path_contains
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        conditions.push(format!("instr(s.path, ?{index}) > 0"));
+        values.push(Value::Text(path_contains.to_string()));
+        index += 1;
+    }
+
+    for (name, value) in &filter.query_params {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        needs_details_join = true;
+        conditions.push(format!(
+            "(json_valid(d.query_params) AND EXISTS (SELECT 1 FROM json_each(d.query_params) AS qp \
+             WHERE json_extract(qp.value, '$.name') = ?{index} \
+             AND json_extract(qp.value, '$.value') = ?{next}))",
+            next = index + 1
+        ));
+        values.push(Value::Text(name.to_string()));
+        values.push(Value::Text(value.clone()));
+        index += 2;
     }
 
     if let Some(method) = filter
@@ -239,13 +333,40 @@ pub fn search_sessions(
     }
 
     if let Some(cursor) = cursor {
-        conditions.push(format!(
-            "(s.started_at < ?{index} OR (s.started_at = ?{index} AND s.id < ?{next}))",
-            next = index + 1
-        ));
-        values.push(Value::Text(cursor.started_at));
-        values.push(Value::Text(cursor.id));
-        index += 2;
+        if cursor.sort_by != filter.sort_by.as_str()
+            || cursor.sort_order != filter.sort_order.as_str()
+        {
+            return Err(DbError::Validation(
+                "cursor does not match the requested sort order".to_string(),
+            ));
+        }
+        let comparison = filter.sort_order.comparison();
+        if let Some(column) = filter.sort_by.sql_column() {
+            let sort_value = cursor.sort_value.ok_or_else(|| {
+                DbError::Validation("cursor is missing its sort value".to_string())
+            })?;
+            conditions.push(format!(
+                "({column} {comparison} ?{index} OR \
+                 ({column} = ?{index} AND \
+                  (s.started_at {comparison} ?{started} OR \
+                   (s.started_at = ?{started} AND s.id {comparison} ?{id}))))",
+                started = index + 1,
+                id = index + 2
+            ));
+            values.push(Value::Integer(sort_value));
+            values.push(Value::Text(cursor.started_at));
+            values.push(Value::Text(cursor.id));
+            index += 3;
+        } else {
+            conditions.push(format!(
+                "(s.started_at {comparison} ?{index} OR \
+                 (s.started_at = ?{index} AND s.id {comparison} ?{next}))",
+                next = index + 1
+            ));
+            values.push(Value::Text(cursor.started_at));
+            values.push(Value::Text(cursor.id));
+            index += 2;
+        }
     }
 
     let where_clause = if conditions.is_empty() {
@@ -258,12 +379,25 @@ pub fn search_sessions(
     } else {
         ""
     };
+    let order_clause = match filter.sort_by.sql_column() {
+        Some(column) => format!(
+            "{column} {}, s.started_at {}, s.id {}",
+            filter.sort_order.sql(),
+            filter.sort_order.sql(),
+            filter.sort_order.sql()
+        ),
+        None => format!(
+            "s.started_at {}, s.id {}",
+            filter.sort_order.sql(),
+            filter.sort_order.sql()
+        ),
+    };
     let sql = format!(
         "SELECT s.id, s.method, s.host, s.path, s.protocol, s.scheme, s.http_version,
                 s.transport_protocol, s.application_protocol, s.started_at, s.finished_at,
                 s.duration_ms, s.size_bytes, s.status_code, s.url, s.response_mime_type
          FROM session_summaries s{join_clause}{where_clause}
-         ORDER BY s.started_at DESC, s.id DESC
+         ORDER BY {order_clause}
          LIMIT ?{index}"
     );
     values.push(Value::Integer((limit + 1) as i64));
@@ -284,7 +418,7 @@ pub fn search_sessions(
     }
     let next_cursor = if truncated {
         rows.last()
-            .map(|row| encode_cursor(&row.started_at, &row.id))
+            .map(|row| encode_cursor(row, filter.sort_by, filter.sort_order))
             .transpose()?
     } else {
         None
@@ -297,11 +431,25 @@ pub fn search_sessions(
     })
 }
 
-fn encode_cursor(started_at: &str, id: &str) -> Result<String, DbError> {
+fn encode_cursor(
+    row: &SessionSummaryRow,
+    sort_by: SessionSortField,
+    sort_order: SortOrder,
+) -> Result<String, DbError> {
     let payload = CursorPayload {
         version: SESSION_SEARCH_SCHEMA_VERSION,
-        started_at: started_at.to_string(),
-        id: id.to_string(),
+        sort_by: sort_by.as_str().to_string(),
+        sort_order: sort_order.as_str().to_string(),
+        started_at: row.started_at.clone(),
+        id: row.id.clone(),
+        sort_value: match sort_by {
+            SessionSortField::StartedAt => None,
+            SessionSortField::DurationMs => {
+                Some(i64::try_from(row.duration_ms).unwrap_or(i64::MAX))
+            }
+            SessionSortField::SizeBytes => Some(i64::try_from(row.size_bytes).unwrap_or(i64::MAX)),
+            SessionSortField::StatusCode => Some(i64::from(row.status_code)),
+        },
     };
     let json = serde_json::to_vec(&payload)
         .map_err(|error| DbError::Validation(format!("encode cursor: {error}")))?;
@@ -321,6 +469,13 @@ fn decode_cursor(cursor: &str) -> Result<CursorPayload, DbError> {
         || payload.started_at.trim().is_empty()
         || payload.id.trim().is_empty()
         || payload.id.len() > 256
+        || !matches!(
+            payload.sort_by.as_str(),
+            "startedAt" | "durationMs" | "sizeBytes" | "statusCode"
+        )
+        || !matches!(payload.sort_order.as_str(), "asc" | "desc")
+        || (payload.sort_by == "startedAt" && payload.sort_value.is_some())
+        || (payload.sort_by != "startedAt" && payload.sort_value.is_none())
     {
         return Err(DbError::Validation("invalid cursor".to_string()));
     }
@@ -372,6 +527,43 @@ mod tests {
         .unwrap();
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn insert_session_full(
+        conn: &Connection,
+        id: &str,
+        path: &str,
+        started_at: &str,
+        status: u16,
+        duration_ms: i64,
+        size_bytes: i64,
+        query_params: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, scheme, http_version,
+                 transport_protocol, application_protocol, started_at, finished_at,
+                 duration_ms, size_bytes, status_code, url)
+             VALUES (?1, 'POST', 'api.example.com', ?2, 'HTTP/2', 'https', '2', 'tcp', 'http',
+                     ?3, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                id,
+                path,
+                started_at,
+                duration_ms,
+                size_bytes,
+                status,
+                format!("https://api.example.com{path}")
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_details (id, session_summary_id, query_params)
+             VALUES (?1, ?2, ?3)",
+            rusqlite::params![format!("{id}-detail"), id, query_params],
+        )
+        .unwrap();
+    }
+
     #[test]
     fn cursor_pagination_is_stable_for_equal_timestamps() {
         let conn = open_in_memory().unwrap();
@@ -417,5 +609,224 @@ mod tests {
         let err =
             search_sessions(&conn, &SessionSearchFilter::default(), 20, Some("bad")).unwrap_err();
         assert!(matches!(err, DbError::Validation(_)));
+    }
+
+    #[test]
+    fn filters_by_path_and_query_params() {
+        let conn = open_in_memory().unwrap();
+        insert_session_full(
+            &conn,
+            "s1",
+            "/v1/app.launch",
+            "2026-10-17T10:00:00Z",
+            200,
+            100,
+            10,
+            r#"[{"name":"_method","value":"app.launch"}]"#,
+        );
+        insert_session_full(
+            &conn,
+            "s2",
+            "/v1/other",
+            "2026-10-17T10:01:00Z",
+            200,
+            100,
+            10,
+            r#"[{"name":"_method","value":"app.launch"}]"#,
+        );
+
+        let page = search_sessions(
+            &conn,
+            &SessionSearchFilter {
+                path_contains: Some("app.launch".into()),
+                query_params: vec![("_method".into(), "app.launch".into())],
+                ..SessionSearchFilter::default()
+            },
+            20,
+            None,
+        )
+        .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].id, "s1");
+    }
+
+    #[test]
+    fn malformed_query_details_are_skipped_without_failing_the_search() {
+        let conn = open_in_memory().unwrap();
+        insert_session_full(
+            &conn,
+            "broken",
+            "/v1/broken",
+            "2026-10-17T10:00:00Z",
+            200,
+            100,
+            10,
+            "not-json",
+        );
+        insert_session_full(
+            &conn,
+            "valid",
+            "/v1/valid",
+            "2026-10-17T10:01:00Z",
+            200,
+            100,
+            10,
+            r#"[{"name":"token","value":"yes"}]"#,
+        );
+
+        let page = search_sessions(
+            &conn,
+            &SessionSearchFilter {
+                query_params: vec![("token".into(), "yes".into())],
+                ..SessionSearchFilter::default()
+            },
+            20,
+            None,
+        )
+        .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].id, "valid");
+    }
+
+    #[test]
+    fn sorts_by_supported_fields() {
+        let conn = open_in_memory().unwrap();
+        insert_session_full(
+            &conn,
+            "s1",
+            "/a",
+            "2026-10-17T10:00:00Z",
+            500,
+            100,
+            300,
+            "[]",
+        );
+        insert_session_full(
+            &conn,
+            "s2",
+            "/b",
+            "2026-10-17T10:01:00Z",
+            200,
+            300,
+            100,
+            "[]",
+        );
+        insert_session_full(
+            &conn,
+            "s3",
+            "/c",
+            "2026-10-17T10:02:00Z",
+            400,
+            200,
+            200,
+            "[]",
+        );
+
+        let ids = |sort_by, sort_order| {
+            search_sessions(
+                &conn,
+                &SessionSearchFilter {
+                    sort_by,
+                    sort_order,
+                    ..SessionSearchFilter::default()
+                },
+                20,
+                None,
+            )
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|item| item.id)
+            .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            ids(SessionSortField::DurationMs, SortOrder::Desc),
+            ["s2", "s3", "s1"]
+        );
+        assert_eq!(
+            ids(SessionSortField::SizeBytes, SortOrder::Desc),
+            ["s1", "s3", "s2"]
+        );
+        assert_eq!(
+            ids(SessionSortField::StatusCode, SortOrder::Asc),
+            ["s2", "s3", "s1"]
+        );
+    }
+
+    #[test]
+    fn sorted_cursor_pagination_is_stable_for_equal_values() {
+        let conn = open_in_memory().unwrap();
+        insert_session_full(
+            &conn,
+            "old",
+            "/a",
+            "2026-10-17T10:00:00Z",
+            200,
+            200,
+            10,
+            "[]",
+        );
+        insert_session_full(
+            &conn,
+            "new",
+            "/b",
+            "2026-10-17T10:02:00Z",
+            200,
+            200,
+            10,
+            "[]",
+        );
+        insert_session_full(
+            &conn,
+            "last",
+            "/c",
+            "2026-10-17T10:01:00Z",
+            200,
+            100,
+            10,
+            "[]",
+        );
+        let filter = SessionSearchFilter {
+            sort_by: SessionSortField::DurationMs,
+            sort_order: SortOrder::Desc,
+            ..SessionSearchFilter::default()
+        };
+
+        let first = search_sessions(&conn, &filter, 2, None).unwrap();
+        assert_eq!(
+            first
+                .items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["new", "old"]
+        );
+        let cursor = first.next_cursor.unwrap();
+        let second = search_sessions(&conn, &filter, 2, Some(&cursor)).unwrap();
+        assert_eq!(second.items.len(), 1);
+        assert_eq!(second.items[0].id, "last");
+        assert!(!second.truncated);
+    }
+
+    #[test]
+    fn cursor_rejects_a_different_sort_request() {
+        let conn = open_in_memory().unwrap();
+        insert_session(&conn, "a", "api.example.com", "2026-10-17T10:00:00Z", 200);
+        insert_session(&conn, "b", "api.example.com", "2026-10-17T09:00:00Z", 200);
+
+        let first = search_sessions(&conn, &SessionSearchFilter::default(), 1, None).unwrap();
+        let cursor = first.next_cursor.unwrap();
+        let error = search_sessions(
+            &conn,
+            &SessionSearchFilter {
+                sort_by: SessionSortField::DurationMs,
+                ..SessionSearchFilter::default()
+            },
+            1,
+            Some(&cursor),
+        )
+        .unwrap_err();
+        assert!(matches!(error, DbError::Validation(_)));
     }
 }

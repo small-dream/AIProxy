@@ -310,7 +310,7 @@ export const enMessages = {
       auditSummary: "{{count}} recent tool calls",
       auditSummaryEmpty: "No Agent calls recorded yet",
       advancedPermissions: "Advanced permissions",
-      advancedPermissionsDescription: "Unredacted body access and query limits",
+      advancedPermissionsDescription: "Unredacted body access, redaction policy, and query limits",
       claudeHint:
         "Claude Code reads project-level MCP servers from .mcp.json. Choose the project root when installing the configuration.",
       claudeProjectConfigPath: "Project root .mcp.json",
@@ -358,9 +358,16 @@ export const enMessages = {
       copyFailed: "Could not copy the configuration.",
       copiedToClipboard: "Copied to clipboard.",
       copyPath: "Copy path",
+      customSensitiveKeysDescription:
+        "Additional header, query, or JSON field names to redact. Press Enter after each name. Custom regex patterns remain available in agent-access.json.",
+      customSensitiveKeysLabel: "Custom sensitive field names",
+      customSensitiveKeysPlaceholder: "e.g. employee_id",
       cursorHint:
         "Cursor reads user-level MCP servers from ~/.cursor/mcp.json. One-click setup merges the aiproxy entry for you; reload the Cursor window afterwards.",
       dataDirLabel: "Data directory",
+      detectSensitiveValuesDescription:
+        "Detect JWTs, emails, phone numbers, device IDs, addresses, and sensitive values even when the field name is unfamiliar.",
+      detectSensitiveValuesLabel: "Detect sensitive values by format",
       description: "Give local coding agents read-only access to captured traffic through MCP.",
       diagnostics: "Diagnostics",
       discardChanges: "Discard",
@@ -375,6 +382,9 @@ export const enMessages = {
       hideAuditLog: "Hide log",
       hideDiagnostics: "Hide diagnostics",
       hideManualConfig: "Hide manual setup",
+      hashIdentifiersDescription:
+        "Replace identifiers with stable local hashes so requests can still be correlated without exposing the original value.",
+      hashIdentifiersLabel: "Pseudonymize identifiers",
       installConfig: "Write MCP config",
       installSkill: "Install Skill",
       installSkillOnly: "Install Skill only",
@@ -400,6 +410,7 @@ export const enMessages = {
       rawBodiesWarning:
         "Raw body access exposes unredacted credentials and personal data to the Agent. Keep it off unless the task explicitly requires it.",
       rawBodiesEnabled: "Unredacted access on",
+      redactionTitle: "Data redaction",
       reconnect: "Reconnect",
       readBodiesDescription: "Allow bounded request and response body reads, redacted by default.",
       readBodiesLabel: "Read bodies",

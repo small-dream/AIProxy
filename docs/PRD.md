@@ -402,7 +402,7 @@ flowchart LR
 - 批量执行集合内请求并展示逐条结果
 - 页面级结构见 `docs/PAGE_BLUEPRINTS.md` 第 10 节
 
-### 9.11 Agent Access / MCP — `已实现（只读 MVP）`
+### 9.11 Agent Access / MCP — `已实现（只读增强版）`
 
 目标：
 
@@ -412,11 +412,12 @@ flowchart LR
 
 范围：
 
-- 7 个只读 MCP 工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_websocket_messages`、`get_insights`、`compare_sessions`
+- 8 个只读 MCP 工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`
+- 支持按 JSON path 提取目标字段、批量跨会话取同一字段、查询参数过滤、路径过滤、排序和结构化 JSON Diff
 - stdio sidecar，不开放本地端口
-- Settings > Agent Access：状态诊断、权限、限制、客户端片段、Skill 安装、审计日志
+- Settings > Agent Access：状态诊断、权限、限制、脱敏策略、客户端片段、Skill 安装、审计日志
 - Codex / Claude Code / Cursor 三客户端配置指引；Cursor 使用 `~/.cursor/mcp.json`
-- 默认脱敏，`readRawBodies` 为独立高风险开关
+- 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
 
 非目标（本版本）：
 

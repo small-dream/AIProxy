@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub const AGENT_ACCESS_CONFIG_VERSION: u32 = 1;
+pub const AGENT_ACCESS_CONFIG_VERSION: u32 = 2;
 pub const DEFAULT_MAX_SESSIONS: usize = 100;
 pub const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
@@ -69,6 +69,41 @@ pub struct AgentAccessLimits {
     pub max_response_bytes: usize,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RedactionAction {
+    Redact,
+    Hash,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RedactionPattern {
+    pub name: String,
+    pub pattern: String,
+    pub action: RedactionAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentAccessRedaction {
+    pub detect_sensitive_values: bool,
+    pub hash_identifiers: bool,
+    pub custom_sensitive_keys: Vec<String>,
+    pub custom_patterns: Vec<RedactionPattern>,
+}
+
+impl Default for AgentAccessRedaction {
+    fn default() -> Self {
+        Self {
+            detect_sensitive_values: true,
+            hash_identifiers: true,
+            custom_sensitive_keys: Vec::new(),
+            custom_patterns: Vec::new(),
+        }
+    }
+}
+
 impl Default for AgentAccessLimits {
     fn default() -> Self {
         Self {
@@ -87,6 +122,8 @@ pub struct AgentAccessConfig {
     pub transport: String,
     pub permissions: AgentAccessPermissions,
     pub limits: AgentAccessLimits,
+    #[serde(default)]
+    pub redaction: AgentAccessRedaction,
     pub updated_at: Option<String>,
 }
 
@@ -98,6 +135,7 @@ impl Default for AgentAccessConfig {
             transport: "stdio".to_string(),
             permissions: AgentAccessPermissions::default(),
             limits: AgentAccessLimits::default(),
+            redaction: AgentAccessRedaction::default(),
             updated_at: None,
         }
     }
@@ -114,6 +152,28 @@ impl AgentAccessConfig {
             .limits
             .max_response_bytes
             .clamp(1, DEFAULT_MAX_RESPONSE_BYTES);
+        self.redaction.custom_sensitive_keys = self
+            .redaction
+            .custom_sensitive_keys
+            .into_iter()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .take(50)
+            .collect();
+        self.redaction.custom_sensitive_keys.sort();
+        self.redaction.custom_sensitive_keys.dedup();
+        self.redaction.custom_patterns = self
+            .redaction
+            .custom_patterns
+            .into_iter()
+            .filter(|rule| !rule.name.trim().is_empty() && !rule.pattern.trim().is_empty())
+            .take(20)
+            .map(|mut rule| {
+                rule.name = rule.name.trim().to_string();
+                rule.pattern = rule.pattern.trim().to_string();
+                rule
+            })
+            .collect();
         self
     }
 }
@@ -292,6 +352,43 @@ mod tests {
         assert_eq!(config.limits.max_sessions, DEFAULT_MAX_SESSIONS);
         assert_eq!(config.limits.max_body_bytes, DEFAULT_MAX_BODY_BYTES);
         assert_eq!(config.limits.max_response_bytes, 1);
+    }
+
+    #[test]
+    fn redaction_rules_are_normalized_and_bounded() {
+        let config = AgentAccessConfig {
+            redaction: AgentAccessRedaction {
+                custom_sensitive_keys: vec![
+                    " Employee_ID ".into(),
+                    "employee_id".into(),
+                    "".into(),
+                ],
+                custom_patterns: vec![
+                    RedactionPattern {
+                        name: " employee-number ".into(),
+                        pattern: " EMP-[0-9]{8} ".into(),
+                        action: RedactionAction::Hash,
+                    },
+                    RedactionPattern {
+                        name: "".into(),
+                        pattern: "ignored".into(),
+                        action: RedactionAction::Redact,
+                    },
+                ],
+                ..AgentAccessRedaction::default()
+            },
+            ..AgentAccessConfig::default()
+        }
+        .normalized();
+
+        assert_eq!(config.redaction.custom_sensitive_keys, ["employee_id"]);
+        assert_eq!(config.redaction.custom_patterns.len(), 1);
+        assert_eq!(config.redaction.custom_patterns[0].name, "employee-number");
+        assert_eq!(config.redaction.custom_patterns[0].pattern, "EMP-[0-9]{8}");
+        assert_eq!(
+            config.redaction.custom_patterns[0].action,
+            RedactionAction::Hash
+        );
     }
 
     #[test]

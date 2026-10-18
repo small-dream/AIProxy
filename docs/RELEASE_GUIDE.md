@@ -46,8 +46,11 @@
 pnpm lint
 pnpm test
 pnpm typecheck
+node scripts/build-mcp-sidecar.mjs --profile debug
 cargo test --workspace
 ```
+
+> MCP 集成测试会启动本地 sidecar。先构建 debug sidecar，避免测试误用 `target/debug` 中遗留的旧版本。
 
 如果只想先验证桌面端，也可以执行：
 

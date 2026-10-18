@@ -86,7 +86,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
 ];
 
 let fallbackSettings: AgentAccessSettings = {
-  version: 1,
+  version: 2,
   enabled: false,
   transport: "stdio",
   permissions: defaultPermissions,
@@ -94,6 +94,12 @@ let fallbackSettings: AgentAccessSettings = {
     maxSessions: 100,
     maxBodyBytes: 256 * 1024,
     maxResponseBytes: 1024 * 1024,
+  },
+  redaction: {
+    detectSensitiveValues: true,
+    hashIdentifiers: true,
+    customSensitiveKeys: [],
+    customPatterns: [],
   },
   updatedAt: null,
   dataDir: "<path-to-aiproxy-data>",
@@ -130,6 +136,7 @@ export async function updateAgentAccessSettings(
       enabled: input.enabled,
       permissions: input.permissions,
       limits: input.limits,
+      redaction: input.redaction,
       updatedAt: new Date().toISOString(),
     };
     return fallbackSettings;
