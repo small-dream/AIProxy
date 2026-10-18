@@ -363,6 +363,17 @@ export const enMessages = {
       configReady: "Configured",
       connect: "Connect",
       connecting: "Connecting...",
+      bodyDisabledAfterConnect:
+        "The client is connected, but Body reading is off: the Agent only sees metadata and cannot analyze response payloads. Turn it on under Read permissions, or reconnect with “Include response bodies”.",
+      connectDataFlowNote:
+        "After connecting, anything the Agent reads is sent to the model provider. Enable only the scope this task needs.",
+      connectDialogBackup: "The target file already exists and is backed up first.",
+      connectDialogConfirm: "Connect and write",
+      connectDialogPath: "Writes to: {{path}}",
+      connectDialogScopeHint:
+        "Grants: {{permissions}}. You can adjust this later under Read permissions.",
+      connectDialogScopeTitle: "What the Agent can read",
+      connectDialogTitle: "Connect {{client}}",
       connectSuccess:
         "MCP configuration written for {{client}}. Restart or reload {{client}} to activate it; the Skill is installed.",
       copyConfig: "Copy MCP config",
@@ -437,6 +448,15 @@ export const enMessages = {
       rawBodiesEnabled: "Unredacted access on",
       redactionTitle: "Data redaction",
       reconnect: "Reconnect",
+      presetBodies: "Include response bodies",
+      presetBodiesDescription:
+        "Also allows redacted request/response bodies and WebSocket messages.",
+      presetMetadata: "Metadata only",
+      presetMetadataDescription:
+        "Session summaries, headers, query, timing, and rule traces. No bodies.",
+      presetRaw: "Include raw data (high risk)",
+      presetRawDescription:
+        "Also allows unredacted bodies, which can expose credentials and personal data. Use only when the task requires it.",
       readBodiesDescription: "Allow bounded request and response body reads, redacted by default.",
       readBodiesLabel: "Read bodies",
       readRawBodiesDescription:
@@ -463,6 +483,10 @@ export const enMessages = {
       sidecarUnavailableSummary: "Local service unavailable",
       skillCustom: "Custom Skill",
       skillInstalledAction: "Reinstall Skill",
+      skillVersionCurrent: "Skill v{{version}}",
+      skillVersionOutdated: "Skill v{{installed}}; current is v{{bundled}}. Reconnect to update.",
+      skillVersionUnknown:
+        "An older Skill is installed; current is v{{bundled}}. Reconnect to update.",
       skillManaged: "Managed by AIProxy",
       skillNotInstalled: "Not installed",
       skillPath: "Skill file",

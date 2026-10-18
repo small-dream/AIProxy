@@ -479,6 +479,9 @@ MCP `tools/call` 的结果映射：
   "meta": {
     "schemaVersion": "2.1",
     "dataFreshness": "persisted",
+    "latestSessionAt": "2026-10-17T10:12:00Z",
+    "captureStatus": "running",
+    "captureUpdatedAt": "2026-10-17T10:12:30Z",
     "truncated": false,
     "redacted": true,
     "nextCursor": null,
@@ -495,7 +498,7 @@ MCP `tools/call` 的结果映射：
   "ok": false,
   "error": {
     "code": "PERMISSION_DENIED",
-    "message": "Body reading is disabled in Agent Access.",
+    "message": "Body reading is disabled. Enable readBodies in AIProxy Settings > Agent Access.",
     "retryable": false
   }
 }
@@ -505,6 +508,7 @@ MCP `tools/call` 的结果映射：
 
 - `meta` 字段在全部工具中保持同义。
 - 会话是全局存储，`meta` 不再返回恒为 `null` 的 `workspaceId`，避免暗示不存在的过滤维度。
+- `latestSessionAt` 来自 `MAX(started_at)`；`captureStatus` 来自桌面端 `agent-status.json` 心跳，文件缺失、解析失败或超过 120 秒未刷新时为 `unknown`。
 - 工具返回的商业数据只放在 `data`，诊断信息放在 `meta`。
 - `truncated=true` 时必须同时给出原因或预算字段。
 - 不在错误 message 中回显用户输入、文件路径或敏感 Header。
@@ -837,12 +841,12 @@ Skill 不存放用户数据、API key 或抓包样本；示例只使用合成的
 ```markdown
 ---
 name: aiproxy
-description: Inspect and analyze HTTP/HTTPS/WebSocket traffic captured by AIProxy.
-version: 1.1.0
+description: Analyze captured HTTP/WebSocket traffic through AIProxy MCP. Use when the user mentions AIProxy, packet capture, proxy traffic, failing requests, latency regressions, header/body differences, Timing, WebSocket, AB experiment cohorts, or asks for evidence by sessionId. 当用户提到 AIProxy、抓包、网络请求、接口调试、Timing、WebSocket、AB 实验分组，或需要以 sessionId 为证据分析流量时使用。
+version: 2.2
 mcpSchemaMin: 2.1
 ---
 
-# AIProxy Network Debugging
+# AIProxy traffic analysis
 
 ## When to use
 - HTTP errors, latency, payload mismatch, auth/cookie issues
@@ -865,9 +869,12 @@ mcpSchemaMin: 2.1
 - Stable hashed identifiers may be used for correlation, but never reverse or guess original values.
 - Do not export snapshots in the read-only MVP.
 - Do not claim a cause without a sessionId and a concrete field.
+- Use meta.latestSessionAt and meta.captureStatus instead of implying live capture.
 ```
 
 应用安装前校验 `mcpSchemaMin` 与 sidecar 工具 schema；不匹配时阻止安装并提示升级 AIProxy。
+
+Skill 正文使用英文 canonical，`description` 同时包含中英文触发词，避免中文用户或英文用户的 Agent 匹配不到。`version` 与桌面端 `AGENT_SKILL_VERSION` 保持一致；安装状态按完整内容比较，版本变化时 UI 显示「需更新」，重新连接即可升级。
 
 ### 10.3 Skill 工作流
 
@@ -1418,6 +1425,7 @@ MVP 预计修改：
 - `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm --filter @aiproxy/desktop build`、`pnpm check:api-contract` 通过。
 - MCP 工具集成测试覆盖默认脱敏（含规则 trace）、raw 权限拒绝、Body 范围、compare、WebSocket cursor 与 Insights scope。
 - 2.1 新增回归：doctor 关闭状态与旧 schema、`get_insights.since`、`compact` 保留 host、断开连接保留自定义 Skill；`cargo test -p aiproxy-mcp -p aiproxy-db -p aiproxy-desktop` 与 Settings 页面测试通过。
+- 2.2 新增：连接前权限模板、`meta.latestSessionAt` / `captureStatus` / `captureUpdatedAt` 与 `agent-status.json` 心跳、英文 canonical + 双语触发词 Skill（version 2.2）与安装版本展示。
 - macOS `.app` 已生成，`Contents/MacOS/aiproxy-mcp` 与 `Contents/Resources/resources/agent-skill/aiproxy/SKILL.md` 均存在；当前 headless 环境下 DMG 的 `bundle_dmg.sh` 失败，需在原生桌面会话复验。
 
 未完成：

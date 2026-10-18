@@ -111,8 +111,9 @@ fn run_probe(child: &mut std::process::Child) -> Result<ProbeResult, String> {
         json!({ "name": "search_sessions", "arguments": { "limit": 1 } }),
     )?;
     let session_count = search_session_count(&call["result"])?;
-    let latest_session_at = call["result"]["structuredContent"]["data"]["items"][0]["startedAt"]
+    let latest_session_at = call["result"]["structuredContent"]["meta"]["latestSessionAt"]
         .as_str()
+        .or_else(|| call["result"]["structuredContent"]["data"]["items"][0]["startedAt"].as_str())
         .map(str::to_string);
 
     Ok(ProbeResult {

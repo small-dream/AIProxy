@@ -233,6 +233,20 @@ export function AgentClientRow({
                 onCopy={onCopyText}
                 value={info.skillPath}
               />
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                {info.skillVersion && info.skillVersion !== info.bundledSkillVersion
+                  ? t("settingsPage.agentAccess.skillVersionOutdated", {
+                      installed: info.skillVersion,
+                      bundled: info.bundledSkillVersion,
+                    })
+                  : !info.skillInstalled && info.skillManaged
+                    ? t("settingsPage.agentAccess.skillVersionUnknown", {
+                        bundled: info.bundledSkillVersion,
+                      })
+                    : t("settingsPage.agentAccess.skillVersionCurrent", {
+                        version: info.bundledSkillVersion,
+                      })}
+              </Typography>
             </Stack>
             <Box
               component="pre"

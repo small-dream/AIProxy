@@ -13,6 +13,7 @@ use crate::config::{
     DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_SESSIONS,
 };
 use crate::protocol::ToolError;
+use crate::status::read_capture_status;
 
 pub const TOOL_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -35,6 +36,15 @@ pub struct AuditRecord<'a> {
     pub redacted: bool,
     pub truncated: bool,
     pub error_code: Option<&'a str>,
+}
+
+/// Metadata placed on every tool result so an Agent can tell the user how old
+/// the data is and whether capture is still running.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Freshness {
+    pub latest_session_at: Option<String>,
+    pub capture_status: &'static str,
+    pub capture_updated_at: Option<String>,
 }
 
 impl AppContext {
@@ -84,6 +94,43 @@ impl AppContext {
 
     pub fn config_for_doctor(&self) -> Result<AgentAccessConfig, ConfigReadError> {
         read_config(&self.paths.config_path)
+    }
+
+    pub fn freshness(&self) -> Freshness {
+        let latest_session_at = if self.startup_error.is_some() {
+            None
+        } else {
+            match open_read_only_database(&self.paths.db_path) {
+                Ok(connection) => connection
+                    .query_row("SELECT MAX(started_at) FROM session_summaries", [], |row| {
+                        row.get::<_, Option<String>>(0)
+                    })
+                    .unwrap_or_else(|error| {
+                        tracing::warn!(
+                            component = "mcp.freshness",
+                            event = "latest_session_query_failed",
+                            error = %error,
+                            "latest_session_query_failed"
+                        );
+                        None
+                    }),
+                Err(error) => {
+                    tracing::warn!(
+                        component = "mcp.freshness",
+                        event = "freshness_database_open_failed",
+                        error = %error,
+                        "freshness_database_open_failed"
+                    );
+                    None
+                }
+            }
+        };
+        let capture = read_capture_status(&self.paths.data_dir);
+        Freshness {
+            latest_session_at,
+            capture_status: capture.status,
+            capture_updated_at: capture.updated_at,
+        }
     }
 
     pub async fn with_db<T, F>(&self, operation: F) -> Result<T, ToolError>

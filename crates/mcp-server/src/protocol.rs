@@ -3,6 +3,8 @@ use chrono::Utc;
 use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
 
+use crate::context::Freshness;
+
 pub const MCP_TOOL_SCHEMA_VERSION: &str = "2.1";
 
 #[derive(Debug, Clone, Default)]
@@ -12,6 +14,9 @@ pub struct ToolMeta {
     pub redacted: bool,
     pub next_cursor: Option<String>,
     pub audit_degraded: bool,
+    pub latest_session_at: Option<String>,
+    pub capture_status: Option<&'static str>,
+    pub capture_updated_at: Option<String>,
 }
 
 impl ToolMeta {
@@ -35,10 +40,20 @@ impl ToolMeta {
         self
     }
 
+    pub fn with_freshness(mut self, freshness: Freshness) -> Self {
+        self.latest_session_at = freshness.latest_session_at;
+        self.capture_status = Some(freshness.capture_status);
+        self.capture_updated_at = freshness.capture_updated_at;
+        self
+    }
+
     fn to_json(&self, started: std::time::Instant) -> Value {
         json!({
             "schemaVersion": MCP_TOOL_SCHEMA_VERSION,
             "dataFreshness": "persisted",
+            "latestSessionAt": self.latest_session_at,
+            "captureStatus": self.capture_status.unwrap_or("unknown"),
+            "captureUpdatedAt": self.capture_updated_at,
             "truncated": self.truncated,
             "truncatedReason": self.truncated_reason,
             "redacted": self.redacted,

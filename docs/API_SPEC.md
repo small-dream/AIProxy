@@ -2266,6 +2266,7 @@ Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mc
 
 - `agent-access.json`：权限与限制，Unix `0600`，Windows 仅当前用户 ACL。
 - `agent-audit.jsonl`：仅记录工具名、客户端、耗时、字节数、脱敏/截断状态和错误码；不记录载荷。
+- `agent-status.json`：桌面端心跳（`appRunning`、`capturing`、`proxyPort`、`workspaceId`、`captureStartedAt`、`updatedAt`），每 30 秒刷新，不含流量数据；sidecar 用它生成 `meta.captureStatus`。
 
 ### `get_agent_access_settings`
 
@@ -2313,6 +2314,8 @@ type AgentClientInfo = {
   skillPath: string;
   skillInstalled: boolean; // 已安装且内容与当前版本一致
   skillManaged: boolean;
+  skillVersion?: string | null; // 已安装 Skill 的 frontmatter 版本
+  bundledSkillVersion: string; // 应用内置 Skill 版本
   configFormat: "json" | "toml";
   configSnippet: string;
 };
@@ -2519,7 +2522,11 @@ type AgentAuditLog = {
 
 `aiproxy-mcp` 当前工具契约版本为 `2.1`，提供 8 个只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
 
-所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。`meta` 包含 `schemaVersion`、`dataFreshness`、`truncated`、`redacted`、`nextCursor`、`tookMs`、`readAt`；会话是全局的，不再返回恒为 `null` 的 `workspaceId`。稳定排序：
+所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。`meta` 包含 `schemaVersion`、`dataFreshness`、`latestSessionAt`、`captureStatus`、`captureUpdatedAt`、`truncated`、`redacted`、`nextCursor`、`tookMs`、`readAt`；会话是全局的，不再返回恒为 `null` 的 `workspaceId`。稳定排序：
+
+- `latestSessionAt`：最新持久化会话的 `startedAt`，无会话时为 `null`；Agent 应据此说明数据截止时间。
+- `captureStatus`：`running` | `stopped` | `unknown`。来自 `agent-status.json` 心跳；文件缺失、解析失败或超过 120 秒未刷新时为 `unknown`，不得据此声称正在实时抓包。
+- `captureUpdatedAt`：心跳最后刷新时间。
 
 - 每次成功调用都会按 `limits.maxResponseBytes` 检查 `data` 的序列化大小；超限返回 `RESULT_TOO_LARGE`，`details` 包含 `resultBytes` 与 `maxResponseBytes`。调用方应减少 `limit`、改用 `compact` / `fields`，或拆分批量请求，不得静默截断后当作完整结果。
 

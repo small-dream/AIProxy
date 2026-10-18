@@ -16,6 +16,7 @@ extern crate rust_i18n;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+mod agent_status;
 mod bootstrap;
 mod commands;
 mod dev_logger;
@@ -294,6 +295,8 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<Arc<AppState>>();
             state.set_app_handle(app.handle().clone());
+            agent_status::write_from_state(&state);
+            agent_status::spawn_heartbeat(Arc::clone(state.inner()));
             system_proxy_recovery::restore_pending_snapshot_on_startup(app.handle(), &state);
 
             // Build the initial menu in the persisted (or default "system") language.
@@ -361,6 +364,7 @@ fn run_heavy_shutdown_cleanup(app_handle: &tauri::AppHandle) {
     }
 
     let app_state = app_handle.state::<Arc<AppState>>();
+    agent_status::write_shutdown(&app_state);
     let workspace_id = app_state
         .read_status()
         .active_workspace_id

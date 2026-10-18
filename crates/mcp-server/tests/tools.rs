@@ -822,6 +822,47 @@ fn sidecar_doctor_reports_ready_fixture() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
+#[tokio::test]
+async fn tool_meta_reports_freshness_and_capture_status() {
+    let (directory, context) = create_fixture("freshness");
+    let status_path = directory.join("agent-status.json");
+    std::fs::write(
+        &status_path,
+        json!({
+            "appRunning": true,
+            "capturing": true,
+            "proxyPort": 8888,
+            "updatedAt": chrono::Utc::now().to_rfc3339(),
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let freshness = context.freshness();
+    assert_eq!(
+        freshness.latest_session_at.as_deref(),
+        Some("2026-10-17T10:00:01Z")
+    );
+    assert_eq!(freshness.capture_status, "running");
+    assert!(freshness.capture_updated_at.is_some());
+
+    std::fs::write(
+        &status_path,
+        json!({
+            "appRunning": true,
+            "capturing": true,
+            "proxyPort": 8888,
+            "updatedAt": (chrono::Utc::now() - chrono::Duration::seconds(600)).to_rfc3339(),
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let stale_freshness = context.freshness();
+    assert_eq!(stale_freshness.capture_status, "unknown");
+
+    let _ = std::fs::remove_dir_all(directory);
+}
+
 #[test]
 fn doctor_reports_disabled_agent_access() {
     let (directory, context) = create_fixture("doctor_disabled");
@@ -914,6 +955,17 @@ async fn stale_schema_returns_actionable_migration_error() {
 #[test]
 fn sidecar_handles_mcp_initialize_and_tools_list() {
     let (directory, context) = create_fixture("stdio");
+    std::fs::write(
+        directory.join("agent-status.json"),
+        json!({
+            "appRunning": true,
+            "capturing": true,
+            "proxyPort": 8888,
+            "updatedAt": chrono::Utc::now().to_rfc3339(),
+        })
+        .to_string(),
+    )
+    .unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_aiproxy-mcp"))
         .args([
             "--data-dir",
@@ -1031,6 +1083,9 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     }
     assert_eq!(envelope["ok"], true);
     assert_eq!(envelope["meta"]["schemaVersion"], MCP_TOOL_SCHEMA_VERSION);
+    assert_eq!(envelope["meta"]["latestSessionAt"], "2026-10-17T10:00:01Z");
+    assert_eq!(envelope["meta"]["captureStatus"], "running");
+    assert!(envelope["meta"]["captureUpdatedAt"].is_string());
 
     write_config(
         &context.paths.config_path,

@@ -37,6 +37,8 @@ export type AgentClientInfo = {
   skillPath: string;
   skillInstalled: boolean;
   skillManaged: boolean;
+  skillVersion?: string | null;
+  bundledSkillVersion: string;
   configFormat: "json" | "toml";
   configSnippet: string;
 };

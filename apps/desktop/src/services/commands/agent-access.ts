@@ -36,6 +36,8 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillPath: "~/.codex/skills/aiproxy/SKILL.md",
     skillInstalled: false,
     skillManaged: false,
+    skillVersion: null,
+    bundledSkillVersion: "2.2",
     configFormat: "toml",
     configSnippet:
       '[mcp_servers.aiproxy]\ncommand = "<path-to-aiproxy-mcp>"\nargs = ["--data-dir", "<path-to-aiproxy-data>"]\n',
@@ -48,6 +50,8 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillPath: "~/.claude/skills/aiproxy/SKILL.md",
     skillInstalled: false,
     skillManaged: false,
+    skillVersion: null,
+    bundledSkillVersion: "2.2",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {
@@ -71,6 +75,8 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillPath: "~/.cursor/skills/aiproxy/SKILL.md",
     skillInstalled: false,
     skillManaged: false,
+    skillVersion: null,
+    bundledSkillVersion: "2.2",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {

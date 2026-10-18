@@ -384,7 +384,8 @@ TLS 证书缓存机制：
 - 通过 `aiproxy-mcp` stdio sidecar 向 Codex、Claude Code、Cursor 暴露只读 MCP 工具
 - 复用 `aiproxy-db` 的会话检索、详情、Body、WebSocket、Insights 与规则 trace 查询
 - 在 sidecar 内强制执行 Agent Access 权限、统一脱敏、字段提取、返回上限、cursor 分页与审计
-- 由桌面端 Settings > Agent Access 管理配置、诊断与真实 MCP 握手验证、脱敏策略、客户端片段、一键写入/断开与 Skill 安装
+- 桌面端写 `agent-status.json` 心跳（抓包状态、端口、工作区），sidecar 据此在 `meta.captureStatus` / `meta.captureUpdatedAt` 中报告新鲜度，并从数据库读取 `meta.latestSessionAt`
+- 由桌面端 Settings > Agent Access 管理配置、诊断与真实 MCP 握手验证、权限模板、脱敏策略、客户端片段、一键写入/断开与 Skill 安装
 
 边界：
 

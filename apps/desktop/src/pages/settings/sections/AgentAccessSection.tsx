@@ -38,12 +38,19 @@ import {
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { AgentAuditTable } from "@/features/agent-access/AgentAuditTable";
+import { AgentConnectDialog } from "@/features/agent-access/AgentConnectDialog";
 import {
   AgentClientRow,
   type AgentClientPendingAction,
 } from "@/features/agent-access/AgentClientRow";
 import { AgentPathValue } from "@/features/agent-access/AgentPathValue";
-import { shouldConfirmConfigWrite } from "@/features/agent-access/agent-access.helpers";
+import {
+  permissionsEqual,
+  permissionsForPreset,
+  presetForPermissions,
+  shouldConfirmConfigWrite,
+  type AgentPermissionPreset,
+} from "@/features/agent-access/agent-access.helpers";
 import { useI18n } from "@/i18n";
 import {
   getAgentAccessSettings,
@@ -81,9 +88,20 @@ type Feedback = {
   message: string;
 };
 
-type PendingConfigInstall = {
+type PendingConfigWrite = {
   info: AgentClientInfo;
-  purpose: "config" | "connect";
+};
+
+type PendingConnect = {
+  info: AgentClientInfo;
+  preset: AgentPermissionPreset;
+};
+
+type ConnectInput = PendingConnect;
+
+type ConnectResult = {
+  outcome: ConnectOutcome;
+  settings: AgentAccessSettings | null;
 };
 
 type PendingSkillOverwrite = {
@@ -129,9 +147,9 @@ export function AgentAccessSection() {
   const [pendingSkillOverwrite, setPendingSkillOverwrite] = useState<PendingSkillOverwrite | null>(
     null,
   );
-  const [pendingConfigInstall, setPendingConfigInstall] = useState<PendingConfigInstall | null>(
-    null,
-  );
+  const [pendingConfigInstall, setPendingConfigInstall] = useState<PendingConfigWrite | null>(null);
+  const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<AgentClientInfo | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -179,6 +197,7 @@ export function AgentAccessSection() {
       ...info,
       skillInstalled: true,
       skillManaged: info.skillManaged || result.status === "installed",
+      skillVersion: info.bundledSkillVersion,
     }));
   }
 
@@ -230,6 +249,7 @@ export function AgentAccessSection() {
         configInstalled: false,
         skillInstalled: false,
         skillManaged: result.skillRemoved ? false : current.skillManaged,
+        skillVersion: result.skillRemoved ? null : (current.skillVersion ?? null),
       }));
       const label = clientName(info.client, t);
       if (result.status === "notInstalled") {
@@ -286,15 +306,36 @@ export function AgentAccessSection() {
   });
 
   const connectMutation = useMutation({
-    mutationFn: async (input: PendingConfigInstall): Promise<ConnectOutcome> => {
+    mutationFn: async (input: ConnectInput): Promise<ConnectResult> => {
+      if (!draft) throw new Error(t("common.errors.generic"));
+      const permissions = permissionsForPreset(input.preset);
+      let settings: AgentAccessSettings | null = null;
+      if (!permissionsEqual(draft.permissions, permissions)) {
+        try {
+          settings = await updateAgentAccessSettings({
+            enabled: draft.enabled,
+            permissions,
+            limits: draft.limits,
+            redaction: draft.redaction,
+          });
+        } catch (error) {
+          throw new Error(coerceAppError(error).message || t("common.errors.generic"), {
+            cause: error,
+          });
+        }
+      }
+
       let config: InstallAgentClientConfigResult;
       try {
         config = await installAgentClientConfig({ client: input.info.client });
       } catch (error) {
         return {
-          kind: "configFailed",
-          message:
-            coerceAppError(error).message || t("settingsPage.agentAccess.configInstallFailed"),
+          settings,
+          outcome: {
+            kind: "configFailed",
+            message:
+              coerceAppError(error).message || t("settingsPage.agentAccess.configInstallFailed"),
+          },
         };
       }
 
@@ -304,19 +345,29 @@ export function AgentAccessSection() {
           overwrite: false,
         });
         if (skill.status === "overwriteRequired") {
-          return { config, kind: "skillOverwriteRequired" };
+          return { settings, outcome: { config, kind: "skillOverwriteRequired" } };
         }
-        return { config, kind: "success", skill };
+        return { settings, outcome: { config, kind: "success", skill } };
       } catch (error) {
         return {
-          kind: "skillFailed",
-          config,
-          message: coerceAppError(error).message || t("common.errors.generic"),
+          settings,
+          outcome: {
+            config,
+            kind: "skillFailed",
+            message: coerceAppError(error).message || t("common.errors.generic"),
+          },
         };
       }
     },
-    onSuccess: (outcome, input) => {
-      setPendingConfigInstall(null);
+    onSuccess: (result, input) => {
+      setPendingConnect(null);
+      setConnectError(null);
+      if (result.settings) {
+        queryClient.setQueryData(AGENT_SETTINGS_QUERY_KEY, result.settings);
+        setDraft(draftFromSettings(result.settings));
+      }
+
+      const outcome = result.outcome;
       if (outcome.kind === "configFailed") {
         setFeedback({ area: "client", severity: "error", message: outcome.message });
         return;
@@ -351,6 +402,11 @@ export function AgentAccessSection() {
         severity: "success",
         message: connectSuccessMessage(outcome, input.info, t),
       });
+    },
+    onError: (error) => {
+      setConnectError(
+        coerceAppError(error).message || t("settingsPage.agentAccess.configInstallFailed"),
+      );
     },
     meta: { suppressGlobalErrorNotification: true },
   });
@@ -452,6 +508,8 @@ export function AgentAccessSection() {
   }
 
   const settings = settingsQuery.data;
+  const connectedClientCount = settings.clients.filter((client) => client.configInstalled).length;
+  const bodyDisabled = !settings.permissions.readBodies;
   const rawBodiesBlocked = !draft.permissions.readBodies;
   const dirty = !draftsEqual(draft, draftFromSettings(settings));
   const busy =
@@ -526,11 +584,15 @@ export function AgentAccessSection() {
     }
   }
 
-  function beginConfigFlow(info: AgentClientInfo, purpose: PendingConfigInstall["purpose"]) {
+  function openConnectDialog(info: AgentClientInfo) {
+    if (!draft) return;
+    setConnectError(null);
+    setPendingConnect({ info, preset: presetForPermissions(draft.permissions) });
+  }
+
+  function beginConfigWrite(info: AgentClientInfo) {
     if (shouldConfirmConfigWrite(info)) {
-      setPendingConfigInstall({ info, purpose });
-    } else if (purpose === "connect") {
-      connectMutation.mutate({ info, purpose });
+      setPendingConfigInstall({ info });
     } else {
       configMutation.mutate({ client: info.client });
     }
@@ -739,6 +801,11 @@ export function AgentAccessSection() {
         <Alert severity="info" variant="outlined" sx={{ ...compactAlertSx, mb: 1.5 }}>
           {t("settingsPage.agentAccess.dataFlowNote")}
         </Alert>
+        {connectedClientCount > 0 && bodyDisabled ? (
+          <Alert severity="warning" variant="outlined" sx={{ ...compactAlertSx, mb: 1.5 }}>
+            {t("settingsPage.agentAccess.bodyDisabledAfterConnect")}
+          </Alert>
+        ) : null}
         <Stack divider={<Divider flexItem />} spacing={0}>
           {settings.clients.map((info) => (
             <AgentClientRow
@@ -747,13 +814,13 @@ export function AgentAccessSection() {
               info={info}
               itemId={info.client === "cursor" ? "agent-cursor" : undefined}
               pendingAction={activeClient === info.client ? activeAction : null}
-              onConnect={(client) => void beginConfigFlow(client, "connect")}
+              onConnect={(client) => openConnectDialog(client)}
               onCopyText={(value) => void copyText(value)}
               onInstallSkill={(client) =>
                 skillMutation.mutate({ info: client, origin: "skill", overwrite: false })
               }
               onRemove={(client) => setPendingRemove(client)}
-              onWriteConfig={(client) => void beginConfigFlow(client, "config")}
+              onWriteConfig={(client) => beginConfigWrite(client)}
             />
           ))}
         </Stack>
@@ -1051,16 +1118,38 @@ export function AgentAccessSection() {
           path: pendingConfigInstall?.info.configPath ?? "",
         })}
         confirmLabel={t("settingsPage.agentAccess.configInstallConfirm")}
-        isConfirming={connectMutation.isPending || configMutation.isPending}
+        isConfirming={configMutation.isPending}
         onCancel={() => setPendingConfigInstall(null)}
         onConfirm={() => {
-          if (!pendingConfigInstall) return;
-          if (pendingConfigInstall.purpose === "connect") {
-            connectMutation.mutate(pendingConfigInstall);
-          } else {
+          if (pendingConfigInstall) {
             configMutation.mutate({ client: pendingConfigInstall.info.client });
           }
         }}
+      />
+
+      <AgentConnectDialog
+        busy={connectMutation.isPending}
+        clientLabel={pendingConnect ? clientName(pendingConnect.info.client, t) : ""}
+        errorMessage={connectError}
+        info={pendingConnect?.info ?? null}
+        onCancel={() => {
+          if (connectMutation.isPending) return;
+          setPendingConnect(null);
+          setConnectError(null);
+        }}
+        onChangePreset={(preset) => {
+          setConnectError(null);
+          setPendingConnect((current) => (current ? { ...current, preset } : current));
+        }}
+        onConfirm={() => {
+          if (!pendingConnect) return;
+          connectMutation.mutate({
+            info: pendingConnect.info,
+            preset: pendingConnect.preset,
+          });
+        }}
+        open={pendingConnect !== null}
+        preset={pendingConnect?.preset ?? "metadata"}
       />
 
       <ConfirmDialog
@@ -1230,7 +1319,7 @@ function clientName(client: AgentClientInfo["client"], t: ReturnType<typeof useI
 }
 
 function activeMutationClient(
-  connectMutation: { isPending: boolean; variables?: PendingConfigInstall | undefined },
+  connectMutation: { isPending: boolean; variables?: ConnectInput | undefined },
   configMutation: {
     isPending: boolean;
     variables?: { client: AgentClientInfo["client"] } | undefined;

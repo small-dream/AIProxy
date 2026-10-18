@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 
 const SKILL_MARKER: &str = "<!-- aiproxy-managed-skill: v1 -->";
+const AGENT_SKILL_VERSION: &str = "2.2";
 const SKILL_CONTENT: &str = include_str!("../../resources/agent-skill/aiproxy/SKILL.md");
 const MAX_AUDIT_ENTRIES: usize = 200;
 
@@ -35,6 +36,8 @@ pub struct AgentClientInfo {
     pub skill_path: String,
     pub skill_installed: bool,
     pub skill_managed: bool,
+    pub skill_version: Option<String>,
+    pub bundled_skill_version: String,
     pub config_format: String,
     pub config_snippet: String,
 }
@@ -1075,6 +1078,8 @@ fn client_info(
         skill_path: skill_path.display().to_string(),
         skill_installed: skill_is_current(skill_contents.as_deref()),
         skill_managed: skill_contents.as_deref().is_some_and(is_managed_skill),
+        skill_version: skill_contents.as_deref().and_then(skill_version),
+        bundled_skill_version: AGENT_SKILL_VERSION.to_string(),
         config_format,
         config_snippet,
     })
@@ -1354,6 +1359,31 @@ fn is_managed_skill(contents: &str) -> bool {
     contents.contains(SKILL_MARKER)
 }
 
+/// Read `version:` from the YAML frontmatter of an installed Skill.
+fn skill_version(contents: &str) -> Option<String> {
+    let mut in_frontmatter = false;
+    for line in contents.lines() {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            if in_frontmatter {
+                break;
+            }
+            in_frontmatter = true;
+            continue;
+        }
+        if !in_frontmatter {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("version:") {
+            let value = value.trim().trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn skill_is_current(contents: Option<&str>) -> bool {
     contents == Some(SKILL_CONTENT)
 }
@@ -1441,6 +1471,19 @@ mod tests {
     fn skill_marker_detects_managed_content() {
         assert!(is_managed_skill(SKILL_CONTENT));
         assert!(!is_managed_skill("# my custom skill"));
+    }
+
+    #[test]
+    fn skill_version_is_read_from_frontmatter() {
+        assert_eq!(
+            skill_version(SKILL_CONTENT).as_deref(),
+            Some(AGENT_SKILL_VERSION)
+        );
+        assert_eq!(
+            skill_version("---\nname: aiproxy\nversion: 9.9\n---\nbody"),
+            Some("9.9".to_string())
+        );
+        assert_eq!(skill_version("# no frontmatter"), None);
     }
 
     #[test]

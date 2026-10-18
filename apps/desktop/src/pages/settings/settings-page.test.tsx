@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
@@ -87,12 +87,16 @@ describe("SettingsPage navigation", () => {
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
 
+    expect(await screen.findByText("Connect Codex")).toBeInTheDocument();
+    expect(screen.getByText("Metadata only")).toBeInTheDocument();
     expect(screen.queryByText("Write MCP configuration?")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Connect and write" }));
     expect(
       await screen.findByText(
         "MCP configuration written for Codex. Restart or reload Codex to activate it; the Skill is installed.",
       ),
     ).toBeInTheDocument();
+    expect(await screen.findByText(/Body reading is off/)).toBeInTheDocument();
     expect(await screen.findAllByText("Configured")).toHaveLength(1);
   });
 
@@ -101,6 +105,7 @@ describe("SettingsPage navigation", () => {
 
     const connectButtons = await screen.findAllByRole("button", { name: "Connect" });
     fireEvent.click(connectButtons[1]!);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect and write" }));
 
     expect(
       await screen.findByText(
@@ -108,6 +113,21 @@ describe("SettingsPage navigation", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Configured")).toHaveLength(1);
+  });
+
+  it("applies a permission preset when connecting and clears the body warning", async () => {
+    renderSettings("/settings?section=agent");
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
+    fireEvent.click(await screen.findByRole("radio", { name: /Include response bodies/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect and write" }));
+
+    await screen.findByText(
+      "MCP configuration written for Codex. Restart or reload Codex to activate it; the Skill is installed.",
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("switch", { name: "Read bodies" })).toBeChecked();
+    expect(screen.queryByText(/Body reading is off/)).not.toBeInTheDocument();
   });
 
   it("verifies the connection and lists per-check results", async () => {
@@ -125,9 +145,11 @@ describe("SettingsPage navigation", () => {
     renderSettings("/settings?section=agent");
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect and write" }));
     await screen.findByText(
       "MCP configuration written for Codex. Restart or reload Codex to activate it; the Skill is installed.",
     );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "More actions: Codex" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Disconnect" }));
@@ -191,6 +213,8 @@ describe("SettingsPage navigation", () => {
       skillPath: "~/.codex/skills/aiproxy/SKILL.md",
       skillInstalled: false,
       skillManaged: false,
+      skillVersion: null,
+      bundledSkillVersion: "2.2",
       configFormat: "toml",
       configSnippet: "",
     };
@@ -209,6 +233,8 @@ describe("SettingsPage navigation", () => {
       skillPath: "~/.codex/skills/aiproxy/SKILL.md",
       skillInstalled: false,
       skillManaged: false,
+      skillVersion: null,
+      bundledSkillVersion: "2.2",
       configFormat: "toml",
       configSnippet: "",
     };

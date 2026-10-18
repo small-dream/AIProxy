@@ -419,6 +419,9 @@ flowchart LR
 - 连接后提供「验证连接」：真实 MCP 握手 + `tools/list` + 一次 `search_sessions`，分项展示 sidecar、数据库、schema、启用状态、Body 权限与客户端连接
 - 支持从客户端移除 `aiproxy` 条目并删除 AIProxy 安装的 Skill；原配置先备份，自定义 Skill 不删除
 - Codex / Claude Code / Cursor 三客户端配置指引；均使用用户级全局配置，Claude Code 写入 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`）
+- 连接前选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据），并在 Body 关闭时提示 Agent 无法分析响应体
+- MCP 结果 `meta` 返回 `latestSessionAt`、`captureStatus` 与 `captureUpdatedAt`，让 Agent 能说明“数据截止 12:03”而不是假装实时
+- Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化
 - 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
 - 明确数据流向：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商
 
