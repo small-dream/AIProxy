@@ -750,6 +750,10 @@ async fn stage_send_pending_and_throttle(
 // ---------------------------------------------------------------------------
 
 /// Outcome of [`stage_forward_upstream`].
+///
+/// `ProxyResponse` stays inline because boxing it would add an allocation to
+/// every terminal response on the forwarding hot path.
+#[allow(clippy::large_enum_variant)]
 enum ForwardOutcome {
     /// Upstream request completed — caller should process the response via
     /// Stage 6.
