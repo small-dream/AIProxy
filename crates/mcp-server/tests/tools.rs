@@ -252,6 +252,7 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
     .unwrap();
     assert_eq!(search_data["items"].as_array().unwrap().len(), 1);
     assert!(search_data["items"][0].get("url").is_none());
+    assert_eq!(search_data["items"][0]["host"], "api.example.com");
     assert!(search_meta.next_cursor.is_some());
 
     let (filtered, _) = search(
@@ -467,6 +468,29 @@ async fn websocket_and_insights_use_permissions_and_scope() {
     .await
     .unwrap_err();
     assert_eq!(error.code, "INVALID_ARGUMENT");
+
+    let (by_since, _) = get_insights(
+        &context,
+        GetInsightsRequest {
+            since: Some("7d".to_string()),
+            ..GetInsightsRequest::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(by_since["totalRequests"], 2);
+
+    let conflict = get_insights(
+        &context,
+        GetInsightsRequest {
+            since: Some("7d".to_string()),
+            started_after: Some("2026-10-17T00:00:00Z".to_string()),
+            ..GetInsightsRequest::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(conflict.code, "INVALID_ARGUMENT");
 
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -795,6 +819,95 @@ fn sidecar_doctor_reports_ready_fixture() {
     assert_eq!(parsed["ok"], true);
     assert_eq!(parsed["data"]["schemaCompatible"], true);
     assert_eq!(parsed["data"]["configReadable"], true);
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn doctor_reports_disabled_agent_access() {
+    let (directory, context) = create_fixture("doctor_disabled");
+    write_config(
+        &context.paths.config_path,
+        &AgentAccessConfig {
+            enabled: false,
+            ..AgentAccessConfig::default()
+        },
+    )
+    .unwrap();
+
+    let result = context.doctor_result();
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["data"]["agentAccessEnabled"], false);
+    assert!(result["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|issue| issue["code"] == "AGENT_ACCESS_DISABLED"));
+
+    write_config(
+        &context.paths.config_path,
+        &AgentAccessConfig {
+            enabled: true,
+            ..AgentAccessConfig::default()
+        },
+    )
+    .unwrap();
+    let result = context.doctor_result();
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["data"]["agentAccessEnabled"], true);
+    assert_eq!(result["data"]["schemaCompatible"], true);
+    assert_eq!(result["data"]["capabilities"]["sessionDetails"], true);
+
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[tokio::test]
+async fn stale_schema_returns_actionable_migration_error() {
+    let (directory, _context) = create_fixture("stale_schema");
+    {
+        let connection =
+            aiproxy_db::rusqlite::Connection::open(directory.join("aiproxy.db")).unwrap();
+        connection
+            .execute(
+                "ALTER TABLE session_details DROP COLUMN via_upstream_proxy",
+                [],
+            )
+            .unwrap();
+    }
+
+    let context = AppContext::new(AppPaths::resolve(Some(directory.clone()), None).unwrap());
+    let doctor = context.doctor_result();
+    assert_eq!(doctor["ok"], false);
+    assert_eq!(doctor["data"]["schemaCompatible"], false);
+    assert!(doctor["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|issue| issue["code"] == "SCHEMA_INCOMPATIBLE"));
+
+    let error = get_session(
+        &context,
+        GetSessionRequest {
+            session_id: "left".to_string(),
+            include: vec![SessionInclude::Headers],
+            redaction_mode: RedactionMode::RedactedText,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "SCHEMA_INCOMPATIBLE");
+    assert!(error.message.contains("Open AIProxy"));
+
+    let (search_data, _) = search(
+        &context,
+        SearchSessionsRequest {
+            limit: Some(1),
+            ..SearchSessionsRequest::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(search_data["items"].as_array().unwrap().len(), 1);
+
     let _ = std::fs::remove_dir_all(directory);
 }
 

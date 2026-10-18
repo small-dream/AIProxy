@@ -26,7 +26,16 @@ pub async fn get_messages(
     let config = state.config()?;
     if !config.permissions.read_web_socket {
         return Err(ToolError::permission_denied(
-            "WebSocket reading is disabled in Agent Access.",
+            "WebSocket reading is disabled. Enable readWebSocket in AIProxy Settings > Agent Access.",
+        ));
+    }
+    if !state
+        .capabilities
+        .is_some_and(|capabilities| capabilities.websocket_messages)
+    {
+        return Err(ToolError::new(
+            "SCHEMA_INCOMPATIBLE",
+            "WebSocket messages are unavailable until AIProxy migrates the database. Open AIProxy once, then retry.",
         ));
     }
     if let Some(direction) = &request.direction {

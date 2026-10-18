@@ -1107,7 +1107,8 @@ type SettingsPageState = {
 - 以低噪音状态头展示 sidecar、版本与连接状态
 - 让用户显式开启会话、Body、WebSocket 与未脱敏 Body 权限
 - 让用户配置格式识别、稳定哈希和自定义敏感字段
-- 为 Codex、Claude Code、Cursor 提供一键连接（写 MCP 配置 + 安装 Skill）
+- 为 Codex、Claude Code、Cursor 提供一键连接（写 MCP 配置 + 安装 Skill）与断开
+- 提供「验证连接」：真实 MCP 握手、工具调用与逐项检查结果
 - 展示仅含元数据的审计日志
 
 组件树：
@@ -1119,13 +1120,15 @@ AgentAccessSection
 │  ├─ UnsavedChangesAlert (Save / Discard)
 │  └─ Diagnostics (collapsed)
 │     ├─ PathValue x4 (single-line + tooltip + copy)
-│     └─ Test configuration
+│     ├─ Verify connection
+│     └─ CheckList (sidecar / doctor / database / schema / enabled / body / handshake / tools / sessions / clients)
 ├─ ClientList
+│  ├─ DataFlowNotice
 │  ├─ AgentClientRow Codex
 │  ├─ AgentClientRow Claude Code
 │  └─ AgentClientRow Cursor
 │     ├─ primary Connect / Update / Reconnect
-│     └─ overflow menu (config only / Skill only / manual setup)
+│     └─ overflow menu (config only / Skill only / manual setup / disconnect)
 ├─ PermissionsCard
 │  ├─ General permissions
 │  ├─ Advanced permissions (collapsed)
@@ -1138,19 +1141,23 @@ AgentAccessSection
 ├─ AgentAuditTable (collapsed summary by default)
 ├─ SecurityNote
 ├─ ConfirmDialog (config overwrite)
-└─ ConfirmDialog (custom Skill overwrite)
+├─ ConfirmDialog (custom Skill overwrite)
+└─ ConfirmDialog (disconnect)
 ```
 
 关键交互：
 
 1. 顶部启用开关和权限开关先写入本地草稿；只有 `Save changes` 才持久化。草稿与已保存值不一致时，状态头显示 `Unsaved`，状态头和权限区同时提供保存 / 放弃。关闭 `readBodies` 会立即在草稿中关闭 `readRawBodies`。
-2. Test configuration 位于默认折叠的诊断区，调用 `aiproxy-mcp --doctor`，失败原因内联展示，不使用全局 toast。
+2. 「验证连接」位于默认折叠的诊断区。它先运行 `aiproxy-mcp --doctor`，再执行真实 MCP 会话（initialize → tools/list → search_sessions），按 sidecar、诊断、数据库、schema、启用状态、Body 权限、握手、工具数、会话数、客户端连接逐项展示 ok / warning / error；失败项内联展示 detail，并提供「复制诊断」导出完整 JSON，不使用全局 toast。
 3. 客户端主操作是“连接”：先写 MCP 配置，再安装 Skill。Codex、Claude Code、Cursor 均写入用户级全局配置，不需要选择项目目录。
 4. 目标文件不存在时直接创建；覆盖已有文件前展示目标路径、二次确认并先备份。Skill 命中非 AIProxy 管理的同名文件时再次确认覆盖。
-5. 连接流程必须处理部分成功：配置已写入但 Skill 安装失败或用户取消覆盖时，界面明确提示配置已生效、Skill 未完成，并保持该客户端为 `需要更新`。
-6. 更多菜单提供“仅写入 MCP 配置”“仅安装 Skill”“手动配置”。手动配置展开后展示单行路径、Skill 路径、配置片段与复制操作；路径禁止跨行断词。
-7. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor；Claude Code 目标为 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`），连接后需重新启动 Claude Code。
-8. 审计表默认只显示最近调用数量摘要；展开后按时间倒序展示明细，刷新时重新读取 JSONL。
+5. 连接流程必须处理部分成功：配置已写入但 Skill 安装失败或用户取消覆盖时，界面明确提示配置已生效、Skill 未完成，并保持该客户端为 `需更新`。
+6. 更多菜单提供“仅写入 MCP 配置”“仅安装 Skill”“手动配置”“断开连接”。手动配置展开后展示单行路径、Skill 路径、配置片段与复制操作；路径禁止跨行断词。断开仅在客户端已有配置或 Skill 时出现。
+7. 客户端状态基于“aiproxy 条目是否存在 + Skill 内容是否为当前版本”，不使用“配置文件是否存在”判断；状态文案为 `已配置` / `需更新` / `未配置`。
+8. 断开连接需二次确认：说明将移除的配置路径、将删除的受管 Skill 路径与备份行为；自定义 Skill 保留并提示。移除后状态回到 `未配置`。
+9. 客户端列表顶部固定展示数据流向说明：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；默认脱敏与只读只降低暴露面。
+10. 审计表默认只显示最近调用数量摘要；展开后按时间倒序展示明细，刷新时重新读取 JSONL。
+11. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor 窗口；Claude Code 目标为 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`），连接后需重新启动 Claude Code。
 
 状态：
 

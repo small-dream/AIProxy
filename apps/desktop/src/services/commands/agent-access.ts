@@ -10,6 +10,8 @@ import {
   type InstallAgentClientConfigResult,
   type InstallAgentSkillInput,
   type InstallAgentSkillResult,
+  type RemoveAgentClientConfigInput,
+  type RemoveAgentClientConfigResult,
   type UpdateAgentAccessSettingsInput,
 } from "@aiproxy/shared-types";
 
@@ -161,6 +163,13 @@ export async function testAgentAccess(): Promise<AgentAccessTestResult> {
     return {
       ok: false,
       message: "MCP diagnostics require the desktop runtime.",
+      checks: [
+        {
+          id: "sidecar",
+          status: "error",
+          detail: "MCP diagnostics require the desktop runtime.",
+        },
+      ],
     };
   }
 
@@ -216,6 +225,32 @@ export async function installAgentClientConfig(
     return await invoke<InstallAgentClientConfigResult>("install_agent_client_config", { input });
   } catch (error) {
     reportCommandFailure("install_agent_client_config", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function removeAgentClientConfig(
+  input: RemoveAgentClientConfigInput,
+): Promise<RemoveAgentClientConfigResult> {
+  if (!isTauriRuntime()) {
+    return {
+      status: "removed",
+      client: input.client,
+      path: fallbackClients.find((client) => client.client === input.client)?.configPath ?? "",
+      backupPath: null,
+      skillRemoved: input.removeSkill ?? false,
+      skillSkipped: false,
+    };
+  }
+
+  try {
+    logDevInfo("ui.commands", "remove_agent_client_config_requested", {
+      client: input.client,
+      removeSkill: input.removeSkill ?? false,
+    });
+    return await invoke<RemoveAgentClientConfigResult>("remove_agent_client_config", { input });
+  } catch (error) {
+    reportCommandFailure("remove_agent_client_config", error);
     throw coerceAppError(error);
   }
 }

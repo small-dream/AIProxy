@@ -33,6 +33,7 @@ pub struct GetInsightsRequest {
     pub status_max: Option<u16>,
     pub started_after: Option<String>,
     pub started_before: Option<String>,
+    pub since: Option<String>,
     #[serde(default)]
     pub group_by: GroupBy,
     pub group_query_param: Option<String>,
@@ -45,11 +46,21 @@ pub async fn get_insights(
     let config = state.config()?;
     if !config.permissions.read_sessions {
         return Err(ToolError::permission_denied(
-            "Session reading is disabled in Agent Access.",
+            "Session reading is disabled. Enable readSessions in AIProxy Settings > Agent Access.",
         ));
     }
     let redactor = Redactor::from_config(&config, &state.paths.data_dir)
         .map_err(|message| ToolError::new("INVALID_REDACTION_CONFIG", message))?;
+
+    if request.since.is_some() && request.started_after.is_some() {
+        return Err(ToolError::invalid(
+            "Use either since or startedAfter, not both.",
+        ));
+    }
+    let started_after = match request.since.as_deref() {
+        Some(value) => Some(super::sessions::parse_since(value)?),
+        None => request.started_after,
+    };
 
     let has_scope = request
         .host
@@ -67,8 +78,7 @@ pub async fn get_insights(
         || !request.methods.is_empty()
         || request.status_min.is_some()
         || request.status_max.is_some()
-        || request
-            .started_after
+        || started_after
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty())
         || request
@@ -108,7 +118,7 @@ pub async fn get_insights(
         methods: request.methods,
         status_min: request.status_min,
         status_max: request.status_max,
-        started_after: request.started_after,
+        started_after,
         started_before: request.started_before,
         group_by: request.group_by.into(),
         group_query_param: request.group_query_param,

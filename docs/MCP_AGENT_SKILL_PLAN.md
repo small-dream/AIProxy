@@ -7,7 +7,7 @@
 - 更新日期：`2026-10-18`
 - 适用范围：AIProxy Desktop、Rust 核心、Codex / Claude Code / Cursor 等 Agent 客户端
 - 本轮评审重点：MVP 只读边界、stdio sidecar、工具契约、Agent Access 权限与审计
-> 实现说明：2026-10-18 已落地 schema 2.0、字段提取、批量字段、结构化比较、搜索排序和可配置脱敏。实际实现与本文档的差异、验证结果和后续项见文末「实现状态」；本文档保留作为产品与技术决策记录。
+> 实现说明：2026-10-18 已落地 schema 2.1、字段提取、批量字段、结构化比较、搜索排序和可配置脱敏，并补齐「验证连接」真实 MCP 握手、断开连接、doctor 列级 schema 检查与工具契约一致性修复。实际实现与本文档的差异、验证结果和后续项见文末「实现状态」；本文档保留作为产品与技术决策记录。
 
 - 关联文档：
   - `docs/MCP_AGENT_SKILL_ARCHITECTURE.md`
@@ -247,7 +247,7 @@ MVP 补充约束：
     "redacted": true,
     "nextCursor": null,
     "tookMs": 12,
-    "schemaVersion": "2.0"
+    "schemaVersion": "2.1"
   }
 }
 ```
@@ -753,7 +753,7 @@ MVP 稳定后再评估：
 
 已完成：
 
-- `crates/mcp-server`：8 个只读 MCP 工具、schema 2.0、stdio transport、统一 envelope、字段提取、批量字段、结构化比较、权限、脱敏、审计、cursor 分页。
+- `crates/mcp-server`：8 个只读 MCP 工具、schema 2.1、stdio transport、统一 envelope、字段提取、批量字段、结构化比较、权限、脱敏、审计、cursor 分页。
 - `crates/db`：只读连接、schema capabilities、Body 范围读取与路径安全检查、Session v2 排序 cursor、WebSocket 稳定 cursor、Insights path/query 分组。
 - 桌面端：Settings > Agent Access、6 个 Tauri 命令、权限/限制/脱敏策略保存、诊断、客户端配置一键写入/复制、Skill 安装、审计表。
 - 客户端：Codex、Claude Code、Cursor，均使用用户级全局配置：Codex `$CODEX_HOME/config.toml`、Claude Code `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）、Cursor `~/.cursor/mcp.json`。

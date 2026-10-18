@@ -284,6 +284,7 @@ pub fn run() {
             commands::test_agent_access,
             commands::install_agent_skill,
             commands::install_agent_client_config,
+            commands::remove_agent_client_config,
             commands::get_agent_audit_log,
             commands::summarize_session_diff,
             commands::get_app_build_info,

@@ -105,9 +105,10 @@ pub async fn get_session_body(
     request: GetSessionBodyRequest,
 ) -> Result<(Value, ToolMeta), ToolError> {
     let config = state.config()?;
+    require_session_details(state)?;
     if !config.permissions.read_bodies {
         return Err(ToolError::permission_denied(
-            "Body reading is disabled in Agent Access.",
+            "Body reading is disabled. Enable readBodies in AIProxy Settings > Agent Access.",
         ));
     }
     if matches!(
@@ -116,7 +117,7 @@ pub async fn get_session_body(
     ) && !config.permissions.read_raw_bodies
     {
         return Err(ToolError::permission_denied(
-            "Raw or base64 body reading requires the readRawBodies permission.",
+            "Raw or base64 body reading requires the readRawBodies permission. Enable it in AIProxy Settings > Agent Access.",
         ));
     }
     if request.redaction_mode == BodyRedactionMode::Metadata
@@ -219,14 +220,15 @@ pub async fn get_session_fields(
     request: GetSessionFieldsRequest,
 ) -> Result<(Value, ToolMeta), ToolError> {
     let config = state.config()?;
+    require_session_details(state)?;
     if !config.permissions.read_bodies {
         return Err(ToolError::permission_denied(
-            "Body reading is disabled in Agent Access.",
+            "Body reading is disabled. Enable readBodies in AIProxy Settings > Agent Access.",
         ));
     }
     if request.redaction_mode == BodyRedactionMode::Raw && !config.permissions.read_raw_bodies {
         return Err(ToolError::permission_denied(
-            "Raw field extraction requires the readRawBodies permission.",
+            "Raw field extraction requires the readRawBodies permission. Enable it in AIProxy Settings > Agent Access.",
         ));
     }
     if !matches!(
@@ -1220,6 +1222,19 @@ fn body_truncation_reasons(
         reasons.push("resultLimit");
     }
     reasons
+}
+
+fn require_session_details(state: &AppContext) -> Result<(), ToolError> {
+    if state
+        .capabilities
+        .is_some_and(|capabilities| capabilities.session_details)
+    {
+        return Ok(());
+    }
+    Err(ToolError::new(
+        "SCHEMA_INCOMPATIBLE",
+        "Body access is unavailable until AIProxy migrates the database. Open AIProxy once, then retry.",
+    ))
 }
 
 fn body_error(code: &'static str, message: &str, reason: &str, part: BodyPart) -> ToolError {

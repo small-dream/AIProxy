@@ -4,7 +4,7 @@ export type AgentClientConnectionState = "connected" | "needsUpdate" | "notConne
 
 export function getAgentClientConnectionState(info: AgentClientInfo): AgentClientConnectionState {
   if (info.configInstalled && info.skillInstalled) return "connected";
-  if (info.configExists || info.configInstalled || info.skillInstalled) return "needsUpdate";
+  if (info.configInstalled || info.skillInstalled) return "needsUpdate";
   return "notConnected";
 }
 

@@ -48,6 +48,7 @@ pub fn open_read_only_database(db_path: &Path) -> Result<Connection, DbError> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SchemaCapabilities {
     pub core_sessions: bool,
+    pub session_details: bool,
     pub body_references: bool,
     pub websocket_messages: bool,
     pub rule_traces: bool,
@@ -88,6 +89,28 @@ pub fn inspect_schema(conn: &Connection) -> Result<SchemaCapabilities, DbError> 
             "session_details",
             &["request_body_ref", "response_body_ref"],
         )?;
+    // Columns read by `load_session_detail`; older databases migrate them on
+    // the next desktop launch, so MCP reports them separately from the core
+    // session tables instead of failing every tool.
+    let session_details = core_sessions
+        && table_has_columns(
+            conn,
+            "session_details",
+            &[
+                "query_params",
+                "cookies",
+                "raw_request",
+                "raw_response",
+                "client_address",
+                "server_ip",
+                "tls_cipher_suite",
+                "tls_protocol",
+                "timing",
+                "trailers",
+                "h2_stream_id",
+                "via_upstream_proxy",
+            ],
+        )?;
     let websocket_messages = table_has_columns(
         conn,
         "ws_messages",
@@ -98,16 +121,39 @@ pub fn inspect_schema(conn: &Connection) -> Result<SchemaCapabilities, DbError> 
             "timestamp",
             "opcode",
             "payload_text",
+            "payload_size",
+            "fin",
+            "truncated",
         ],
     )?;
     let rule_traces = table_exists(conn, "rewrite_runs")?
         && table_exists(conn, "map_runs")?
         && table_exists(conn, "script_runs")?
         && table_exists(conn, "throttle_runs")?;
-    let workspaces = table_has_columns(conn, "workspaces", &["id", "name", "proxy_port"])?;
+    let workspaces = table_has_columns(
+        conn,
+        "workspaces",
+        &[
+            "id",
+            "name",
+            "proxy_port",
+            "ssl_enabled",
+            "http2_enabled",
+            "system_proxy_enabled",
+            "verify_upstream_tls",
+            "tls_verify_hosts",
+            "ssl_blind_hosts",
+            "upstream_proxy",
+            "ssl_proxying",
+            "storage_path",
+            "created_at",
+            "updated_at",
+        ],
+    )?;
 
     Ok(SchemaCapabilities {
         core_sessions,
+        session_details,
         body_references,
         websocket_messages,
         rule_traces,
@@ -219,6 +265,9 @@ mod tests {
         let readonly = open_read_only_database(&path).unwrap();
         let capabilities = inspect_schema(&readonly).unwrap();
         assert!(capabilities.core_sessions);
+        assert!(capabilities.session_details);
+        assert!(capabilities.websocket_messages);
+        assert!(capabilities.workspaces);
         assert!(inspect_schema(&readonly).unwrap().body_references);
         assert!(readonly
             .execute("DELETE FROM session_summaries", [])

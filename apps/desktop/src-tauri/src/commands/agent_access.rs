@@ -1,3 +1,4 @@
+use super::agent_access_probe::probe_sidecar;
 use super::common::*;
 
 use std::io::Write;
@@ -71,11 +72,20 @@ pub struct UpdateAgentAccessSettingsInput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentAccessCheck {
+    pub id: String,
+    pub status: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentAccessTestResult {
     pub ok: bool,
     pub message: String,
     pub sidecar_path: Option<String>,
     pub sidecar_version: Option<String>,
+    pub checks: Vec<AgentAccessCheck>,
     pub details: Option<Value>,
 }
 
@@ -187,20 +197,36 @@ pub async fn test_agent_access() -> AgentAccessTestResult {
             message: error,
             sidecar_path: None,
             sidecar_version: None,
+            checks: vec![AgentAccessCheck {
+                id: "sidecar".to_string(),
+                status: "error".to_string(),
+                detail: None,
+            }],
             details: None,
         })
+}
+
+fn check(id: &str, status: &str, detail: Option<String>) -> AgentAccessCheck {
+    AgentAccessCheck {
+        id: id.to_string(),
+        status: status.to_string(),
+        detail,
+    }
 }
 
 fn test_agent_access_blocking() -> Result<AgentAccessTestResult, String> {
     let sidecar = resolve_sidecar_path();
     let Some(sidecar_path) = sidecar.path else {
+        let message = sidecar
+            .error
+            .clone()
+            .unwrap_or_else(|| "aiproxy-mcp sidecar is unavailable.".into());
         return Ok(AgentAccessTestResult {
             ok: false,
-            message: sidecar
-                .error
-                .unwrap_or_else(|| "aiproxy-mcp sidecar is unavailable.".into()),
+            message,
             sidecar_path: None,
             sidecar_version: None,
+            checks: vec![check("sidecar", "error", sidecar.error)],
             details: None,
         });
     };
@@ -212,11 +238,37 @@ fn test_agent_access_blocking() -> Result<AgentAccessTestResult, String> {
                 message: error,
                 sidecar_path: Some(sidecar_path.display().to_string()),
                 sidecar_version: None,
+                checks: vec![check("dataDirectory", "error", None)],
                 details: None,
             });
         }
     };
 
+    let mut checks = Vec::new();
+    let mut first_error: Option<String> = None;
+    let mut push = |check: AgentAccessCheck| {
+        if check.status == "error" && first_error.is_none() {
+            first_error = check.detail.clone();
+        }
+        checks.push(check);
+    };
+
+    if !sidecar.available || !sidecar_path.is_file() {
+        push(check("sidecar", "error", sidecar.error.clone()));
+        return Ok(AgentAccessTestResult {
+            ok: false,
+            message: sidecar
+                .error
+                .unwrap_or_else(|| "aiproxy-mcp sidecar is unavailable.".into()),
+            sidecar_path: Some(sidecar_path.display().to_string()),
+            sidecar_version: None,
+            checks,
+            details: None,
+        });
+    }
+    push(check("sidecar", "ok", None));
+
+    let sidecar_version = run_sidecar(&sidecar_path, &["--version"]).version;
     let output = run_sidecar(
         &sidecar_path,
         &[
@@ -229,37 +281,163 @@ fn test_agent_access_blocking() -> Result<AgentAccessTestResult, String> {
         .stdout
         .as_deref()
         .and_then(|stdout| serde_json::from_str::<Value>(stdout).ok());
-    let ok = output.success_status
-        && details
-            .as_ref()
-            .and_then(|value| value.get("ok"))
-            .and_then(Value::as_bool)
-            == Some(true);
-    let message = if ok {
-        "MCP sidecar, Agent Access configuration, and database schema are ready.".to_string()
-    } else if let Some(stderr) = output
-        .stderr
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        stderr.trim().to_string()
-    } else if let Some(error) = details
+
+    let doctor_data = details.as_ref().and_then(|value| value.get("data"));
+    let enabled = doctor_data
+        .and_then(|data| data.get("agentAccessEnabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let database_readable = doctor_data
+        .and_then(|data| data.get("databaseReadable"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let schema_compatible = doctor_data
+        .and_then(|data| data.get("schemaCompatible"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let doctor_error = details
         .as_ref()
         .and_then(|value| value.get("error"))
-        .and_then(|value| value.get("message"))
+        .and_then(|error| error.get("message"))
         .and_then(Value::as_str)
-    {
-        error.to_string()
+        .map(str::to_string);
+
+    if details.is_none() {
+        let detail = output
+            .stderr
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string);
+        push(check("doctor", "error", detail));
     } else {
-        "MCP diagnostic failed. Check the AIProxy data directory and Agent Access settings."
-            .to_string()
+        push(check("doctor", "ok", doctor_error));
+    }
+
+    push(check(
+        "database",
+        if database_readable { "ok" } else { "error" },
+        None,
+    ));
+    push(check(
+        "schema",
+        if schema_compatible { "ok" } else { "error" },
+        details
+            .as_ref()
+            .and_then(|value| value.get("issues"))
+            .and_then(Value::as_array)
+            .and_then(|issues| {
+                let message = issues
+                    .iter()
+                    .find(|issue| issue["code"] == "SCHEMA_INCOMPATIBLE")
+                    .and_then(|issue| issue["message"].as_str());
+                message.map(str::to_string)
+            }),
+    ));
+    push(check(
+        "agentAccessEnabled",
+        if enabled { "ok" } else { "error" },
+        None,
+    ));
+
+    if enabled {
+        let body_access = doctor_data
+            .and_then(|data| data.get("permissions"))
+            .and_then(|permissions| permissions.get("readBodies"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if body_access {
+            push(check("bodyAccess", "ok", None));
+        } else {
+            push(check(
+                "bodyAccess",
+                "warning",
+                Some(
+                    "Body reading is disabled, so the Agent cannot inspect response payloads."
+                        .into(),
+                ),
+            ));
+        }
+
+        match probe_sidecar(&sidecar_path, &paths.data_dir) {
+            Ok(probe) => {
+                push(check("handshake", "ok", probe.protocol_version.clone()));
+                push(check(
+                    "tools",
+                    if probe.tool_count == 8 {
+                        "ok"
+                    } else {
+                        "warning"
+                    },
+                    Some(format!("{} tools", probe.tool_count)),
+                ));
+                push(check(
+                    "sessions",
+                    if probe.session_count > 0 {
+                        "ok"
+                    } else {
+                        "warning"
+                    },
+                    Some(match (probe.session_count, &probe.latest_session_at) {
+                        (0, _) => "search_sessions returned no sessions".to_string(),
+                        (count, Some(timestamp)) => {
+                            format!(
+                                "search_sessions returned {count} session(s), latest {timestamp}"
+                            )
+                        }
+                        (count, None) => format!("search_sessions returned {count} session(s)"),
+                    }),
+                ));
+            }
+            Err(error) => {
+                let status = if error.starts_with("PERMISSION_DENIED") {
+                    "warning"
+                } else {
+                    "error"
+                };
+                push(check("handshake", status, Some(error)));
+            }
+        }
+    } else {
+        push(check(
+            "handshake",
+            "warning",
+            Some("Skipped: Agent Access is off.".into()),
+        ));
+    }
+
+    if let Ok(settings) = build_settings() {
+        let installed = settings
+            .clients
+            .iter()
+            .filter(|client| client.config_installed && client.skill_installed)
+            .count();
+        push(check(
+            "clients",
+            if installed > 0 { "ok" } else { "warning" },
+            Some(format!("{installed}/3 clients configured")),
+        ));
+    }
+
+    let ok = !checks.iter().any(|entry| entry.status == "error");
+    let has_warnings = checks.iter().any(|entry| entry.status == "warning");
+    let message = if ok && has_warnings {
+        "Agent Access checks completed with warnings.".to_string()
+    } else if ok {
+        "All Agent Access checks passed.".to_string()
+    } else {
+        first_error
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| {
+                "Agent Access checks failed. See the details for the failing step.".into()
+            })
     };
 
     Ok(AgentAccessTestResult {
         ok,
         message,
         sidecar_path: Some(sidecar_path.display().to_string()),
-        sidecar_version: output.version,
+        sidecar_version,
+        checks,
         details,
     })
 }
@@ -410,6 +588,234 @@ fn install_client_config_at(
         path: target_path.display().to_string(),
         backup_path: backup_path.map(|path| path.display().to_string()),
     })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RemoveAgentClientConfigInput {
+    pub client: AgentClient,
+    #[serde(default)]
+    pub remove_skill: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveAgentClientConfigResult {
+    pub status: String,
+    pub client: AgentClient,
+    pub path: String,
+    pub backup_path: Option<String>,
+    pub skill_removed: bool,
+    pub skill_skipped: bool,
+    pub skill_error: Option<String>,
+}
+
+#[derive(Debug)]
+struct ConfigRemoval {
+    status: String,
+    path: String,
+    backup_path: Option<String>,
+}
+
+#[tauri::command]
+pub async fn remove_agent_client_config(
+    input: RemoveAgentClientConfigInput,
+) -> Result<RemoveAgentClientConfigResult, String> {
+    run_blocking_command("remove_agent_client_config", move || {
+        remove_agent_client_config_blocking(input)
+    })
+    .await
+}
+
+fn remove_agent_client_config_blocking(
+    input: RemoveAgentClientConfigInput,
+) -> Result<RemoveAgentClientConfigResult, String> {
+    let target_path = config_path(input.client)?;
+    let removal = remove_client_config_at(&target_path, input.client)?;
+    // The configuration entry is already gone at this point. A Skill removal
+    // failure must be reported as a partial success instead of failing the
+    // whole command and leaving the UI thinking the client is still configured.
+    let (skill_removed, skill_skipped, skill_error) = if input.remove_skill {
+        match remove_managed_skill(input.client) {
+            Ok((removed, skipped)) => (removed, skipped, None),
+            Err(error) => (false, false, Some(error)),
+        }
+    } else {
+        (false, false, None)
+    };
+    if removal.status == "removed" {
+        tracing::info!(
+            component = "desktop.agent_access",
+            event = "agent_client_config_removed",
+            client = ?input.client,
+            path = %target_path.display(),
+            skill_removed = skill_removed,
+            "agent_client_config_removed"
+        );
+    }
+    Ok(RemoveAgentClientConfigResult {
+        status: removal.status,
+        client: input.client,
+        path: removal.path,
+        backup_path: removal.backup_path,
+        skill_removed,
+        skill_skipped,
+        skill_error,
+    })
+}
+
+fn remove_client_config_at(
+    target_path: &Path,
+    client: AgentClient,
+) -> Result<ConfigRemoval, String> {
+    if std::fs::symlink_metadata(target_path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            format!(
+                "refusing to modify a symlinked client configuration: {}",
+                target_path.display()
+            ),
+        ));
+    }
+
+    let existing = match std::fs::read_to_string(target_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ConfigRemoval {
+                status: "notInstalled".to_string(),
+                path: target_path.display().to_string(),
+                backup_path: None,
+            })
+        }
+        Err(error) => {
+            return Err(app_error(
+                ERR_INTERNAL,
+                format!("read Agent client configuration: {error}"),
+            ))
+        }
+    };
+
+    let (contents, changed) = strip_client_config(client, &existing)?;
+    if !changed {
+        return Ok(ConfigRemoval {
+            status: "notInstalled".to_string(),
+            path: target_path.display().to_string(),
+            backup_path: None,
+        });
+    }
+
+    let backup = next_backup_path(target_path);
+    write_private_file_atomic(&backup, existing.as_bytes())?;
+    write_private_file_atomic(target_path, contents.as_bytes())?;
+
+    Ok(ConfigRemoval {
+        status: "removed".to_string(),
+        path: target_path.display().to_string(),
+        backup_path: Some(backup.display().to_string()),
+    })
+}
+
+fn strip_client_config(client: AgentClient, existing: &str) -> Result<(String, bool), String> {
+    match client {
+        AgentClient::Codex => strip_codex_config(existing),
+        AgentClient::Claude | AgentClient::Cursor => strip_json_config(existing),
+    }
+}
+
+fn strip_codex_config(existing: &str) -> Result<(String, bool), String> {
+    let mut document = existing.parse::<DocumentMut>().map_err(|error| {
+        app_error(
+            ERR_INVALID_INPUT,
+            format!("parse Codex config.toml: {error}"),
+        )
+    })?;
+    let Some(servers_item) = document.get_mut("mcp_servers") else {
+        return Ok((existing.to_string(), false));
+    };
+    let servers = servers_item.as_table_mut().ok_or_else(|| {
+        app_error(
+            ERR_INVALID_INPUT,
+            "Codex config.toml has a non-table mcp_servers value",
+        )
+    })?;
+    if servers.remove("aiproxy").is_none() {
+        return Ok((existing.to_string(), false));
+    }
+    if servers.is_empty() {
+        document.as_table_mut().remove("mcp_servers");
+    }
+
+    let mut rendered = document.to_string();
+    if !rendered.ends_with('\n') {
+        rendered.push('\n');
+    }
+    Ok((rendered, true))
+}
+
+fn strip_json_config(existing: &str) -> Result<(String, bool), String> {
+    let mut root: Value = serde_json::from_str(existing).map_err(|error| {
+        app_error(
+            ERR_INVALID_INPUT,
+            format!("parse Agent client JSON configuration: {error}"),
+        )
+    })?;
+    let object = root.as_object_mut().ok_or_else(|| {
+        app_error(
+            ERR_INVALID_INPUT,
+            "Agent client configuration root must be a JSON object",
+        )
+    })?;
+    let Some(servers_value) = object.get_mut("mcpServers") else {
+        return Ok((existing.to_string(), false));
+    };
+    let servers = servers_value.as_object_mut().ok_or_else(|| {
+        app_error(
+            ERR_INVALID_INPUT,
+            "Agent client configuration mcpServers must be a JSON object",
+        )
+    })?;
+    if servers.remove("aiproxy").is_none() {
+        return Ok((existing.to_string(), false));
+    }
+    if servers.is_empty() {
+        object.remove("mcpServers");
+    }
+
+    let mut rendered = serde_json::to_string_pretty(&root).map_err(|error| {
+        app_error(
+            ERR_INTERNAL,
+            format!("serialize Agent client configuration: {error}"),
+        )
+    })?;
+    rendered.push('\n');
+    Ok((rendered, true))
+}
+
+fn remove_managed_skill(client: AgentClient) -> Result<(bool, bool), String> {
+    remove_skill_at(&skill_path(client)?)
+}
+
+fn remove_skill_at(path: &Path) -> Result<(bool, bool), String> {
+    match std::fs::read_to_string(path) {
+        Ok(contents) if is_managed_skill(&contents) => {
+            std::fs::remove_file(path).map_err(|error| {
+                app_error(
+                    ERR_INTERNAL,
+                    format!("remove Agent Skill at {}: {error}", path.display()),
+                )
+            })?;
+            Ok((true, false))
+        }
+        Ok(_) => Ok((false, true)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok((false, false)),
+        Err(error) => Err(app_error(
+            ERR_INTERNAL,
+            format!("read Agent Skill at {}: {error}", path.display()),
+        )),
+    }
 }
 
 #[tauri::command]
@@ -564,7 +970,6 @@ fn resolve_sidecar_path() -> SidecarResolution {
 }
 
 struct SidecarOutput {
-    success_status: bool,
     stdout: Option<String>,
     stderr: Option<String>,
     version: Option<String>,
@@ -583,14 +988,12 @@ fn run_sidecar(path: &Path, args: &[&str]) -> SidecarOutput {
                 (!line.is_empty()).then(|| line.to_string())
             });
             SidecarOutput {
-                success_status: output.status.success(),
                 stdout: (!stdout.is_empty()).then_some(stdout),
                 stderr: (!stderr.is_empty()).then_some(stderr),
                 version,
             }
         }
         Err(error) => SidecarOutput {
-            success_status: false,
             stdout: None,
             stderr: Some(format!("failed to start aiproxy-mcp: {error}")),
             version: None,
@@ -1289,6 +1692,121 @@ env = { RUST_LOG = "info" }
         assert_eq!(
             std::fs::read_to_string(&real).unwrap(),
             "model = \"gpt-5\"\n"
+        );
+    }
+
+    #[test]
+    fn codex_removal_strips_only_aiproxy_and_keeps_other_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("config.toml");
+        let original = r#"model = "gpt-5"
+
+# keep this comment
+[mcp_servers.other]
+command = "other-mcp"
+
+[mcp_servers.aiproxy]
+command = "/opt/aiproxy/aiproxy-mcp"
+args = ["--data-dir", "/tmp/aiproxy-data"]
+"#;
+        std::fs::write(&target, original).unwrap();
+
+        let result = remove_client_config_at(&target, AgentClient::Codex).unwrap();
+        assert_eq!(result.status, "removed");
+        assert_eq!(backup_files(dir.path()).len(), 1);
+        let written = std::fs::read_to_string(&target).unwrap();
+        assert!(written.contains("model = \"gpt-5\""));
+        assert!(written.contains("# keep this comment"));
+        assert!(written.contains("[mcp_servers.other]"));
+        assert!(!written.contains("aiproxy"));
+
+        let again = remove_client_config_at(&target, AgentClient::Codex).unwrap();
+        assert_eq!(again.status, "notInstalled");
+        assert!(again.backup_path.is_none());
+        assert_eq!(backup_files(dir.path()).len(), 1);
+    }
+
+    #[test]
+    fn json_removal_preserves_other_servers_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("mcp.json");
+        std::fs::write(
+            &target,
+            r#"{
+  "mcpServers": {
+    "other": { "command": "other-mcp" },
+    "aiproxy": { "command": "aiproxy-mcp", "args": [] }
+  },
+  "theme": "dark"
+}"#,
+        )
+        .unwrap();
+
+        let result = remove_client_config_at(&target, AgentClient::Cursor).unwrap();
+        assert_eq!(result.status, "removed");
+        let parsed: Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        assert_eq!(parsed["mcpServers"]["other"]["command"], "other-mcp");
+        assert!(parsed["mcpServers"].get("aiproxy").is_none());
+        assert_eq!(parsed["theme"], "dark");
+
+        let again = remove_client_config_at(&target, AgentClient::Cursor).unwrap();
+        assert_eq!(again.status, "notInstalled");
+    }
+
+    #[test]
+    fn removal_clears_empty_mcp_servers_container() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("mcp.json");
+        std::fs::write(
+            &target,
+            r#"{"mcpServers":{"aiproxy":{"command":"aiproxy-mcp"}}}"#,
+        )
+        .unwrap();
+
+        remove_client_config_at(&target, AgentClient::Cursor).unwrap();
+        let parsed: Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        assert!(parsed.get("mcpServers").is_none());
+    }
+
+    #[test]
+    fn removal_refuses_to_follow_symlinked_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real.toml");
+        let link = dir.path().join("config.toml");
+        std::fs::write(&real, "[mcp_servers.aiproxy]\ncommand = \"mcp\"\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        #[cfg(windows)]
+        {
+            if std::os::windows::fs::symlink_file(&real, &link).is_err() {
+                return;
+            }
+        }
+
+        let error = remove_client_config_at(&link, AgentClient::Codex).unwrap_err();
+        assert!(error.contains("symlinked"));
+        assert!(std::fs::read_to_string(&real)
+            .unwrap()
+            .contains("[mcp_servers.aiproxy]"));
+    }
+
+    #[test]
+    fn removal_only_deletes_managed_skill_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let managed = dir.path().join("managed.md");
+        let custom = dir.path().join("custom.md");
+        std::fs::write(&managed, SKILL_CONTENT).unwrap();
+        std::fs::write(&custom, "# my own skill\n").unwrap();
+
+        assert_eq!(remove_skill_at(&managed).unwrap(), (true, false));
+        assert!(!managed.exists());
+        assert_eq!(remove_skill_at(&custom).unwrap(), (false, true));
+        assert!(custom.exists());
+        assert_eq!(
+            remove_skill_at(&dir.path().join("missing.md")).unwrap(),
+            (false, false)
         );
     }
 }

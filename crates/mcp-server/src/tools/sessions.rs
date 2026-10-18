@@ -241,7 +241,7 @@ pub async fn search(
     let config = state.config()?;
     if !config.permissions.read_sessions {
         return Err(ToolError::permission_denied(
-            "Session reading is disabled in Agent Access.",
+            "Session reading is disabled. Enable readSessions in AIProxy Settings > Agent Access.",
         ));
     }
     let redactor = Redactor::from_config(&config, &state.paths.data_dir)
@@ -309,12 +309,12 @@ pub async fn get_session(
     let config = state.config()?;
     if !config.permissions.read_sessions {
         return Err(ToolError::permission_denied(
-            "Session reading is disabled in Agent Access.",
+            "Session reading is disabled. Enable readSessions in AIProxy Settings > Agent Access.",
         ));
     }
     if request.redaction_mode == RedactionMode::Raw && !config.permissions.read_raw_bodies {
         return Err(ToolError::permission_denied(
-            "Raw session metadata requires the readRawBodies permission.",
+            "Raw session metadata requires the readRawBodies permission. Enable it in AIProxy Settings > Agent Access.",
         ));
     }
     let redactor = Redactor::from_config(&config, &state.paths.data_dir)
@@ -326,6 +326,18 @@ pub async fn get_session(
     } else {
         request.include
     };
+    let needs_details = include
+        .iter()
+        .any(|item| !matches!(item, SessionInclude::Summary));
+    let details_available = state
+        .capabilities
+        .is_some_and(|capabilities| capabilities.session_details);
+    if needs_details && !details_available {
+        return Err(ToolError::new(
+            "SCHEMA_INCOMPATIBLE",
+            "Session details are unavailable until AIProxy migrates the database. Open AIProxy once, then retry.",
+        ));
+    }
     let raw = request.redaction_mode == RedactionMode::Raw;
     let rule_traces_available = state
         .capabilities
@@ -336,7 +348,11 @@ pub async fn get_session(
         .with_db(move |connection| {
             let summary = load_session_summary(connection, &session_id_for_query)?
                 .ok_or_else(|| aiproxy_db::DbError::not_found("session", &session_id_for_query))?;
-            let detail = load_session_detail(connection, &session_id_for_query)?;
+            let detail = if details_available {
+                load_session_detail(connection, &session_id_for_query)?
+            } else {
+                None
+            };
             let mut output = Map::new();
             let mut redacted_fields = BTreeSet::new();
 
@@ -487,6 +503,7 @@ pub(crate) fn summary_to_json(
         vec![
             SummaryField::SessionId,
             SummaryField::Method,
+            SummaryField::Host,
             SummaryField::Path,
             SummaryField::StatusCode,
             SummaryField::DurationMs,
@@ -506,7 +523,7 @@ pub(crate) fn summary_to_json(
     Value::Object(projected)
 }
 
-fn parse_since(value: &str) -> Result<String, ToolError> {
+pub(crate) fn parse_since(value: &str) -> Result<String, ToolError> {
     let value = value.trim();
     if value.len() < 2 {
         return Err(ToolError::invalid(

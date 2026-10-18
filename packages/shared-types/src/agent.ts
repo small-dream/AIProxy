@@ -68,11 +68,20 @@ export type UpdateAgentAccessSettingsInput = {
   redaction: AgentAccessRedaction;
 };
 
+export type AgentAccessCheckStatus = "ok" | "warning" | "error";
+
+export type AgentAccessCheck = {
+  id: string;
+  status: AgentAccessCheckStatus;
+  detail?: string | null;
+};
+
 export type AgentAccessTestResult = {
   ok: boolean;
   message: string;
   sidecarPath?: string | null;
   sidecarVersion?: string | null;
+  checks: AgentAccessCheck[];
   details?: Record<string, unknown> | null;
 };
 
@@ -99,6 +108,21 @@ export type InstallAgentClientConfigResult = {
   client: AgentClient;
   path: string;
   backupPath?: string | null;
+};
+
+export type RemoveAgentClientConfigInput = {
+  client: AgentClient;
+  removeSkill?: boolean;
+};
+
+export type RemoveAgentClientConfigResult = {
+  status: "removed" | "notInstalled";
+  client: AgentClient;
+  path: string;
+  backupPath?: string | null;
+  skillRemoved: boolean;
+  skillSkipped: boolean;
+  skillError?: string | null;
 };
 
 export type AgentAuditEntry = {

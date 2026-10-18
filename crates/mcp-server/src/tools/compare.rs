@@ -61,12 +61,21 @@ pub async fn compare_sessions(
     let config = state.config()?;
     if !config.permissions.read_sessions {
         return Err(ToolError::permission_denied(
-            "Session reading is disabled in Agent Access.",
+            "Session reading is disabled. Enable readSessions in AIProxy Settings > Agent Access.",
         ));
     }
     if request.include_body && !config.permissions.read_bodies {
         return Err(ToolError::permission_denied(
-            "Comparing response bodies requires the readBodies permission.",
+            "Comparing response bodies requires the readBodies permission. Enable it in AIProxy Settings > Agent Access.",
+        ));
+    }
+    if !state
+        .capabilities
+        .is_some_and(|capabilities| capabilities.session_details)
+    {
+        return Err(ToolError::new(
+            "SCHEMA_INCOMPATIBLE",
+            "Session comparison is unavailable until AIProxy migrates the database. Open AIProxy once, then retry.",
         ));
     }
     if !request.include_body && !request.json_paths.is_empty() {
@@ -81,7 +90,7 @@ pub async fn compare_sessions(
     let raw = request.redaction_mode == RedactionMode::Raw;
     if raw && !config.permissions.read_raw_bodies {
         return Err(ToolError::permission_denied(
-            "Raw comparison requires the readRawBodies permission.",
+            "Raw comparison requires the readRawBodies permission. Enable it in AIProxy Settings > Agent Access.",
         ));
     }
     let redactor = Redactor::from_config(&config, &state.paths.data_dir)

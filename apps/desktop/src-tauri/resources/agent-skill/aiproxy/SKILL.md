@@ -7,7 +7,7 @@ description: 通过 AIProxy MCP 只读查询本机已持久化的 HTTP/WebSocket
 
 # AIProxy 流量排查
 
-你通过 `aiproxy-mcp` 读取 AIProxy 已持久化的会话数据。MCP 默认只读、默认脱敏，数据不会上传。工具契约版本为 `2.0`。
+你通过 `aiproxy-mcp` 读取 AIProxy 已持久化的会话数据。MCP 默认只读、默认脱敏。**AIProxy 本身不会上传数据；但你读取到的内容会发送给当前模型服务商**，因此只读取完成任务所需的最小范围，并遵守用户配置的权限。工具契约版本为 `2.1`。
 
 ## 安全边界
 
@@ -19,13 +19,13 @@ description: 通过 AIProxy MCP 只读查询本机已持久化的 HTTP/WebSocket
 
 ## 工具选择
 
-- `list_workspaces`：查看已持久化的工作区配置以及全局 `sessionCount`、`latestSessionAt`。`runtimeStatus=unknown` 表示 stdio 模式无法判断代理是否仍在运行，不要猜成“未运行”。
-- `search_sessions`：检索的第一步。优先使用 `host`、`pathContains`、`queryParams`、status、method、时间或耗时缩小范围；`since` 接受 `5m`、`2h`、`7d`。需要精简列表时使用 `compact=true` 或 `fields`。
+- `list_workspaces`：可选。查看已持久化的工作区配置以及全局 `sessionCount`、`latestSessionAt`。会话是全局的，不能按 workspace 过滤，因此**不要把它当作检索第一步**；只在用户询问代理配置时使用。`runtimeStatus=unknown` 表示 stdio 模式无法判断代理是否仍在运行，不要猜成“未运行”。
+- `search_sessions`：检索的第一步。优先使用 `host`、`pathContains`、`queryParams`、status、method、时间或耗时缩小范围；`since` 接受 `5m`、`2h`、`7d`。需要精简列表时使用 `compact=true` 或 `fields`；`compact` 包含 `sessionId/method/host/path/status/duration/size/startedAt`。
 - `get_session`：读取单个会话的 summary、headers、query、cookies、timing、tls、http2、ruleTraces。默认不含 Body。
-- `get_session_body`：读取 Body 元数据、目标 JSON 字段、文本搜索结果或分页片段。默认 `redacted-text`。
-- `get_session_fields`：一次从最多 20 个会话提取相同 JSON paths，适合对比多次请求的实验分组、开关或状态字段。
+- `get_session_body`：读取 Body 元数据、目标 JSON 字段、文本搜索结果或分页片段；**`part` 必填（`request` 或 `response`）**，默认 `redacted-text`。
+- `get_session_fields`：一次从最多 20 个会话提取相同 JSON paths，**同样必须提供 `part`**，适合对比多次请求的实验分组、开关或状态字段。
 - `get_websocket_messages`：读取某个会话的 WebSocket 消息；二进制只返回元数据。
-- `get_insights`：在明确 host、path、query 参数、时间、method 或 status 范围时做聚合；可用 `groupBy=host|path|queryParam` 回答“哪个接口最慢/最大”。
+- `get_insights`：在明确 host、path、query 参数、时间（`since` 或 `startedAfter`）、method 或 status 范围时做聚合；可用 `groupBy=host|path|queryParam` 回答“哪个接口最慢/最大”。
 - `compare_sessions`：比较两个会话的摘要、Header、Query、Cookie、Timing，并可按 `jsonPaths` 做结构化 Body 差异。
 
 ## 推荐工作流
@@ -33,8 +33,8 @@ description: 通过 AIProxy MCP 只读查询本机已持久化的 HTTP/WebSocket
 1. **明确范围**：确认目标 host、接口、时间窗口、环境、成功/失败样本。缺少范围时只问一个最小澄清问题。
 2. **缩小集合**：调用 `search_sessions`。例如只看某个接口：`pathContains="/v1/app.launch"`；按 query 区分：`queryParams={"_method":"app.launch"}`；需要少字段时加 `compact=true`。
 3. **先看摘要**：用 `get_session` 查看状态码、耗时、协议、Timing 和规则命中。先不要读 Body。
-4. **只取目标字段**：JSON 响应优先使用 `get_session_body` + `jsonPaths`，例如 `jsonPaths=["$.ab.ab_test"]`；不要在只需要一个字段时先拉整段 Body。
-5. **跨请求取同字段**：多个 session 的同一字段使用 `get_session_fields`，不要循环读取整包。
+4. **只取目标字段**：JSON 响应优先使用 `get_session_body` + `part="response"` + `jsonPaths`，例如 `jsonPaths=["$.ab.ab_test"]`；不要在只需要一个字段时先拉整段 Body。
+5. **跨请求取同字段**：多个 session 的同一字段使用 `get_session_fields` + `part="response"`，不要循环读取整包。
 6. **必要时做对照**：用 `compare_sessions`，JSON 响应优先 `diffMode="json"` 或 `jsonPaths`，避免文本 diff 噪声。
 7. **给证据化结论**：每条判断至少绑定一个实际 `sessionId` 和具体字段。
 
@@ -71,6 +71,8 @@ description: 通过 AIProxy MCP 只读查询本机已持久化的 HTTP/WebSocket
 - `BODY_NOT_JSON`：目标 Body 不是 JSON，改用 `textQuery` 或 `diffMode="text"`。
 - `JSON_PATH_INVALID`：改写为支持的安全子集。
 - `PERMISSION_DENIED`：说明需要用户在 AIProxy Settings > Agent Access 开启哪个权限，不要伪造数据。
+- `SCHEMA_INCOMPATIBLE`：AIProxy 数据库尚未迁移（常见于更新后还没打开应用）。请用户打开一次 AIProxy 后重试，不要改用其他工具猜测数据。
+- `AGENT_ACCESS_DISABLED`：用户在 Settings > Agent Access 关闭了接入；不要重试，直接说明。
 
 ## 输出模板
 

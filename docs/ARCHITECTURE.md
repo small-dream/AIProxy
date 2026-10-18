@@ -384,7 +384,7 @@ TLS 证书缓存机制：
 - 通过 `aiproxy-mcp` stdio sidecar 向 Codex、Claude Code、Cursor 暴露只读 MCP 工具
 - 复用 `aiproxy-db` 的会话检索、详情、Body、WebSocket、Insights 与规则 trace 查询
 - 在 sidecar 内强制执行 Agent Access 权限、统一脱敏、字段提取、返回上限、cursor 分页与审计
-- 由桌面端 Settings > Agent Access 管理配置、诊断、脱敏策略、客户端片段与 Skill 安装
+- 由桌面端 Settings > Agent Access 管理配置、诊断与真实 MCP 握手验证、脱敏策略、客户端片段、一键写入/断开与 Skill 安装
 
 边界：
 
@@ -399,7 +399,7 @@ TLS 证书缓存机制：
 - Claude Code：`CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）顶层 `mcpServers`，Skill 位于 `CLAUDE_CONFIG_DIR/skills/aiproxy/SKILL.md`（默认 `~/.claude/skills`）
 - Cursor：`~/.cursor/mcp.json`，Skill 位于 `~/.cursor/skills/aiproxy/SKILL.md`
 
-应用只生成可复制片段，不静默改写用户已有客户端配置。Sidecar 通过 Tauri `externalBin` 与桌面安装包一起分发。
+应用在用户确认后合并写入客户端配置、先备份原文件，并支持从客户端移除 `aiproxy` 条目与受管 Skill；复制片段保留为兜底。Sidecar 通过 Tauri `externalBin` 与桌面安装包一起分发。
 
 详细契约见 `docs/MCP_AGENT_SKILL_ARCHITECTURE.md`、`docs/DECISIONS/ADR-006-local-mcp-agent-access.md` 与 `docs/API_SPEC.md` 6.14。
 
