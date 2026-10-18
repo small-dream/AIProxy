@@ -416,7 +416,7 @@ flowchart LR
 - 支持按 JSON path 提取目标字段、批量跨会话取同一字段、查询参数过滤、路径过滤、排序和结构化 JSON Diff
 - stdio sidecar，不开放本地端口
 - Settings > Agent Access：状态诊断、权限、限制、脱敏策略、客户端片段、Skill 安装、审计日志
-- Codex / Claude Code / Cursor 三客户端配置指引；Cursor 使用 `~/.cursor/mcp.json`
+- Codex / Claude Code / Cursor 三客户端配置指引；均使用用户级全局配置，Claude Code 写入 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`）
 - 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
 
 非目标（本版本）：

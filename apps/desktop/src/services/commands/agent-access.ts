@@ -40,7 +40,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
   },
   {
     client: "claude",
-    configPath: null,
+    configPath: "~/.claude.json",
     configExists: false,
     configInstalled: false,
     skillPath: "~/.claude/skills/aiproxy/SKILL.md",
@@ -204,10 +204,7 @@ export async function installAgentClientConfig(
     return {
       status: "installed",
       client: input.client,
-      path:
-        input.client === "claude"
-          ? `${input.projectDir ?? "<project>"}/.mcp.json`
-          : (fallbackClients.find((client) => client.client === input.client)?.configPath ?? ""),
+      path: fallbackClients.find((client) => client.client === input.client)?.configPath ?? "",
       backupPath: null,
     };
   }
@@ -215,7 +212,6 @@ export async function installAgentClientConfig(
   try {
     logDevInfo("ui.commands", "install_agent_client_config_requested", {
       client: input.client,
-      hasProjectDir: Boolean(input.projectDir),
     });
     return await invoke<InstallAgentClientConfigResult>("install_agent_client_config", { input });
   } catch (error) {

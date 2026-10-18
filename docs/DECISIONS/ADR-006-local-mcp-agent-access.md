@@ -16,7 +16,7 @@
 4. Agent 权限来自 `<data-dir>/agent-access.json`，不能通过工具参数提升；Body 默认脱敏，`raw`/`base64` 需要独立的 `readRawBodies` 权限。
 5. 审计日志只记录调用元数据，不记录 Header/Body/WebSocket 内容。
 6. Skill 与 MCP 同版本分发；Codex、Claude Code、Cursor 安装到各自用户级 skills 目录。
-7. 客户端配置默认由应用一键安全合并：Codex 写入 `$CODEX_HOME/config.toml`，Cursor 写入 `~/.cursor/mcp.json`，Claude Code 需用户选择项目根目录后写入 `.mcp.json`。写入前备份原文件，解析失败或结构冲突时拒绝覆盖；复制片段保留为兜底。
+7. 客户端配置默认由应用一键安全合并：Codex 写入 `$CODEX_HOME/config.toml`，Cursor 写入 `~/.cursor/mcp.json`，Claude Code 写入 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）顶层 `mcpServers`。三者均使用用户级全局配置，不依赖项目目录。写入前备份原文件，解析失败或结构冲突时拒绝覆盖；复制片段保留为兜底。
 
 ## 理由
 

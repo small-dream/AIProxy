@@ -28,7 +28,7 @@ pub enum AgentClient {
 #[serde(rename_all = "camelCase")]
 pub struct AgentClientInfo {
     pub client: AgentClient,
-    pub config_path: Option<String>,
+    pub config_path: String,
     pub config_exists: bool,
     pub config_installed: bool,
     pub skill_path: String,
@@ -100,8 +100,6 @@ pub struct InstallAgentSkillResult {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InstallAgentClientConfigInput {
     pub client: AgentClient,
-    #[serde(default)]
-    pub project_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -348,7 +346,7 @@ fn install_agent_client_config_blocking(
         ));
     };
 
-    let target_path = install_target_path(input.client, input.project_dir.as_deref())?;
+    let target_path = config_path(input.client)?;
     let command = sidecar_path.display().to_string();
     let data_dir = paths.data_dir.display().to_string();
     let result = install_client_config_at(&target_path, input.client, &command, &data_dir)?;
@@ -622,16 +620,14 @@ fn client_info(
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "<path-to-aiproxy-mcp>".to_string());
     let data_dir = data_dir.display().to_string();
-    let config_installed = config_path.as_deref().is_some_and(|path| {
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|existing| {
-                render_client_config(client, Some(&existing), &command, &data_dir)
-                    .ok()
-                    .map(|(_, changed)| !changed)
-            })
-            .unwrap_or(false)
-    });
+    let config_installed = std::fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|existing| {
+            render_client_config(client, Some(&existing), &command, &data_dir)
+                .ok()
+                .map(|(_, changed)| !changed)
+        })
+        .unwrap_or(false);
     let (config_format, config_snippet) = match client {
         AgentClient::Codex => (
             "toml".to_string(),
@@ -670,8 +666,8 @@ fn client_info(
 
     Ok(AgentClientInfo {
         client,
-        config_path: config_path.as_ref().map(|path| path.display().to_string()),
-        config_exists: config_path.as_deref().is_some_and(Path::is_file),
+        config_path: config_path.display().to_string(),
+        config_exists: config_path.is_file(),
         config_installed,
         skill_path: skill_path.display().to_string(),
         skill_installed: skill_is_current(skill_contents.as_deref()),
@@ -681,37 +677,11 @@ fn client_info(
     })
 }
 
-fn config_path(client: AgentClient) -> Result<Option<PathBuf>, String> {
-    match client {
-        AgentClient::Codex => Ok(Some(codex_home()?.join("config.toml"))),
-        AgentClient::Cursor => Ok(Some(home_dir()?.join(".cursor").join("mcp.json"))),
-        AgentClient::Claude => Ok(None),
-    }
-}
-
-fn install_target_path(client: AgentClient, project_dir: Option<&str>) -> Result<PathBuf, String> {
+fn config_path(client: AgentClient) -> Result<PathBuf, String> {
     match client {
         AgentClient::Codex => Ok(codex_home()?.join("config.toml")),
+        AgentClient::Claude => claude_config_path(),
         AgentClient::Cursor => Ok(home_dir()?.join(".cursor").join("mcp.json")),
-        AgentClient::Claude => {
-            let Some(project_dir) = project_dir.filter(|value| !value.trim().is_empty()) else {
-                return Err(app_error(
-                    ERR_INVALID_INPUT,
-                    "select a Claude Code project directory before installing the MCP configuration",
-                ));
-            };
-            let project_dir = PathBuf::from(project_dir);
-            if !project_dir.is_dir() {
-                return Err(app_error(
-                    ERR_INVALID_INPUT,
-                    format!(
-                        "Claude Code project directory does not exist: {}",
-                        project_dir.display()
-                    ),
-                ));
-            }
-            Ok(project_dir.join(".mcp.json"))
-        }
     }
 }
 
@@ -809,7 +779,7 @@ fn merge_json_config(
         serde_json::from_str(existing).map_err(|error| {
             app_error(
                 ERR_INVALID_INPUT,
-                format!("parse Agent client mcp.json: {error}"),
+                format!("parse Agent client JSON configuration: {error}"),
             )
         })?
     };
@@ -936,7 +906,7 @@ fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
 fn skill_path(client: AgentClient) -> Result<PathBuf, String> {
     let base = match client {
         AgentClient::Codex => codex_home()?,
-        AgentClient::Claude => home_dir()?.join(".claude"),
+        AgentClient::Claude => claude_home()?,
         AgentClient::Cursor => home_dir()?.join(".cursor"),
     };
     Ok(base.join("skills").join("aiproxy").join("SKILL.md"))
@@ -947,6 +917,30 @@ fn codex_home() -> Result<PathBuf, String> {
         return Ok(PathBuf::from(path));
     }
     Ok(home_dir()?.join(".codex"))
+}
+
+fn claude_home() -> Result<PathBuf, String> {
+    Ok(claude_home_for(
+        std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from),
+        &home_dir()?,
+    ))
+}
+
+fn claude_config_path() -> Result<PathBuf, String> {
+    Ok(claude_config_path_for(
+        std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from),
+        &home_dir()?,
+    ))
+}
+
+fn claude_home_for(config_dir: Option<PathBuf>, home: &Path) -> PathBuf {
+    config_dir.unwrap_or_else(|| home.join(".claude"))
+}
+
+fn claude_config_path_for(config_dir: Option<PathBuf>, home: &Path) -> PathBuf {
+    config_dir
+        .map(|path| path.join(".claude.json"))
+        .unwrap_or_else(|| home.join(".claude.json"))
 }
 
 fn home_dir() -> Result<PathBuf, String> {
@@ -1016,6 +1010,27 @@ mod tests {
         assert_eq!(
             toml_string(r"C:\Users\dev\aiproxy-mcp.exe"),
             r#""C:\\Users\\dev\\aiproxy-mcp.exe""#
+        );
+    }
+
+    #[test]
+    fn claude_paths_respect_config_dir_override() {
+        let home = Path::new("/home/dev");
+        assert_eq!(
+            claude_home_for(None, home),
+            PathBuf::from("/home/dev/.claude")
+        );
+        assert_eq!(
+            claude_home_for(Some(PathBuf::from("/tmp/claude-work")), home),
+            PathBuf::from("/tmp/claude-work")
+        );
+        assert_eq!(
+            claude_config_path_for(None, home),
+            PathBuf::from("/home/dev/.claude.json")
+        );
+        assert_eq!(
+            claude_config_path_for(Some(PathBuf::from("/tmp/claude-work")), home),
+            PathBuf::from("/tmp/claude-work/.claude.json")
         );
     }
 
@@ -1199,6 +1214,52 @@ env = { RUST_LOG = "info" }
             "/opt/aiproxy/aiproxy-mcp"
         );
         assert!(parsed["mcpServers"]["aiproxy"].get("type").is_none());
+    }
+
+    #[test]
+    fn claude_install_merges_user_config_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join(".claude.json");
+        std::fs::write(
+            &target,
+            r#"{
+  "numStartups": 12,
+  "projects": { "/work/app": { "allowedTools": [] } },
+  "mcpServers": { "other": { "command": "other" } }
+}"#,
+        )
+        .unwrap();
+
+        let first = install_client_config_at(
+            &target,
+            AgentClient::Claude,
+            "/opt/aiproxy/aiproxy-mcp",
+            "/tmp/aiproxy-data",
+        )
+        .unwrap();
+
+        assert_eq!(first.status, "installed");
+        let parsed: Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        assert_eq!(parsed["numStartups"], 12);
+        assert_eq!(parsed["projects"]["/work/app"]["allowedTools"], json!([]));
+        assert_eq!(parsed["mcpServers"]["other"]["command"], "other");
+        assert_eq!(parsed["mcpServers"]["aiproxy"]["type"], "stdio");
+        assert_eq!(
+            parsed["mcpServers"]["aiproxy"]["command"],
+            "/opt/aiproxy/aiproxy-mcp"
+        );
+
+        let second = install_client_config_at(
+            &target,
+            AgentClient::Claude,
+            "/opt/aiproxy/aiproxy-mcp",
+            "/tmp/aiproxy-data",
+        )
+        .unwrap();
+        assert_eq!(second.status, "upToDate");
+        assert!(second.backup_path.is_none());
+        assert_eq!(backup_files(dir.path()).len(), 1);
     }
 
     #[test]

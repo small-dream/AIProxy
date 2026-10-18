@@ -31,7 +31,7 @@ export type AgentAccessRedaction = {
 
 export type AgentClientInfo = {
   client: AgentClient;
-  configPath?: string | null;
+  configPath: string;
   configExists: boolean;
   configInstalled: boolean;
   skillPath: string;
@@ -92,7 +92,6 @@ export type InstallAgentSkillResult = {
 
 export type InstallAgentClientConfigInput = {
   client: AgentClient;
-  projectDir?: string;
 };
 
 export type InstallAgentClientConfigResult = {

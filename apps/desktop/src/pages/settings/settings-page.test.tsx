@@ -71,10 +71,10 @@ describe("SettingsPage navigation", () => {
     expect(await screen.findByText("Cursor")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
-    expect(screen.getAllByText("Not connected")).toHaveLength(2);
-    expect(screen.getByText("Per project")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Connect project" })).toBeInTheDocument();
+    expect(screen.getAllByText("Not connected")).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(3);
+    expect(screen.queryByText("Per project")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect project" })).not.toBeInTheDocument();
     expect(screen.queryByText("Copy MCP config")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "More actions: Codex" }));
@@ -92,6 +92,18 @@ describe("SettingsPage navigation", () => {
       await screen.findByText("Codex connected. The MCP configuration and Skill are ready."),
     ).toBeInTheDocument();
     expect(await screen.findAllByText("Connected")).toHaveLength(1);
+  });
+
+  it("connects Claude Code through the same global one-click flow", async () => {
+    renderSettings("/settings?section=agent");
+
+    const connectButtons = await screen.findAllByRole("button", { name: "Connect" });
+    fireEvent.click(connectButtons[1]!);
+
+    expect(
+      await screen.findByText("Claude Code connected. The MCP configuration and Skill are ready."),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Connected")).toHaveLength(1);
   });
 
   it("keeps advanced Agent permissions collapsed until requested", async () => {
@@ -153,7 +165,7 @@ describe("SettingsPage navigation", () => {
 
     expect(shouldConfirmConfigWrite(base)).toBe(false);
     expect(shouldConfirmConfigWrite({ ...base, configExists: true })).toBe(true);
-    expect(shouldConfirmConfigWrite({ ...base, client: "claude" })).toBe(true);
+    expect(shouldConfirmConfigWrite({ ...base, client: "claude" })).toBe(false);
   });
 
   it("uses one consistent connection state per Agent client", () => {
@@ -178,6 +190,14 @@ describe("SettingsPage navigation", () => {
         skillInstalled: true,
       }),
     ).toBe("connected");
-    expect(getAgentClientConnectionState({ ...base, client: "claude" })).toBe("projectLevel");
+    expect(getAgentClientConnectionState({ ...base, client: "claude" })).toBe("notConnected");
+    expect(
+      getAgentClientConnectionState({
+        ...base,
+        client: "claude",
+        configInstalled: true,
+        skillInstalled: true,
+      }),
+    ).toBe("connected");
   });
 });

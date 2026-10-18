@@ -396,7 +396,7 @@ TLS 证书缓存机制：
 客户端接入：
 
 - Codex：`~/.codex/config.toml`（或 `$CODEX_HOME/config.toml`），Skill 位于 `$CODEX_HOME/skills/aiproxy/SKILL.md`
-- Claude Code：项目根目录 `.mcp.json`，Skill 位于 `~/.claude/skills/aiproxy/SKILL.md`
+- Claude Code：`CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）顶层 `mcpServers`，Skill 位于 `CLAUDE_CONFIG_DIR/skills/aiproxy/SKILL.md`（默认 `~/.claude/skills`）
 - Cursor：`~/.cursor/mcp.json`，Skill 位于 `~/.cursor/skills/aiproxy/SKILL.md`
 
 应用只生成可复制片段，不静默改写用户已有客户端配置。Sidecar 通过 Tauri `externalBin` 与桌面安装包一起分发。

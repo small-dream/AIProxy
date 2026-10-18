@@ -1145,11 +1145,11 @@ AgentAccessSection
 
 1. 顶部启用开关和权限开关先写入本地草稿；只有 `Save changes` 才持久化。草稿与已保存值不一致时，状态头显示 `Unsaved`，状态头和权限区同时提供保存 / 放弃。关闭 `readBodies` 会立即在草稿中关闭 `readRawBodies`。
 2. Test configuration 位于默认折叠的诊断区，调用 `aiproxy-mcp --doctor`，失败原因内联展示，不使用全局 toast。
-3. 客户端主操作是“连接”：先写 MCP 配置，再安装 Skill。Codex / Cursor 写入用户级配置；Claude Code 先选择项目根目录，再写入项目级 `.mcp.json`。
+3. 客户端主操作是“连接”：先写 MCP 配置，再安装 Skill。Codex、Claude Code、Cursor 均写入用户级全局配置，不需要选择项目目录。
 4. 目标文件不存在时直接创建；覆盖已有文件前展示目标路径、二次确认并先备份。Skill 命中非 AIProxy 管理的同名文件时再次确认覆盖。
 5. 连接流程必须处理部分成功：配置已写入但 Skill 安装失败或用户取消覆盖时，界面明确提示配置已生效、Skill 未完成，并保持该客户端为 `需要更新`。
 6. 更多菜单提供“仅写入 MCP 配置”“仅安装 Skill”“手动配置”。手动配置展开后展示单行路径、Skill 路径、配置片段与复制操作；路径禁止跨行断词。
-7. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor；Claude Code 固定显示 `按项目连接`。
+7. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor；Claude Code 目标为 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`），连接后需重新启动 Claude Code。
 8. 审计表默认只显示最近调用数量摘要；展开后按时间倒序展示明细，刷新时重新读取 JSONL。
 
 状态：
@@ -1169,7 +1169,6 @@ type AgentAccessSectionState = {
   } | null;
   pendingConfigInstall: {
     info: AgentClientInfo;
-    projectDir?: string;
     purpose: "config" | "connect";
   } | null;
   pendingSkillOverwrite: {

@@ -906,7 +906,7 @@ Agent 回答建议固定为：
 ### 10.6 安装与分发
 
 - Codex：`$CODEX_HOME/skills/aiproxy/SKILL.md`，默认 `~/.codex/skills`。
-- Claude Code：`~/.claude/skills/aiproxy/SKILL.md`，或项目级 `.claude/skills`。
+- Claude Code：`CLAUDE_CONFIG_DIR/skills/aiproxy/SKILL.md`（默认 `~/.claude/skills/aiproxy/SKILL.md`）。
 - 其他客户端：提供等价规则文件或复制到项目提示词。
 - 应用内先展示目标路径和文件摘要，再由用户确认写入。
 - 不静默修改全局配置；提供“复制内容”作为无写入路径。
@@ -961,7 +961,7 @@ apps/desktop/src/features/agent-access/
 | `test_agent_access` | 检查 sidecar 存在、可执行、数据库可读、配置可读；可选调用 `--doctor` |
 | `get_agent_client_config` | 生成 Codex / Claude 的绝对路径配置片段 |
 | `install_agent_skill` | 安装或更新 Skill；先返回目标路径与摘要，再写入 |
-| `install_agent_client_config` | 安全合并客户端 MCP 配置并自动备份；Claude Code 需要项目目录 |
+| `install_agent_client_config` | 安全合并客户端 MCP 配置并自动备份；Claude Code 写入用户级 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`） |
 | `get_agent_audit_log` | 分页读取审计 JSONL，默认最近 50 条 |
 
 建议共享类型：
@@ -1411,7 +1411,7 @@ MVP 预计修改：
 
 - Cursor：`~/.cursor/mcp.json`；Skill：`~/.cursor/skills/aiproxy/SKILL.md`。
 - Codex：`$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）；Skill：`$CODEX_HOME/skills/aiproxy/SKILL.md`。
-- Claude Code：项目根目录 `.mcp.json`；Skill：`~/.claude/skills/aiproxy/SKILL.md`。
+- Claude Code：`CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）顶层 `mcpServers`；Skill：`CLAUDE_CONFIG_DIR/skills/aiproxy/SKILL.md`（默认 `~/.claude/skills`）。
 
 验证：
 

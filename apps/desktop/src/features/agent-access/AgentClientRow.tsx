@@ -57,7 +57,7 @@ export function AgentClientRow({
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const state = getAgentClientConnectionState(info);
   const clientLabel = clientName(info.client, t);
-  const configPath = info.configPath ?? t("settingsPage.agentAccess.claudeProjectConfigPath");
+  const configPath = info.configPath;
   const statusLabel = statusText(state, t);
   const actionLabel =
     pendingAction === "connect" ? t("settingsPage.agentAccess.connecting") : actionText(state, t);
@@ -266,8 +266,6 @@ function actionText(state: AgentClientConnectionState, t: ReturnType<typeof useI
       return t("settingsPage.agentAccess.updateConnection");
     case "notConnected":
       return t("settingsPage.agentAccess.connect");
-    case "projectLevel":
-      return t("settingsPage.agentAccess.connectProject");
   }
 }
 
@@ -279,8 +277,6 @@ function statusText(state: AgentClientConnectionState, t: ReturnType<typeof useI
       return t("settingsPage.agentAccess.clientStatusNeedsUpdate");
     case "notConnected":
       return t("settingsPage.agentAccess.clientStatusNotConnected");
-    case "projectLevel":
-      return t("settingsPage.agentAccess.clientStatusProjectLevel");
   }
 }
 
@@ -292,8 +288,6 @@ function statusColor(state: AgentClientConnectionState) {
       return "warning" as const;
     case "notConnected":
       return "default" as const;
-    case "projectLevel":
-      return "info" as const;
   }
 }
 
@@ -313,7 +307,7 @@ function clientHint(client: AgentClientInfo["client"], t: ReturnType<typeof useI
     case "codex":
       return t("settingsPage.agentAccess.clientCodexHint");
     case "claude":
-      return t("settingsPage.agentAccess.claudeHint");
+      return t("settingsPage.agentAccess.clientClaudeHint");
     case "cursor":
       return t("settingsPage.agentAccess.cursorHint");
   }

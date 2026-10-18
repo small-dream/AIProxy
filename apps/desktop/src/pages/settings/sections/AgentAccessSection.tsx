@@ -17,7 +17,6 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { open } from "@tauri-apps/plugin-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -80,7 +79,6 @@ type Feedback = {
 
 type PendingConfigInstall = {
   info: AgentClientInfo;
-  projectDir?: string;
   purpose: "config" | "connect";
 };
 
@@ -163,7 +161,6 @@ export function AgentAccessSection() {
   }
 
   function applyConfigResult(result: InstallAgentClientConfigResult) {
-    if (result.client === "claude") return;
     updateClientCache(result.client, (info) => ({
       ...info,
       configExists: true,
@@ -224,7 +221,7 @@ export function AgentAccessSection() {
     mutationFn: async (input: PendingConfigInstall): Promise<ConnectOutcome> => {
       let config: InstallAgentClientConfigResult;
       try {
-        config = await installAgentClientConfig(configInstallInput(input));
+        config = await installAgentClientConfig({ client: input.info.client });
       } catch (error) {
         return {
           kind: "configFailed",
@@ -449,32 +446,13 @@ export function AgentAccessSection() {
     }
   }
 
-  async function beginConfigFlow(info: AgentClientInfo, purpose: PendingConfigInstall["purpose"]) {
-    if (info.client !== "claude") {
-      if (shouldConfirmConfigWrite(info)) {
-        setPendingConfigInstall({ info, purpose });
-      } else if (purpose === "connect") {
-        connectMutation.mutate({ info, purpose });
-      } else {
-        configMutation.mutate({ client: info.client });
-      }
-      return;
-    }
-    try {
-      const projectDir = await open({
-        directory: true,
-        multiple: false,
-        title: t("settingsPage.agentAccess.projectPickerTitle"),
-      });
-      if (typeof projectDir === "string") {
-        setPendingConfigInstall({ info, projectDir, purpose });
-      }
-    } catch (error) {
-      setFeedback({
-        area: "client",
-        severity: "error",
-        message: coerceAppError(error).message || t("common.errors.generic"),
-      });
+  function beginConfigFlow(info: AgentClientInfo, purpose: PendingConfigInstall["purpose"]) {
+    if (shouldConfirmConfigWrite(info)) {
+      setPendingConfigInstall({ info, purpose });
+    } else if (purpose === "connect") {
+      connectMutation.mutate({ info, purpose });
+    } else {
+      configMutation.mutate({ client: info.client });
     }
   }
 
@@ -978,10 +956,7 @@ export function AgentAccessSection() {
         open={pendingConfigInstall !== null}
         title={t("settingsPage.agentAccess.configInstallTitle")}
         message={t("settingsPage.agentAccess.configInstallMessage", {
-          path:
-            pendingConfigInstall?.info.client === "claude"
-              ? `${pendingConfigInstall.projectDir ?? ""}/.mcp.json`
-              : (pendingConfigInstall?.info.configPath ?? ""),
+          path: pendingConfigInstall?.info.configPath ?? "",
         })}
         confirmLabel={t("settingsPage.agentAccess.configInstallConfirm")}
         isConfirming={connectMutation.isPending || configMutation.isPending}
@@ -991,7 +966,7 @@ export function AgentAccessSection() {
           if (pendingConfigInstall.purpose === "connect") {
             connectMutation.mutate(pendingConfigInstall);
           } else {
-            configMutation.mutate(configInstallInput(pendingConfigInstall));
+            configMutation.mutate({ client: pendingConfigInstall.info.client });
           }
         }}
       />
@@ -1031,13 +1006,6 @@ function FeedbackAlert({ feedback }: { feedback: Feedback }) {
       {feedback.message}
     </Alert>
   );
-}
-
-function configInstallInput(input: PendingConfigInstall) {
-  return {
-    client: input.info.client,
-    ...(input.projectDir ? { projectDir: input.projectDir } : {}),
-  };
 }
 
 function connectSuccessMessage(

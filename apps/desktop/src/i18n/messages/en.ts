@@ -311,11 +311,10 @@ export const enMessages = {
       auditSummaryEmpty: "No Agent calls recorded yet",
       advancedPermissions: "Advanced permissions",
       advancedPermissionsDescription: "Unredacted body access, redaction policy, and query limits",
-      claudeHint:
-        "Claude Code reads project-level MCP servers from .mcp.json. Choose the project root when installing the configuration.",
-      claudeProjectConfigPath: "Project root .mcp.json",
       clientClaude: "Claude Code",
-      clientClaudeMeta: "Project-level configuration",
+      clientClaudeHint:
+        "Claude Code stores user-level MCP servers in .claude.json and respects CLAUDE_CONFIG_DIR. Restart Claude Code after connecting so the new server is discovered.",
+      clientClaudeMeta: "User-level configuration · restart Claude Code after connecting",
       clientCodex: "Codex",
       clientCodexHint: "Reload Codex after connecting so the new MCP server is discovered.",
       clientCodexMeta: "User-level configuration",
@@ -324,7 +323,6 @@ export const enMessages = {
       clientStatusConnected: "Connected",
       clientStatusNeedsUpdate: "Needs update",
       clientStatusNotConnected: "Not connected",
-      clientStatusProjectLevel: "Per project",
       clientDescription:
         "Write the MCP configuration automatically, then install the shared AIProxy Skill.",
       clientsDescription:
@@ -346,13 +344,11 @@ export const enMessages = {
       configInstalledLabel: "MCP configured",
       configMissing: "Not configured",
       configOutdated: "Needs update",
-      configProjectLevel: "Project-level",
       configPath: "Configuration file",
       configPathLabel: "Agent Access configuration",
       configReady: "Configured",
       connect: "Connect",
       connecting: "Connecting...",
-      connectProject: "Connect project",
       connectSuccess: "{{client}} connected. The MCP configuration and Skill are ready.",
       copyConfig: "Copy MCP config",
       copyFailed: "Could not copy the configuration.",
@@ -406,7 +402,6 @@ export const enMessages = {
       overwriteTitle: "Overwrite custom Skill?",
       permissionsDescription: "Control what the Agent can read. Changes take effect after saving.",
       permissionsTitle: "Read permissions",
-      projectPickerTitle: "Select the Claude Code project root",
       rawBodiesWarning:
         "Raw body access exposes unredacted credentials and personal data to the Agent. Keep it off unless the task explicitly requires it.",
       rawBodiesEnabled: "Unredacted access on",

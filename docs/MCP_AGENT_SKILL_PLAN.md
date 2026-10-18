@@ -377,7 +377,7 @@ description: Inspect and analyze HTTP/HTTPS/WebSocket traffic captured by AIProx
 ### 8.5 安装与分发
 
 - Codex：安装到 `$CODEX_HOME/skills/aiproxy/SKILL.md`，默认 `~/.codex/skills`。
-- Claude Code：安装到 `~/.claude/skills/aiproxy/SKILL.md`，或项目级 `.claude/skills`。
+- Claude Code：安装到 `CLAUDE_CONFIG_DIR/skills/aiproxy/SKILL.md`（默认 `~/.claude/skills/aiproxy/SKILL.md`）。
 - 其他客户端：提供等价规则文件或系统提示词导出。
 - 应用内提供“安装 Skill”按钮，写入前展示目标路径和文件内容摘要。
 - 不静默修改用户的全局配置；至少提供“复制配置”与“确认写入”两条路径。
@@ -756,7 +756,7 @@ MVP 稳定后再评估：
 - `crates/mcp-server`：8 个只读 MCP 工具、schema 2.0、stdio transport、统一 envelope、字段提取、批量字段、结构化比较、权限、脱敏、审计、cursor 分页。
 - `crates/db`：只读连接、schema capabilities、Body 范围读取与路径安全检查、Session v2 排序 cursor、WebSocket 稳定 cursor、Insights path/query 分组。
 - 桌面端：Settings > Agent Access、6 个 Tauri 命令、权限/限制/脱敏策略保存、诊断、客户端配置一键写入/复制、Skill 安装、审计表。
-- 客户端：Codex、Claude Code、Cursor。Cursor 用户级配置目标为 `~/.cursor/mcp.json`，Skill 目标为 `~/.cursor/skills/aiproxy/SKILL.md`。
+- 客户端：Codex、Claude Code、Cursor，均使用用户级全局配置：Codex `$CODEX_HOME/config.toml`、Claude Code `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）、Cursor `~/.cursor/mcp.json`。
 - 打包：`scripts/build-mcp-sidecar.mjs` 构建 `aiproxy-mcp-<target-triple>`，Tauri `externalBin` 与 Skill resources 已配置。
 - 文档：`PRD.md`、`ARCHITECTURE.md`、`API_SPEC.md`、`UI_GUIDELINES.md`、`PAGE_BLUEPRINTS.md`、`ADR-006` 已同步。
 - 验证：Rust workspace 的 fmt / clippy / test 与前端 typecheck / lint / test / build / API contract 全部通过；MCP 集成测试覆盖规则 trace 脱敏。

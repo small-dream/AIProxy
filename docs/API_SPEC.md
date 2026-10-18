@@ -2307,7 +2307,7 @@ type AgentAccessSettings = {
 
 type AgentClientInfo = {
   client: "codex" | "claude" | "cursor";
-  configPath?: string | null;
+  configPath: string;
   configExists: boolean;
   configInstalled: boolean;
   skillPath: string;
@@ -2324,7 +2324,7 @@ type AgentClientInfo = {
 - `clients` 生成可复制片段；实际写入由 `install_agent_client_config` 完成。
 - Cursor 目标为 `~/.cursor/mcp.json`，使用标准 `mcpServers` 结构且不写 `type` 字段。
 - Codex 目标为 `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）。
-- Claude Code 展示项目根目录 `.mcp.json` 片段。
+- Claude Code 展示用户级 `.claude.json` 顶层 `mcpServers` 片段；目录优先使用 `CLAUDE_CONFIG_DIR`，默认 `~/.claude.json`。
 
 ### `update_agent_access_settings`
 
@@ -2383,7 +2383,7 @@ type InstallAgentSkillResult = {
 说明：
 
 - Codex：`$CODEX_HOME/skills/aiproxy/SKILL.md`。
-- Claude Code：`~/.claude/skills/aiproxy/SKILL.md`。
+- Claude Code：`CLAUDE_CONFIG_DIR/skills/aiproxy/SKILL.md`（默认 `~/.claude/skills/aiproxy/SKILL.md`）。
 - Cursor：`~/.cursor/skills/aiproxy/SKILL.md`。
 - 文件含 `<!-- aiproxy-managed-skill: v1 -->` 标记。AIProxy 管理的旧版本可自动升级；非管理文件必须 `overwrite=true` 才会替换。
 
@@ -2394,7 +2394,6 @@ type InstallAgentSkillResult = {
 ```ts
 type InstallAgentClientConfigInput = {
   client: "codex" | "claude" | "cursor";
-  projectDir?: string; // Claude Code 必填；其他客户端忽略
 };
 ```
 
@@ -2413,7 +2412,7 @@ type InstallAgentClientConfigResult = {
 
 - Codex 使用 `toml_edit` 合并 `$CODEX_HOME/config.toml` 的 `[mcp_servers.aiproxy]`，保留其他配置、注释与既有 `aiproxy` 扩展字段。
 - Cursor 合并 `~/.cursor/mcp.json` 的 `mcpServers.aiproxy`，保留其他服务并移除 `type` 字段。
-- Claude Code 需要 `projectDir`，合并项目根目录 `.mcp.json` 的 `mcpServers.aiproxy`，并写入 `type: "stdio"`。
+- Claude Code 合并 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）顶层的 `mcpServers.aiproxy`，保留其他用户配置，并写入 `type: "stdio"`。
 - 目标文件已存在且内容将变化时，先写入同目录 `.aiproxy-backup-<timestamp>` 备份，再原子替换；解析失败、根结构不是对象或目标是符号链接时拒绝写入。
 
 ### `get_agent_audit_log`
