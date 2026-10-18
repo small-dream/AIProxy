@@ -1,0 +1,203 @@
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use aiproxy_db::body_store::BodyStore;
+use aiproxy_db::connection::{inspect_schema, open_read_only_database, SchemaCapabilities};
+use aiproxy_db::DbError;
+use serde_json::{json, Value};
+
+use crate::audit::{AuditEntry, AuditLog};
+use crate::config::{
+    read_config, AgentAccessConfig, AppPaths, ConfigReadError, DEFAULT_MAX_BODY_BYTES,
+    DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_SESSIONS,
+};
+use crate::protocol::ToolError;
+
+pub const TOOL_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[derive(Clone)]
+pub struct AppContext {
+    pub paths: AppPaths,
+    pub body_store: BodyStore,
+    pub audit: Arc<AuditLog>,
+    pub capabilities: Option<SchemaCapabilities>,
+    pub startup_error: Option<ToolError>,
+    pub sidecar_version: String,
+}
+
+pub struct AuditRecord<'a> {
+    pub client_name: &'a str,
+    pub client_version: &'a str,
+    pub tool: &'a str,
+    pub outcome: &'a str,
+    pub returned_bytes: Option<usize>,
+    pub redacted: bool,
+    pub truncated: bool,
+    pub error_code: Option<&'a str>,
+}
+
+impl AppContext {
+    pub fn new(paths: AppPaths) -> Self {
+        let (capabilities, startup_error) = match open_read_only_database(&paths.db_path) {
+            Ok(connection) => match inspect_schema(&connection) {
+                Ok(capabilities) if capabilities.core_sessions => (Some(capabilities), None),
+                Ok(_) => (
+                    None,
+                    Some(ToolError::new(
+                        "SCHEMA_INCOMPATIBLE",
+                        "The AIProxy database is missing required session tables or columns.",
+                    )),
+                ),
+                Err(error) => (None, Some(crate::protocol::map_db_error(error, false))),
+            },
+            Err(DbError::Connection(message)) if message.contains("does not exist") => (
+                None,
+                Some(ToolError::new("AI_PROXY_NOT_INITIALIZED", message)),
+            ),
+            Err(error) => (None, Some(crate::protocol::map_db_error(error, false))),
+        };
+
+        Self {
+            body_store: BodyStore::new(paths.body_dir.clone()),
+            audit: Arc::new(AuditLog::new(paths.audit_path.clone())),
+            paths,
+            capabilities,
+            startup_error,
+            sidecar_version: env!("CARGO_PKG_VERSION").to_string(),
+        }
+    }
+
+    pub fn config(&self) -> Result<AgentAccessConfig, ToolError> {
+        let config = read_config(&self.paths.config_path).map_err(|error| match error {
+            ConfigReadError::Missing => ToolError::disabled(),
+            ConfigReadError::Invalid(message) => ToolError::new(
+                "AGENT_ACCESS_DISABLED",
+                format!("Agent Access configuration is invalid: {message}"),
+            ),
+        })?;
+        if !config.enabled {
+            return Err(ToolError::disabled());
+        }
+        Ok(config)
+    }
+
+    pub fn config_for_doctor(&self) -> Result<AgentAccessConfig, ConfigReadError> {
+        read_config(&self.paths.config_path)
+    }
+
+    pub async fn with_db<T, F>(&self, operation: F) -> Result<T, ToolError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&aiproxy_db::rusqlite::Connection) -> Result<T, DbError> + Send + 'static,
+    {
+        if let Some(error) = &self.startup_error {
+            return Err(error.clone());
+        }
+        let db_path = self.paths.db_path.clone();
+        let task = tokio::task::spawn_blocking(move || {
+            let connection = open_read_only_database(&db_path)?;
+            operation(&connection)
+        });
+        match tokio::time::timeout(TOOL_TIMEOUT, task).await {
+            Ok(Ok(Ok(value))) => Ok(value),
+            Ok(Ok(Err(error))) => Err(crate::protocol::map_db_error(error, false)),
+            Ok(Err(error)) => Err(ToolError::new(
+                "INTERNAL_ERROR",
+                format!("database worker failed: {error}"),
+            )),
+            Err(_) => Err(ToolError::new(
+                "TOOL_TIMEOUT",
+                "The tool call timed out. Retry with a narrower query.",
+            )
+            .retryable(true)),
+        }
+    }
+
+    pub fn max_sessions(&self) -> usize {
+        self.config()
+            .map(|config| config.limits.max_sessions)
+            .unwrap_or(DEFAULT_MAX_SESSIONS)
+    }
+
+    pub fn max_body_bytes(&self) -> usize {
+        self.config()
+            .map(|config| config.limits.max_body_bytes)
+            .unwrap_or(DEFAULT_MAX_BODY_BYTES)
+    }
+
+    pub fn max_response_bytes(&self) -> usize {
+        self.config()
+            .map(|config| config.limits.max_response_bytes)
+            .unwrap_or(DEFAULT_MAX_RESPONSE_BYTES)
+    }
+
+    pub fn record_audit(&self, started: Instant, record: AuditRecord<'_>) -> bool {
+        let entry = AuditEntry {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            client_name: record.client_name,
+            client_version: record.client_version,
+            tool: record.tool,
+            outcome: record.outcome,
+            duration_ms: started.elapsed().as_millis() as u64,
+            returned_bytes: record.returned_bytes,
+            redacted: record.redacted,
+            truncated: record.truncated,
+            error_code: record.error_code,
+        };
+        self.audit.append(&entry).is_ok()
+    }
+
+    pub fn doctor_result(&self) -> Value {
+        let config = self.config_for_doctor();
+        let database_readable = self.startup_error.is_none();
+        let config_readable = config.is_ok();
+        let mut body = json!({
+            "ok": database_readable && config_readable,
+            "data": {
+                "sidecarVersion": self.sidecar_version,
+                "dataDir": self.paths.data_dir.display().to_string(),
+                "databasePath": self.paths.db_path.display().to_string(),
+                "databaseReadable": database_readable,
+                "configReadable": config_readable,
+                "schemaCompatible": self.capabilities.is_some(),
+                "capabilities": self.capabilities.map(capabilities_json),
+                "availableTools": available_tools(),
+            },
+        });
+        if let Some(error) = &self.startup_error {
+            body["error"] = json!({ "code": error.code, "message": error.message });
+        }
+        if let Err(error) = config {
+            body["configError"] = json!(error.message());
+        }
+        body
+    }
+}
+
+fn capabilities_json(capabilities: SchemaCapabilities) -> Value {
+    json!({
+        "coreSessions": capabilities.core_sessions,
+        "bodyReferences": capabilities.body_references,
+        "webSocketMessages": capabilities.websocket_messages,
+        "ruleTraces": capabilities.rule_traces,
+        "workspaces": capabilities.workspaces,
+    })
+}
+
+pub fn available_tools() -> Vec<&'static str> {
+    vec![
+        "list_workspaces",
+        "search_sessions",
+        "get_session",
+        "get_session_body",
+        "get_session_fields",
+        "get_websocket_messages",
+        "get_insights",
+        "compare_sessions",
+    ]
+}
+
+pub fn config_is_readable(path: &Path) -> bool {
+    path.is_file()
+}

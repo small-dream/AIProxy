@@ -182,6 +182,8 @@ pnpm install
 
 ## 6. 编译、运行、打包命令
 
+> MCP sidecar：`run` / `build` 会先构建 debug 版 `aiproxy-mcp`，`bundle` 会先构建 release 版，并复制为 `apps/desktop/src-tauri/binaries/aiproxy-mcp-<target-triple>`。也可单独运行 `node scripts/build-mcp-sidecar.mjs --profile debug|release`。Tauri 通过 `bundle.externalBin` 把它放进安装包，Settings > Agent Access 通过 `AIPROXY_MCP_PATH` 或桌面可执行文件同目录定位它。
+
 ### 运行桌面应用
 
 macOS：

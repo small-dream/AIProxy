@@ -430,6 +430,17 @@ impl Serialize for ProxyBodyReference {
 #[serde(rename_all = "camelCase")]
 pub struct ProxyTimingBreakdown {
     pub connect_ms: Option<u128>,
+    /// Whether the upstream connection behind this request came from the
+    /// connection pool instead of being dialed for this request. `None` when no
+    /// upstream connection happened at all (mock / Map Local / script / compose
+    /// responses) or when the capture path never observes the dial, so the UI
+    /// can tell "reused the connection" apart from an unmeasured phase.
+    pub connection_reused: Option<bool>,
+    /// Time this request spent queued inside the upstream connection pool,
+    /// waiting for another request's in-flight dial to finish (or for an h1
+    /// lease to be released). `None` when the capture path has no upstream
+    /// connection to check out.
+    pub connection_wait_ms: Option<u128>,
     pub dns_ms: Option<u128>,
     pub request_send_ms: Option<u128>,
     pub response_read_ms: Option<u128>,
@@ -702,8 +713,18 @@ pub(crate) struct ParsedProxyRequest {
 pub(crate) struct UpstreamResponse {
     pub(crate) body_truncated: bool,
     pub(crate) connect_ms: u128,
+    /// Whether the upstream connection used for this request was taken from the
+    /// connection pool. `None` for synthesized responses (mock, Map Local,
+    /// script override) that never dialed.
+    pub(crate) connection_reused: Option<bool>,
+    /// Time spent waiting inside the connection pool before this request could
+    /// use (or dial) its upstream connection. `None` for synthesized responses.
+    pub(crate) connection_wait_ms: Option<u128>,
     pub(crate) dns_ms: u128,
-    pub(crate) request_send_ms: u128,
+    /// Time spent writing the request to the socket. Always `None` for
+    /// proxy-captured traffic: hyper resolves `send_request` only once the
+    /// response head arrives, so the write boundary is not observable.
+    pub(crate) request_send_ms: Option<u128>,
     pub(crate) response_body: Vec<u8>,
     pub(crate) response_body_size_bytes: usize,
     pub(crate) response_headers: HeaderMap,

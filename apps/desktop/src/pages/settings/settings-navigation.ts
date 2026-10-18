@@ -2,6 +2,7 @@ export const SETTINGS_SECTION_IDS = [
   "proxy",
   "upstream",
   "ssl",
+  "agent",
   "ai",
   "appearance",
   "behavior",

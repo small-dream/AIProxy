@@ -86,7 +86,9 @@ function diffTiming(
   left: TimingBreakdown | undefined,
   right: TimingBreakdown | undefined,
 ): SessionDiffSection {
-  const keys: Array<keyof TimingBreakdown> = [
+  // Millisecond phases only — `connectionReused` is a marker, not a duration.
+  const keys = [
+    "connectionWaitMs",
     "dnsMs",
     "connectMs",
     "tlsMs",
@@ -94,7 +96,7 @@ function diffTiming(
     "waitingMs",
     "responseReadMs",
     "totalMs",
-  ];
+  ] as const satisfies readonly (keyof TimingBreakdown)[];
   const entries = keys.map((key) =>
     compareScalar(key, formatTimingValue(left?.[key]), formatTimingValue(right?.[key])),
   );

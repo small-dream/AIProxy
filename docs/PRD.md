@@ -402,6 +402,31 @@ flowchart LR
 - 批量执行集合内请求并展示逐条结果
 - 页面级结构见 `docs/PAGE_BLUEPRINTS.md` 第 10 节
 
+### 9.11 Agent Access / MCP — `已实现（只读增强版）`
+
+目标：
+
+- 让 Codex、Claude Code、Cursor 等本地 Agent 直接查询已持久化抓包，减少 HAR、cURL、Body 的人工搬运
+- 通过 Agent Skill 约束查询范围、证据引用、脱敏与提示注入防护
+- 让用户能明确控制会话、Body、WebSocket 与未脱敏 Body 的访问权限
+
+范围：
+
+- 8 个只读 MCP 工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`
+- 支持按 JSON path 提取目标字段、批量跨会话取同一字段、查询参数过滤、路径过滤、排序和结构化 JSON Diff
+- stdio sidecar，不开放本地端口
+- Settings > Agent Access：状态诊断、权限、限制、脱敏策略、客户端片段、Skill 安装、审计日志
+- Codex / Claude Code / Cursor 三客户端配置指引；均使用用户级全局配置，Claude Code 写入 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`）
+- 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
+
+非目标（本版本）：
+
+- 写入规则、修改系统代理、导出 Snapshot
+- 实时流量订阅
+- 自动修改用户已有客户端配置
+- 在应用内提供通用聊天框
+
+
 ## 10. 非功能需求
 
 ### 10.1 性能

@@ -236,10 +236,22 @@ type TimingBreakdown = {
   waitingMs?: number;
   responseReadMs?: number;
   totalMs?: number;
+  // 该请求是否复用了连接池中的上游连接。
+  // - true：复用连接，本次请求没有重新拨号，dnsMs/connectMs 为 0、tlsMs 缺失都是「未拨号」而非「0 耗时」
+  // - false：本次请求新建了上游连接，dnsMs/connectMs/tlsMs 为实测值
+  // - 缺省：该捕获路径没有观测到出网连接（mock / Map Local / script 合成响应、
+  //   Compose 发送的请求），或该字段出现之前抓取的历史会话
+  connectionReused?: boolean;
+  // 该请求在上游连接池里排队等待的毫秒数：等另一条同主机请求正在建立的连接
+  // 就绪，或等一个 h1 连接被释放。它属于请求真实耗时，但既不是本请求自己的
+  // 拨号（dnsMs/connectMs/tlsMs），也不在 waitingMs 之内，因此单独成项。
+  // - 缺省：该捕获路径没有上游连接池（合成响应、Compose、HAR 导入）
+  connectionWaitMs?: number;
 };
 
 // Timing 来源标识：
-// - "proxy": 代理捕获的会话，通过 TimingConnector（hyper）采集全部 7 个阶段
+// - "proxy": 代理捕获的会话，通过 TimingConnector（hyper）采集连接、等待与响应阶段；
+//   新建连接时有 dnsMs/connectMs/tlsMs，复用连接时 connectionReused=true，requestSendMs 始终缺省
 // - "compose": Compose 发送的请求，通过 reqwest 采集（仅 totalMs/waitingMs/responseReadMs）
 // - "har-import": 从 HAR 文件导入的会话，字段取决于 HAR 原始数据
 
@@ -950,7 +962,10 @@ type GetSessionDetailOutput = SessionDetail;
 - `requestBody` 与 `responseBody` 对小体积内容优先返回 `inlineText`，非 UTF-8 内容回退到 `base64Text`
 - 大体积 raw/body 内容可返回 `rawRequestDeferred`、`rawResponseDeferred`、`textDeferred`、`base64Deferred`，由 `get_session_detail_content` 按需加载
 - 当 `BodyReference.truncated` 为 `true` 时，UI 在请求和响应 Inspector 面板中显示 Alert 警告提示用户 body 已被截断
-- `timing` 所有 7 个阶段（`dnsMs`、`connectMs`、`tlsMs`、`requestSendMs`、`waitingMs`、`responseReadMs`、`totalMs`）在代理捕获会话中均已通过 `TimingConnector`（hyper）完整填充
+- 代理捕获会话的 `timing` 由 `TimingConnector`（hyper）采集，其中 **新建上游连接** 时 `dnsMs`、`connectMs`、`tlsMs` 为实测值，并置 `connectionReused: false`；**复用连接池中的连接** 时置 `connectionReused: true`，`dnsMs`/`connectMs` 为 0、`tlsMs` 缺省，UI 据此显示「复用连接」而不是 0 ms / 缺数据。`waitingMs`、`responseReadMs`、`totalMs` 始终有值
+- `connectionWaitMs` 记录请求在上游连接池里排队的时间（等另一条同主机请求的在途拨号完成，或等 h1 连接释放）。并发冷连接时它会达到与拨号同量级的数百毫秒，此时 `dnsMs`/`connectMs` 为 0（本请求没有拨号），若只展示连接阶段会表现为「总时长 > 各阶段之和」，因此 UI 在 `connectionWaitMs > 0` 时单独显示「连接等待」
+- `requestSendMs`（以及由它推导的请求结束时间、请求速度）对代理捕获会话**始终缺省**：hyper 的 `send_request` 只在拿到响应头之后才 resolve，「请求写完」这一边界在当前架构下不可观测。仅 `"har-import"` 的会话会填充该字段
+- mock / Map Local / script 合成响应没有出网，`connectionReused` 缺省，UI 对连接类阶段显示 `N/A`
 - `timingSource` 标识 timing 数据来源：`"proxy"`（代理捕获，全阶段）、`"compose"`（Compose 发送，仅部分阶段）、`"har-import"`（HAR 导入，取决于原始数据）
 - Compose 发送的请求仍通过 `reqwest`，仅提供 `totalMs`、`waitingMs`、`responseReadMs`
 
@@ -2244,6 +2259,229 @@ type ShowLogFileOutput = string; // 日志文件的绝对路径
 
 - 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
 - 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
+
+## 6.14 Agent Access / MCP Commands — `已实现（只读 MVP）`
+
+Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
+
+- `agent-access.json`：权限与限制，Unix `0600`，Windows 仅当前用户 ACL。
+- `agent-audit.jsonl`：仅记录工具名、客户端、耗时、字节数、脱敏/截断状态和错误码；不记录载荷。
+
+### `get_agent_access_settings`
+
+请求：无参数。
+
+响应：
+
+```ts
+type AgentAccessSettings = {
+  version: number;
+  enabled: boolean;
+  transport: "stdio";
+  permissions: {
+    readSessions: boolean;
+    readBodies: boolean;
+    readRawBodies: boolean;
+    readWebSocket: boolean;
+    exportSnapshots: boolean;
+  };
+  limits: { maxSessions: number; maxBodyBytes: number; maxResponseBytes: number };
+  redaction: {
+    detectSensitiveValues: boolean;
+    hashIdentifiers: boolean;
+    customSensitiveKeys: string[];
+    customPatterns: { name: string; pattern: string; action: "redact" | "hash" }[];
+  };
+  updatedAt?: string | null;
+  dataDir: string;
+  databasePath: string;
+  configPath: string;
+  auditPath: string;
+  configExists: boolean;
+  configError?: string | null;
+  sidecarPath?: string | null;
+  sidecarAvailable: boolean;
+  sidecarVersion?: string | null;
+  clients: AgentClientInfo[];
+};
+
+type AgentClientInfo = {
+  client: "codex" | "claude" | "cursor";
+  configPath: string;
+  configExists: boolean;
+  configInstalled: boolean;
+  skillPath: string;
+  skillInstalled: boolean; // 已安装且内容与当前版本一致
+  skillManaged: boolean;
+  configFormat: "json" | "toml";
+  configSnippet: string;
+};
+```
+
+说明：
+
+- 配置缺失时返回默认值（关闭、只读会话、Body/WebSocket/raw 关闭），不视为命令失败。
+- `clients` 生成可复制片段；实际写入由 `install_agent_client_config` 完成。
+- Cursor 目标为 `~/.cursor/mcp.json`，使用标准 `mcpServers` 结构且不写 `type` 字段。
+- Codex 目标为 `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）。
+- Claude Code 展示用户级 `.claude.json` 顶层 `mcpServers` 片段；目录优先使用 `CLAUDE_CONFIG_DIR`，默认 `~/.claude.json`。
+
+### `update_agent_access_settings`
+
+请求：
+
+```ts
+type UpdateAgentAccessSettingsInput = {
+  enabled: boolean;
+  permissions: AgentAccessSettings["permissions"];
+  limits: AgentAccessSettings["limits"];
+  redaction: AgentAccessSettings["redaction"];
+};
+```
+
+响应：`AgentAccessSettings`。
+
+说明：服务端会归一化权限（关闭 `readBodies` 时强制关闭 `readRawBodies`）、脱敏规则和限制值；写入使用临时文件原子替换。
+
+### `test_agent_access`
+
+请求：无参数。
+
+响应：
+
+```ts
+type AgentAccessTestResult = {
+  ok: boolean;
+  message: string;
+  sidecarPath?: string | null;
+  sidecarVersion?: string | null;
+  details?: Record<string, unknown> | null;
+};
+```
+
+说明：调用 `aiproxy-mcp --doctor`，验证 sidecar、配置和数据库 schema。诊断失败返回 `ok=false`，不抛出命令错误。
+
+### `install_agent_skill`
+
+请求：
+
+```ts
+type InstallAgentSkillInput = { client: "codex" | "claude" | "cursor"; overwrite?: boolean };
+```
+
+响应：
+
+```ts
+type InstallAgentSkillResult = {
+  status: "installed" | "upToDate" | "overwriteRequired";
+  client: "codex" | "claude" | "cursor";
+  path: string;
+  managedExisting: boolean;
+};
+```
+
+说明：
+
+- Codex：`$CODEX_HOME/skills/aiproxy/SKILL.md`。
+- Claude Code：`CLAUDE_CONFIG_DIR/skills/aiproxy/SKILL.md`（默认 `~/.claude/skills/aiproxy/SKILL.md`）。
+- Cursor：`~/.cursor/skills/aiproxy/SKILL.md`。
+- 文件含 `<!-- aiproxy-managed-skill: v1 -->` 标记。AIProxy 管理的旧版本可自动升级；非管理文件必须 `overwrite=true` 才会替换。
+
+### `install_agent_client_config`
+
+请求：
+
+```ts
+type InstallAgentClientConfigInput = {
+  client: "codex" | "claude" | "cursor";
+};
+```
+
+响应：
+
+```ts
+type InstallAgentClientConfigResult = {
+  status: "installed" | "upToDate";
+  client: "codex" | "claude" | "cursor";
+  path: string;
+  backupPath?: string | null;
+};
+```
+
+说明：
+
+- Codex 使用 `toml_edit` 合并 `$CODEX_HOME/config.toml` 的 `[mcp_servers.aiproxy]`，保留其他配置、注释与既有 `aiproxy` 扩展字段。
+- Cursor 合并 `~/.cursor/mcp.json` 的 `mcpServers.aiproxy`，保留其他服务并移除 `type` 字段。
+- Claude Code 合并 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）顶层的 `mcpServers.aiproxy`，保留其他用户配置，并写入 `type: "stdio"`。
+- 目标文件已存在且内容将变化时，先写入同目录 `.aiproxy-backup-<timestamp>` 备份，再原子替换；解析失败、根结构不是对象或目标是符号链接时拒绝写入。
+
+### `get_agent_audit_log`
+
+请求：`{ limit?: number }`，默认 50，最大 200。
+
+响应：
+
+```ts
+type AgentAuditLog = {
+  entries: Array<{
+    timestamp?: string | null;
+    clientName?: string | null;
+    clientVersion?: string | null;
+    tool?: string | null;
+    outcome?: string | null;
+    durationMs?: number | null;
+    returnedBytes?: number | null;
+    redacted?: boolean | null;
+    truncated?: boolean | null;
+    errorCode?: string | null;
+  }>;
+  path: string;
+  truncated: boolean;
+};
+```
+
+### MCP stdio tool contract
+
+`aiproxy-mcp` 当前工具契约版本为 `2.0`，提供 8 个只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
+
+所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。稳定排序：
+
+- 每次成功调用都会按 `limits.maxResponseBytes` 检查 `data` 的序列化大小；超限返回 `RESULT_TOO_LARGE`，`details` 包含 `resultBytes` 与 `maxResponseBytes`。调用方应减少 `limit`、改用 `compact` / `fields`，或拆分批量请求，不得静默截断后当作完整结果。
+
+- `search_sessions`：支持 `sortBy=startedAt|durationMs|sizeBytes|statusCode` 与 `sortOrder=asc|desc`；同值按 `started_at`、`id` 确定性排序。cursor v2 绑定排序字段、方向和当前排序值，不匹配时返回 `CURSOR_INVALID`。
+- `get_websocket_messages`：`timestamp ASC, id ASC`，不透明 cursor。
+
+`get_session` 默认对 Header、Query、Cookie 和规则 trace 统一脱敏：规则 trace 的 `before` / `after` / `message` 经过文本脱敏，`sourcePattern` / `mappedUrl` 的敏感查询参数会被遮蔽；只有 `redactionMode=raw` 且具备 `readRawBodies` 权限时才返回原值。
+
+会话参数与检索：
+
+- `sessionId` 先做精确匹配；失败后允许至少 8 字符的唯一前缀。0 条返回 `SESSION_NOT_FOUND`，多条返回 `SESSION_ID_AMBIGUOUS`，`details.candidates` 最多 5 条。
+- `search_sessions` 支持 `pathContains`、`queryParams`、`since`、`compact`、`fields`。`queryParams` 同时匹配参数名和值；损坏的 query JSON 会被跳过。
+- `searchIn` 严格取值为 `url`、`host`、`path`、`method`、`headers`、`query`。
+
+Body 与字段提取：
+
+- `get_session_body` 支持 `metadata`、`redacted-text`、`base64`、`raw`；`jsonPaths` 支持 `$`、点号 key、方括号 key、数组索引和 `*` 通配符，不支持过滤表达式、递归下降或脚本。
+- JSON 模式会读取不超过 8 MiB 的完整 Body、完整解析、整体脱敏，再提取字段。扫描超限返回 `BODY_TOO_LARGE`；非 JSON 返回 `BODY_NOT_JSON`；非法 path 返回 `JSON_PATH_INVALID`。
+- `textQuery` 在脱敏文本视图中搜索，最多 20 个命中，`contextBytes` 默认 120、最大 1024。
+- `get_session_fields` 接受最多 20 个 `sessionIds` 和 20 个 `jsonPaths`，逐项返回成功或错误。
+- Body 大小字段固定为 `wireSizeBytes`（网络传输/压缩后）、`decodedSizeBytes`（解码后完整）、`viewSizeBytes`（脱敏/解析视图）。完整性使用 `hasMore`、`captureTruncated`、`scanTruncated`、`truncatedReasons`，不得根据 `returnedBytes` 推断。
+- `offsetUnit=decodedViewBytes` 表示 `redacted-text` offset 基于脱敏视图；`decodedBodyBytes` 表示 `raw` / `base64`；`metadata` 无 offset。
+
+聚合与比较：
+
+- `get_insights` 支持 `pathContains`、`queryParams` 和 `groupBy=host|path|queryParam`；`queryParam` 需提供 `groupQueryParam`。每组返回 `key`、`requestCount`、`errorCount`、`errorRate`、`avgDurationMs`、`p50DurationMs`、`p95DurationMs`、`totalBytes`。
+- `compare_sessions` 支持 `jsonPaths` 与 `diffMode=auto|json|text`。`diffMode=json` 对非 JSON 返回 `BODY_NOT_JSON`；任一侧 Body 扫描超过 8 MiB 返回 `BODY_TOO_LARGE`，不比较不完整内容。
+- `list_workspaces` 额外返回全局 `sessionCount`、`latestSessionAt`、`latestSessionId`、`sessionScope="global"`；`runtimeStatus` 仍为 `unknown`。
+
+脱敏配置位于 `agent-access.json` 的 `redaction` 字段，版本为 `2`：
+
+- `detectSensitiveValues`：按值格式识别 JWT、Bearer、邮箱、手机号、设备 ID、地址等。
+- `hashIdentifiers`：标识符使用本地稳定 HMAC 伪名，例如 `[ID:xxxxxxxx]`，仅用于关联，不可反推。
+- `customSensitiveKeys`：最多 50 个自定义敏感字段名。
+- `customPatterns`：最多 20 条 `{ name, pattern, action: "redact" | "hash" }`，单条 pattern 最长 512 字符；无效正则返回 `INVALID_REDACTION_CONFIG`。
+
+stdio 模式下 stdout 只输出协议消息；日志固定写 stderr。
 
 ## 7. Event Specification
 

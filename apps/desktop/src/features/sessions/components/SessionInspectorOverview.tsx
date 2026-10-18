@@ -22,12 +22,26 @@ import {
   getSessionProtocolMetadata,
 } from "@/features/sessions/session-protocol.helpers";
 import { formatTiming, isClientCancelledStatus } from "./session-inspector.helpers";
-import { WaterfallChart } from "./WaterfallChart";
+import {
+  TimingPhaseSwatch,
+  TimingPhaseSwatchSlot,
+  WaterfallChart,
+  type TimingPhaseId,
+} from "./WaterfallChart";
+
+type OverviewItem = [label: string, value: string, phase?: TimingPhaseId];
+
+/** Contributes rows only when `condition` holds, so conditional rows keep their
+ * place in the list without pushing the rest of the list around. */
+function conditionalRows(condition: boolean, rows: OverviewItem[]): OverviewItem[] {
+  return condition ? rows : [];
+}
 
 type OverviewSection = {
   key: string;
   title: string;
-  items: Array<[string, string]>;
+  items: OverviewItem[];
+  headerValue?: string | undefined;
 };
 
 type OverviewSizeGroup = {
@@ -44,6 +58,7 @@ type OverviewSizeBreakdown = {
 };
 
 type OverviewBlock = {
+  headerValue?: string | undefined;
   key: string;
   title: string;
   content: ReactNode;
@@ -71,21 +86,18 @@ export function SessionInspectorOverview({
   const overviewBlocks = useMemo<OverviewBlock[]>(
     () => [
       ...sections.map((section) => ({
+        headerValue: section.headerValue,
         key: section.key,
         title: section.title,
-        content: (
-          <Stack spacing={0}>
-            {section.key === "timing" ? (
-              <Box sx={{ mb: 0.75, pl: 3.25 }}>
-                <WaterfallChart timing={detail?.timing} />
-              </Box>
-            ) : null}
+        content:
+          section.key === "timing" ? (
+            <OverviewTimingSection items={section.items} timing={detail?.timing} />
+          ) : (
             <OverviewDefinitionList
               indent={section.key === "general" ? 0 : 3.25}
               items={section.items}
             />
-          </Stack>
-        ),
+          ),
       })),
       {
         key: "size",
@@ -137,6 +149,7 @@ export function SessionInspectorOverview({
                       }));
                     }}
                     title={block.title}
+                    value={block.headerValue}
                   />
                 )}
 
@@ -209,14 +222,36 @@ function OverviewTreeHeader({
   );
 }
 
+function OverviewTimingSection({
+  items,
+  timing,
+}: {
+  items: OverviewItem[];
+  timing: SessionDetail["timing"];
+}) {
+  const [activePhase, setActivePhase] = useState<TimingPhaseId | undefined>(undefined);
+
+  return (
+    <Stack spacing={0}>
+      <Box sx={{ mb: 0.75, pl: 3.25 }}>
+        <WaterfallChart activePhase={activePhase} timing={timing} />
+      </Box>
+      <OverviewDefinitionList indent={3.25} items={items} onRowHover={setActivePhase} />
+    </Stack>
+  );
+}
+
 function OverviewDefinitionList({
   indent = 0,
   items,
+  onRowHover,
 }: {
   indent?: number;
-  items: Array<[string, string]>;
+  items: OverviewItem[];
+  onRowHover?: ((phase: TimingPhaseId | undefined) => void) | undefined;
 }) {
   const { t } = useI18n();
+  const hasPhaseSwatch = items.some(([, , phase]) => phase != null);
 
   if (items.length === 0) {
     return (
@@ -228,15 +263,30 @@ function OverviewDefinitionList({
 
   return (
     <Stack spacing={0}>
-      {items.map(([label, value]) => (
+      {items.map(([label, value, phase]) => (
         <OverviewGridRow
           key={`${label}:${value}`}
           label={
-            <Typography sx={inspectorKeyTypographySx} variant="body2">
-              {label}
-            </Typography>
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+              {hasPhaseSwatch ? (
+                phase != null ? (
+                  <TimingPhaseSwatch phase={phase} />
+                ) : (
+                  <TimingPhaseSwatchSlot />
+                )
+              ) : null}
+              <Typography sx={inspectorKeyTypographySx} variant="body2">
+                {label}
+              </Typography>
+            </Stack>
           }
           labelIndent={indent}
+          onHoverChange={
+            onRowHover != null && phase != null
+              ? (hovered) => onRowHover(hovered ? phase : undefined)
+              : undefined
+          }
+          phase={phase}
           value={value}
         />
       ))}
@@ -245,16 +295,23 @@ function OverviewDefinitionList({
 }
 
 function OverviewGridRow({
+  phase,
   label,
   labelIndent = 0,
+  onHoverChange,
   value,
 }: {
+  phase?: TimingPhaseId | undefined;
   label: ReactNode;
   labelIndent?: number;
+  onHoverChange?: ((hovered: boolean) => void) | undefined;
   value?: string | undefined;
 }) {
   return (
     <Box
+      data-phase-row={phase}
+      onMouseEnter={onHoverChange ? () => onHoverChange(true) : undefined}
+      onMouseLeave={onHoverChange ? () => onHoverChange(false) : undefined}
       sx={{
         alignItems: "center",
         columnGap: 3,
@@ -435,19 +492,28 @@ function buildOverviewSections({
   const timing = detail?.timing;
   const startedAt = formatTimestamp(session.startedAt, fallback);
   const isImportedTiming = isImportedHarSession(session);
-  const unavailable = t("common.states.unavailable");
+  const reusedConnection = t("common.states.reusedConnection");
+  const na = t("common.states.na");
   const responseStartOffsetMs = getResponseStartOffsetMs(timing);
-  const requestEndTime = formatOffsetTimestamp(
-    session.startedAt,
-    getRequestEndOffsetMs(timing, isImportedTiming),
-    fallback,
-  );
   const responseStartTime = formatOffsetTimestamp(
     session.startedAt,
     responseStartOffsetMs,
     fallback,
   );
   const responseEndTime = formatTimestamp(session.finishedAt, fallback);
+  // The proxy cannot observe when a request finished being written (hyper only
+  // resolves `send_request` once the response head arrives), so the request
+  // send/end/speed rows only exist for capture paths that actually measure it
+  // — currently HAR imports. Showing them as "Unavailable" for every proxied
+  // session was noise, not information.
+  const requestSendMs = timing?.requestSendMs ?? undefined;
+  const hasRequestSendTiming = requestSendMs != null;
+  // Waiting inside the upstream connection pool for another request's in-flight
+  // dial is real latency that belongs to no phase of its own: the request never
+  // dialed, so DNS/Connect/TLS only report "Connection reused". Surface it as
+  // its own row so the phases add up to the duration.
+  const connectionWaitMs = timing?.connectionWaitMs ?? undefined;
+  const hasConnectionWait = connectionWaitMs != null && connectionWaitMs > 0;
   const requestQueryBytes = estimateQueryStringBytes(session.url);
   const requestCookieBytes = detail
     ? estimateCookieBytes(detail.requestHeaders, "cookie")
@@ -462,6 +528,93 @@ function buildOverviewSections({
     : session.statusCode > 0
       ? t("inspector.request.overview.complete")
       : t("common.states.pending");
+  const timingItems: OverviewItem[] = [
+    [t("inspector.request.overview.fields.requestStartTime"), startedAt],
+    ...conditionalRows(hasRequestSendTiming, [
+      [
+        t("inspector.request.overview.fields.requestEndTime"),
+        formatOffsetTimestamp(session.startedAt, getRequestEndOffsetMs(timing), fallback),
+      ],
+    ]),
+    [t("inspector.request.overview.fields.responseStartTime"), responseStartTime],
+    [t("inspector.request.overview.fields.responseEndTime"), responseEndTime],
+    [t("common.labels.duration"), formatTiming(timing?.totalMs ?? session.durationMs, fallback)],
+    ...conditionalRows(hasConnectionWait, [
+      [
+        t("inspector.request.overview.fields.connectionWait"),
+        formatTiming(connectionWaitMs, fallback),
+        "pool",
+      ],
+    ]),
+    [
+      t("inspector.request.overview.fields.dns"),
+      formatConnectionPhaseTiming(
+        timing?.dnsMs,
+        timing,
+        isImportedTiming,
+        fallback,
+        reusedConnection,
+        na,
+      ),
+      "dns",
+    ],
+    [
+      t("inspector.request.overview.fields.connect"),
+      formatConnectionPhaseTiming(
+        timing?.connectMs,
+        timing,
+        isImportedTiming,
+        fallback,
+        reusedConnection,
+        na,
+      ),
+      "connect",
+    ],
+    [
+      t("inspector.request.overview.fields.tlsHandshake"),
+      formatTlsTiming(
+        timing?.tlsMs,
+        timing,
+        protocolMetadata.scheme,
+        isImportedTiming,
+        fallback,
+        reusedConnection,
+        na,
+      ),
+      "tls",
+    ],
+    ...conditionalRows(hasRequestSendTiming, [
+      [
+        t("inspector.request.overview.fields.request"),
+        formatTiming(requestSendMs, fallback),
+        "send",
+      ],
+    ]),
+    [
+      t("inspector.request.overview.fields.latency"),
+      formatTiming(timing?.waitingMs, fallback),
+      "wait",
+    ],
+    [
+      t("inspector.request.overview.fields.response"),
+      formatTiming(timing?.responseReadMs, fallback),
+      "download",
+    ],
+    [
+      t("inspector.request.overview.fields.speed"),
+      formatBytesPerSecond(totalBytes, timing?.totalMs ?? session.durationMs, fallback, t),
+    ],
+    ...conditionalRows(hasRequestSendTiming, [
+      [
+        t("inspector.request.overview.fields.requestSpeed"),
+        formatBytesPerSecond(requestTotalBytes, requestSendMs, fallback, t),
+      ],
+    ]),
+    [
+      t("inspector.request.overview.fields.responseSpeed"),
+      formatBytesPerSecond(responseTotalBytes, timing?.responseReadMs, fallback, t),
+    ],
+  ];
 
   return {
     sections: [
@@ -505,79 +658,8 @@ function buildOverviewSections({
       {
         key: "timing",
         title: t("inspector.request.overview.sections.timing"),
-        items: [
-          [t("inspector.request.overview.fields.requestStartTime"), startedAt],
-          [t("inspector.request.overview.fields.requestEndTime"), requestEndTime],
-          [t("inspector.request.overview.fields.responseStartTime"), responseStartTime],
-          [t("inspector.request.overview.fields.responseEndTime"), responseEndTime],
-          [
-            t("common.labels.duration"),
-            formatTiming(timing?.totalMs ?? session.durationMs, fallback),
-          ],
-          [
-            t("inspector.request.overview.fields.dns"),
-            formatConnectionPhaseTiming(
-              timing?.dnsMs,
-              timing,
-              isImportedTiming,
-              fallback,
-              unavailable,
-            ),
-          ],
-          [
-            t("inspector.request.overview.fields.connect"),
-            formatConnectionPhaseTiming(
-              timing?.connectMs,
-              timing,
-              isImportedTiming,
-              fallback,
-              unavailable,
-            ),
-          ],
-          [
-            t("inspector.request.overview.fields.tlsHandshake"),
-            formatTlsTiming(
-              timing?.tlsMs,
-              timing,
-              protocolMetadata.scheme,
-              isImportedTiming,
-              fallback,
-              unavailable,
-              t,
-            ),
-          ],
-          [
-            t("inspector.request.overview.fields.request"),
-            formatRequestPhaseTiming(timing, isImportedTiming, fallback, unavailable),
-          ],
-          [
-            t("inspector.request.overview.fields.response"),
-            formatTiming(timing?.responseReadMs, fallback),
-          ],
-          [
-            t("inspector.request.overview.fields.latency"),
-            formatTiming(timing?.waitingMs, fallback),
-          ],
-          [
-            t("inspector.request.overview.fields.speed"),
-            formatBytesPerSecond(totalBytes, timing?.totalMs ?? session.durationMs, fallback, t),
-          ],
-          [
-            t("inspector.request.overview.fields.requestSpeed"),
-            formatRequestBytesPerSecond(
-              requestTotalBytes,
-              timing,
-              isImportedTiming,
-              fallback,
-              unavailable,
-              t,
-            ),
-          ],
-          [
-            t("inspector.request.overview.fields.responseSpeed"),
-            formatBytesPerSecond(responseTotalBytes, timing?.responseReadMs, fallback, t),
-          ],
-        ],
+        headerValue: formatTiming(timing?.totalMs ?? session.durationMs, fallback),
+        items: timingItems,
       },
     ],
     sizeBreakdown: {
@@ -693,19 +775,12 @@ function getResponseStartOffsetMs(timing: SessionDetail["timing"] | undefined) {
   );
 }
 
-function getRequestEndOffsetMs(
-  timing: SessionDetail["timing"] | undefined,
-  isImportedTiming: boolean,
-) {
+function getRequestEndOffsetMs(timing: SessionDetail["timing"] | undefined) {
   if (!timing) {
     return undefined;
   }
 
-  if (isImportedTiming && timing.requestSendMs != null) {
-    return sumMilliseconds(timing.dnsMs, timing.connectMs, timing.tlsMs, timing.requestSendMs);
-  }
-
-  return undefined;
+  return sumMilliseconds(timing.dnsMs, timing.connectMs, timing.tlsMs, timing.requestSendMs);
 }
 
 function formatConnectionPhaseTiming(
@@ -713,13 +788,18 @@ function formatConnectionPhaseTiming(
   timing: SessionDetail["timing"] | undefined,
   isImportedTiming: boolean,
   fallback: string,
-  unavailable: string,
+  reused: string,
+  na: string,
 ) {
+  if (timing?.connectionReused === true) {
+    return reused;
+  }
+
   if (value != null) {
     return formatTiming(value, fallback);
   }
 
-  return timing && !isImportedTiming ? unavailable : fallback;
+  return timing && !isImportedTiming ? na : fallback;
 }
 
 function formatTlsTiming(
@@ -728,42 +808,22 @@ function formatTlsTiming(
   protocol: string,
   isImportedTiming: boolean,
   fallback: string,
-  unavailable: string,
-  t: ReturnType<typeof useI18n>["t"],
+  reused: string,
+  na: string,
 ) {
+  if (protocol.toLowerCase() === "http") {
+    return na;
+  }
+
+  if (timing?.connectionReused === true) {
+    return reused;
+  }
+
   if (value != null) {
     return formatTiming(value, fallback);
   }
 
-  if (protocol.toLowerCase() === "http") {
-    return t("common.states.na");
-  }
-
-  return timing && !isImportedTiming ? unavailable : fallback;
-}
-
-function hasDetailedRequestSendTiming(
-  timing: SessionDetail["timing"] | undefined,
-  isImportedTiming: boolean,
-) {
-  if (timing?.requestSendMs == null) {
-    return false;
-  }
-
-  return isImportedTiming;
-}
-
-function formatRequestPhaseTiming(
-  timing: SessionDetail["timing"] | undefined,
-  isImportedTiming: boolean,
-  fallback: string,
-  unavailable: string,
-) {
-  if (hasDetailedRequestSendTiming(timing, isImportedTiming)) {
-    return formatTiming(timing?.requestSendMs, fallback);
-  }
-
-  return timing && !isImportedTiming ? unavailable : fallback;
+  return timing && !isImportedTiming ? na : fallback;
 }
 
 function formatTimestamp(value: string | undefined, fallback: string) {
@@ -835,25 +895,6 @@ function formatBytesPerSecondValue(bytesPerSecond: number, t: ReturnType<typeof 
   }
 
   return t("common.tech.bytesPerSecond", { value: Math.round(bytesPerSecond) });
-}
-
-function formatRequestBytesPerSecond(
-  bytes: number,
-  timing: SessionDetail["timing"] | undefined,
-  isImportedTiming: boolean,
-  fallback: string,
-  unavailable: string,
-  t: ReturnType<typeof useI18n>["t"],
-) {
-  if (!timing) {
-    return fallback;
-  }
-
-  if (!hasDetailedRequestSendTiming(timing, isImportedTiming)) {
-    return isImportedTiming ? fallback : unavailable;
-  }
-
-  return formatBytesPerSecond(bytes, timing.requestSendMs, fallback, t);
 }
 
 function formatCompression(

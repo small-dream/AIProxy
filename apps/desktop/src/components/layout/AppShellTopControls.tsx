@@ -10,6 +10,7 @@ import {
   WINDOWS_TOP_CONTROLS_HEIGHT,
 } from "@/components/layout/AppShellWindowsMenuBar";
 import { TopBarActionButton } from "@/components/shared/TopBarActionButton";
+import { RecordingDurationIndicator } from "@/components/layout/RecordingDurationIndicator";
 import { UpdateAvailableButton } from "@/features/updater/UpdateAvailableButton";
 
 const TOP_CONTROLS_VERTICAL_OFFSET = 2;
@@ -24,6 +25,8 @@ type AppShellTopControlsProps = {
   onMenuAction: (menuId: string) => void;
   onSystemProxyToggle: () => void;
   proxyRunning: boolean;
+  /** RFC3339 start timestamp used by the recording-duration indicator. */
+  recordingStartedAt?: string | undefined;
   startProxyLabel: string;
   stopProxyLabel: string;
   systemProxyActionDisabled: boolean;
@@ -42,6 +45,7 @@ export function AppShellTopControls({
   onMenuAction,
   onSystemProxyToggle,
   proxyRunning,
+  recordingStartedAt,
   startProxyLabel,
   stopProxyLabel,
   systemProxyActionDisabled,
@@ -98,6 +102,7 @@ export function AppShellTopControls({
             icon={<StopRoundedIcon />}
             label={stopProxyLabel}
             onClick={onStopProxy}
+            size="medium"
             tone="error"
             variant="filled"
           />
@@ -107,10 +112,14 @@ export function AppShellTopControls({
             icon={<PlayArrowRoundedIcon />}
             label={startProxyLabel}
             onClick={onStartProxy}
+            size="medium"
             tone="primary"
             variant="filled"
           />
         )}
+        {proxyRunning && recordingStartedAt ? (
+          <RecordingDurationIndicator startedAt={recordingStartedAt} />
+        ) : null}
         <TopBarActionButton
           ariaPressed={systemProxyEnabled}
           disabled={systemProxyActionDisabled}

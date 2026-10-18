@@ -1,4 +1,7 @@
+import AccountTreeRoundedIcon from "@mui/icons-material/AccountTreeRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import DataObjectRoundedIcon from "@mui/icons-material/DataObjectRounded";
+import KeyRoundedIcon from "@mui/icons-material/KeyRounded";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
@@ -18,7 +21,7 @@ import {
   Typography,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
-import type { Theme } from "@mui/material/styles";
+import type { SxProps, Theme } from "@mui/material/styles";
 import {
   Fragment,
   useCallback,
@@ -31,8 +34,13 @@ import {
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
-import { getSyntaxColors } from "@/themes/app-theme";
+import { getSelectionHighlightColor, getSyntaxColors } from "@/themes/app-theme";
 import { appFontCssVars, defaultAppFontSize } from "@/themes/fonts";
+import {
+  findJsonTextToken,
+  resolveJsonTextLine,
+  resolveJsonTextPath,
+} from "./json-text-token.helpers";
 import {
   findNormalizedMatchIndex,
   getMethodColor,
@@ -775,6 +783,248 @@ export function InspectorKeyValueTable({
   );
 }
 
+type JsonTextMenuToken = {
+  copyText: string;
+  isKey: boolean;
+  path: string | null;
+  /** Body offsets of the token the actions target, used to outline it. */
+  range: TextRange;
+  searchText: string;
+};
+
+type TextRange = { start: number; end: number };
+
+type TextScope = { element: HTMLElement; start: number };
+
+function asHtmlElement(target: EventTarget | null): HTMLElement | null {
+  return target instanceof HTMLElement ? target : null;
+}
+
+/**
+ * Map a pointer position to a character offset in the rendered text. The
+ * virtualized code block renders one element per line, so an offset inside a
+ * line is rebased onto that line's absolute start in the source text.
+ */
+function resolveTextOffsetFromPoint(
+  container: HTMLElement,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const caretRange = getCaretRangeFromPoint(clientX, clientY);
+  if (!caretRange) {
+    return null;
+  }
+
+  return measureTextLength(
+    findOwningTextScope(container, caretRange.startContainer),
+    caretRange.startContainer,
+    caretRange.startOffset,
+  );
+}
+
+function getCaretRangeFromPoint(clientX: number, clientY: number): Range | null {
+  const doc = document as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offset: number; offsetNode: Node } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+
+  // WebKit (macOS/Linux) and Chromium (Windows) ship caretRangeFromPoint;
+  // Firefox exposes the standardised caretPositionFromPoint instead.
+  const range = doc.caretRangeFromPoint?.(clientX, clientY);
+  if (range) {
+    return range;
+  }
+
+  const position = doc.caretPositionFromPoint?.(clientX, clientY);
+  if (!position) {
+    return null;
+  }
+
+  const fallback = document.createRange();
+  fallback.setStart(position.offsetNode, position.offset);
+  fallback.collapse(true);
+  return fallback;
+}
+
+function findOwningTextScope(container: HTMLElement, node: Node): TextScope | null {
+  if (!container.contains(node)) {
+    return null;
+  }
+
+  const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+  const lineElement = element?.closest<HTMLElement>("[data-line-start]");
+
+  if (lineElement && container.contains(lineElement)) {
+    const start = Number(lineElement.dataset.lineStart);
+
+    if (!Number.isFinite(start)) {
+      return null;
+    }
+
+    return { element: lineElement, start };
+  }
+
+  // A virtualized block only renders the visible lines, so an offset measured
+  // against the container itself would be wrong; the pointer must land on one
+  // of the rendered lines.
+  return container.querySelector("[data-line-start]") ? null : { element: container, start: 0 };
+}
+
+function measureTextLength(scope: TextScope | null, node: Node, offset: number): number | null {
+  if (!scope) {
+    return null;
+  }
+
+  const range = document.createRange();
+
+  try {
+    range.setStart(scope.element, 0);
+    range.setEnd(node, offset);
+  } catch {
+    return null;
+  }
+
+  return scope.start + range.toString().length;
+}
+
+function selectTextRange(container: HTMLElement, start: number, end: number) {
+  const selection = window.getSelection();
+
+  if (!selection || typeof selection.removeAllRanges !== "function") {
+    return;
+  }
+
+  const range = createRangeForTextOffsets(container, start, end);
+  if (!range) {
+    return;
+  }
+
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function createRangeForTextOffsets(
+  container: HTMLElement,
+  start: number,
+  end: number,
+): Range | null {
+  const startPoint = resolveTextPointForOffset(container, start);
+  const endPoint = resolveTextPointForOffset(container, end);
+
+  if (!startPoint || !endPoint) {
+    return null;
+  }
+
+  const range = document.createRange();
+  range.setStart(startPoint.node, startPoint.offset);
+  range.setEnd(endPoint.node, endPoint.offset);
+  return range;
+}
+
+function resolveTextPointForOffset(
+  container: HTMLElement,
+  absoluteOffset: number,
+): { node: Node; offset: number } | null {
+  for (const scope of getTextScopes(container)) {
+    const length = scope.element.textContent?.length ?? 0;
+
+    if (absoluteOffset < scope.start || absoluteOffset > scope.start + length) {
+      continue;
+    }
+
+    const walker = document.createTreeWalker(scope.element, NodeFilter.SHOW_TEXT);
+    let remaining = absoluteOffset - scope.start;
+    let node = walker.nextNode();
+
+    while (node) {
+      const nodeLength = node.textContent?.length ?? 0;
+
+      if (remaining <= nodeLength) {
+        return { node, offset: remaining };
+      }
+
+      remaining -= nodeLength;
+      node = walker.nextNode();
+    }
+
+    return null;
+  }
+
+  return null;
+}
+
+function getTextScopes(container: HTMLElement): TextScope[] {
+  const lineElements = Array.from(container.querySelectorAll<HTMLElement>("[data-line-start]"));
+
+  if (lineElements.length === 0) {
+    return [{ element: container, start: 0 }];
+  }
+
+  return lineElements.map((element) => ({
+    element,
+    start: Number(element.dataset.lineStart),
+  }));
+}
+
+/**
+ * Map the native selection onto body-absolute text offsets when both ends live
+ * inside `container`. Collapsed, foreign and engine-less selections (jsdom and
+ * other headless runtimes) resolve to `null`.
+ */
+function resolveTextRangeFromSelection(container: HTMLElement): TextRange | null {
+  const selection = window.getSelection();
+
+  if (!selection || typeof selection.getRangeAt !== "function" || selection.isCollapsed) {
+    return null;
+  }
+
+  const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+  if (
+    !range ||
+    !container.contains(range.startContainer) ||
+    !container.contains(range.endContainer)
+  ) {
+    return null;
+  }
+
+  const start = measureTextLength(
+    findOwningTextScope(container, range.startContainer),
+    range.startContainer,
+    range.startOffset,
+  );
+  const end = measureTextLength(
+    findOwningTextScope(container, range.endContainer),
+    range.endContainer,
+    range.endOffset,
+  );
+
+  if (start === null || end === null || end <= start) {
+    return null;
+  }
+
+  return { start, end };
+}
+
+/**
+ * Drop the native selection that belongs to `container`. The context menu
+ * paints the captured range itself, so an engine that keeps the platform
+ * selection alive while the menu owns focus would otherwise double the colour.
+ */
+function clearNativeSelection(container: HTMLElement) {
+  const selection = window.getSelection();
+
+  if (!selection || typeof selection.removeAllRanges !== "function") {
+    return;
+  }
+
+  const anchor = selection.anchorNode;
+
+  if (!anchor || container.contains(anchor)) {
+    selection.removeAllRanges();
+  }
+}
+
 export function SearchableCodeBlock({
   code,
   currentMatchIndex,
@@ -795,6 +1045,8 @@ export function SearchableCodeBlock({
   const { t } = useI18n();
   const theme = useTheme();
   const paletteMode = theme.palette.mode;
+  const effectiveLanguage = language;
+  const isJsonLanguage = effectiveLanguage === "json";
   const jsonTokenColors = useMemo(() => {
     const colors = getSyntaxColors(paletteMode);
     return { ...colors, punctuation: "text.primary" } as const;
@@ -805,36 +1057,219 @@ export function SearchableCodeBlock({
 
   const [contextMenu, setContextMenu] = useState<{
     anchorPosition: { left: number; top: number };
+    /** Element that owns the selection, used to restore it after the menu. */
+    container: HTMLElement | null;
+    /** Platform selection captured when the menu opened. */
+    highlightRange: TextRange | null;
     selectedText: string;
+    token: JsonTextMenuToken | null;
   } | null>(null);
+  const restoreSelectionRef = useRef<{ container: HTMLElement; range: TextRange } | null>(null);
 
-  const handleContextMenu = useCallback((event: React.MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const selection = window.getSelection();
-    const selectedText = selection?.toString().trim() ?? "";
-    if (!selectedText) return;
-    setContextMenu({
-      anchorPosition: { left: event.clientX - 2, top: event.clientY - 4 },
-      selectedText,
-    });
-  }, []);
+  // The JSON text views are highlight-only, so the pointer is the only reliable
+  // anchor: resolve the semantic token under it instead of trusting the char
+  // range the browser would pick on a double-click.
+  const resolveTokenAtEvent = useCallback(
+    (event: React.MouseEvent): JsonTextMenuToken | null => {
+      if (!isJsonLanguage) {
+        return null;
+      }
 
-  const handleCloseContextMenu = useCallback(() => setContextMenu(null), []);
+      const container = asHtmlElement(event.currentTarget);
+      const offset = container
+        ? resolveTextOffsetFromPoint(container, event.clientX, event.clientY)
+        : null;
+      if (!container || offset === null) {
+        return null;
+      }
 
-  const handleCopySelection = useCallback(async () => {
-    if (!contextMenu?.selectedText) return;
-    await navigator.clipboard?.writeText(contextMenu.selectedText);
-    setContextMenu(null);
+      const token = findJsonTextToken(code, offset);
+      if (!token) {
+        return null;
+      }
+
+      return {
+        copyText: token.copyText,
+        isKey: token.kind === "key",
+        path: resolveJsonTextPath(code, token.start),
+        range: { start: token.selectStart, end: token.selectEnd },
+        searchText: token.searchText,
+      };
+    },
+    [code, isJsonLanguage],
+  );
+
+  const resolveSelectionAtEvent = useCallback(
+    (event: React.MouseEvent, granularity: "token" | "line") => {
+      if (!isJsonLanguage) {
+        return null;
+      }
+
+      // Leave modified double-clicks (Option/Shift word select, Cmd link click)
+      // to the platform.
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return null;
+      }
+
+      const container = asHtmlElement(event.currentTarget);
+      const offset = container
+        ? resolveTextOffsetFromPoint(container, event.clientX, event.clientY)
+        : null;
+      if (!container || offset === null) {
+        return null;
+      }
+
+      if (granularity === "line") {
+        return resolveJsonTextLine(code, offset);
+      }
+
+      const token = findJsonTextToken(code, offset);
+      return token ? { start: token.selectStart, end: token.selectEnd } : null;
+    },
+    [code, isJsonLanguage],
+  );
+
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const container = asHtmlElement(event.currentTarget);
+      const selection = window.getSelection();
+      const selectedText = selection?.toString().trim() ?? "";
+      const token = resolveTokenAtEvent(event);
+
+      if (!selectedText && !token) {
+        return;
+      }
+
+      const highlightRange = container ? resolveTextRangeFromSelection(container) : null;
+
+      // The menu paints the captured range itself: the platform selection is
+      // dropped here so engines that keep it alive under the menu do not end up
+      // drawing a second, darker highlight on top of it.
+      if (container && highlightRange) {
+        clearNativeSelection(container);
+      }
+
+      setContextMenu({
+        anchorPosition: { left: event.clientX - 2, top: event.clientY - 4 },
+        container,
+        highlightRange,
+        selectedText,
+        token,
+      });
+    },
+    [resolveTokenAtEvent],
+  );
+
+  const handleDoubleClick = useCallback(
+    (event: React.MouseEvent) => {
+      const container = asHtmlElement(event.currentTarget);
+      const range = resolveSelectionAtEvent(event, "token");
+
+      if (container && range) {
+        selectTextRange(container, range.start, range.end);
+      }
+    },
+    [resolveSelectionAtEvent],
+  );
+
+  const handleClick = useCallback(
+    (event: React.MouseEvent) => {
+      if (event.detail !== 3) {
+        return;
+      }
+
+      const container = asHtmlElement(event.currentTarget);
+      const range = resolveSelectionAtEvent(event, "line");
+
+      if (container && range) {
+        selectTextRange(container, range.start, range.end);
+      }
+    },
+    [resolveSelectionAtEvent],
+  );
+
+  /**
+   * Close the menu, keeping the selection the user had when it opened. Copying
+   * or dismissing with Escape should leave the text selected, while a click
+   * outside keeps the platform behaviour of dropping it.
+   */
+  const closeContextMenu = useCallback(
+    (restoreSelection: boolean) => {
+      if (restoreSelection && contextMenu?.container && contextMenu.highlightRange) {
+        restoreSelectionRef.current = {
+          container: contextMenu.container,
+          range: contextMenu.highlightRange,
+        };
+      }
+
+      setContextMenu(null);
+    },
+    [contextMenu],
+  );
+
+  const handleCloseContextMenu = useCallback(
+    (_event: unknown, reason: string) => closeContextMenu(reason !== "backdropClick"),
+    [closeContextMenu],
+  );
+
+  const copyContextText = useCallback(
+    async (text: string | undefined) => {
+      if (!text) return;
+      await navigator.clipboard?.writeText(text);
+      closeContextMenu(true);
+    },
+    [closeContextMenu],
+  );
+
+  const handleCopySelection = useCallback(
+    () => copyContextText(contextMenu?.selectedText),
+    [contextMenu?.selectedText, copyContextText],
+  );
+
+  const handleCopyTokenText = useCallback(
+    () => copyContextText(contextMenu?.token?.copyText),
+    [contextMenu?.token?.copyText, copyContextText],
+  );
+
+  const handleCopyTokenPath = useCallback(
+    () => copyContextText(contextMenu?.token?.path ?? undefined),
+    [contextMenu?.token?.path, copyContextText],
+  );
+
+  const handleSearch = useCallback(() => {
+    const searchText = contextMenu?.selectedText || contextMenu?.token?.searchText;
+    if (!searchText) return;
+    onSearchWithText?.(searchText);
+    closeContextMenu(true);
+  }, [
+    closeContextMenu,
+    contextMenu?.selectedText,
+    contextMenu?.token?.searchText,
+    onSearchWithText,
+  ]);
+
+  // The menu wrapper clears the very selection the range was captured from, and
+  // the modal teardown runs after it. Re-applying it here keeps Cmd+C working
+  // and hands the highlight back to the platform once the menu is gone.
+  useEffect(() => {
+    const pending = restoreSelectionRef.current;
+
+    if (contextMenu || !pending) {
+      return;
+    }
+
+    restoreSelectionRef.current = null;
+    selectTextRange(pending.container, pending.range.start, pending.range.end);
   }, [contextMenu]);
 
-  const handleSearchSelection = useCallback(() => {
-    if (!contextMenu?.selectedText) return;
-    onSearchWithText?.(contextMenu.selectedText);
+  // A new body invalidates every captured offset, so the menu closes instead of
+  // acting on a range that no longer lines up with the rendered text.
+  useEffect(() => {
+    restoreSelectionRef.current = null;
     setContextMenu(null);
-  }, [contextMenu, onSearchWithText]);
-
-  const effectiveLanguage = language;
+  }, [code]);
 
   const allMatches = useMemo(() => {
     if (!matcher) return [];
@@ -874,13 +1309,22 @@ export function SearchableCodeBlock({
     }
   }, [allMatches, code, currentMatchIndex, matcher, shouldVirtualize]);
 
+  // While the menu is open the block owns the highlight: the captured platform
+  // selection when there is one, otherwise the token the actions will target.
+  const menuHighlightRange = contextMenu
+    ? (contextMenu.highlightRange ?? contextMenu.token?.range ?? null)
+    : null;
+
   const codeBlockContent = shouldVirtualize ? (
     <VirtualizedSearchableCodeBlock
       code={code}
       currentMatchIndex={currentMatchIndex}
+      highlightRange={menuHighlightRange}
       language={effectiveLanguage}
       matcher={matcher}
+      onClick={handleClick}
       onContextMenu={handleContextMenu}
+      onDoubleClick={handleDoubleClick}
       onMatchCountChange={onMatchCountChange}
       searchQuery={deferredSearchQuery}
       tokenColors={jsonTokenColors}
@@ -889,7 +1333,9 @@ export function SearchableCodeBlock({
     <Box
       component="pre"
       ref={containerRef}
+      onClick={handleClick}
       onContextMenu={handleContextMenu}
+      onDoubleClick={handleDoubleClick}
       sx={{
         bgcolor: "transparent",
         color: "text.primary",
@@ -921,13 +1367,49 @@ export function SearchableCodeBlock({
               currentMatchRange,
               0,
               allMatches,
+              menuHighlightRange,
             )
-          : renderHighlightedText(code, undefined, matcher, currentMatchRange, 0, allMatches)
+          : renderHighlightedText(
+              code,
+              undefined,
+              matcher,
+              currentMatchRange,
+              0,
+              allMatches,
+              menuHighlightRange,
+            )
         : effectiveLanguage === "json"
-          ? renderJsonSyntaxHighlightedText(code, jsonTokenColors, deferredSearchQuery)
-          : renderHighlightedText(code, deferredSearchQuery)}
+          ? renderJsonSyntaxHighlightedText(
+              code,
+              jsonTokenColors,
+              deferredSearchQuery,
+              undefined,
+              undefined,
+              0,
+              undefined,
+              menuHighlightRange,
+            )
+          : renderHighlightedText(
+              code,
+              deferredSearchQuery,
+              undefined,
+              undefined,
+              0,
+              undefined,
+              menuHighlightRange,
+            )}
     </Box>
   );
+
+  const codeBlockMenuItemSx: SxProps<Theme> = {
+    borderRadius: 1,
+    fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
+    fontWeight: 400,
+    gap: 1.5,
+    minHeight: 30,
+    px: 1.25,
+    py: 0.75,
+  };
 
   return (
     <>
@@ -956,34 +1438,34 @@ export function SearchableCodeBlock({
           },
         }}
       >
-        <MenuItem
-          onClick={handleCopySelection}
-          sx={{
-            borderRadius: 1,
-            fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
-            fontWeight: 400,
-            gap: 1.5,
-            minHeight: 30,
-            px: 1.25,
-            py: 0.75,
-          }}
-        >
-          <ContentCopyRoundedIcon sx={{ fontSize: 17 }} />
-          {t("contextMenu.copy")}
-        </MenuItem>
+        {contextMenu?.selectedText ? (
+          // A snapped token selection is the same text as the token action, so
+          // only keep the generic Copy when the user selected something else.
+          contextMenu.selectedText === contextMenu.token?.copyText ? null : (
+            <MenuItem onClick={handleCopySelection} sx={codeBlockMenuItemSx}>
+              <ContentCopyRoundedIcon sx={{ fontSize: 17 }} />
+              {t("contextMenu.copy")}
+            </MenuItem>
+          )
+        ) : null}
+        {contextMenu?.token ? (
+          <MenuItem onClick={handleCopyTokenText} sx={codeBlockMenuItemSx}>
+            {contextMenu.token.isKey ? (
+              <KeyRoundedIcon sx={{ fontSize: 17 }} />
+            ) : (
+              <DataObjectRoundedIcon sx={{ fontSize: 17 }} />
+            )}
+            {contextMenu.token.isKey ? t("inspector.json.copyKey") : t("inspector.json.copyValue")}
+          </MenuItem>
+        ) : null}
+        {contextMenu?.token?.path ? (
+          <MenuItem onClick={handleCopyTokenPath} sx={codeBlockMenuItemSx}>
+            <AccountTreeRoundedIcon sx={{ fontSize: 17 }} />
+            {t("inspector.json.copyPath")}
+          </MenuItem>
+        ) : null}
         {onSearchWithText ? (
-          <MenuItem
-            onClick={handleSearchSelection}
-            sx={{
-              borderRadius: 1,
-              fontSize: (theme: Theme) => getWorkbenchFontSize(theme, INSPECTOR_UI_FONT_SIZE),
-              fontWeight: 400,
-              gap: 1.5,
-              minHeight: 30,
-              px: 1.25,
-              py: 0.75,
-            }}
-          >
+          <MenuItem onClick={handleSearch} sx={codeBlockMenuItemSx}>
             <SearchRoundedIcon sx={{ fontSize: 17 }} />
             {t("contextMenu.search")}
           </MenuItem>
@@ -1051,46 +1533,60 @@ export function useVirtualWindow(
 function VirtualizedSearchableCodeBlock({
   code,
   currentMatchIndex,
+  highlightRange,
   language,
   matcher,
+  onClick,
   onContextMenu,
+  onDoubleClick,
   onMatchCountChange,
   searchQuery,
   tokenColors,
 }: {
   code: string;
   currentMatchIndex?: number | undefined;
+  highlightRange?: TextRange | null | undefined;
   language: "json" | "plain";
   matcher?: SearchMatcher | null | undefined;
+  onClick?: ((event: React.MouseEvent) => void) | undefined;
   onContextMenu?: ((event: React.MouseEvent) => void) | undefined;
+  onDoubleClick?: ((event: React.MouseEvent) => void) | undefined;
   onMatchCountChange?: ((count: number) => void) | undefined;
   searchQuery: string;
   tokenColors: ReturnType<typeof getSyntaxColors> & { punctuation: string };
 }) {
   const MAX_LINE_CHARS = 500;
-  const { lines, maxLineLength } = useMemo(() => {
-    const rawLines = code.split(/\r?\n/);
+  const { lines, lineStarts, maxLineLength } = useMemo(() => {
+    const rawLines = code.split("\n");
     const result: string[] = [];
+    const starts: number[] = [];
     let longestLineLength = 0;
+    let lineOffset = 0;
 
-    function pushLine(line: string) {
+    function pushLine(line: string, start: number) {
       result.push(line);
+      starts.push(start);
       if (line.length > longestLineLength) {
         longestLineLength = line.length;
       }
     }
 
-    for (const line of rawLines) {
+    for (const rawLine of rawLines) {
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+
       if (line.length <= MAX_LINE_CHARS) {
-        pushLine(line);
+        pushLine(line, lineOffset);
       } else {
         for (let i = 0; i < line.length; i += MAX_LINE_CHARS) {
-          pushLine(line.slice(i, i + MAX_LINE_CHARS));
+          pushLine(line.slice(i, i + MAX_LINE_CHARS), lineOffset + i);
         }
       }
+
+      // +1 for the "\n" removed by the split.
+      lineOffset += rawLine.length + 1;
     }
 
-    return { lines: result, maxLineLength: longestLineLength };
+    return { lines: result, lineStarts: starts, maxLineLength: longestLineLength };
   }, [code]);
   const lineHeight = language === "json" ? 21 : 20;
   const {
@@ -1138,6 +1634,54 @@ function VirtualizedSearchableCodeBlock({
     return findFirstMatchingLineIndex(lines, searchQuery);
   }, [lineMatchInfo.matchLineIndex, lines, matcher, searchQuery]);
 
+  // Only the visible lines exist in the DOM, so a line is decorated against the
+  // absolute offsets it starts at and the highlight is clipped to that range.
+  const renderLine = (line: string, lineStart: number): React.ReactNode => {
+    if (matcher) {
+      return language === "json"
+        ? renderJsonSyntaxHighlightedText(
+            line,
+            tokenColors,
+            undefined,
+            matcher,
+            undefined,
+            lineStart,
+            undefined,
+            highlightRange,
+          )
+        : renderHighlightedText(
+            line,
+            undefined,
+            matcher,
+            undefined,
+            lineStart,
+            undefined,
+            highlightRange,
+          );
+    }
+
+    return language === "json"
+      ? renderJsonSyntaxHighlightedText(
+          line,
+          tokenColors,
+          searchQuery,
+          undefined,
+          undefined,
+          lineStart,
+          undefined,
+          highlightRange,
+        )
+      : renderHighlightedText(
+          line,
+          searchQuery,
+          undefined,
+          undefined,
+          lineStart,
+          undefined,
+          highlightRange,
+        );
+  };
+
   useEffect(() => {
     const container = virtualContainerRef.current;
 
@@ -1157,7 +1701,9 @@ function VirtualizedSearchableCodeBlock({
   return (
     <Box
       ref={virtualContainerRef}
+      onClick={onClick}
       onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
       sx={{
         bgcolor: "transparent",
         color: "text.primary",
@@ -1186,20 +1732,13 @@ function VirtualizedSearchableCodeBlock({
       >
         <Box sx={{ left: 0, position: "absolute", right: 0, top: offsetTop }}>
           {visibleLines.map((line, visibleIndex) => {
-            const lineContent =
-              line.length === 0
-                ? "\u00A0"
-                : matcher
-                  ? language === "json"
-                    ? renderJsonSyntaxHighlightedText(line, tokenColors, undefined, matcher)
-                    : renderHighlightedText(line, undefined, matcher)
-                  : language === "json"
-                    ? renderJsonSyntaxHighlightedText(line, tokenColors, searchQuery)
-                    : renderHighlightedText(line, searchQuery);
+            const lineStart = lineStarts[startIndex + visibleIndex] ?? 0;
+            const lineContent = line.length === 0 ? "\u00A0" : renderLine(line, lineStart);
 
             return (
               <Box
                 component="div"
+                data-line-start={lineStart}
                 key={startIndex + visibleIndex}
                 sx={{
                   height: lineHeight,
@@ -1261,6 +1800,7 @@ export function renderJsonSyntaxHighlightedText(
   currentMatchRange?: { start: number; end: number } | null | undefined,
   matchOffset = 0,
   matches?: Array<{ start: number; end: number }> | undefined,
+  highlightRange?: TextRange | null | undefined,
 ) {
   const tokenPattern =
     /("(?:\\.|[^"\\])*")(\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}[\],:]/g;
@@ -1276,23 +1816,33 @@ export function renderJsonSyntaxHighlightedText(
   let cursor = 0;
   let tokenIndex = 0;
 
+  // Every token is painted on its own, so each chunk is decorated against the
+  // same absolute offsets the matches and the highlight range are expressed in.
+  const decorate = (chunk: string, chunkOffset: number): React.ReactNode =>
+    absoluteMatches
+      ? renderHighlightedTextWithAbsoluteMatches(
+          chunk,
+          absoluteMatches,
+          currentMatchRange,
+          chunkOffset,
+          highlightRange,
+        )
+      : renderHighlightedText(
+          chunk,
+          searchQuery,
+          undefined,
+          undefined,
+          chunkOffset,
+          undefined,
+          highlightRange,
+        );
+
   for (const match of text.matchAll(tokenPattern)) {
     const matchedText = match[0];
     const matchIndex = match.index ?? 0;
 
     if (matchIndex > cursor) {
-      const plainText = text.slice(cursor, matchIndex);
-      const plainTextOffset = matchOffset + cursor;
-      segments.push(
-        absoluteMatches
-          ? renderHighlightedTextWithAbsoluteMatches(
-              plainText,
-              absoluteMatches,
-              currentMatchRange,
-              plainTextOffset,
-            )
-          : renderHighlightedText(plainText, searchQuery),
-      );
+      segments.push(decorate(text.slice(cursor, matchIndex), matchOffset + cursor));
     }
 
     if (match[1]) {
@@ -1306,34 +1856,19 @@ export function renderJsonSyntaxHighlightedText(
           key={`json-token-${tokenIndex++}`}
           sx={{ color: hasColon ? tokenColors.key : tokenColors.string }}
         >
-          {absoluteMatches
-            ? renderHighlightedTextWithAbsoluteMatches(
-                stringToken,
-                absoluteMatches,
-                currentMatchRange,
-                tokenMatchOffset,
-              )
-            : renderHighlightedText(stringToken, searchQuery)}
+          {decorate(stringToken, tokenMatchOffset)}
         </Box>,
       );
 
       if (hasColon) {
         const colonToken = match[2] ?? "";
-        const colonOffset = tokenMatchOffset + stringToken.length;
         segments.push(
           <Box
             component="span"
             key={`json-token-${tokenIndex++}`}
             sx={{ color: tokenColors.punctuation }}
           >
-            {absoluteMatches
-              ? renderHighlightedTextWithAbsoluteMatches(
-                  colonToken,
-                  absoluteMatches,
-                  currentMatchRange,
-                  colonOffset,
-                )
-              : renderHighlightedText(colonToken, searchQuery)}
+            {decorate(colonToken, tokenMatchOffset + stringToken.length)}
           </Box>,
         );
       }
@@ -1346,14 +1881,7 @@ export function renderJsonSyntaxHighlightedText(
           key={`json-token-${tokenIndex++}`}
           sx={{ color: tokenColors.boolean }}
         >
-          {absoluteMatches
-            ? renderHighlightedTextWithAbsoluteMatches(
-                matchedText,
-                absoluteMatches,
-                currentMatchRange,
-                tokenMatchOffset,
-              )
-            : renderHighlightedText(matchedText, searchQuery)}
+          {decorate(matchedText, tokenMatchOffset)}
         </Box>,
       );
     } else if (matchedText === "null") {
@@ -1361,14 +1889,7 @@ export function renderJsonSyntaxHighlightedText(
 
       segments.push(
         <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.null }}>
-          {absoluteMatches
-            ? renderHighlightedTextWithAbsoluteMatches(
-                matchedText,
-                absoluteMatches,
-                currentMatchRange,
-                tokenMatchOffset,
-              )
-            : renderHighlightedText(matchedText, searchQuery)}
+          {decorate(matchedText, tokenMatchOffset)}
         </Box>,
       );
     } else if (/^-?\d/.test(matchedText)) {
@@ -1376,14 +1897,7 @@ export function renderJsonSyntaxHighlightedText(
 
       segments.push(
         <Box component="span" key={`json-token-${tokenIndex++}`} sx={{ color: tokenColors.number }}>
-          {absoluteMatches
-            ? renderHighlightedTextWithAbsoluteMatches(
-                matchedText,
-                absoluteMatches,
-                currentMatchRange,
-                tokenMatchOffset,
-              )
-            : renderHighlightedText(matchedText, searchQuery)}
+          {decorate(matchedText, tokenMatchOffset)}
         </Box>,
       );
     } else {
@@ -1394,14 +1908,7 @@ export function renderJsonSyntaxHighlightedText(
           key={`json-token-${tokenIndex++}`}
           sx={{ color: tokenColors.punctuation }}
         >
-          {absoluteMatches
-            ? renderHighlightedTextWithAbsoluteMatches(
-                matchedText,
-                absoluteMatches,
-                currentMatchRange,
-                tokenMatchOffset,
-              )
-            : renderHighlightedText(matchedText, searchQuery)}
+          {decorate(matchedText, tokenMatchOffset)}
         </Box>,
       );
     }
@@ -1410,18 +1917,7 @@ export function renderJsonSyntaxHighlightedText(
   }
 
   if (cursor < text.length) {
-    const trailingText = text.slice(cursor);
-    const trailingOffset = matchOffset + cursor;
-    segments.push(
-      absoluteMatches
-        ? renderHighlightedTextWithAbsoluteMatches(
-            trailingText,
-            absoluteMatches,
-            currentMatchRange,
-            trailingOffset,
-          )
-        : renderHighlightedText(trailingText, searchQuery),
-    );
+    segments.push(decorate(text.slice(cursor), matchOffset + cursor));
   }
 
   return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
@@ -1434,6 +1930,7 @@ export function renderHighlightedText(
   currentMatchRange?: { start: number; end: number } | null | undefined,
   matchOffset = 0,
   matches?: Array<{ start: number; end: number }> | undefined,
+  highlightRange?: TextRange | null | undefined,
 ) {
   if (matcher) {
     const absoluteMatches =
@@ -1442,53 +1939,63 @@ export function renderHighlightedText(
         start: matchOffset + match.start,
         end: matchOffset + match.end,
       }));
-    if (absoluteMatches.length === 0) {
-      return text;
-    }
 
     return renderHighlightedTextWithAbsoluteMatches(
       text,
       absoluteMatches,
       currentMatchRange,
       matchOffset,
+      highlightRange,
     );
   }
 
   const normalizedQuery = normalizeSearch(searchQuery);
+  const absoluteMatches = normalizedQuery
+    ? collectQueryMatches(text, normalizedQuery, matchOffset)
+    : [];
 
-  if (!normalizedQuery) {
-    return text;
+  if (absoluteMatches.length === 0) {
+    return renderDecoratedText(text, matchOffset, [], highlightRange);
   }
 
-  const segments: React.ReactNode[] = [];
+  return renderDecoratedText(
+    text,
+    matchOffset,
+    absoluteMatches,
+    highlightRange,
+    (chunk, _match, key) => (
+      <Box component="mark" key={key} sx={{ bgcolor: "warning.light", px: 0.25 }}>
+        {chunk}
+      </Box>
+    ),
+  );
+}
+
+/**
+ * Collect the absolute ranges of the literal query matches. Used as the
+ * fallback decoration when a caller passes a search query without a matcher.
+ */
+function collectQueryMatches(
+  text: string,
+  normalizedQuery: string,
+  matchOffset: number,
+): TextRange[] {
+  const matches: TextRange[] = [];
   let cursor = 0;
 
   while (cursor < text.length) {
     const matchIndex = findNormalizedMatchIndex(text, normalizedQuery, cursor);
 
     if (matchIndex === -1) {
-      segments.push(text.slice(cursor));
       break;
     }
 
-    if (matchIndex > cursor) {
-      segments.push(text.slice(cursor, matchIndex));
-    }
-
     const endIndex = matchIndex + normalizedQuery.length;
-    segments.push(
-      <Box
-        component="mark"
-        key={`${matchIndex}-${endIndex}`}
-        sx={{ bgcolor: "warning.light", px: 0.25 }}
-      >
-        {text.slice(matchIndex, endIndex)}
-      </Box>,
-    );
+    matches.push({ start: matchOffset + matchIndex, end: matchOffset + endIndex });
     cursor = endIndex;
   }
 
-  return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
+  return matches;
 }
 
 function renderHighlightedTextWithAbsoluteMatches(
@@ -1496,54 +2003,143 @@ function renderHighlightedTextWithAbsoluteMatches(
   absoluteMatches: Array<{ start: number; end: number }>,
   currentMatchRange: { start: number; end: number } | null | undefined,
   matchOffset: number,
+  highlightRange?: TextRange | null | undefined,
 ) {
+  return renderDecoratedText(
+    text,
+    matchOffset,
+    absoluteMatches,
+    highlightRange,
+    (chunk, match, key) => {
+      const isCurrent =
+        currentMatchRange &&
+        currentMatchRange.start === match.start &&
+        currentMatchRange.end === match.end;
+
+      return (
+        <Box
+          component="mark"
+          data-match-index={match.start}
+          key={key}
+          sx={{
+            bgcolor: isCurrent ? "warning.dark" : "warning.light",
+            color: isCurrent ? "warning.contrastText" : undefined,
+            px: 0.25,
+          }}
+        >
+          {chunk}
+        </Box>
+      );
+    },
+  );
+}
+
+/**
+ * Paint the selection highlight the context menu owns with the very colour the
+ * platform uses for `::selection`, so the range the block draws itself looks
+ * exactly like the platform selection it replaces.
+ */
+const menuHighlightSx: SxProps<Theme> = {
+  backgroundColor: (theme: Theme) => getSelectionHighlightColor(theme.palette.mode),
+};
+
+type TextMatchRenderer = (
+  chunk: string,
+  match: { start: number; end: number },
+  key: string,
+) => React.ReactNode;
+
+/**
+ * Split `text` on every search match and on the highlight range, then hand each
+ * chunk to `renderMatch`. `matchOffset` is the absolute body offset of
+ * `text[0]`; the matches and `highlightRange` use those same absolute offsets,
+ * so a highlight spanning several tokens still paints one continuous colour.
+ */
+function renderDecoratedText(
+  text: string,
+  matchOffset: number,
+  matches: Array<{ start: number; end: number }>,
+  highlightRange?: TextRange | null | undefined,
+  renderMatch?: TextMatchRenderer,
+): React.ReactNode {
   const segmentStart = matchOffset;
   const segmentEnd = matchOffset + text.length;
-  const overlappingMatches = absoluteMatches.filter(
-    (match) => match.start < segmentEnd && match.end > segmentStart,
-  );
+  const localHighlight = getLocalHighlightRange(highlightRange, matchOffset, text.length);
+  const localMatches = matches
+    .filter((match) => match.start < segmentEnd && match.end > segmentStart)
+    .map((match) => ({
+      end: Math.min(match.end, segmentEnd) - segmentStart,
+      match,
+      start: Math.max(match.start, segmentStart) - segmentStart,
+    }));
 
-  if (overlappingMatches.length === 0) {
+  if (!localHighlight && localMatches.length === 0) {
     return text;
   }
 
+  const cuts = new Set<number>([0, text.length]);
+
+  for (const localMatch of localMatches) {
+    cuts.add(localMatch.start);
+    cuts.add(localMatch.end);
+  }
+
+  if (localHighlight) {
+    cuts.add(localHighlight.start);
+    cuts.add(localHighlight.end);
+  }
+
+  const boundaries = [...cuts].sort((left, right) => left - right);
   const segments: React.ReactNode[] = [];
-  let cursor = 0;
 
-  for (const match of overlappingMatches) {
-    const overlapStart = Math.max(match.start, segmentStart);
-    const overlapEnd = Math.min(match.end, segmentEnd);
-    const localStart = overlapStart - segmentStart;
-    const localEnd = overlapEnd - segmentStart;
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const start = boundaries[index] ?? 0;
+    const end = boundaries[index + 1] ?? 0;
 
-    if (localStart > cursor) {
-      segments.push(text.slice(cursor, localStart));
+    if (end <= start) {
+      continue;
     }
 
-    const isCurrent =
-      currentMatchRange &&
-      currentMatchRange.start === match.start &&
-      currentMatchRange.end === match.end;
-    segments.push(
-      <Box
-        component="mark"
-        data-match-index={match.start}
-        key={`${match.start}-${overlapStart}-${overlapEnd}`}
-        sx={{
-          bgcolor: isCurrent ? "warning.dark" : "warning.light",
-          color: isCurrent ? "warning.contrastText" : undefined,
-          px: 0.25,
-        }}
-      >
-        {text.slice(localStart, localEnd)}
-      </Box>,
+    const chunk = text.slice(start, end);
+    const localMatch = localMatches.find(
+      (candidate) => candidate.start <= start && candidate.end >= end,
     );
-    cursor = localEnd;
+    let node: React.ReactNode =
+      localMatch && renderMatch
+        ? renderMatch(chunk, localMatch.match, `${localMatch.match.start}-${start}-${end}`)
+        : chunk;
+
+    if (localHighlight && start >= localHighlight.start && end <= localHighlight.end) {
+      node = (
+        <Box
+          component="span"
+          data-selection-highlight="true"
+          key={`highlight-${start}-${end}`}
+          sx={menuHighlightSx}
+        >
+          {node}
+        </Box>
+      );
+    }
+
+    segments.push(<Fragment key={`${start}-${end}`}>{node}</Fragment>);
   }
 
-  if (cursor < text.length) {
-    segments.push(text.slice(cursor));
+  return segments;
+}
+
+/** Intersect the absolute highlight with a segment, in segment-local offsets. */
+function getLocalHighlightRange(
+  highlightRange: TextRange | null | undefined,
+  matchOffset: number,
+  textLength: number,
+): TextRange | null {
+  if (!highlightRange) {
+    return null;
   }
 
-  return segments.map((segment, index) => <Fragment key={index}>{segment}</Fragment>);
+  const start = Math.max(highlightRange.start - matchOffset, 0);
+  const end = Math.min(highlightRange.end - matchOffset, textLength);
+
+  return end > start ? { start, end } : null;
 }

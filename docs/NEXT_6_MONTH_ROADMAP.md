@@ -359,6 +359,8 @@
 
 ### M5：2026-10，Collection 增强与 Scenario Replay
 
+- `已提前实现`：MCP + Agent Skill 只读 MVP（stdio sidecar、Agent Access 设置、Codex / Claude Code / Cursor 分发、审计与默认脱敏）。
+
 主题：把抓到的问题变成可重复验证的资产。
 
 核心交付：

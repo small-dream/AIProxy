@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 type TopBarActionTone = "default" | "error" | "primary" | "success";
 type TopBarActionVariant = "filled" | "outlined";
+type TopBarActionSize = "small" | "medium";
 
 type TopBarActionButtonProps = {
   ariaPressed?: boolean;
@@ -12,6 +13,8 @@ type TopBarActionButtonProps = {
   icon: ReactNode;
   label: string;
   onClick: () => void;
+  /** "medium" is reserved for the primary proxy start/stop action. */
+  size?: TopBarActionSize;
   tone?: TopBarActionTone;
   variant?: TopBarActionVariant;
 };
@@ -23,6 +26,7 @@ export function TopBarActionButton({
   icon,
   label,
   onClick,
+  size = "small",
   tone = "default",
   variant = "outlined",
 }: TopBarActionButtonProps) {
@@ -37,6 +41,8 @@ export function TopBarActionButton({
           onClick={onClick}
           size="small"
           sx={(theme) => {
+            const dimension = size === "medium" ? 40 : 32;
+            const iconFontSize = size === "medium" ? 22 : 18;
             const toneColor =
               tone === "error"
                 ? theme.palette.error.main
@@ -142,12 +148,12 @@ export function TopBarActionButton({
                   : alpha(toneColor, theme.palette.mode === "dark" ? 0.24 : 0.16),
               borderRadius: 999,
               color: variant === "outlined" ? theme.palette.text.secondary : undefined,
-              height: 32,
+              height: dimension,
               transition:
                 "background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, color 140ms ease, transform 140ms ease",
-              width: 32,
+              width: dimension,
               "& .MuiSvgIcon-root": {
-                fontSize: 18,
+                fontSize: iconFontSize,
               },
               "&:hover": {
                 bgcolor: alpha(

@@ -219,19 +219,20 @@ pub(crate) async fn forward_request(
         }),
     };
     let is_poolable_scheme = matches!(request.url.scheme(), "http" | "https");
+    let mut connection_wait_ms = 0;
     let mut pool_result = if is_poolable_scheme {
         if let Some(ref p) = pool {
-            Some(
-                bound_head_phase(p.get_or_connect(
-                    &pool_key,
-                    dns_override_ip,
-                    verify_upstream_tls,
-                    Arc::clone(&tls_verify_hosts),
-                    upstream_proxy.clone(),
-                ))
-                .await?
-                .map_err(ProxyError::from)?,
-            )
+            let (connection, waited_ms) = bound_head_phase(p.get_or_connect(
+                &pool_key,
+                dns_override_ip,
+                verify_upstream_tls,
+                Arc::clone(&tls_verify_hosts),
+                upstream_proxy.clone(),
+            ))
+            .await?
+            .map_err(ProxyError::from)?;
+            connection_wait_ms = waited_ms;
+            Some(connection)
         } else {
             None
         }
@@ -246,7 +247,10 @@ pub(crate) async fn forward_request(
         _ => None,
     };
     if let Some((mut h2_sender, timing)) = h2_pooled {
-        // Pooled h2 path — reuse the cached connection.
+        // Pooled h2 path — reuse the cached connection. A missing timing means
+        // the pool handed back an already-established connection, i.e. this
+        // request never dialed and has no fresh DNS/TCP/TLS numbers to report.
+        let connection_reused = timing.is_none();
         let timing = timing.unwrap_or_else(|| crate::timing_connector::ConnectionTiming {
             dns_ms: 0,
             connect_ms: 0,
@@ -368,10 +372,17 @@ pub(crate) async fn forward_request(
                         // an unbounded await here would hang the request forever
                         // on a stalled reconnect.
                         match bound_head_phase(connect).await {
-                            Ok(Ok(crate::upstream_pool::UpstreamConnection::H2 {
-                                sender, ..
-                            })) => sender,
-                            Ok(Ok(crate::upstream_pool::UpstreamConnection::H1 { .. })) => {
+                            Ok(Ok((
+                                crate::upstream_pool::UpstreamConnection::H2 { sender, .. },
+                                retry_wait_ms,
+                            ))) => {
+                                // The reconnect is a second pool checkout, so fold
+                                // its queue time into the same phase rather than
+                                // letting it vanish from the request's account.
+                                connection_wait_ms += retry_wait_ms;
+                                sender
+                            }
+                            Ok(Ok((crate::upstream_pool::UpstreamConnection::H1 { .. }, _))) => {
                                 return Err(ProxyError::UpstreamError(
                                     "upstream protocol changed from h2 to h1 during retry"
                                         .to_string(),
@@ -434,8 +445,15 @@ pub(crate) async fn forward_request(
         // the pooled connection dying during the body) must also evict the key —
         // otherwise the next request to this host reuses the now-broken pooled
         // connection and fails again.
-        let result =
-            build_upstream_response_from_hyper(response, request, timing, waiting_ms).await;
+        let result = build_upstream_response_from_hyper(
+            response,
+            request,
+            timing,
+            connection_reused,
+            connection_wait_ms,
+            waiting_ms,
+        )
+        .await;
         if let Err(error) = &result {
             if let Some(ref p) = pool {
                 p.evict_key(&pool_key).await;
@@ -474,6 +492,7 @@ pub(crate) async fn forward_request(
             verify_upstream_tls,
             tls_verify_hosts,
             upstream_proxy,
+            connection_wait_ms,
         },
         pooled_h1,
     )
@@ -487,6 +506,9 @@ struct H1ForwardContext {
     verify_upstream_tls: bool,
     tls_verify_hosts: Arc<[String]>,
     upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
+    /// Time spent queued in the connection pool before this request could take
+    /// (or dial) its upstream connection.
+    connection_wait_ms: u128,
 }
 
 struct H1LeaseEvictOnDrop {
@@ -537,6 +559,7 @@ async fn forward_h1_request(
         verify_upstream_tls,
         tls_verify_hosts,
         upstream_proxy,
+        connection_wait_ms,
     } = context;
 
     let request_target = if request.url.query().is_some() {
@@ -610,6 +633,9 @@ async fn forward_h1_request(
         key: pool_key.clone(),
         connection: Some(lease.connection()),
     });
+    // A pooled lease without a timing was established by an earlier request, so
+    // this one reused it; a lease that carries a fresh timing just dialed.
+    let pooled_reused_connection = pooled.as_ref().is_some_and(|(_, timing)| timing.is_none());
     let pooled_timing = pooled.as_ref().and_then(|(_, timing)| timing.clone());
     let (mut sender_handle, direct_timing) = if let Some((lease, _)) = pooled {
         (H1SenderHandle::Pooled(lease), None)
@@ -730,8 +756,15 @@ async fn forward_h1_request(
                 .is_some_and(|proxy| !proxy.should_bypass(&request.host)),
         }
     });
-    let result =
-        build_upstream_response_from_hyper(response, request, connection_timing, waiting_ms).await;
+    let result = build_upstream_response_from_hyper(
+        response,
+        request,
+        connection_timing,
+        pooled_reused_connection,
+        connection_wait_ms,
+        waiting_ms,
+    )
+    .await;
     if was_pooled && (!reusable || result.is_err()) {
         if let Some(ref mut guard) = pooled_guard {
             guard.evict().await;
@@ -771,6 +804,8 @@ async fn build_upstream_response_from_hyper(
     response: hyper::Response<hyper::body::Incoming>,
     request: &ParsedProxyRequest,
     connection_timing: crate::timing_connector::ConnectionTiming,
+    connection_reused: bool,
+    connection_wait_ms: u128,
     waiting_ms: u128,
 ) -> Result<UpstreamResponse, ProxyError> {
     let status_code =
@@ -834,8 +869,10 @@ async fn build_upstream_response_from_hyper(
     Ok(UpstreamResponse {
         body_truncated,
         connect_ms: connection_timing.connect_ms,
+        connection_reused: Some(connection_reused),
+        connection_wait_ms: Some(connection_wait_ms),
         dns_ms: connection_timing.dns_ms,
-        request_send_ms: 0,
+        request_send_ms: None,
         response_body,
         response_body_size_bytes,
         response_headers,

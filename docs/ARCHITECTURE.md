@@ -94,6 +94,9 @@ flowchart LR
     L[浏览器 / App / 系统流量] --> D
     M[手机 / iOS / Android / HarmonyOS] --> D
     D --> N[目标服务器]
+    O[Codex / Claude Code / Cursor] -->|MCP stdio| P[aiproxy-mcp sidecar]
+    P -->|read-only SQL / body range| I
+    P --> Q[agent-access.json / agent-audit.jsonl]
 ```
 
 ## 5. 分层架构
@@ -373,6 +376,32 @@ TLS 证书缓存机制：
 - 当前导出内容主要由前端纯函数生成，再通过 `save_text_file` / `save_media_file` 写入本地文件
 - HAR 导入通过 Tauri 文件读取命令进入前端解析与会话转换流程
 - 已删除旧的空壳 `exporter` crate；后续只有当导出逻辑具备跨端复用价值和独立测试面时，才允许重新抽出 Rust crate
+
+## 6.7 `mcp-server` 与 Agent Access
+
+职责：
+
+- 通过 `aiproxy-mcp` stdio sidecar 向 Codex、Claude Code、Cursor 暴露只读 MCP 工具
+- 复用 `aiproxy-db` 的会话检索、详情、Body、WebSocket、Insights 与规则 trace 查询
+- 在 sidecar 内强制执行 Agent Access 权限、统一脱敏、字段提取、返回上限、cursor 分页与审计
+- 由桌面端 Settings > Agent Access 管理配置、诊断、脱敏策略、客户端片段与 Skill 安装
+
+边界：
+
+- 不使用会创建目录或执行 migration 的 `open_database()`；sidecar 使用 `open_read_only_database()` 与 `PRAGMA query_only=ON`
+- 不提供任意 SQL、任意文件读取、规则写入、系统代理修改或 Snapshot 导出
+- SQL 只存在于 `aiproxy-db`，MCP 层不复制聚合查询
+- stdout 仅供 MCP 协议使用，日志写 stderr
+
+客户端接入：
+
+- Codex：`~/.codex/config.toml`（或 `$CODEX_HOME/config.toml`），Skill 位于 `$CODEX_HOME/skills/aiproxy/SKILL.md`
+- Claude Code：`CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）顶层 `mcpServers`，Skill 位于 `CLAUDE_CONFIG_DIR/skills/aiproxy/SKILL.md`（默认 `~/.claude/skills`）
+- Cursor：`~/.cursor/mcp.json`，Skill 位于 `~/.cursor/skills/aiproxy/SKILL.md`
+
+应用只生成可复制片段，不静默改写用户已有客户端配置。Sidecar 通过 Tauri `externalBin` 与桌面安装包一起分发。
+
+详细契约见 `docs/MCP_AGENT_SKILL_ARCHITECTURE.md`、`docs/DECISIONS/ADR-006-local-mcp-agent-access.md` 与 `docs/API_SPEC.md` 6.14。
 
 ## 7. 前后端交互设计
 

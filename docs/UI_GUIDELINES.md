@@ -227,6 +227,7 @@ App Shell
 - 保持轻量，不承载会话级筛选输入
 - 左侧展示上下文，右侧展示全局入口
 - 代理运行状态必须持续可见
+- Start / Stop Proxy 是全局唯一主操作，尺寸大于其他图标按钮（medium / 40px）；录制中在 Stop 按钮旁显示红色脉冲圆点 + 已录制时长（mm:ss，超 1 小时为 h:mm:ss），动画遵循 `prefers-reduced-motion`
 
 ## 8.3 左侧导航规范
 
@@ -314,6 +315,8 @@ Capture Workspace
 - 错误提示或后台任务提示
 
 系统代理恢复失败警告（`proxyStatus.systemProxyRecoveryWarning` 存在时）必须在状态栏渲染一个 warning 色 StatusItem（图标 + 短标签，tooltip 展示原因，点击跳转设置页）——恢复失败意味着整机可能断网，不允许只留在设置页。
+
+录制中且系统代理未开启（`proxyStatus.running && !systemProxyEnabled`）时，系统代理 StatusItem 图标必须显示 warning 色，tooltip 说明「仅抓取手动指向代理端口的流量」并引导点击开启——Recording 状态不能被误解为整机抓包。
 
 ## 9. 页面规范
 
@@ -424,6 +427,9 @@ Sessions Page
 - 菜单项应按动作组分块，并使用 `Divider` 分隔
 - JSON 树视图中右键节点提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，对象/数组以格式化 JSON 输出，字符串不带引号）
 - 代码块视图（JSON Text、Raw、Text Body）中选中文字后右键提供 `Copy`（复制选中文字）和 `Search`（用选中文字激活搜索栏）
+- JSON Text 视图双击按语义 token 吸附选区：字符串与键名选中引号内的内容，数字、`true` / `false` / `null` 选中整个字面量；三击选中光标所在行（忽略缩进与行尾空白）；按住 Option / Shift / Command 的双击仍交回系统原生选择
+- JSON Text 视图右键时按指针位置解析 token，提供 `Copy Key`（键名）或 `Copy Value`（字符串不带引号）与 `Copy Path`（`$.store.book[0].title` 形式的路径，文本不是可解析 JSON 时不显示）；选中内容与该 token 完全相同时合并为一项 `Copy`
+- 代码块选区在右键菜单打开期间不能消失，也不允许出现两层叠加的高亮：菜单打开时组件按与 `::selection` 相同的颜色自绘选区（并清掉系统选区），关闭时再恢复系统选区——复制、`Search`、`Esc` 保留选区，点击菜单外则清空；没有选中文字时高亮指针下的 token，让 `Copy Key` / `Copy Value` / `Copy Path` 的作用对象可见
 - 媒体预览区（图片）右键提供 `Copy Image`（复制图片到剪贴板）、`Save Image As...`（图片另存为）、`Copy Image URL`（复制图片地址）、`Open in Browser`（在浏览器中打开）
 - 媒体预览区（音频/视频）右键提供 `Save As...`（另存为）、`Copy URL`（复制地址）、`Open in Browser`（在浏览器中打开）
 
@@ -616,11 +622,11 @@ Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite
 当前实现补充：
 
 - 顶部使用 `Tabs` 固定承载规则类型切换（`Breakpoint / Rewrite / Mapping / Script` 四个一级 tab；`Mapping` 内部再分段切换 Map Local / Map Remote / DNS）
-- Breakpoint 使用”快捷断点 + 规则列表 + 新增对话框”的轻量流
-- Rewrite 使用”左侧模板 + 规则列表，右侧 When / Then / Test”的桌面工作台流
-- Map / DNS 使用”左侧列表 + 右侧编辑器 + 即时预览”的桌面工作台流
-- Script 使用”左侧规则列表 + 右侧脚本编辑器”的工作台流：脚本为单文件 TypeScript，编辑器需展示运行阶段（请求 / 响应）与匹配条件；保存失败必须在面板内显式提示，不允许静默失败
-- 规则创建优先提供快捷模板，降低首次配置门槛
+- 四个一级 tab 统一使用“左侧创建入口 + 规则列表，右侧身份行 + 匹配/动作区 + 吸底操作栏”的内联工作台流（Breakpoint 于 2026-09 从新增对话框迁入，见下文更新记录）
+- Rewrite 的右侧编辑区为 When / Then / Test 三段 + 吸底操作栏
+- Map / DNS 的右侧编辑区为身份行 + Source & Target / Host & IP + 吸底操作栏
+- Script 的右侧编辑区为身份行 + 匹配条件 + 单文件 TypeScript 脚本编辑器，编辑器需展示运行阶段（请求 / 响应）与匹配条件；保存失败必须在面板内显式提示，不允许静默失败
+- 规则创建优先提供快捷模板或快捷动作（如断点的 Break on All Requests / Responses），降低首次配置门槛
 
 ### 页面结构树
 
@@ -649,8 +655,8 @@ Rules Page
 - 左侧规则列表用于查找与切换
 - 右侧编辑区必须能完整容纳复杂表单
 - 顶部规则类型切换必须常驻可见
-- Rewrite 的 Test 面板必须始终可见或易达，帮助用户保存前确认是否命中
-- Rewrite 无效组合必须在编辑器内直接提示，并阻止保存明显不会生效的配置
+- Rewrite 的 Test 面板必须始终可见或易达，帮助用户保存前确认是否命中；它是与 When / Then 同级的整宽卡片，支持从最近会话一键填充
+- Rewrite 无效组合必须在编辑器内直接提示（附跳转到问题控件的链接），并阻止保存明显不会生效的配置
 
 ### 2026-08 更新（评审 §4.6 / §4.7）
 
@@ -664,10 +670,110 @@ Rules Page
   优先级按 `(N - index) * 10` 重编，仅变化项落库，失败回滚
 - 导入导出：Tabs 行右端 Export / Import 按钮；导入走后端对话框 + 预览对话框
   （各类计数 + checkbox），导入规则默认禁用、全新 uuid
-- 优先级输入统一为 PriorityField（带"数值越大越优先；可拖拽调整顺序"提示）
+- 优先级输入统一为 PriorityField（带"数值越大越优先"提示）；Rewrite 中该字段收纳在编辑器 Advanced 折叠区，列表顺序即优先级
 - 断点放行前校验编辑过的 JSON body（Forward / Send Mock），坏 JSON 阻断
 - Map / DNS / Script / Throttle 规则编辑器补齐 matchType（contains / wildcard /
   exact / regex）选择器
+
+### 2026-09 更新（Rewrite 标签页重构）
+
+- 创建入口收敛：左侧五个类型按钮（Header / Query / Body / Redirect / From Template）
+  合并为 New rule 主按钮 + Templates 次按钮；动作类型在 Then 卡片内的类型 Select
+  中选择；列表空态直接内嵌 New rule / Browse templates 按钮
+- 编辑器头部分层：身份行（规则名 + Enabled 开关）与操作区分离；Save 是唯一
+  主按钮，位于编辑器固定页脚（EditorActionBar，经 ManagedRulesWorkbench 的
+  editorFooter 插槽渲染为滚动区下方的兄弟节点，不随内容滚动、永不遮挡表单）；
+  未保存脏标记圆点全局只显示一处（固定页脚内）；Duplicate / Remove /
+  Keyboard shortcuts 收进 “...” 溢出菜单
+- 删除确认对齐：单条删除与批量删除都必须经确认对话框（批量删除此前直接执行）
+- 优先级去数字化：新规则自动追加到列表末尾，列表顺序即优先级；拖拽仍是主交互，
+  另提供 Alt+↑/↓ 键盘重排选中规则（dnd-kit 仅支持指针，键盘重排补齐无障碍缺口）；
+  原始 Priority 数值字段移入 Advanced 折叠区
+- Rule tester 提升：从 320px 侧栏改为与 When / Then 同级的整宽卡片；新增
+  Pick from sessions 对话框（复用 sessions 查询层，含加载 / 空 / 错误态），选中
+  会话即填充 Sample URL / Method / Stage 并立即评估；Stage 下拉增加 Either，
+  可按规则原样测试；“规则未启用”“不命中”“命中但永远不会执行”是三种不同的
+  图标、颜色与文案——无效组合随 draft 持续评估并折叠进 verdict，命中一个
+  不可能生效的规则时显示警告而非绿色 matched；无效组合 Alert（含“转到命中
+  阶段”链接）也即时显示，不再等到点击 Save
+- 标签纪律：必填是默认态、不加后缀，只有真正可选的字段标注“（可选）”，
+  由共享的 formatRuleFieldLabel 统一实现
+- 作用域提示：URL Pattern 为 `*` 或 Match Type 为 regex 时，在 Enabled 开关
+  附近显示“对所有流量生效 / 正则可能命中更多流量”的双语提示；regex 模式
+  在保存前做语法校验
+- 页面级快捷键：Cmd/Ctrl+S 保存（输入框内也生效）、Cmd/Ctrl+D 复制当前规则、
+  方向键在列表行间移动焦点、Alt+↑/↓ 重排；除 Cmd/Ctrl+S 外，焦点在输入控件
+  内时不触发。可发现性：Save 按钮 Tooltip 显示平台对应快捷键（⌘S / Ctrl+S），
+  “...” 溢出菜单含 Keyboard shortcuts 对话框（列出全部四个快捷键），
+  规则列表底部常驻一行“拖拽或 Alt+↑/↓ 重排”提示（macOS 显示 ⌥↑/↓，由
+  `reorderShortcutLabel()` 按平台生成，文案占位符为 `{{alt}}`）
+- 分区标题层级：FieldGroup 的区标题（WHEN / THEN / TEST 等）为 13px / 700 /
+  大写字距，视觉上压过 13px 常规字重的字段标签，但保持克制的灰度呈现
+- 无障碍：所有纯图标 IconButton 带显式 aria-label；When 区的 Select 通过
+  labelId 与说明文字关联；共享 `MatchTypeSelect` 用 `useId()` 生成标签 id
+  并以 aria-labelledby 关联说明文字；`RuleEditorIdentity` 的 Enabled 标签 id
+  同样每实例唯一；列表行启停开关的 aria-label 含“启用/禁用 + 规则名”
+
+### 2026-09 更新（工作台模式推广到 Mapping 与 Scripts）
+
+- Rewrite 的重构模式升格为全部托管规则域（Map Local / Map Remote / DNS /
+  Scripts）的统一工作台标准，共享实现收敛在 `RulesSharedUi.tsx`：
+  `RuleEditorIdentity`（身份行：规则名 + Enabled 开关 + Advanced 折叠）、
+  `EditorActionBar`（固定页脚：脏标记 + Save 主按钮 + “...” 溢出菜单）、
+  `AdvancedPriorityField` 与 `isEditableTarget`（输入控件焦点判定）
+- 四个规则域的编辑器头部分层一致：身份行在上、固定页脚在下；新建 / 复制 /
+  模板草稿都追加到列表末尾，拖拽 / Alt+↑/↓ 重排，原始 Priority 数值收纳进
+  Advanced 折叠区。追加值由 `resolveNewRulePriority` 在**保存时**按当时的
+  列表重新推导，而不是创建草稿时写死：这样空白新草稿仍与其“空规则”脏检查
+  基线一致（新建后不会立刻显示未保存），创建后、保存前发生的重排也不会把
+  新规则卡在列表中间；用户在 Advanced 里手改过 Priority 时以用户值为准
+- 搜索过滤生效时重排：先经 `applyOrderedIdsWithinList` 把可见行的新顺序映射
+  回全量列表（隐藏行保持原槽位），再用 `computeReorderedPriorities` 对**全量**
+  规则重编号，避免只对可见子集重编号导致隐藏规则被越位
+- 失败提示不残留：写操作失败后 mutation 的 error 会一直保留到下一条 mutate，
+  因此切换到另一条规则时必须清空（共享 `useClearMutationErrorOnRuleChange`），
+  否则旧提示会挂在新选中的规则上；清理只发生在“选中项变化”时，刚出现的
+  失败提示必须保持可见，未被清空
+- 页面级快捷键在各域一致可用：Cmd/Ctrl+S 保存（经 `isEditableTarget` 判定，
+  输入框内同样生效）、Alt+↑/↓ 重排、方向键列表导航；Save 按钮 Tooltip 按
+  平台显示 ⌘S / Ctrl+S
+- 批量删除确认全域统一：Mapping 与 Scripts 的批量删除也经确认对话框，
+  与 Rewrite 一致
+- 列表不再显示优先级数字 chip：Mapping（Map Local / Map Remote / DNS）与
+  Scripts 列表同 Rewrite 一样去掉优先级 chip，列表顺序即优先级
+- Scripts 创建入口收敛：原先五个并列按钮（New Script Rule + 三个模板按钮 +
+  Import File）合并为 New Script Rule 主按钮 + Templates 次按钮（打开
+  模板画廊对话框，含模板说明）+ Import File 低调文本按钮；同一组入口复用为
+  列表空态操作，保证空列表时仍可导入
+- 工作台模式至此覆盖全部四个一级 tab；Breakpoint 的迁移见下节
+
+### 2026-09 更新（Breakpoint 迁入内联工作台）
+
+- 断点规则管理从“快捷断点卡 + 规则列表 + Add Rule 模态对话框”改为与其他
+  三个域一致的内联 master-detail 工作台：创建 / 编辑都在右侧编辑区完成，
+  不再有模态对话框；产品决策为内联编辑统一胜出
+- 数据模型不变（BreakpointRule 无 name / priority 字段），因此共享的
+  RuleEditorIdentity 的 name 与 advanced 均为可选：断点身份行只渲染
+  Enabled 开关与作用域提示（`*` 显示“拦截该阶段全部流量”，regex 显示
+  “拦截范围可能超出预期”）
+- 匹配顺序即列表顺序：后端按数组顺序首个命中规则触发断点（first match
+  wins），因此保留拖拽 / Alt+↑/↓ 重排与列表底部重排提示，但没有数值
+  Priority 字段，也没有 Advanced 折叠区；搜索过滤时重排只作用于可见行，
+  隐藏行保持原位（applyOrderedIdsWithinList）
+- 创建入口：New Breakpoint Rule 主按钮 + Break on All Requests /
+  Break on All Responses 两个次按钮（快捷全局断点保持即时落盘，已有对应
+  阶段 catch-all 时按钮禁用）；空列表时表头隐藏（listControlsHidden），
+  空态内嵌同一组按钮
+- 持久化仍是整列表 setBreakpointRules：保存 = upsert（已存在则原位替换、
+  新规则追加到末尾）；行内启停开关即时保存已保存规则版本
+- 删除纪律与其他域一致：单条删除经确认对话框；新增行首 Checkbox 多选 +
+  批量条（启用 / 禁用 / 删除 / 完成），批量删除同样经确认对话框；未保存
+  的新草稿 Remove 直接丢弃、不弹确认
+- regex 语法校验保留，改为与其他域一致的字段级 helperText
+  （rulesPage.validation.regexPatternInvalid）；页面级快捷键 Cmd/Ctrl+S
+  保存（isEditableTarget 守卫）与 Alt+↑/↓ 重排同样生效
+- 注意区分：本节约束的是 Rules 页的断点规则管理 tab；断点命中后的实时
+  拦截面板（BreakpointInterceptPanel）不在本次改动范围内，交互保持不变
 
 ## 9.4.1 Compose Page 更新 — `2026-08`
 
@@ -687,7 +793,7 @@ Rules Page
 ### 交互要点
 
 - 切换规则类型时，列表与编辑器必须同步切换，不让用户在旧上下文里误编辑
-- 左侧列表项必须始终暴露：名称、启停、优先级、核心作用摘要
+- 左侧列表项必须始终暴露：名称、启停、核心作用摘要；所有托管规则域（Rewrite / Mapping / DNS / Scripts）的列表均不显示优先级数字（列表顺序即优先级），原始数值仅在编辑器 Advanced 折叠区内可见
 - 右侧编辑器应把“规则会命中谁”和“命中后会做什么”明确拆开
 - 预览卡应使用自然语言总结最终效果，避免用户只看表单字段猜结果
 
@@ -819,6 +925,7 @@ Settings Page 负责应用级默认配置与代理预设管理，不再提供独
 - 代理预设：列表选择、创建、编辑、应用
 - 上游代理：协议/地址/端口/认证/绕行列表配置与连通性测试
 - SSL 代理：逐域名的 include / exclude 解密策略，每个列表带总开关、每条规则带独立开关，含「恢复推荐列表」与证书绑定说明
+- Agent Access：MCP sidecar 状态、只读权限、Body 上限、Codex / Claude Code / Cursor 配置片段、Skill 安装与审计日志
 - 语言与外观偏好均为应用级持久化设置
 
 ### 页面结构树
@@ -831,12 +938,14 @@ Settings Page
 │  ├─ Proxy
 │  ├─ Certificates
 │  ├─ Session Storage
+│  ├─ Agent Access
 │  ├─ Appearance
 │  ├─ Shortcuts
 │  └─ Advanced
 └─ Settings Content Pane
    ├─ Section Header
    ├─ Setting Rows
+   ├─ Agent Client Cards
    ├─ Inline Validation
    └─ Save / Reset Actions
 ```
@@ -850,11 +959,18 @@ Settings Page
 - Appearance
 - Shortcuts
 - Advanced
+- Agent Access
 
 当前实现说明：
 
-- 当前桌面端已落地 `Proxy Presets`、`Upstream Proxy`、`SSL Proxying`、`AI Model`、`Software Updates`、`About`、`Language & Region` 与 `Appearance` 等设置区块（单一滚动页面，未启用左侧设置导航；字体等外观偏好并入 `Appearance` 区块）
-- 后续如扩展左侧设置导航，需保持当前字段归属不变
+- 当前桌面端已落地 `Proxy Presets`、`Upstream Proxy`、`SSL Proxying`、`Agent Access`、`AI Model`、`Software Updates`、`About`、`Language & Region` 与 `Appearance` 等设置区块（单一滚动页面，已启用左侧二级目录与设置搜索；字体等外观偏好并入 `Appearance` 区块）
+- Agent Access 顶部使用紧凑状态头：只展示启用开关、单行服务状态与版本；sidecar / 数据目录 / 配置 / 审计路径全部收进默认折叠的“诊断信息”。关闭状态只保留一条短 warning，不再用大块 info Alert 解释正常状态。
+- 客户端连接排在权限之前，并使用纵向紧凑列表而非三列大卡片。每行只保留一个主操作（连接 / 更新连接 / 重新连接），次级操作收进更多菜单：仅写配置、仅安装 Skill、手动配置。配置片段与 Skill 路径仅在手动配置展开后出现。Cursor 目标固定展示为 `~/.cursor/mcp.json`。
+- 连接主流程同时完成写 MCP 配置与安装 Skill，并明确处理部分成功：配置已写入但 Skill 失败 / 被跳过时必须提示“配置已生效、Skill 未完成”，不能吞掉结果。覆盖已有配置仍必须显示目标路径、二次确认并先备份。
+- 状态词统一为 `已连接` / `需要更新` / `未连接`。Codex、Claude Code、Cursor 均使用用户级全局配置，使用同一套连接状态检测。
+- 常规权限直接展示；未脱敏 Body、脱敏策略与查询上限放入默认折叠的“高级权限”。高风险权限（`readRawBodies`）使用 warning 色开关与风险说明；`readBodies` 关闭时 raw 开关必须禁用。脱敏策略包含“按格式识别敏感值”“标识符稳定哈希”和自定义敏感字段名；自定义正则只在 `agent-access.json` 维护。审计日志默认折叠为摘要，展开后保留表格、刷新与空状态。
+- 顶部开关和权限都写入草稿。出现任何差异时，状态头显示 `未保存`，并同时在状态头与权限区提供 `保存更改` / `放弃`，避免开关被误认为即时生效。
+- 所有绝对路径必须单行省略，通过 Tooltip 展示完整值，并提供复制按钮；禁止使用 `word-break: break-all` 在多行中间截断路径。
 
 - `ProxyPresetsSection`：代理预设管理，`SectionCard` 内含预设列表（`List` + `ListItemButton`，活跃预设有 `CheckCircleRoundedIcon` 标记，hover 阴影提升）、操作栏（New Preset / Apply / Save 按钮）、展开式编辑表单（name, port, SSL Switch）。数据由 `useWorkspaces` 等 hooks 驱动，底层继续复用 workspace 命名接口
 - `UpstreamProxySection`：上游（链式）代理配置，独立 `SectionCard`，沿用 `compactFieldSx` / `compactAlertSx` 紧凑样式。结构为启用开关 + `Test Connection` / `Save` 操作栏、协议 `Select` 与地址/端口字段、可选凭据字段（密码框在用户名为空时禁用）、换行分隔的绕行列表 `TextField`。交互约束：
@@ -863,7 +979,7 @@ Settings Page
   - 启用时常驻一条 info `Alert` 说明「代理不可用时请求直接失败、不回退直连」
   - 填写密码时追加 warning `Alert` 说明凭据以明文存储于本地数据库
   - 切换协议时仅在当前端口仍是某个协议的默认值时才改写端口，手填端口不被静默覆盖
-- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各为一块列表（每条 pattern + 独立开关 + 删除 + 新增输入框），**总开关（`includeEnabled` / `excludeEnabled`）内联在各自列表标题行右侧**，与所控制的列表紧贴呈现；另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。
+- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各为一块列表（每条 pattern + 独立开关 + 删除 + 新增输入框），**总开关（`includeEnabled` / `excludeEnabled`）内联在各自列表标题行右侧**，与所控制的列表紧贴呈现；另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。**总开关关闭时，该列表整体处于不生效状态**：条目开关置灰禁用、列表整体降低不透明度，并在列表上方显示 `sslProxying.listInactiveHint` 说明「条目保留但不生效」，避免出现「总开关关闭、条目开关却仍是开启态」的误导。
 
 ## 9.9 Compare Page — `已实现发布硬化版`
 
@@ -956,7 +1072,9 @@ Insights Page
 - `KeyValueEditor`
 - `BodyEditor`
 - `TimingPanel`
-- `WaterfallChart` — 水平堆叠条形图，展示请求 timing 各阶段（dns / connect / tls / request_send / waiting / response_read / total）耗时；根据 `timingSource` 调整展示粒度，每个阶段使用不同颜色并支持 Tooltip
+- `WaterfallChart` — 时序细条堆叠图（10px 高、无图例），展示请求 timing 各阶段（连接等待 / dns / connect / tls / request_send / waiting / response_read）耗时占比；总耗时放在「时序」分组标题的数值列，未采集阶段与 0 ms 阶段都不绘制色块（0 ms 若绘制会因 2px 最小宽度被误读成占了时间），根据 `timingSource` 调整展示粒度。阶段配色为低饱和主题色（明暗主题各一套），阶段与下方字段行通过行首色点一一对应；悬停字段行时高亮对应阶段、其余阶段降透明度，Tooltip 显示「阶段 · 耗时 · 占比」，阶段文案复用 `inspector.request.overview.fields.*`
+- 时序阶段取值遵循「有多少说多少」：连接类阶段（DNS / Connect / TLS Handshake）**新建连接**给实测毫秒，**复用连接**（`connectionReused: true`）统一显示「复用连接」，**未观测到出网**或缺字段时显示 `N/A`，不使用 `Unavailable`；只有真正被采集过的阶段（当前仅 HAR 导入的 `requestSendMs`）才渲染对应字段行，缺数据的行直接不出现，而不是占一行 `Unavailable`
+- 「连接等待」（`connectionWaitMs`）与其它阶段一样只在有值时出现：它是请求在连接池里排队等连接就绪的时间，并发冷连接时会明显到数百毫秒，必须单独成行/成段，否则各阶段加起来会小于总时长，用户无法解释差在哪
 - `CookiePanel`
 - `RawPanel`
 - `RuleList`

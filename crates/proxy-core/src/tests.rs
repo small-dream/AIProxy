@@ -210,7 +210,9 @@ fn applies_breakpoint_response_status_edits() {
         body_truncated: false,
         connect_ms: 0,
         dns_ms: 0,
-        request_send_ms: 0,
+        connection_reused: None,
+        connection_wait_ms: None,
+        request_send_ms: None,
         response_body: b"{}".to_vec(),
         response_body_size_bytes: 2,
         response_headers: HeaderMap::new(),
@@ -247,7 +249,9 @@ fn applies_breakpoint_response_body_edits_as_plain_body() {
         body_truncated: false,
         connect_ms: 0,
         dns_ms: 0,
-        request_send_ms: 0,
+        connection_reused: None,
+        connection_wait_ms: None,
+        request_send_ms: None,
         response_body: b"original".to_vec(),
         response_body_size_bytes: 8,
         response_headers: HeaderMap::new(),
@@ -389,6 +393,8 @@ fn serializes_raw_messages_from_heads_and_body_references() {
         tls_protocol: Some("TLSv1.3".to_string()),
         timing: Some(ProxyTimingBreakdown {
             connect_ms: None,
+            connection_reused: None,
+            connection_wait_ms: None,
             dns_ms: None,
             request_send_ms: None,
             response_read_ms: Some(1),
@@ -742,7 +748,9 @@ fn applies_response_body_rewrite_as_plain_body() {
         body_truncated: false,
         connect_ms: 0,
         dns_ms: 0,
-        request_send_ms: 0,
+        connection_reused: None,
+        connection_wait_ms: None,
+        request_send_ms: None,
         response_body: b"original".to_vec(),
         response_body_size_bytes: 8,
         response_headers: HeaderMap::new(),
@@ -830,7 +838,9 @@ fn m3_response_body_rewrite_noop_preserves_integrity_headers() {
         body_truncated: false,
         connect_ms: 0,
         dns_ms: 0,
-        request_send_ms: 0,
+        connection_reused: None,
+        connection_wait_ms: None,
+        request_send_ms: None,
         response_body: br#"{"unchanged":true}"#.to_vec(),
         response_body_size_bytes: 18,
         response_headers: HeaderMap::new(),
@@ -1270,7 +1280,9 @@ fn isolates_a_failing_response_rewrite_rule_and_continues_cascade() {
         body_truncated: false,
         connect_ms: 0,
         dns_ms: 0,
-        request_send_ms: 0,
+        connection_reused: None,
+        connection_wait_ms: None,
+        request_send_ms: None,
         response_body: b"plain-text-not-json".to_vec(),
         response_body_size_bytes: 20,
         response_headers: HeaderMap::new(),
@@ -1441,7 +1453,9 @@ fn applies_response_body_rewrite_to_json_array_fields() {
         body_truncated: false,
         connect_ms: 0,
         dns_ms: 0,
-        request_send_ms: 0,
+        connection_reused: None,
+        connection_wait_ms: None,
+        request_send_ms: None,
         response_body: br#"{"items":[{"name":"original"},{"count":1}]}"#.to_vec(),
         response_body_size_bytes: 41,
         response_headers: HeaderMap::new(),
@@ -2614,6 +2628,92 @@ async fn pooled_h1_reuses_one_upstream_connection_for_sequential_requests() {
         .unwrap()
         .unwrap();
     started_proxy.server_handle.shutdown().await;
+    upstream_task.await.unwrap();
+}
+
+#[tokio::test]
+async fn session_timing_distinguishes_a_fresh_dial_from_a_pooled_reuse() {
+    let upstream_listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let upstream_port = upstream_listener.local_addr().unwrap().port();
+    let upstream_task = tokio::spawn(async move {
+        let (mut stream, _) = upstream_listener.accept().await.unwrap();
+        for body in [b"one".as_slice(), b"two".as_slice()] {
+            let mut request_bytes = Vec::new();
+            loop {
+                let mut chunk = [0_u8; 512];
+                let read = stream.read(&mut chunk).await.unwrap();
+                assert!(read > 0, "proxy opened a second upstream connection");
+                request_bytes.extend_from_slice(&chunk[..read]);
+                if request_bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                String::from_utf8_lossy(body)
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        }
+    });
+
+    let mut proxy = start_plain_proxy_for_pool_test().await;
+    let proxy_port = proxy.bound_port;
+    let mut timings = Vec::new();
+
+    for path in ["/one", "/two"] {
+        let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        let request = format!(
+            "GET http://127.0.0.1:{upstream_port}{path} HTTP/1.1\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n\r\n"
+        );
+        client.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        timeout(Duration::from_secs(2), client.read_to_string(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(response.contains("HTTP/1.1 200 OK"));
+
+        let session = timeout(Duration::from_secs(2), async {
+            loop {
+                let session = proxy.session_receiver.recv().await.unwrap();
+                if session.summary.status_code != 0 {
+                    break session;
+                }
+            }
+        })
+        .await
+        .expect("timed out waiting for the completed session detail");
+        timings.push(
+            session
+                .timing
+                .expect("a proxied session always carries a timing breakdown"),
+        );
+    }
+
+    // The first request dialed, so the client is told DNS/TCP were measured and
+    // that the connection was not reused.
+    assert_eq!(timings[0].connection_reused, Some(false));
+    assert!(timings[0].dns_ms.is_some());
+    assert!(timings[0].connect_ms.is_some());
+
+    // The second request rode the pooled socket: reporting 0 ms for DNS/connect
+    // would read as "these phases took no time" instead of "nothing was dialed".
+    assert_eq!(timings[1].connection_reused, Some(true));
+
+    // hyper resolves `send_request` only once the response head arrives, so the
+    // proxy can never report a request-send duration.
+    assert!(timings
+        .iter()
+        .all(|timing| timing.request_send_ms.is_none()));
+
+    // Sequential requests never queue for a connection, so the pool wait must
+    // stay at zero rather than absorbing the dial it did not wait for.
+    assert!(timings
+        .iter()
+        .all(|timing| timing.connection_wait_ms == Some(0)));
+
+    proxy.server_handle.shutdown().await;
     upstream_task.await.unwrap();
 }
 

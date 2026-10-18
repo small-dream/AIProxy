@@ -202,7 +202,7 @@ describe("SessionInspectorWorkspace", () => {
     },
   );
 
-  it("shows captured response timing and marks unsupported proxy timing phases unavailable", () => {
+  it("shows captured response timing and marks unmeasured proxy timing phases not applicable", () => {
     render(
       <AppProviders>
         <SessionInspectorWorkspace
@@ -247,7 +247,13 @@ describe("SessionInspectorWorkspace", () => {
     expect(screen.getByText("<1 ms")).toBeInTheDocument();
     expect(screen.getByText("5000 ms")).toBeInTheDocument();
     expect(screen.queryByText("Connection")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Unavailable").length).toBeGreaterThanOrEqual(3);
+
+    const timingSection = screen.getByRole("button", { name: /Timing/ })
+      .parentElement as HTMLElement;
+
+    // DNS, Connect, and TLS Handshake were never measured for this session.
+    expect(within(timingSection).getAllByText("N/A")).toHaveLength(3);
+    expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
   });
 
   it("renders text response tabs in the preferred order", () => {

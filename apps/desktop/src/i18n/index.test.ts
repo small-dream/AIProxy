@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveLocale } from "./index";
+import { resolveLocale, translateMessage } from "./index";
 import { enMessages } from "./messages/en";
 import { zhCNMessages } from "./messages/zh-CN";
 
@@ -50,5 +50,16 @@ describe("message catalog key parity (H14)", () => {
     const zhKeys = collectKeyPaths(zhCNMessages).sort();
 
     expect(enKeys).toEqual(zhKeys);
+  });
+});
+
+describe("list reorder hint", () => {
+  it("interpolates the platform accelerator instead of leaking the placeholder", () => {
+    for (const locale of ["en", "zh-CN"] as const) {
+      const message = translateMessage(locale, "rulesPage.listReorderHint", { alt: "⌥↑/↓" });
+
+      expect(message).toContain("⌥↑/↓");
+      expect(message).not.toContain("{{");
+    }
   });
 });

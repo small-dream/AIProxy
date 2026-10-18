@@ -4,6 +4,7 @@ import type { SettingsSectionId } from "./settings-navigation";
 
 export type SettingsSearchEntry = {
   id: string;
+  targetId?: string;
   sectionId: SettingsSectionId;
   labelKey: TranslationKey;
   descriptionKeys: readonly TranslationKey[];
@@ -80,6 +81,63 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     labelKey: "sslProxying.excludeEnabledLabel",
     descriptionKeys: ["sslProxying.excludeEnabledDescription"],
     keywords: ["pinning", "skip", "排除", "证书锁定"],
+  },
+  {
+    id: "agent-access",
+    sectionId: "agent",
+    labelKey: "settingsPage.agentAccess.title",
+    descriptionKeys: ["settingsPage.agentAccess.description"],
+    keywords: ["mcp", "agent", "skill", "codex", "claude", "cursor", "代理", "智能体"],
+  },
+  {
+    id: "agent-redaction",
+    targetId: "agent-permissions",
+    sectionId: "agent",
+    labelKey: "settingsPage.agentAccess.permissionsTitle",
+    descriptionKeys: ["settingsPage.agentAccess.permissionsDescription"],
+    keywords: ["permission", "body", "websocket", "raw", "权限"],
+  },
+  {
+    id: "agent-permissions",
+    sectionId: "agent",
+    labelKey: "settingsPage.agentAccess.redactionTitle",
+    descriptionKeys: [
+      "settingsPage.agentAccess.detectSensitiveValuesDescription",
+      "settingsPage.agentAccess.hashIdentifiersDescription",
+      "settingsPage.agentAccess.customSensitiveKeysDescription",
+    ],
+    keywords: [
+      "redaction",
+      "sensitive",
+      "jwt",
+      "email",
+      "phone",
+      "device id",
+      "hash",
+      "pseudonym",
+      "regex",
+      "脱敏",
+      "敏感",
+      "邮箱",
+      "手机号",
+      "设备",
+      "哈希",
+      "正则",
+    ],
+  },
+  {
+    id: "agent-cursor",
+    sectionId: "agent",
+    labelKey: "settingsPage.agentAccess.clientCursor",
+    descriptionKeys: ["settingsPage.agentAccess.cursorHint"],
+    keywords: ["cursor", "mcp.json", "config", "配置"],
+  },
+  {
+    id: "agent-audit",
+    sectionId: "agent",
+    labelKey: "settingsPage.agentAccess.auditTitle",
+    descriptionKeys: ["settingsPage.agentAccess.auditDescription"],
+    keywords: ["audit", "log", "审计", "日志"],
   },
   {
     id: "ai-provider",

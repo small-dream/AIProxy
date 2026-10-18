@@ -14,6 +14,8 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture — layers, module boundaries, responsibilities |
 | [API_SPEC.md](./API_SPEC.md) | Tauri commands, events, and data model contracts |
 | [NEXT_6_MONTH_ROADMAP.md](./NEXT_6_MONTH_ROADMAP.md) | Planned features and project direction |
+| [MCP_AGENT_SKILL_PLAN.md](./MCP_AGENT_SKILL_PLAN.md) | MCP + Agent Skill product plan and implementation status |
+| [MCP_AGENT_SKILL_ARCHITECTURE.md](./MCP_AGENT_SKILL_ARCHITECTURE.md) | MCP transport, tools, permissions, and client integration architecture |
 | [UI_UX_REVIEW_2026-08-16.md](./UI_UX_REVIEW_2026-08-16.md) | UI/UX review snapshot — P0 fixed, P1/P2 backlog pending |
 
 ### UI & Design
@@ -31,6 +33,7 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [SYSTEM_PROXY.md](./SYSTEM_PROXY.md) | System proxy behavior and platform differences |
 | [BUILD_RUN_PACKAGE_GUIDE.md](./BUILD_RUN_PACKAGE_GUIDE.md) | How to build, run, and package the app |
 | [RELEASE_GUIDE.md](./RELEASE_GUIDE.md) | Release process and publishing guide |
+| [DECISIONS/ADR-006-local-mcp-agent-access.md](./DECISIONS/ADR-006-local-mcp-agent-access.md) | Local MCP sidecar and read-only Agent Access decision |
 | [releases/](./releases/) | Versioned bilingual release summaries used by GitHub Releases and in-app updates |
 
 ### Architecture Decision Records (ADRs)

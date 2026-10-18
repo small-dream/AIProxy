@@ -68,12 +68,17 @@ pnpm test
 echo "✓ Frontend tests passed"
 echo ""
 
-echo "[6/7] Rust Tests..."
+echo "[6/8] Build MCP sidecar..."
+node scripts/build-mcp-sidecar.mjs --profile debug
+echo "✓ MCP sidecar built"
+echo ""
+
+echo "[7/8] Rust Tests..."
 cargo test --workspace
 echo "✓ Rust tests passed"
 echo ""
 
-echo "[7/7] Rust Clippy..."
+echo "[8/8] Rust Clippy..."
 cargo clippy --workspace --all-targets -- -D warnings
 echo "✓ Clippy passed"
 echo ""

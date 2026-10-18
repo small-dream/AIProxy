@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MapRule, RewriteRule } from "@aiproxy/shared-types";
 
 import {
+  getBreakpointValidationErrors,
   getDnsMappingValidationErrors,
   getMapValidationErrors,
   getRewriteValidationErrors,
@@ -429,5 +430,40 @@ describe("rewrite rule validation", () => {
     );
 
     expect(errors.actions).toBe("rulesPage.rewrite.actionsRequired");
+  });
+});
+
+describe("getBreakpointValidationErrors — breakpoint editor (R3)", () => {
+  const t = makeT();
+  const base = { id: "1", enabled: true, methods: [] as string[], stage: "request" as const };
+
+  it("requires a URL pattern", () => {
+    const errors = getBreakpointValidationErrors({ ...base, urlPattern: "  " }, t);
+    expect(errors.urlPattern).toBe("rulesPage.validation.urlPatternRequired");
+  });
+
+  it("accepts a non-empty pattern for non-regex match types", () => {
+    // Even text that is invalid regex syntax is fine for contains/wildcard.
+    const errors = getBreakpointValidationErrors(
+      { ...base, urlPattern: "([", matchType: "contains" },
+      t,
+    );
+    expect(hasRuleFieldErrors(errors)).toBe(false);
+  });
+
+  it("flags an invalid regex on the urlPattern key", () => {
+    const errors = getBreakpointValidationErrors(
+      { ...base, urlPattern: "([", matchType: "regex" },
+      t,
+    );
+    expect(errors.urlPattern).toBe("rulesPage.validation.regexPatternInvalid");
+  });
+
+  it("accepts a valid regex", () => {
+    const errors = getBreakpointValidationErrors(
+      { ...base, urlPattern: "api\\.example\\.com/v[12]/.*", matchType: "regex" },
+      t,
+    );
+    expect(hasRuleFieldErrors(errors)).toBe(false);
   });
 });

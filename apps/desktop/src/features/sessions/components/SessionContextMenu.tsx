@@ -2,18 +2,22 @@ import type { SessionSummary } from "@aiproxy/shared-types";
 
 import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
 import AltRouteRoundedIcon from "@mui/icons-material/AltRouteRounded";
-import CompareArrowsRoundedIcon from "@mui/icons-material/CompareArrowsRounded";
-import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
+import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
+import DescriptionRoundedIcon from "@mui/icons-material/DescriptionRounded";
+import DifferenceRoundedIcon from "@mui/icons-material/DifferenceRounded";
 import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import FolderCopyRoundedIcon from "@mui/icons-material/FolderCopyRounded";
 import FolderOpenRoundedIcon from "@mui/icons-material/FolderOpenRounded";
+import LinkRoundedIcon from "@mui/icons-material/LinkRounded";
+import PushPinRoundedIcon from "@mui/icons-material/PushPinRounded";
 import ReplayRoundedIcon from "@mui/icons-material/ReplayRounded";
 import RemoveCircleOutlineRoundedIcon from "@mui/icons-material/RemoveCircleOutlineRounded";
 import RuleRoundedIcon from "@mui/icons-material/RuleRounded";
 import SpeedRoundedIcon from "@mui/icons-material/SpeedRounded";
 import SaveAltRoundedIcon from "@mui/icons-material/SaveAltRounded";
+import TerminalRoundedIcon from "@mui/icons-material/TerminalRounded";
 import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
 import { Divider, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
@@ -116,28 +120,28 @@ export function SessionContextMenu({
     >
       <MenuItem onClick={handleClick(onCopyUrl)} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>
-          <ContentCopyRoundedIcon fontSize="small" />
+          <LinkRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyUrl")}</ListItemText>
       </MenuItem>
 
       <MenuItem onClick={handleClick(onCopyRequest)} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>
-          <ContentCopyRoundedIcon fontSize="small" />
+          <ArticleRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyRequest")}</ListItemText>
       </MenuItem>
 
       <MenuItem onClick={handleClick(onCopyCurl)} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>
-          <ContentCopyRoundedIcon fontSize="small" />
+          <TerminalRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyAsCurl")}</ListItemText>
       </MenuItem>
 
       <MenuItem onClick={handleClick(onCopyResponse)} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>
-          <ContentCopyRoundedIcon fontSize="small" />
+          <DescriptionRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyResponse")}</ListItemText>
       </MenuItem>
@@ -146,14 +150,14 @@ export function SessionContextMenu({
 
       <MenuItem onClick={handleClick(onSetCompareBase)} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>
-          <CompareArrowsRoundedIcon fontSize="small" />
+          <PushPinRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.setCompareBase")}</ListItemText>
       </MenuItem>
 
       <MenuItem onClick={handleClick(onCompareWith)} sx={menuItemSx}>
         <ListItemIcon sx={iconSx}>
-          <CompareArrowsRoundedIcon fontSize="small" />
+          <DifferenceRoundedIcon fontSize="small" />
         </ListItemIcon>
         <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.compareWith")}</ListItemText>
       </MenuItem>

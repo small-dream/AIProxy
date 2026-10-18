@@ -1,4 +1,7 @@
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 
 use crate::DbError;
 
@@ -6,6 +9,8 @@ use crate::DbError;
 // Session summary row (list view)
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionSummaryRow {
     pub id: String,
     pub method: String,
@@ -384,6 +389,8 @@ pub fn clear_all_sessions(conn: &Connection) -> Result<(), DbError> {
 // WebSocket message row
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WsMessageRow {
     pub id: String,
     pub session_id: String,
@@ -397,6 +404,24 @@ pub struct WsMessageRow {
     /// of the original message (P2 4.1-7).
     pub truncated: bool,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsMessagePage {
+    pub items: Vec<WsMessageRow>,
+    pub next_cursor: Option<String>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WsCursorPayload {
+    version: u32,
+    timestamp: String,
+    id: String,
+}
+
+const WS_CURSOR_VERSION: u32 = 1;
 
 /// Insert a single WebSocket message.
 pub fn insert_ws_message(conn: &Connection, msg: &WsMessageRow) -> Result<(), DbError> {
@@ -501,6 +526,114 @@ pub fn search_ws_messages(
         .collect();
 
     rows
+}
+
+/// Search WebSocket messages with deterministic cursor pagination.
+pub fn search_ws_messages_page(
+    conn: &Connection,
+    session_id: &str,
+    direction: Option<&str>,
+    query: Option<&str>,
+    limit: usize,
+    cursor: Option<&str>,
+) -> Result<WsMessagePage, DbError> {
+    let limit = limit.clamp(1, 100);
+    let cursor = cursor.map(decode_ws_cursor).transpose()?;
+    let mut conditions = vec!["session_id = ?1".to_string()];
+    let mut values = vec![rusqlite::types::Value::Text(session_id.to_string())];
+    let mut index = 2usize;
+
+    if let Some(direction) = direction.map(str::trim).filter(|value| !value.is_empty()) {
+        conditions.push(format!("direction = ?{index}"));
+        values.push(rusqlite::types::Value::Text(direction.to_string()));
+        index += 1;
+    }
+
+    if let Some(query) = query.map(str::trim).filter(|value| !value.is_empty()) {
+        conditions.push(format!("LOWER(payload_text) LIKE ?{index} ESCAPE '\\'"));
+        values.push(rusqlite::types::Value::Text(format!(
+            "%{}%",
+            escape_like_pattern(&query.to_lowercase())
+        )));
+        index += 1;
+    }
+
+    if let Some(cursor) = cursor {
+        conditions.push(format!(
+            "(timestamp > ?{index} OR (timestamp = ?{index} AND id > ?{next}))",
+            next = index + 1
+        ));
+        values.push(rusqlite::types::Value::Text(cursor.timestamp));
+        values.push(rusqlite::types::Value::Text(cursor.id));
+        index += 2;
+    }
+
+    let sql = format!(
+        "SELECT id, session_id, direction, timestamp, opcode, payload_text, payload_size, fin, truncated
+         FROM ws_messages
+         WHERE {}
+         ORDER BY timestamp ASC, id ASC
+         LIMIT ?{index}",
+        conditions.join(" AND ")
+    );
+    values.push(rusqlite::types::Value::Integer((limit + 1) as i64));
+
+    let mut statement = conn
+        .prepare(&sql)
+        .map_err(|error| DbError::query("prepare ws message page", error))?;
+    let rows: Result<Vec<WsMessageRow>, DbError> = statement
+        .query_map(rusqlite::params_from_iter(values), row_to_ws_message)
+        .map_err(|error| DbError::query("query ws message page", error))?
+        .map(|row| row.map_err(|error| DbError::query("decode ws message row", error)))
+        .collect();
+    let mut rows = rows?;
+    let truncated = rows.len() > limit;
+    if truncated {
+        rows.truncate(limit);
+    }
+    let next_cursor = if truncated {
+        rows.last()
+            .map(|row| encode_ws_cursor(&row.timestamp, &row.id))
+            .transpose()?
+    } else {
+        None
+    };
+
+    Ok(WsMessagePage {
+        items: rows,
+        next_cursor,
+        truncated,
+    })
+}
+
+fn encode_ws_cursor(timestamp: &str, id: &str) -> Result<String, DbError> {
+    let payload = WsCursorPayload {
+        version: WS_CURSOR_VERSION,
+        timestamp: timestamp.to_string(),
+        id: id.to_string(),
+    };
+    let json = serde_json::to_vec(&payload)
+        .map_err(|error| DbError::Validation(format!("encode ws cursor: {error}")))?;
+    Ok(URL_SAFE_NO_PAD.encode(json))
+}
+
+fn decode_ws_cursor(cursor: &str) -> Result<WsCursorPayload, DbError> {
+    if cursor.len() > 1024 {
+        return Err(DbError::Validation("invalid ws cursor".to_string()));
+    }
+    let bytes = URL_SAFE_NO_PAD
+        .decode(cursor)
+        .map_err(|_| DbError::Validation("invalid ws cursor".to_string()))?;
+    let payload: WsCursorPayload = serde_json::from_slice(&bytes)
+        .map_err(|_| DbError::Validation("invalid ws cursor".to_string()))?;
+    if payload.version != WS_CURSOR_VERSION
+        || payload.timestamp.is_empty()
+        || payload.id.is_empty()
+        || payload.id.len() > 256
+    {
+        return Err(DbError::Validation("invalid ws cursor".to_string()));
+    }
+    Ok(payload)
 }
 
 fn row_to_ws_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<WsMessageRow> {
@@ -993,6 +1126,50 @@ mod tests {
         let loaded = load_ws_messages(&conn, "ws-tie", 100, 0).unwrap();
         let ids: Vec<&str> = loaded.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, vec!["wm-2", "wm-1"], "insertion order on tie");
+    }
+
+    #[test]
+    fn ws_message_cursor_pagination_is_stable_for_equal_timestamps() {
+        let conn = test_conn();
+        upsert_session(
+            &conn,
+            &test_summary("ws-page", "ws.example.com"),
+            &test_detail("ws-page"),
+        )
+        .unwrap();
+        for id in ["wm-b", "wm-a", "wm-c"] {
+            insert_ws_message(
+                &conn,
+                &WsMessageRow {
+                    id: id.into(),
+                    session_id: "ws-page".into(),
+                    direction: "clientToServer".into(),
+                    timestamp: "2026-04-19T00:00:01Z".into(),
+                    opcode: "text".into(),
+                    payload_text: Some(format!("payload-{id}")),
+                    payload_size: 10,
+                    fin: true,
+                    truncated: false,
+                },
+            )
+            .unwrap();
+        }
+
+        let first = search_ws_messages_page(&conn, "ws-page", None, None, 2, None).unwrap();
+        assert_eq!(first.items.len(), 2);
+        assert!(first.truncated);
+        let cursor = first.next_cursor.unwrap();
+        let second =
+            search_ws_messages_page(&conn, "ws-page", None, None, 2, Some(&cursor)).unwrap();
+        assert_eq!(second.items.len(), 1);
+        assert!(!second.truncated);
+        let all_ids = first
+            .items
+            .iter()
+            .chain(second.items.iter())
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(all_ids, vec!["wm-a", "wm-b", "wm-c"]);
     }
 
     // A corrupt/out-of-range value in the DB must be clamped to a non-negative

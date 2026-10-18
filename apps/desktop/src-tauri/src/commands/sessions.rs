@@ -666,6 +666,7 @@ pub async fn get_insights(
         host_exact: input.host_exact,
         session_ids: input.session_ids,
         host_keyword: input.host_keyword,
+        ..aiproxy_db::insights::InsightsFilter::default()
     };
     run_blocking_command("get_insights", move || {
         let conn_guard = state.lock_db_for_ipc()?;

@@ -65,6 +65,7 @@ function createSteps(action) {
       }
 
       return [
+        sidecarStep("debug"),
         {
           args: ["tauri", "dev", "--no-watch", ...tauriConfigArgs()],
           command: resolveCommand("cargo"),
@@ -75,6 +76,7 @@ function createSteps(action) {
     }
 
     return [
+      sidecarStep("debug"),
       {
         args: [...frontendPackageManager.args, "--dir", "apps/desktop", "build"],
         command: frontendPackageManager.command,
@@ -92,6 +94,7 @@ function createSteps(action) {
 
   if (action === "build") {
     return [
+      sidecarStep("debug"),
       {
         args: [...frontendPackageManager.args, "--dir", "apps/desktop", "build"],
         command: frontendPackageManager.command,
@@ -111,6 +114,7 @@ function createSteps(action) {
   // tauri.conf.json's beforeBuildCommand (`pnpm --filter @aiproxy/desktop build`),
   // so running one first would build the frontend twice.
   return [
+    sidecarStep("release"),
     {
       args: ["tauri", "build", ...tauriConfigArgs(), ...updaterArtifactsConfigArgs()],
       command: resolveCommand("cargo"),
@@ -118,6 +122,15 @@ function createSteps(action) {
       label: "Building platform bundle with Tauri",
     },
   ];
+}
+
+function sidecarStep(profile) {
+  return {
+    args: [path.join(repoRoot, "scripts", "build-mcp-sidecar.mjs"), "--profile", profile],
+    command: process.execPath,
+    cwd: repoRoot,
+    label: `Building aiproxy-mcp sidecar (${profile})`,
+  };
 }
 
 function hasCargoTauri() {

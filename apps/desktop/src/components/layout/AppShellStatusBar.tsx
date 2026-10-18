@@ -18,7 +18,7 @@ type StatusItemProps = {
   active?: boolean;
   icon?: ReactNode;
   /** Optional theme color override for the icon (e.g. "warning.main"). */
-  iconColor?: string;
+  iconColor?: string | undefined;
   label: string;
   monospaced?: boolean;
   onClick?: () => void;
@@ -181,6 +181,11 @@ export function AppShellStatusBar({
             ? t("appShell.certStage.trustedNoRouting")
             : t("appShell.certStage.ready");
   const captureReady = setupProgress.captureReady;
+  // Recording with the system proxy off captures only traffic explicitly
+  // routed to the proxy port — surface that gap as a warning so "Recording"
+  // is not mistaken for full-device capture.
+  const systemProxyRoutingGap =
+    (proxyStatus?.running ?? false) && !(proxyStatus?.systemProxyEnabled ?? false);
 
   return (
     <>
@@ -227,6 +232,7 @@ export function AppShellStatusBar({
         <StatusItem
           active={proxyStatus?.systemProxyEnabled ?? false}
           icon={<LanguageRoundedIcon />}
+          iconColor={systemProxyRoutingGap ? "warning.main" : undefined}
           label={
             proxyStatus?.systemProxyEnabled
               ? t("appShell.systemProxyOn")
@@ -236,9 +242,11 @@ export function AppShellStatusBar({
           title={
             proxyStatus?.systemProxyEnabled
               ? t("appShell.statusDisableSystemProxy")
-              : proxyStatus?.running
-                ? t("appShell.statusEnableSystemProxy")
-                : t("appShell.startProxyBeforeSystemProxy")
+              : systemProxyRoutingGap
+                ? t("appShell.systemProxyOffWhileRecording", { port })
+                : proxyStatus?.running
+                  ? t("appShell.statusEnableSystemProxy")
+                  : t("appShell.startProxyBeforeSystemProxy")
           }
         />
 

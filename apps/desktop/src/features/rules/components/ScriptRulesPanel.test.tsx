@@ -11,8 +11,10 @@ const pickAndReadScriptFileMock = vi.fn();
 const rulesState: { current: ScriptRule[] } = { current: [] };
 // Module-level so the delete-confirmation tests can assert on it.
 const deleteMutateMock = vi.fn();
+const deleteRuleMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 
 vi.mock("@/services/commands", () => ({
+  deleteRule: deleteRuleMock,
   pickAndReadScriptFile: (...args: unknown[]) => pickAndReadScriptFileMock(...args),
 }));
 
@@ -57,6 +59,7 @@ vi.mock("@/i18n", () => ({
 beforeEach(() => {
   pickAndReadScriptFileMock.mockReset();
   deleteMutateMock.mockClear();
+  deleteRuleMock.mockClear();
   rulesState.current = [];
 });
 
@@ -143,13 +146,20 @@ describe("ScriptRulesPanel — selection sync guard (M22/M25)", () => {
 });
 
 describe("ScriptRulesPanel — delete confirmation (P0-2)", () => {
+  // Remove lives in the editor's "..." overflow menu since the workbench
+  // alignment; reaching it is part of every delete test.
+  function openRemoveMenuItem() {
+    fireEvent.click(screen.getByLabelText("rulesPage.ruleActions"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "common.actions.remove" }));
+  }
+
   it("requires confirmation before the persisted rule is deleted", () => {
     rulesState.current = [makeRule({ id: "rule-a", name: "Rule A" })];
 
     render(<ScriptRulesPanel />);
 
-    // Clicking the editor's remove button must NOT delete immediately...
-    fireEvent.click(screen.getByRole("button", { name: "common.actions.remove" }));
+    // Clicking the overflow menu's remove item must NOT delete immediately...
+    openRemoveMenuItem();
     expect(deleteMutateMock).not.toHaveBeenCalled();
 
     // ...but open the confirmation dialog first.
@@ -169,11 +179,49 @@ describe("ScriptRulesPanel — delete confirmation (P0-2)", () => {
 
     render(<ScriptRulesPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "common.actions.remove" }));
+    openRemoveMenuItem();
     fireEvent.click(screen.getByRole("button", { name: "common.actions.cancel" }));
 
     // The rule must survive cancelling. (The dialog's exit animation never
     // completes in jsdom, so asserting its removal is not reliable.)
     expect(deleteMutateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("ScriptRulesPanel — consolidated create entry", () => {
+  it("creates from a template through the Templates gallery dialog", async () => {
+    render(<ScriptRulesPanel />);
+
+    // The five peer buttons are gone; templates live behind one dialog.
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.script.templatesButton" }));
+    expect(screen.getByText("rulesPage.script.templatesTitle")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /rulesPage\.script\.templates\.header/ }));
+
+    // The handleCreate guard resolves in a microtask; the seeded template
+    // source then lands in the editor.
+    await waitFor(() => {
+      const source = screen.getByLabelText(/rulesPage\.script\.sourceCode/) as HTMLTextAreaElement;
+      expect(source.value).toContain("setHeader");
+    });
+  });
+
+  // Batch delete is as destructive as single delete, so it goes through the
+  // same confirmation step (previously it deleted immediately).
+  it("asks for confirmation before batch-deleting selected rules", async () => {
+    rulesState.current = [makeRule({ id: "rule-a", name: "Alpha", priority: 200 })];
+
+    render(<ScriptRulesPanel />);
+
+    fireEvent.click(screen.getByLabelText("rulesPage.batch.selectRule"));
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.batch.delete" }));
+
+    // No deletion happens before the confirmation is accepted.
+    expect(deleteRuleMock).not.toHaveBeenCalled();
+    expect(screen.getByText("rulesPage.batch.deleteConfirmTitle")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "common.actions.delete" }));
+    await waitFor(() => expect(deleteRuleMock).toHaveBeenCalledTimes(1));
+    expect(deleteRuleMock).toHaveBeenCalledWith({ ruleId: "rule-a", ruleType: "script" });
   });
 });

@@ -7,6 +7,7 @@ pub mod error;
 pub mod insights;
 pub mod rules;
 pub mod schema;
+pub mod session_search;
 pub mod sessions;
 pub mod workspaces;
 
