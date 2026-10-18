@@ -2,9 +2,9 @@
 
 # AIProxy
 
-**A modern, cross-platform proxy debugging tool for developers.**
+**A modern, cross-platform proxy debugging tool for developers — now with AI agent access.**
 
-Capture, inspect, and manipulate HTTP / HTTPS / WebSocket traffic with a polished Material Design desktop experience.
+Capture, inspect, and manipulate HTTP / HTTPS / WebSocket traffic with a polished Material Design desktop experience. Connect Codex, Claude Code, or Cursor to investigate real traffic through MCP.
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
@@ -12,6 +12,8 @@ Capture, inspect, and manipulate HTTP / HTTPS / WebSocket traffic with a polishe
 [![Release](https://github.com/small-dream/AIProxy/actions/workflows/release.yml/badge.svg)](https://github.com/small-dream/AIProxy/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#platform-support)
+[![MCP](https://img.shields.io/badge/MCP-Agent%20Ready-6f42c1)](#ai-assisted-debugging)
+[![AI](https://img.shields.io/badge/AI-Diff%20Summary-ff6f00)](#ai-assisted-debugging)
 [![Tauri](https://img.shields.io/badge/Tauri-2-orange)](https://tauri.app)
 [![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev)
 [![Rust](https://img.shields.io/badge/Rust-2021-dea584)](https://www.rust-lang.org)
@@ -19,6 +21,18 @@ Capture, inspect, and manipulate HTTP / HTTPS / WebSocket traffic with a polishe
 </div>
 
 ---
+
+## AI-Assisted Debugging
+
+AIProxy turns captured traffic into an evidence source your coding agent can reason about. Set it up once in **Settings → Agent Access**, then ask Codex, Claude Code, or Cursor to investigate real requests instead of exported snapshots.
+
+| Capability | What you get |
+|------------|--------------|
+| **Agent Access (MCP)** | One-click MCP setup for Codex, Claude Code, and Cursor. Eight read-only tools cover session search, header and timing inspection, JSON field extraction, WebSocket messages, traffic insights, and structured session comparison. |
+| **AI diff summaries** | Generate a Markdown explanation of any Compare result with an OpenAI-compatible model. Preview the payload and redact sensitive fields locally before it is sent to your configured provider. |
+| **Private by default** | The MCP server runs as a local stdio sidecar with no open port. Reads are redacted by default, body access is bounded, and audit logs contain metadata only. Raw-body access requires a separate opt-in. |
+
+> Example: ask your agent to “compare the failed `/api/checkout` requests with the last successful run and cite the session IDs.” Your agent gets the evidence through MCP and explains what changed.
 
 ## 📸 Screenshots
 
@@ -58,7 +72,9 @@ Aggregate analytics dashboard with overview cards, per-host breakdown table, and
 - 🐌 **Throttling** — simulate slow networks with configurable profiles and per-rule targeting
 - 📬 **Compose & Repeat** — craft and resend requests with full editing
 - 📂 **Collections** — save, organize, and batch-execute requests with environments
-- 🔀 **Session Compare** — diff two sessions to spot behavioral changes
+- 🔀 **Session Compare** — diff two sessions to spot behavioral changes, then generate an AI summary
+- 🤖 **Agent Access (MCP)** — let Codex, Claude Code, and Cursor query captured traffic through eight read-only tools
+- 🧠 **AI diff summaries** — summarize Compare results with any OpenAI-compatible model
 - 📊 **Insights** — aggregate traffic analytics
 - 🔐 **Certificate Center** — root CA generation, trust management, and QR-code mobile setup
 
@@ -145,6 +161,7 @@ crates/            Rust core modules
   rule-engine/     Rewrite / Map / Script rule execution
   tls-manager/     Certificate authority & TLS management
   db/              SQLite persistence layer
+  mcp-server/      Local read-only MCP server for AI agents
 packages/          Shared TypeScript packages
   shared-types/    Frontend ↔ backend contracts
   ui-tokens/       Design tokens
@@ -168,6 +185,8 @@ cargo test --workspace                     # Rust tests
 - [Product Requirements (PRD)](./docs/PRD.md)
 - [Architecture](./docs/ARCHITECTURE.md)
 - [API Specification](./docs/API_SPEC.md)
+- [MCP & Agent Access Architecture](./docs/MCP_AGENT_SKILL_ARCHITECTURE.md)
+- [ADR-006: Local MCP Agent Access](./docs/DECISIONS/ADR-006-local-mcp-agent-access.md)
 - [UI Guidelines](./docs/UI_GUIDELINES.md)
 - [Engineering Guidelines](./docs/ENGINEERING_GUIDELINES.md)
 - [Build, Run & Package Guide](./docs/BUILD_RUN_PACKAGE_GUIDE.md)

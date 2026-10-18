@@ -2,9 +2,9 @@
 
 # AIProxy
 
-**面向开发者的现代跨平台代理调试工具。**
+**面向开发者的现代跨平台代理调试工具 —— 现已支持 AI Agent 接入。**
 
-通过精致的 Material Design 桌面体验，抓取、检查和操控 HTTP / HTTPS / WebSocket 流量。
+通过精致的 Material Design 桌面体验，抓取、检查和操控 HTTP / HTTPS / WebSocket 流量。连接 Codex、Claude Code 或 Cursor，让 AI 通过 MCP 直接分析真实流量。
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
@@ -12,6 +12,8 @@
 [![Release](https://github.com/small-dream/AIProxy/actions/workflows/release.yml/badge.svg)](https://github.com/small-dream/AIProxy/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#平台支持)
+[![MCP](https://img.shields.io/badge/MCP-Agent%20Ready-6f42c1)](#ai-辅助调试)
+[![AI](https://img.shields.io/badge/AI-Diff%20Summary-ff6f00)](#ai-辅助调试)
 [![Tauri](https://img.shields.io/badge/Tauri-2-orange)](https://tauri.app)
 [![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev)
 [![Rust](https://img.shields.io/badge/Rust-2021-dea584)](https://www.rust-lang.org)
@@ -19,6 +21,18 @@
 </div>
 
 ---
+
+## AI 辅助调试
+
+让本地编码 Agent 直接基于真实抓包工作，而不是靠 HAR 导出、cURL 复制和人工转述。只需在 **设置 → Agent 接入** 中配置一次，即可让 Codex、Claude Code 或 Cursor 调查真实请求。
+
+| 能力 | 说明 |
+|------|------|
+| **Agent 接入（MCP）** | 一键为 Codex、Claude Code、Cursor 写入 MCP 配置。8 个只读工具覆盖会话检索、Headers 与 Timing 检查、JSON 字段提取、WebSocket 消息、流量聚合和结构化会话对比。 |
+| **AI 差异总结** | 使用 OpenAI 兼容模型为任意 Compare 结果生成 Markdown 总结；发送前可预览 Payload，并在本地完成敏感字段脱敏后再发送到你配置的模型服务。 |
+| **隐私默认保守** | MCP Server 以本地 stdio sidecar 运行，不开放端口；默认只读、脱敏并限制 Body 读取，审计日志仅记录元数据。原始 Body 需单独授权。 |
+
+> 示例：让 Agent「对比失败的 `/api/checkout` 请求和最近一次成功请求，并引用 sessionId」。Agent 通过 MCP 获取证据，再解释具体变化。
 
 ## 📸 软件截图
 
@@ -58,7 +72,9 @@
 - 🐌 **弱网模拟（Throttling）** — 可配置的弱网 Profile 与定向规则
 - 📬 **构造与重发（Compose）** — 编辑并重新发送请求
 - 📂 **集合（Collections）** — 保存、组织和批量执行请求，支持环境变量
-- 🔀 **会话对比（Compare）** — 对比两个会话，发现行为差异
+- 🔀 **会话对比（Compare）** — 对比两个会话，发现行为差异并生成 AI 总结
+- 🤖 **Agent 接入（MCP）** — 让 Codex、Claude Code、Cursor 通过 8 个只读工具查询抓包
+- 🧠 **AI 差异总结** — 使用任意 OpenAI 兼容模型总结 Compare 结果
 - 📊 **流量洞察（Insights）** — 聚合流量分析
 - 🔐 **证书中心** — 根 CA 生成、信任管理与二维码手机配置
 
@@ -145,6 +161,7 @@ crates/            Rust 核心模块
   rule-engine/     改写 / Map / Script 规则执行
   tls-manager/     证书颁发与 TLS 管理
   db/              SQLite 持久化层
+  mcp-server/      面向 AI Agent 的本地只读 MCP Server
 packages/          共享 TypeScript 包
   shared-types/    前后端共享契约
   ui-tokens/       设计令牌
@@ -168,6 +185,8 @@ cargo test --workspace                     # Rust 测试
 - [产品需求文档 PRD](./docs/PRD.md)
 - [架构文档](./docs/ARCHITECTURE.md)
 - [API 规范](./docs/API_SPEC.md)
+- [MCP 与 Agent 接入架构](./docs/MCP_AGENT_SKILL_ARCHITECTURE.md)
+- [ADR-006：本地 MCP Agent 接入](./docs/DECISIONS/ADR-006-local-mcp-agent-access.md)
 - [UI 规范](./docs/UI_GUIDELINES.md)
 - [工程规范](./docs/ENGINEERING_GUIDELINES.md)
 - [构建运行打包指南](./docs/BUILD_RUN_PACKAGE_GUIDE.md)
