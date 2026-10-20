@@ -7,6 +7,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use url::form_urlencoded;
 
 use crate::context::AppContext;
 use crate::protocol::{ToolError, ToolMeta};
@@ -21,6 +22,11 @@ const DEFAULT_CONTEXT_BYTES: usize = 120;
 const MAX_CONTEXT_BYTES: usize = 1024;
 const MAX_BATCH_SESSIONS: usize = 20;
 const MAX_JSON_PATHS: usize = 20;
+const MAX_FORM_PARAMS: usize = 200;
+const MAX_FORM_PARAM_NAMES: usize = 20;
+const MAX_FORM_PARAM_NAME_CHARS: usize = 256;
+const MAX_FORM_VALUE_BYTES: usize = 64 * 1024;
+const MAX_FORM_TOTAL_BYTES: usize = 512 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -52,6 +58,13 @@ pub struct GetSessionBodyRequest {
     pub json_paths: Vec<String>,
     pub text_query: Option<String>,
     pub context_bytes: Option<usize>,
+    // Form extraction turns the request body into name/value pairs. It is
+    // opt-in because it changes the body interpretation from raw text to a
+    // structured parameter list.
+    #[serde(default)]
+    pub include_form_params: bool,
+    #[serde(default)]
+    pub form_param_names: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -120,11 +133,12 @@ pub async fn get_session_body(
             "Raw or base64 body reading requires the readRawBodies permission. Enable it in AIProxy Settings > Agent Access.",
         ));
     }
+    let form_requested = request.include_form_params || !request.form_param_names.is_empty();
     if request.redaction_mode == BodyRedactionMode::Metadata
-        && (!request.json_paths.is_empty() || request.text_query.is_some())
+        && (!request.json_paths.is_empty() || request.text_query.is_some() || form_requested)
     {
         return Err(ToolError::invalid(
-            "metadata mode cannot be combined with jsonPaths or textQuery.",
+            "metadata mode cannot be combined with jsonPaths, textQuery, or form parameters.",
         ));
     }
     if matches!(
@@ -137,7 +151,28 @@ pub async fn get_session_body(
         ));
     }
     let json_paths = parse_json_paths(&request.json_paths)?;
+    let form_param_names = validate_form_param_names(&request.form_param_names)?;
+    if request.include_form_params && !form_param_names.is_empty() {
+        return Err(ToolError::invalid(
+            "includeFormParams cannot be combined with formParamNames.",
+        ));
+    }
     let text_query = validate_text_query(request.text_query.as_deref())?.map(str::to_string);
+    if form_requested && (!json_paths.is_empty() || text_query.is_some()) {
+        return Err(ToolError::invalid(
+            "Form parameter extraction cannot be combined with jsonPaths or textQuery.",
+        ));
+    }
+    if form_requested
+        && !matches!(
+            request.redaction_mode,
+            BodyRedactionMode::RedactedText | BodyRedactionMode::Raw
+        )
+    {
+        return Err(ToolError::invalid(
+            "Form parameter extraction supports redacted-text or raw mode.",
+        ));
+    }
     let redactor = Redactor::from_config(&config, &state.paths.data_dir)
         .map_err(|message| ToolError::new("INVALID_REDACTION_CONFIG", message))?;
     let session_id = require_session_id(state, &request.session_id).await?;
@@ -187,6 +222,19 @@ pub async fn get_session_body(
             ToolMeta::new(false, false, None)
         };
         return Ok((data, meta));
+    }
+
+    if form_requested {
+        return extract_form_body(
+            state,
+            &request,
+            &session_id,
+            part,
+            &reference,
+            &sizes,
+            &form_param_names,
+            &redactor,
+        );
     }
 
     if !json_paths.is_empty() || text_query.is_some() {
@@ -673,6 +721,502 @@ fn extract_body(
     Ok((data, ToolMeta::new(truncated, !raw, None)))
 }
 
+/// Decode `application/x-www-form-urlencoded` or `multipart/form-data` bodies
+/// into structured parameters. Values are redacted by parameter name and by
+/// detected value formats, exactly like query parameters and JSON fields.
+#[allow(clippy::too_many_arguments)]
+fn extract_form_body(
+    state: &AppContext,
+    request: &GetSessionBodyRequest,
+    session_id: &str,
+    part: BodyPart,
+    reference: &StoredBodyReference,
+    sizes: &BodySizes,
+    form_param_names: &[String],
+    redactor: &Redactor,
+) -> Result<(Value, ToolMeta), ToolError> {
+    let body = read_full_body(&state.body_store, reference, MAX_BODY_SCAN_BYTES)?;
+    if body.scan_truncated {
+        return Err(ToolError::new(
+            "BODY_TOO_LARGE",
+            format!(
+                "Form parameter extraction requires scanning the complete body, but it exceeds {} bytes.",
+                MAX_BODY_SCAN_BYTES
+            ),
+        )
+        .with_details(json!({
+            "decodedSizeBytes": sizes.decoded_size_bytes,
+            "scanLimitBytes": MAX_BODY_SCAN_BYTES,
+        })));
+    }
+
+    let content_type = reference.mime_type.as_deref().unwrap_or("");
+    let lowered = content_type.to_ascii_lowercase();
+    let format = if lowered.contains("multipart/form-data") {
+        FormFormat::Multipart
+    } else if lowered.contains("x-www-form-urlencoded") {
+        FormFormat::Urlencoded
+    } else {
+        return Err(ToolError::new(
+            "BODY_NOT_FORM",
+            "Form parameter extraction requires application/x-www-form-urlencoded or multipart/form-data.",
+        )
+        .with_details(json!({
+            "reason": "notForm",
+            "part": part_label(part),
+            "contentType": reference.mime_type,
+        })));
+    };
+
+    let parts = match format {
+        FormFormat::Urlencoded => parse_urlencoded_form(&body.bytes),
+        FormFormat::Multipart => {
+            let boundary = multipart_boundary(content_type).ok_or_else(|| {
+                ToolError::new(
+                    "BODY_NOT_FORM",
+                    "multipart/form-data is missing a usable boundary parameter.",
+                )
+                .with_details(json!({ "reason": "invalidBoundary", "part": part_label(part) }))
+            })?;
+            parse_multipart_form(&body.bytes, &boundary).map_err(|message| {
+                ToolError::new(
+                    "BODY_NOT_FORM",
+                    format!("The multipart body could not be parsed: {message}."),
+                )
+                .with_details(json!({ "reason": "malformedMultipart", "part": part_label(part) }))
+            })?
+        }
+    };
+
+    let raw = request.redaction_mode == BodyRedactionMode::Raw;
+    let mut redacted_fields = Vec::new();
+    let mut entries = Vec::new();
+    let mut limited = false;
+    let mut budget = 0usize;
+
+    if form_param_names.is_empty() {
+        for form_part in parts.iter().take(MAX_FORM_PARAMS) {
+            let Some(entry) = form_entry(
+                form_part,
+                raw,
+                redactor,
+                &mut redacted_fields,
+                &mut budget,
+                &mut limited,
+            ) else {
+                break;
+            };
+            entries.push(entry);
+        }
+        if parts.len() > MAX_FORM_PARAMS {
+            limited = true;
+        }
+    } else {
+        for name in form_param_names {
+            let mut matched = false;
+            for form_part in parts.iter().filter(|form_part| form_part.name == *name) {
+                matched = true;
+                let Some(entry) = form_entry(
+                    form_part,
+                    raw,
+                    redactor,
+                    &mut redacted_fields,
+                    &mut budget,
+                    &mut limited,
+                ) else {
+                    break;
+                };
+                entries.push(entry);
+            }
+            if !matched {
+                entries.push(json!({
+                    "name": name,
+                    "found": false,
+                    "value": Value::Null,
+                    "valueType": "missing",
+                    "truncated": false,
+                }));
+            }
+        }
+    }
+
+    let returned_bytes = serde_json::to_vec(&entries).map_or(0, |value| value.len());
+    let reasons = body_truncation_reasons(sizes.capture_truncated, false, false, limited);
+    let truncated = !reasons.is_empty();
+    redacted_fields.sort();
+    redacted_fields.dedup();
+    let data = json!({
+        "sessionId": session_id,
+        "part": part_label(part),
+        "contentType": reference.mime_type,
+        "contentEncoding": reference.encoding,
+        "encoding": "form",
+        "isUtf8": std::str::from_utf8(&body.bytes).is_ok(),
+        "text": Value::Null,
+        "base64": Value::Null,
+        "jsonPaths": [],
+        "textMatches": [],
+        "formFormat": format.as_str(),
+        "formParams": entries,
+        "formParamCount": parts.len(),
+        "formParamsTruncated": limited,
+        "wireSizeBytes": sizes.wire_size_bytes,
+        "decodedSizeBytes": sizes.decoded_size_bytes,
+        // Form selection returns a filtered view, so there is no single
+        // complete view size to report.
+        "viewSizeBytes": Value::Null,
+        "offsetUnit": "none",
+        "offset": 0,
+        "returnedBytes": returned_bytes,
+        "nextOffset": Value::Null,
+        "hasMore": false,
+        "captureTruncated": sizes.capture_truncated,
+        "scanTruncated": false,
+        "truncatedReasons": reasons,
+        "redactedFields": redacted_fields,
+        "structureParsed": !limited,
+        "hash": { "algorithm": "sha256", "value": sha256_hex(&body.bytes), "scope": "decodedBody" },
+    });
+    Ok((data, ToolMeta::new(truncated, !raw, None)))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FormFormat {
+    Urlencoded,
+    Multipart,
+}
+
+impl FormFormat {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Urlencoded => "urlencoded",
+            Self::Multipart => "multipart",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FormPart {
+    name: String,
+    value: Option<String>,
+    filename: Option<String>,
+    content_type: Option<String>,
+    size_bytes: u64,
+}
+
+fn parse_urlencoded_form(body: &[u8]) -> Vec<FormPart> {
+    form_urlencoded::parse(body)
+        .map(|(name, value)| {
+            let value = value.into_owned();
+            FormPart {
+                name: name.into_owned(),
+                size_bytes: value.len() as u64,
+                value: Some(value),
+                filename: None,
+                content_type: None,
+            }
+        })
+        .collect()
+}
+
+fn multipart_boundary(content_type: &str) -> Option<String> {
+    for parameter in content_type.split(';').skip(1) {
+        let Some((key, value)) = parameter.split_once('=') else {
+            continue;
+        };
+        if !key.trim().eq_ignore_ascii_case("boundary") {
+            continue;
+        }
+        let value = value.trim();
+        let value = value
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'))
+            .unwrap_or(value);
+        let value = value.trim();
+        if value.is_empty() || value.len() > 200 {
+            return None;
+        }
+        return Some(value.to_string());
+    }
+    None
+}
+
+fn parse_multipart_form(body: &[u8], boundary: &str) -> Result<Vec<FormPart>, &'static str> {
+    let delimiter = format!("--{boundary}").into_bytes();
+    let mut parts = Vec::new();
+    let mut cursor = 0usize;
+    let mut closed = false;
+
+    while let Some(relative) = find_subslice(&body[cursor..], &delimiter) {
+        let mut position = cursor + relative + delimiter.len();
+        if body[position..].starts_with(b"--") {
+            closed = true;
+            break;
+        }
+        while position < body.len() && matches!(body[position], b' ' | b'\t') {
+            position += 1;
+        }
+        position = skip_line_break(body, position)
+            .ok_or("the boundary is not followed by a line break")?;
+        let (headers_end, value_start) =
+            find_header_terminator(body, position).ok_or("part headers are not terminated")?;
+        let next = find_subslice(&body[value_start..], &delimiter)
+            .ok_or("the closing boundary is missing")?;
+        let mut value_end = value_start + next;
+        // The delimiter is preceded by exactly one line break that belongs to
+        // the wire format, not to the part payload.
+        if value_end >= 2 && &body[value_end - 2..value_end] == b"\r\n" {
+            value_end -= 2;
+        } else if value_end >= 1 && body[value_end - 1] == b'\n' {
+            value_end -= 1;
+        }
+        let (name, filename, content_type) = parse_multipart_headers(&body[position..headers_end]);
+        if let Some(name) = name {
+            parts.push(new_form_part(
+                name,
+                filename,
+                content_type,
+                &body[value_start..value_end],
+            ));
+        }
+        cursor = value_start + next;
+    }
+
+    if !closed {
+        return Err("the closing boundary is missing");
+    }
+    Ok(parts)
+}
+
+fn new_form_part(
+    name: String,
+    filename: Option<String>,
+    content_type: Option<String>,
+    value: &[u8],
+) -> FormPart {
+    let size_bytes = value.len() as u64;
+    if filename.is_some() {
+        return FormPart {
+            name,
+            value: None,
+            filename,
+            content_type,
+            size_bytes,
+        };
+    }
+    match std::str::from_utf8(value) {
+        Ok(text) => FormPart {
+            name,
+            value: Some(text.to_string()),
+            filename: None,
+            content_type,
+            size_bytes,
+        },
+        Err(_) => FormPart {
+            name,
+            value: None,
+            filename: None,
+            content_type,
+            size_bytes,
+        },
+    }
+}
+
+fn parse_multipart_headers(headers: &[u8]) -> (Option<String>, Option<String>, Option<String>) {
+    let mut name = None;
+    let mut filename = None;
+    let mut content_type = None;
+    for line in headers.split(|byte| *byte == b'\n') {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let Ok(line) = std::str::from_utf8(line) else {
+            continue;
+        };
+        let Some((header, value)) = line.split_once(':') else {
+            continue;
+        };
+        match header.trim().to_ascii_lowercase().as_str() {
+            "content-disposition" => {
+                for (key, value) in parse_header_parameters(value.trim()) {
+                    match key.as_str() {
+                        "name" => name = Some(value),
+                        "filename" => filename = Some(value),
+                        _ => {}
+                    }
+                }
+            }
+            "content-type" if !value.trim().is_empty() => {
+                content_type = Some(value.trim().to_string());
+            }
+            _ => {}
+        }
+    }
+    (name, filename, content_type)
+}
+
+fn parse_header_parameters(value: &str) -> Vec<(String, String)> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut escaped = false;
+    for character in value.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            continue;
+        }
+        match character {
+            '\\' if quoted => {
+                current.push(character);
+                escaped = true;
+            }
+            '"' => {
+                quoted = !quoted;
+                current.push(character);
+            }
+            ';' if !quoted => segments.push(std::mem::take(&mut current)),
+            _ => current.push(character),
+        }
+    }
+    segments.push(current);
+
+    let mut parameters = Vec::new();
+    for segment in segments.into_iter().skip(1) {
+        let Some((key, raw)) = segment.split_once('=') else {
+            continue;
+        };
+        let key = key.trim().to_ascii_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        parameters.push((key, unquote_header_value(raw.trim())));
+    }
+    parameters
+}
+
+fn unquote_header_value(value: &str) -> String {
+    let Some(inner) = value.strip_prefix('"') else {
+        return value.to_string();
+    };
+    let Some(inner) = inner.strip_suffix('"') else {
+        return inner.to_string();
+    };
+    let mut output = String::with_capacity(inner.len());
+    let mut escaped = false;
+    for character in inner.chars() {
+        if escaped {
+            output.push(character);
+            escaped = false;
+            continue;
+        }
+        if character == '\\' {
+            escaped = true;
+            continue;
+        }
+        output.push(character);
+    }
+    output
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+fn skip_line_break(body: &[u8], position: usize) -> Option<usize> {
+    if body[position..].starts_with(b"\r\n") {
+        Some(position + 2)
+    } else if body[position..].starts_with(b"\n") {
+        Some(position + 1)
+    } else {
+        None
+    }
+}
+
+fn find_header_terminator(body: &[u8], from: usize) -> Option<(usize, usize)> {
+    let window = &body[from..];
+    if let Some(index) = find_subslice(window, b"\r\n\r\n") {
+        return Some((from + index, from + index + 4));
+    }
+    find_subslice(window, b"\n\n").map(|index| (from + index, from + index + 2))
+}
+
+fn form_entry(
+    form_part: &FormPart,
+    raw: bool,
+    redactor: &Redactor,
+    redacted_fields: &mut Vec<String>,
+    budget: &mut usize,
+    limited: &mut bool,
+) -> Option<Value> {
+    let entry = match &form_part.value {
+        Some(value) => {
+            let (value, fields) = if raw {
+                (value.clone(), Vec::new())
+            } else {
+                let output = redactor.redact_named_value(&form_part.name, value);
+                (output.value, output.fields)
+            };
+            redacted_fields.extend(fields);
+            let (value, truncated) = truncate_form_value(&value);
+            json!({
+                "name": form_part.name,
+                "found": true,
+                "value": value,
+                "valueType": "text",
+                "sizeBytes": form_part.size_bytes,
+                "truncated": truncated,
+            })
+        }
+        None => {
+            let mut entry = json!({
+                "name": form_part.name,
+                "found": true,
+                "value": Value::Null,
+                "valueType": if form_part.filename.is_some() { "file" } else { "binary" },
+                "sizeBytes": form_part.size_bytes,
+                "truncated": false,
+            });
+            if let Some(filename) = &form_part.filename {
+                let (filename, fields) = if raw {
+                    (filename.clone(), Vec::new())
+                } else {
+                    let output = redactor.redact_text(filename);
+                    (output.value, output.fields)
+                };
+                redacted_fields.extend(fields);
+                entry["fileName"] = json!(filename);
+            }
+            if let Some(content_type) = &form_part.content_type {
+                entry["contentType"] = json!(content_type);
+            }
+            entry
+        }
+    };
+
+    let size = serde_json::to_vec(&entry).map_or(0, |value| value.len());
+    if budget.saturating_add(size) > MAX_FORM_TOTAL_BYTES {
+        *limited = true;
+        return None;
+    }
+    *budget += size;
+    Some(entry)
+}
+
+fn truncate_form_value(value: &str) -> (String, bool) {
+    if value.len() <= MAX_FORM_VALUE_BYTES {
+        return (value.to_string(), false);
+    }
+    let mut end = MAX_FORM_VALUE_BYTES;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    (format!("{}…[truncated]", &value[..end]), true)
+}
+
 fn extract_fields_from_reference(
     store: &BodyStore,
     session_id: &str,
@@ -920,6 +1464,34 @@ fn validate_text_query(query: Option<&str>) -> Result<Option<&str>, ToolError> {
         ));
     }
     Ok(Some(query))
+}
+
+fn validate_form_param_names(names: &[String]) -> Result<Vec<String>, ToolError> {
+    if names.len() > MAX_FORM_PARAM_NAMES {
+        return Err(ToolError::invalid(format!(
+            "formParamNames accepts at most {MAX_FORM_PARAM_NAMES} values."
+        )));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut output = Vec::with_capacity(names.len());
+    for name in names {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(ToolError::invalid(
+                "formParamNames must not contain empty names.",
+            ));
+        }
+        if name.chars().count() > MAX_FORM_PARAM_NAME_CHARS {
+            return Err(ToolError::invalid(format!(
+                "formParamNames entries must be at most {MAX_FORM_PARAM_NAME_CHARS} characters."
+            ))
+            .with_details(json!({ "name": name })));
+        }
+        if seen.insert(name.to_string()) {
+            output.push(name.to_string());
+        }
+    }
+    Ok(output)
 }
 
 pub(crate) fn parse_json_paths(paths: &[String]) -> Result<Vec<Vec<JsonPathSegment>>, ToolError> {
@@ -1369,6 +1941,81 @@ mod tests {
         assert!(!limited);
         assert_eq!(matches[0]["match"], "beta");
         assert!(matches[0]["snippet"].as_str().unwrap().contains("beta"));
+    }
+
+    #[test]
+    fn parses_urlencoded_form_pairs() {
+        let parts = parse_urlencoded_form(b"a=1&b=two+words&c=%E4%B8%AD&flag");
+        assert_eq!(parts.len(), 4);
+        assert_eq!(parts[0].name, "a");
+        assert_eq!(parts[0].value.as_deref(), Some("1"));
+        assert_eq!(parts[1].name, "b");
+        assert_eq!(parts[1].value.as_deref(), Some("two words"));
+        assert_eq!(parts[2].value.as_deref(), Some("中"));
+        assert_eq!(parts[3].name, "flag");
+        assert_eq!(parts[3].value.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn multipart_boundary_accepts_quoted_and_plain_values() {
+        assert_eq!(
+            multipart_boundary("multipart/form-data; boundary=AABoundary"),
+            Some("AABoundary".to_string())
+        );
+        assert_eq!(
+            multipart_boundary("multipart/form-data; charset=utf-8; boundary=\"a b\""),
+            Some("a b".to_string())
+        );
+        assert_eq!(multipart_boundary("multipart/form-data"), None);
+        assert_eq!(multipart_boundary("multipart/form-data; boundary="), None);
+    }
+
+    #[test]
+    fn parses_multipart_text_and_file_parts() {
+        let body = concat!(
+            "--B\r\n",
+            "Content-Disposition: form-data; name=\"title\"\r\n\r\n",
+            "hello\r\n",
+            "--B\r\n",
+            "Content-Disposition: form-data; name=\"file\"; filename=\"a.png\"\r\n",
+            "Content-Type: image/png\r\n\r\n",
+            "data\r\n",
+            "--B--\r\n"
+        );
+        let parts = parse_multipart_form(body.as_bytes(), "B").unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0].name, "title");
+        assert_eq!(parts[0].value.as_deref(), Some("hello"));
+        assert!(parts[0].filename.is_none());
+        assert_eq!(parts[1].name, "file");
+        assert_eq!(parts[1].filename.as_deref(), Some("a.png"));
+        assert_eq!(parts[1].content_type.as_deref(), Some("image/png"));
+        assert!(parts[1].value.is_none());
+        assert_eq!(parts[1].size_bytes, 4);
+    }
+
+    #[test]
+    fn multipart_headers_decode_escaped_quotes() {
+        let (name, filename, content_type) = parse_multipart_headers(
+            b"Content-Disposition: form-data; name=\"a\\\"b\"\r\nContent-Type: text/plain",
+        );
+        assert_eq!(name.as_deref(), Some("a\"b"));
+        assert!(filename.is_none());
+        assert_eq!(content_type.as_deref(), Some("text/plain"));
+    }
+
+    #[test]
+    fn rejects_incomplete_multipart_bodies() {
+        let body = b"--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nv";
+        assert!(parse_multipart_form(body, "B").is_err());
+    }
+
+    #[test]
+    fn truncates_oversized_form_values() {
+        let value = "x".repeat(MAX_FORM_VALUE_BYTES + 1);
+        let (value, truncated) = truncate_form_value(&value);
+        assert!(truncated);
+        assert!(value.ends_with("…[truncated]"));
     }
 
     #[test]

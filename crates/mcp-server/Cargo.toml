@@ -23,6 +23,7 @@ sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "sync", "time", "signal"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"

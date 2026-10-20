@@ -2260,7 +2260,7 @@ type ShowLogFileOutput = string; // 日志文件的绝对路径
 - 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
 - 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
 
-## 6.14 Agent Access / MCP Commands — `已实现（只读增强版，工具契约 2.1）`
+## 6.14 Agent Access / MCP Commands — `已实现（只读增强版，工具契约 2.2）`
 
 Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
 
@@ -2520,7 +2520,7 @@ type AgentAuditLog = {
 
 ### MCP stdio tool contract
 
-`aiproxy-mcp` 当前工具契约版本为 `2.1`，提供 8 个只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
+`aiproxy-mcp` 当前工具契约版本为 `2.2`，提供 8 个只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
 
 所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。`meta` 包含 `schemaVersion`、`dataFreshness`、`latestSessionAt`、`captureStatus`、`captureUpdatedAt`、`truncated`、`redacted`、`nextCursor`、`tookMs`、`readAt`；会话是全局的，不再返回恒为 `null` 的 `workspaceId`。稳定排序：
 
@@ -2547,6 +2547,9 @@ Body 与字段提取：
 - `get_session_body` 支持 `metadata`、`redacted-text`、`base64`、`raw`；`jsonPaths` 支持 `$`、点号 key、方括号 key、数组索引和 `*` 通配符，不支持过滤表达式、递归下降或脚本。
 - JSON 模式会读取不超过 8 MiB 的完整 Body、完整解析、整体脱敏，再提取字段。扫描超限返回 `BODY_TOO_LARGE`；非 JSON 返回 `BODY_NOT_JSON`；非法 path 返回 `JSON_PATH_INVALID`。
 - `textQuery` 在脱敏文本视图中搜索，最多 20 个命中，`contextBytes` 默认 120、最大 1024。
+- 表单参数提取：`includeFormParams=true` 返回全部参数，`formParamNames`（最多 20 个，去重后保持给定顺序）只返回指定参数；两者互斥，且不能与 `jsonPaths` / `textQuery` 同时使用。仅支持 `application/x-www-form-urlencoded` 与带 `boundary` 的 `multipart/form-data`，否则返回 `BODY_NOT_FORM`（`details.reason` 为 `notForm` / `invalidBoundary` / `malformedMultipart`）。
+- 表单结果：`encoding="form"`、`formFormat=urlencoded|multipart`、`formParamCount`（Body 中的参数总数）、`formParams`、`formParamsTruncated`。每项包含 `name`、`found`、`value`、`valueType=text|file|binary|missing`、`sizeBytes`、`truncated`；文件项只返回 `fileName`、`contentType`、`sizeBytes`，`value=null`；请求的 `formParamNames` 不存在时 `found=false`。
+- 表单预算：最多 200 个参数、单值 64 KiB、单次表单负载 512 KiB；超限置 `formParamsTruncated=true` 且 `truncatedReasons` 含 `resultLimit`。值按参数名与格式脱敏，`redactedFields` 汇总命中规则；`raw` 模式需 `readRawBodies`。
 - `get_session_fields` 接受最多 20 个 `sessionIds` 和 20 个 `jsonPaths`，逐项返回成功或错误。
 - Body 大小字段固定为 `wireSizeBytes`（网络传输/压缩后）、`decodedSizeBytes`（解码后完整）、`viewSizeBytes`（脱敏/解析视图）。完整性使用 `hasMore`、`captureTruncated`、`scanTruncated`、`truncatedReasons`，不得根据 `returnedBytes` 推断。
 - `offsetUnit=decodedViewBytes` 表示 `redacted-text` offset 基于脱敏视图；`decodedBodyBytes` 表示 `raw` / `base64`；`metadata` 无 offset。

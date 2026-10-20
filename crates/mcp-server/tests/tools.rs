@@ -315,6 +315,8 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
             json_paths: Vec::new(),
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -334,6 +336,8 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
             json_paths: Vec::new(),
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -351,6 +355,8 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
             json_paths: vec!["$.ab.ab_test".to_string()],
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -376,6 +382,8 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
             json_paths: Vec::new(),
             text_query: Some("hello".to_string()),
             context_bytes: Some(20),
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -565,6 +573,222 @@ async fn session_prefixes_and_since_are_resolved_safely() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
+fn insert_form_request_session(directory: &Path, id: &str, body: &str, mime_type: &str) {
+    let connection = aiproxy_db::rusqlite::Connection::open(directory.join("aiproxy.db")).unwrap();
+    let summary = SessionSummaryRow {
+        id: id.to_string(),
+        method: "POST".to_string(),
+        host: "api.example.com".to_string(),
+        path: format!("/{id}"),
+        protocol: "HTTP/2".to_string(),
+        scheme: "https".to_string(),
+        http_version: "2".to_string(),
+        transport_protocol: "tcp".to_string(),
+        application_protocol: "http".to_string(),
+        started_at: "2026-10-17T12:00:00Z".to_string(),
+        finished_at: "2026-10-17T12:00:01Z".to_string(),
+        duration_ms: 60,
+        size_bytes: body.len(),
+        status_code: 200,
+        url: format!("https://api.example.com/{id}"),
+        response_mime_type: None,
+    };
+    let detail = SessionDetailRow {
+        id: format!("{id}-detail"),
+        session_summary_id: id.to_string(),
+        query_params: "[]".to_string(),
+        cookies: "[]".to_string(),
+        request_headers: json!([{ "name": "Content-Type", "value": mime_type }]).to_string(),
+        response_headers: "[]".to_string(),
+        raw_request: None,
+        raw_response: None,
+        client_address: None,
+        server_ip: None,
+        tls_cipher_suite: None,
+        tls_protocol: None,
+        request_body_ref: Some(
+            json!({
+                "file_path": null,
+                "inline_text": body,
+                "base64_text": null,
+                "mime_type": mime_type,
+                "encoding": null,
+                "size_bytes": body.len(),
+                "truncated": false,
+            })
+            .to_string(),
+        ),
+        response_body_ref: None,
+        timing: None,
+        trailers: None,
+        h2_stream_id: None,
+        via_upstream_proxy: None,
+    };
+    upsert_session(&connection, &summary, &detail).unwrap();
+}
+
+#[tokio::test]
+async fn form_request_parameters_are_extracted_and_redacted() {
+    let (directory, context) = create_fixture("form_params");
+    insert_form_request_session(
+        &directory,
+        "form-urlencoded",
+        "user_id=42&password=hunter2&page=2&tag=a&tag=b&note=hello+world&encoded=%E4%B8%AD%E6%96%87&email=alice%40example.com",
+        "application/x-www-form-urlencoded; charset=UTF-8",
+    );
+    let multipart = concat!(
+        "--AABoundary\r\n",
+        "Content-Disposition: form-data; name=\"title\"\r\n\r\n",
+        "hello form\r\n",
+        "--AABoundary\r\n",
+        "Content-Disposition: form-data; name=\"avatar\"; filename=\"a.png\"\r\n",
+        "Content-Type: image/png\r\n\r\n",
+        "fake-png-bytes\r\n",
+        "--AABoundary--\r\n"
+    );
+    insert_form_request_session(
+        &directory,
+        "form-multipart",
+        multipart,
+        "multipart/form-data; boundary=AABoundary",
+    );
+
+    let (all, meta) = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "form-urlencoded".to_string(),
+            part: BodyPart::Request,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: true,
+            form_param_names: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(all["encoding"], "form");
+    assert_eq!(all["formFormat"], "urlencoded");
+    assert_eq!(all["formParamCount"], 8);
+    assert_eq!(all["formParamsTruncated"], false);
+    assert_eq!(all["formParams"][0]["name"], "user_id");
+    assert_eq!(all["formParams"][0]["found"], true);
+    // Identifier names are replaced with a stable pseudonym, never the raw id.
+    assert!(all["formParams"][0]["value"]
+        .as_str()
+        .unwrap()
+        .starts_with("[ID:"));
+    assert_eq!(all["formParams"][1]["value"], "[REDACTED]");
+    assert_eq!(all["formParams"][2]["value"], "2");
+    assert_eq!(all["formParams"][4]["value"], "b");
+    assert_eq!(all["formParams"][5]["value"], "hello world");
+    assert_eq!(all["formParams"][6]["value"], "中文");
+    assert!(all["formParams"][7]["value"]
+        .as_str()
+        .unwrap()
+        .starts_with("[EMAIL:"));
+    let serialized = all.to_string();
+    assert!(!serialized.contains("hunter2"));
+    assert!(!serialized.contains("alice@example.com"));
+    assert!(meta.redacted);
+
+    let (selected, _) = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "form-urlencoded".to_string(),
+            part: BodyPart::Request,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: false,
+            form_param_names: vec!["page".to_string(), "missing".to_string()],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(selected["formParamCount"], 8);
+    assert_eq!(selected["formParams"][0]["name"], "page");
+    assert_eq!(selected["formParams"][0]["found"], true);
+    assert_eq!(selected["formParams"][0]["value"], "2");
+    assert_eq!(selected["formParams"][1]["name"], "missing");
+    assert_eq!(selected["formParams"][1]["found"], false);
+    assert_eq!(selected["formParams"][1]["valueType"], "missing");
+
+    let (multipart_body, _) = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "form-multipart".to_string(),
+            part: BodyPart::Request,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: true,
+            form_param_names: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(multipart_body["formFormat"], "multipart");
+    assert_eq!(multipart_body["formParamCount"], 2);
+    assert_eq!(multipart_body["formParams"][0]["name"], "title");
+    assert_eq!(multipart_body["formParams"][0]["value"], "hello form");
+    assert_eq!(multipart_body["formParams"][1]["name"], "avatar");
+    assert_eq!(multipart_body["formParams"][1]["valueType"], "file");
+    assert!(multipart_body["formParams"][1]["value"].is_null());
+    assert_eq!(multipart_body["formParams"][1]["fileName"], "a.png");
+    assert_eq!(multipart_body["formParams"][1]["contentType"], "image/png");
+    assert_eq!(multipart_body["formParams"][1]["sizeBytes"], 14);
+
+    let not_form = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "left".to_string(),
+            part: BodyPart::Response,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: true,
+            form_param_names: Vec::new(),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(not_form.code, "BODY_NOT_FORM");
+
+    let conflict = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "form-urlencoded".to_string(),
+            part: BodyPart::Request,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: true,
+            form_param_names: vec!["page".to_string()],
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(conflict.code, "INVALID_ARGUMENT");
+
+    let _ = std::fs::remove_dir_all(directory);
+}
+
 #[tokio::test]
 async fn body_extraction_reports_non_json_and_invalid_paths() {
     let (directory, context) = create_fixture("body_errors");
@@ -587,6 +811,8 @@ async fn body_extraction_reports_non_json_and_invalid_paths() {
             json_paths: vec!["$.ab.ab_test".to_string()],
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -604,6 +830,8 @@ async fn body_extraction_reports_non_json_and_invalid_paths() {
             json_paths: vec!["ab.ab_test".to_string()],
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -697,6 +925,8 @@ async fn custom_sensitive_keys_and_disabled_hashing_apply_from_config() {
             ],
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
