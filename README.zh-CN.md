@@ -28,9 +28,9 @@
 
 | 能力 | 说明 |
 |------|------|
-| **Agent 接入（MCP）** | 一键为 Codex、Claude Code、Cursor 写入 MCP 配置。8 个只读工具覆盖会话检索、Headers 与 Timing 检查、JSON 字段提取、WebSocket 消息、流量聚合和结构化会话对比。 |
+| **Agent 接入（MCP）** | 一键为 Codex、Claude Code、Cursor 写入 MCP 配置，并在连接前选择权限模板。8 个只读工具覆盖会话检索、Headers 与 Timing 检查、JSON 字段提取、WebSocket 消息、流量聚合和结构化会话对比；每次结果都返回最新会话时间与抓包状态。 |
 | **AI 差异总结** | 使用 OpenAI 兼容模型为任意 Compare 结果生成 Markdown 总结；发送前可预览 Payload，并在本地完成敏感字段脱敏后再发送到你配置的模型服务。 |
-| **隐私默认保守** | MCP Server 以本地 stdio sidecar 运行，不开放端口；默认只读、脱敏并限制 Body 读取，审计日志仅记录元数据。原始 Body 需单独授权。 |
+| **隐私默认保守** | MCP Server 以本地 stdio sidecar 运行，不开放端口。AIProxy 不上传抓包，但 Agent 读取后会把内容发送给其模型服务商；默认只读、脱敏并限制 Body 读取，审计日志仅记录元数据。原始 Body 需单独授权。 |
 
 > 示例：让 Agent「对比失败的 `/api/checkout` 请求和最近一次成功请求，并引用 sessionId」。Agent 通过 MCP 获取证据，再解释具体变化。
 

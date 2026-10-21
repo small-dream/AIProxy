@@ -311,6 +311,20 @@ export const enMessages = {
       auditSummaryEmpty: "No Agent calls recorded yet",
       advancedPermissions: "Advanced permissions",
       advancedPermissionsDescription: "Unredacted body access, redaction policy, and query limits",
+      checkBodyAccess: "Body read permission",
+      checkClients: "Client connections",
+      checkDataDirectory: "Data directory",
+      checkDatabase: "Database readable",
+      checkDoctor: "MCP diagnostics",
+      checkEnabled: "Agent Access switch",
+      checkHandshake: "MCP handshake and tool call",
+      checkSchema: "Database schema",
+      checkSessions: "Readable sessions",
+      checkSidecar: "MCP sidecar",
+      checkTools: "Tool count",
+      checksFailed: "Some checks failed",
+      checksPassed: "All checks passed",
+      checksWarning: "Checks completed with warnings",
       clientClaude: "Claude Code",
       clientClaudeHint:
         "Claude Code stores user-level MCP servers in .claude.json and respects CLAUDE_CONFIG_DIR. Restart Claude Code after connecting so the new server is discovered.",
@@ -320,13 +334,13 @@ export const enMessages = {
       clientCodexMeta: "User-level configuration",
       clientCursor: "Cursor",
       clientCursorMeta: "User-level configuration · reload Cursor after connecting",
-      clientStatusConnected: "Connected",
-      clientStatusNeedsUpdate: "Needs update",
-      clientStatusNotConnected: "Not connected",
+      clientStatusConnected: "Configured",
+      clientStatusNeedsUpdate: "Update needed",
+      clientStatusNotConnected: "Not configured",
       clientDescription:
         "Write the MCP configuration automatically, then install the shared AIProxy Skill.",
       clientsDescription:
-        "Each connection writes the MCP configuration and installs the shared Skill. Existing files are backed up first.",
+        "Each connection writes the MCP configuration and installs the shared Skill. Existing files are backed up first, and you can disconnect from the more menu later.",
       clientsTitle: "Connect an Agent client",
       configWrittenSkillFailed:
         "MCP configuration was written to {{path}}, but the Skill could not be installed: {{message}}",
@@ -337,7 +351,7 @@ export const enMessages = {
       configInstallConfirm: "Write configuration",
       configInstallFailed: "Could not write the MCP configuration.",
       configInstallMessage:
-        "AIProxy will update the aiproxy MCP entry in {{path}}. An existing file is backed up before writing.",
+        "AIProxy will update the aiproxy MCP entry in {{path}}. An existing file is backed up before writing. Once active, content the Agent reads is sent to that model provider.",
       configInstallSuccess: "MCP configuration written to {{path}}.",
       configInstallTitle: "Write MCP configuration?",
       configInstallUpToDate: "MCP configuration is already up to date at {{path}}.",
@@ -349,8 +363,21 @@ export const enMessages = {
       configReady: "Configured",
       connect: "Connect",
       connecting: "Connecting...",
-      connectSuccess: "{{client}} connected. The MCP configuration and Skill are ready.",
+      bodyDisabledAfterConnect:
+        "The client is connected, but Body reading is off: the Agent only sees metadata and cannot analyze response payloads. Turn it on under Read permissions, or reconnect with “Include response bodies”.",
+      connectDataFlowNote:
+        "After connecting, anything the Agent reads is sent to the model provider. Enable only the scope this task needs.",
+      connectDialogBackup: "The target file already exists and is backed up first.",
+      connectDialogConfirm: "Connect and write",
+      connectDialogPath: "Writes to: {{path}}",
+      connectDialogScopeHint:
+        "Grants: {{permissions}}. You can adjust this later under Read permissions.",
+      connectDialogScopeTitle: "What the Agent can read",
+      connectDialogTitle: "Connect {{client}}",
+      connectSuccess:
+        "MCP configuration written for {{client}}. Restart or reload {{client}} to activate it; the Skill is installed.",
       copyConfig: "Copy MCP config",
+      copyDiagnostics: "Copy diagnostics",
       copyFailed: "Could not copy the configuration.",
       copiedToClipboard: "Copied to clipboard.",
       copyPath: "Copy path",
@@ -360,6 +387,8 @@ export const enMessages = {
       customSensitiveKeysPlaceholder: "e.g. employee_id",
       cursorHint:
         "Cursor reads user-level MCP servers from ~/.cursor/mcp.json. One-click setup merges the aiproxy entry for you; reload the Cursor window afterwards.",
+      dataFlowNote:
+        "AIProxy never uploads captured traffic. Once an Agent reads it, that content is sent to the model provider you connected. Redaction and read-only access reduce exposure; they do not remove it. Enable only the permissions this task needs.",
       dataDirLabel: "Data directory",
       detectSensitiveValuesDescription:
         "Detect JWTs, emails, phone numbers, device IDs, addresses, and sensitive values even when the field name is unfamiliar.",
@@ -369,6 +398,18 @@ export const enMessages = {
       discardChanges: "Discard",
       disabledDescription:
         "Agent Access is off. MCP clients can start the sidecar, but every tool call is denied.",
+      disconnect: "Disconnect",
+      disconnectConfirm: "Disconnect",
+      disconnectFailed: "Could not disconnect the client.",
+      disconnectMessage:
+        "This removes the aiproxy entry from {{path}} and deletes the AIProxy-managed Skill at {{skillPath}}. The configuration file is backed up first; a custom Skill is never deleted.",
+      disconnectNotInstalled: "{{client}} has no AIProxy-managed entry to remove.",
+      disconnectSkillFailed: "{{message}} The Skill could not be deleted: {{error}}",
+      disconnectSkillSkipped:
+        "{{message}} The Skill at {{path}} was not installed by AIProxy, so it was kept.",
+      disconnectSuccess: "Disconnected {{client}}. The aiproxy entry was removed from {{path}}.",
+      disconnectTitle: "Disconnect {{client}}?",
+      disconnecting: "Disconnecting...",
       enabledDescription:
         "Agent Access is on. The sidecar reads only persisted traffic and writes metadata-only audit entries.",
       enabledLabel: "Enable local Agent access",
@@ -407,6 +448,15 @@ export const enMessages = {
       rawBodiesEnabled: "Unredacted access on",
       redactionTitle: "Data redaction",
       reconnect: "Reconnect",
+      presetBodies: "Include response bodies",
+      presetBodiesDescription:
+        "Also allows redacted request/response bodies and WebSocket messages.",
+      presetMetadata: "Metadata only",
+      presetMetadataDescription:
+        "Session summaries, headers, query, timing, and rule traces. No bodies.",
+      presetRaw: "Include raw data (high risk)",
+      presetRawDescription:
+        "Also allows unredacted bodies, which can expose credentials and personal data. Use only when the task requires it.",
       readBodiesDescription: "Allow bounded request and response body reads, redacted by default.",
       readBodiesLabel: "Read bodies",
       readRawBodiesDescription:
@@ -425,7 +475,7 @@ export const enMessages = {
       saveSuccess: "Agent Access settings saved.",
       saving: "Saving...",
       securityNote:
-        "MCP data stays on this machine. Captured traffic is treated as untrusted evidence, and the Skill instructs agents not to follow instructions found inside payloads.",
+        "AIProxy does not upload captured traffic, but once an Agent reads it, that content is sent to the model provider. Redaction, read-only access, and audit logs reduce exposure; they do not replace your judgement about permissions.",
       sidecarMissing: "Sidecar missing",
       sidecarPathLabel: "MCP sidecar",
       sidecarReady: "Sidecar ready",
@@ -433,6 +483,10 @@ export const enMessages = {
       sidecarUnavailableSummary: "Local service unavailable",
       skillCustom: "Custom Skill",
       skillInstalledAction: "Reinstall Skill",
+      skillVersionCurrent: "Skill v{{version}}",
+      skillVersionOutdated: "Skill v{{installed}}; current is v{{bundled}}. Reconnect to update.",
+      skillVersionUnknown:
+        "An older Skill is installed; current is v{{bundled}}. Reconnect to update.",
       skillManaged: "Managed by AIProxy",
       skillNotInstalled: "Not installed",
       skillPath: "Skill file",
@@ -440,7 +494,7 @@ export const enMessages = {
       statusDescription:
         "Diagnose the local sidecar, database schema, and configuration before connecting a client.",
       statusTitle: "Local MCP status",
-      test: "Test configuration",
+      test: "Verify connection",
       testing: "Testing...",
       title: "Agent Access",
       unsavedChangesHint: "You have unsaved changes. They take effect only after saving.",

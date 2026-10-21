@@ -415,15 +415,21 @@ flowchart LR
 - 8 个只读 MCP 工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`
 - 支持按 JSON path 提取目标字段、批量跨会话取同一字段、查询参数过滤、路径过滤、排序和结构化 JSON Diff
 - stdio sidecar，不开放本地端口
-- Settings > Agent Access：状态诊断、权限、限制、脱敏策略、客户端片段、Skill 安装、审计日志
+- Settings > Agent Access：状态诊断、权限、限制、脱敏策略、客户端片段、Skill 安装与断开、审计日志
+- 连接后提供「验证连接」：真实 MCP 握手 + `tools/list` + 一次 `search_sessions`，分项展示 sidecar、数据库、schema、启用状态、Body 权限与客户端连接
+- 支持从客户端移除 `aiproxy` 条目并删除 AIProxy 安装的 Skill；原配置先备份，自定义 Skill 不删除
 - Codex / Claude Code / Cursor 三客户端配置指引；均使用用户级全局配置，Claude Code 写入 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`）
+- 连接前选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据），并在 Body 关闭时提示 Agent 无法分析响应体
+- MCP 结果 `meta` 返回 `latestSessionAt`、`captureStatus` 与 `captureUpdatedAt`，让 Agent 能说明“数据截止 12:03”而不是假装实时
+- Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化
 - 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
+- 明确数据流向：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商
 
 非目标（本版本）：
 
 - 写入规则、修改系统代理、导出 Snapshot
 - 实时流量订阅
-- 自动修改用户已有客户端配置
+- 未经确认或备份地覆盖用户已有客户端配置
 - 在应用内提供通用聊天框
 
 

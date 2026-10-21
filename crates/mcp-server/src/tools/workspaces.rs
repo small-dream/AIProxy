@@ -18,7 +18,7 @@ pub async fn list_workspaces(
     let config = state.config()?;
     if !config.permissions.read_sessions {
         return Err(ToolError::permission_denied(
-            "Workspace reading is disabled in Agent Access.",
+            "Workspace reading is disabled. Enable readSessions in AIProxy Settings > Agent Access.",
         ));
     }
     if !state
@@ -27,7 +27,7 @@ pub async fn list_workspaces(
     {
         return Err(ToolError::new(
             "SCHEMA_INCOMPATIBLE",
-            "The workspaces table is not available in this database.",
+            "Workspace listing is unavailable until AIProxy migrates the database. Open AIProxy once, then retry.",
         ));
     }
 

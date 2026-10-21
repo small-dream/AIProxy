@@ -1,5 +1,6 @@
 import AutoAwesomeRoundedIcon from "@mui/icons-material/AutoAwesomeRounded";
 import CodeRoundedIcon from "@mui/icons-material/CodeRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
 import EditNoteRoundedIcon from "@mui/icons-material/EditNoteRounded";
 import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
@@ -10,6 +11,7 @@ import {
   Button,
   Chip,
   Collapse,
+  Divider,
   IconButton,
   Menu,
   MenuItem,
@@ -29,7 +31,7 @@ import {
 } from "./agent-access.helpers";
 import { AgentPathValue } from "./AgentPathValue";
 
-export type AgentClientPendingAction = "config" | "connect" | "skill";
+export type AgentClientPendingAction = "config" | "connect" | "remove" | "skill";
 
 type AgentClientRowProps = {
   busy: boolean;
@@ -38,6 +40,7 @@ type AgentClientRowProps = {
   onConnect: (info: AgentClientInfo) => void;
   onCopyText: (value: string) => void;
   onInstallSkill: (info: AgentClientInfo) => void;
+  onRemove: (info: AgentClientInfo) => void;
   onWriteConfig: (info: AgentClientInfo) => void;
   pendingAction?: AgentClientPendingAction | null | undefined;
 };
@@ -49,6 +52,7 @@ export function AgentClientRow({
   onConnect,
   onCopyText,
   onInstallSkill,
+  onRemove,
   onWriteConfig,
   pendingAction,
 }: AgentClientRowProps) {
@@ -60,7 +64,11 @@ export function AgentClientRow({
   const configPath = info.configPath;
   const statusLabel = statusText(state, t);
   const actionLabel =
-    pendingAction === "connect" ? t("settingsPage.agentAccess.connecting") : actionText(state, t);
+    pendingAction === "connect"
+      ? t("settingsPage.agentAccess.connecting")
+      : pendingAction === "remove"
+        ? t("settingsPage.agentAccess.disconnecting")
+        : actionText(state, t);
   const meta = clientMeta(info.client, t);
 
   function closeMenu() {
@@ -179,6 +187,21 @@ export function AgentClientRow({
             ? t("settingsPage.agentAccess.hideManualConfig")
             : t("settingsPage.agentAccess.manualConfigToggle")}
         </MenuItem>
+        {state === "notConnected" ? null : (
+          <>
+            <Divider />
+            <MenuItem
+              onClick={() => {
+                closeMenu();
+                onRemove(info);
+              }}
+              sx={{ color: "error.main" }}
+            >
+              <DeleteOutlineRoundedIcon fontSize="small" sx={{ mr: 1 }} />
+              {t("settingsPage.agentAccess.disconnect")}
+            </MenuItem>
+          </>
+        )}
       </Menu>
 
       <Collapse in={manualOpen} unmountOnExit>
@@ -210,6 +233,20 @@ export function AgentClientRow({
                 onCopy={onCopyText}
                 value={info.skillPath}
               />
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                {info.skillVersion && info.skillVersion !== info.bundledSkillVersion
+                  ? t("settingsPage.agentAccess.skillVersionOutdated", {
+                      installed: info.skillVersion,
+                      bundled: info.bundledSkillVersion,
+                    })
+                  : !info.skillInstalled && info.skillManaged
+                    ? t("settingsPage.agentAccess.skillVersionUnknown", {
+                        bundled: info.bundledSkillVersion,
+                      })
+                    : t("settingsPage.agentAccess.skillVersionCurrent", {
+                        version: info.bundledSkillVersion,
+                      })}
+              </Typography>
             </Stack>
             <Box
               component="pre"

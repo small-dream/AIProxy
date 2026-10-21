@@ -4,6 +4,7 @@ pub mod context;
 pub mod protocol;
 pub mod redaction;
 pub mod server;
+pub mod status;
 pub mod tools;
 
 pub use config::AppPaths;

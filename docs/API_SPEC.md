@@ -2262,12 +2262,13 @@ type ShowLogFileOutput = string; // 日志文件的绝对路径
 - 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
 - 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
 
-## 6.14 Agent Access / MCP Commands — `已实现（只读 MVP）`
+## 6.14 Agent Access / MCP Commands — `已实现（只读增强版，工具契约 2.2）`
 
 Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
 
 - `agent-access.json`：权限与限制，Unix `0600`，Windows 仅当前用户 ACL。
 - `agent-audit.jsonl`：仅记录工具名、客户端、耗时、字节数、脱敏/截断状态和错误码；不记录载荷。
+- `agent-status.json`：桌面端心跳（`appRunning`、`capturing`、`proxyPort`、`workspaceId`、`captureStartedAt`、`updatedAt`），每 30 秒刷新，不含流量数据；sidecar 用它生成 `meta.captureStatus`。
 
 ### `get_agent_access_settings`
 
@@ -2315,6 +2316,8 @@ type AgentClientInfo = {
   skillPath: string;
   skillInstalled: boolean; // 已安装且内容与当前版本一致
   skillManaged: boolean;
+  skillVersion?: string | null; // 已安装 Skill 的 frontmatter 版本
+  bundledSkillVersion: string; // 应用内置 Skill 版本
   configFormat: "json" | "toml";
   configSnippet: string;
 };
@@ -2352,16 +2355,91 @@ type UpdateAgentAccessSettingsInput = {
 响应：
 
 ```ts
+type AgentAccessCheck = {
+  id: string; // sidecar | dataDirectory | doctor | database | schema | agentAccessEnabled | bodyAccess | handshake | tools | sessions | clients
+  status: "ok" | "warning" | "error";
+  detail?: string | null;
+};
+
 type AgentAccessTestResult = {
-  ok: boolean;
+  ok: boolean; // 没有 error 级检查项
   message: string;
   sidecarPath?: string | null;
   sidecarVersion?: string | null;
-  details?: Record<string, unknown> | null;
+  checks: AgentAccessCheck[];
+  details?: Record<string, unknown> | null; // aiproxy-mcp --doctor 的原始 JSON
 };
 ```
 
-说明：调用 `aiproxy-mcp --doctor`，验证 sidecar、配置和数据库 schema。诊断失败返回 `ok=false`，不抛出命令错误。
+说明：
+
+- 先运行 `aiproxy-mcp --doctor`，检查 sidecar、配置是否启用、数据库可读性与列级 schema。
+- `agentAccessEnabled=true` 时再由桌面端执行一次真实 MCP stdio 会话：`initialize` → `tools/list` → `search_sessions(limit=1)`，确认 Agent 使用的同一条链路可用。
+- `bodyAccess` 为 warning 表示 Body 读取关闭，Agent 无法分析响应体。
+- 诊断失败返回 `ok=false`，不抛出命令错误；`checks` 供 UI 逐项展示与本地化。
+
+`aiproxy-mcp --doctor` 的 JSON：
+
+```ts
+type DoctorResult = {
+  ok: boolean; // 数据库可读 && 配置可读 && Agent 接入已启用 && 核心会话/详情/Body 引用 schema 完整
+  data: {
+    sidecarVersion: string;
+    dataDir: string;
+    databasePath: string;
+    databaseReadable: boolean;
+    configReadable: boolean;
+    agentAccessEnabled: boolean;
+    schemaCompatible: boolean;
+    capabilities: {
+      coreSessions: boolean;
+      sessionDetails: boolean;
+      bodyReferences: boolean;
+      webSocketMessages: boolean;
+      ruleTraces: boolean;
+      workspaces: boolean;
+    } | null;
+    permissions: { readSessions: boolean; readBodies: boolean; readRawBodies: boolean; readWebSocket: boolean } | null;
+    availableTools: string[];
+  };
+  issues: Array<{ code: string; message: string }>;
+  error?: { code: string; message: string };
+  configError?: string;
+};
+```
+
+### `remove_agent_client_config`
+
+请求：
+
+```ts
+type RemoveAgentClientConfigInput = {
+  client: "codex" | "claude" | "cursor";
+  removeSkill?: boolean; // 默认 false
+};
+```
+
+响应：
+
+```ts
+type RemoveAgentClientConfigResult = {
+  status: "removed" | "notInstalled";
+  client: "codex" | "claude" | "cursor";
+  path: string;
+  backupPath?: string | null;
+  skillRemoved: boolean;
+  skillSkipped: boolean; // 同名 Skill 不是 AIProxy 安装的，已保留
+  skillError?: string | null; // 配置已移除，但受管 Skill 删除失败
+};
+```
+
+说明：
+
+- 仅移除 `aiproxy` 条目，保留客户端中的其他 MCP 服务与用户配置；写入前备份原文件，目标是符号链接时拒绝。
+- 移除后若 `mcp_servers` / `mcpServers` 为空，会一并移除空容器。
+- `removeSkill=true` 时只删除含 `<!-- aiproxy-managed-skill: v1 -->` 标记的 Skill；自定义 Skill 不删除，返回 `skillSkipped=true`。
+- 配置已移除但 Skill 删除失败时仍返回 `status="removed"`，通过 `skillError` 报告失败原因，避免整体回滚误报。
+- 未找到 `aiproxy` 条目时返回 `status="notInstalled"`，不写文件。
 
 ### `install_agent_skill`
 
@@ -2444,9 +2522,13 @@ type AgentAuditLog = {
 
 ### MCP stdio tool contract
 
-`aiproxy-mcp` 当前工具契约版本为 `2.0`，提供 8 个只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
+`aiproxy-mcp` 当前工具契约版本为 `2.2`，提供 8 个只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
 
-所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。稳定排序：
+所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。`meta` 包含 `schemaVersion`、`dataFreshness`、`latestSessionAt`、`captureStatus`、`captureUpdatedAt`、`truncated`、`redacted`、`nextCursor`、`tookMs`、`readAt`；会话是全局的，不再返回恒为 `null` 的 `workspaceId`。稳定排序：
+
+- `latestSessionAt`：最新持久化会话的 `startedAt`，无会话时为 `null`；Agent 应据此说明数据截止时间。
+- `captureStatus`：`running` | `stopped` | `unknown`。来自 `agent-status.json` 心跳；文件缺失、解析失败或超过 120 秒未刷新时为 `unknown`，不得据此声称正在实时抓包。
+- `captureUpdatedAt`：心跳最后刷新时间。
 
 - 每次成功调用都会按 `limits.maxResponseBytes` 检查 `data` 的序列化大小；超限返回 `RESULT_TOO_LARGE`，`details` 包含 `resultBytes` 与 `maxResponseBytes`。调用方应减少 `limit`、改用 `compact` / `fields`，或拆分批量请求，不得静默截断后当作完整结果。
 
@@ -2458,23 +2540,28 @@ type AgentAuditLog = {
 会话参数与检索：
 
 - `sessionId` 先做精确匹配；失败后允许至少 8 字符的唯一前缀。0 条返回 `SESSION_NOT_FOUND`，多条返回 `SESSION_ID_AMBIGUOUS`，`details.candidates` 最多 5 条。
-- `search_sessions` 支持 `pathContains`、`queryParams`、`since`、`compact`、`fields`。`queryParams` 同时匹配参数名和值；损坏的 query JSON 会被跳过。
+- `search_sessions` 支持 `pathContains`、`queryParams`、`since`、`compact`、`fields`。`queryParams` 同时匹配参数名和值；损坏的 query JSON 会被跳过。`compact=true` 默认返回 `sessionId`、`method`、`host`、`path`、`statusCode`、`durationMs`、`sizeBytes`、`startedAt`，跨 host 分析不会丢维度。
 - `searchIn` 严格取值为 `url`、`host`、`path`、`method`、`headers`、`query`。
 
 Body 与字段提取：
 
+- `get_session_body` 与 `get_session_fields` 必须提供 `part`（`request` | `response`）；缺少时 MCP 客户端会收到参数反序列化错误。
 - `get_session_body` 支持 `metadata`、`redacted-text`、`base64`、`raw`；`jsonPaths` 支持 `$`、点号 key、方括号 key、数组索引和 `*` 通配符，不支持过滤表达式、递归下降或脚本。
 - JSON 模式会读取不超过 8 MiB 的完整 Body、完整解析、整体脱敏，再提取字段。扫描超限返回 `BODY_TOO_LARGE`；非 JSON 返回 `BODY_NOT_JSON`；非法 path 返回 `JSON_PATH_INVALID`。
 - `textQuery` 在脱敏文本视图中搜索，最多 20 个命中，`contextBytes` 默认 120、最大 1024。
+- 表单参数提取：`includeFormParams=true` 返回全部参数，`formParamNames`（最多 20 个，去重后保持给定顺序）只返回指定参数；两者互斥，且不能与 `jsonPaths` / `textQuery` 同时使用。仅支持 `application/x-www-form-urlencoded` 与带 `boundary` 的 `multipart/form-data`，否则返回 `BODY_NOT_FORM`（`details.reason` 为 `notForm` / `invalidBoundary` / `malformedMultipart`）。
+- 表单结果：`encoding="form"`、`formFormat=urlencoded|multipart`、`formParamCount`（Body 中的参数总数）、`formParams`、`formParamsTruncated`。每项包含 `name`、`found`、`value`、`valueType=text|file|binary|missing`、`sizeBytes`、`truncated`；文件项只返回 `fileName`、`contentType`、`sizeBytes`，`value=null`；请求的 `formParamNames` 不存在时 `found=false`。
+- 表单预算：最多 200 个参数、单值 64 KiB、单次表单负载 512 KiB；超限置 `formParamsTruncated=true` 且 `truncatedReasons` 含 `resultLimit`。值按参数名与格式脱敏，`redactedFields` 汇总命中规则；`raw` 模式需 `readRawBodies`。
 - `get_session_fields` 接受最多 20 个 `sessionIds` 和 20 个 `jsonPaths`，逐项返回成功或错误。
 - Body 大小字段固定为 `wireSizeBytes`（网络传输/压缩后）、`decodedSizeBytes`（解码后完整）、`viewSizeBytes`（脱敏/解析视图）。完整性使用 `hasMore`、`captureTruncated`、`scanTruncated`、`truncatedReasons`，不得根据 `returnedBytes` 推断。
 - `offsetUnit=decodedViewBytes` 表示 `redacted-text` offset 基于脱敏视图；`decodedBodyBytes` 表示 `raw` / `base64`；`metadata` 无 offset。
 
 聚合与比较：
 
-- `get_insights` 支持 `pathContains`、`queryParams` 和 `groupBy=host|path|queryParam`；`queryParam` 需提供 `groupQueryParam`。每组返回 `key`、`requestCount`、`errorCount`、`errorRate`、`avgDurationMs`、`p50DurationMs`、`p95DurationMs`、`totalBytes`。
+- `get_insights` 支持 `since`（相对时长，例如 `2h`）或 `startedAfter` / `startedBefore`；两者互斥。另支持 `pathContains`、`queryParams` 和 `groupBy=host|path|queryParam`；`queryParam` 需提供 `groupQueryParam`。每组返回 `key`、`requestCount`、`errorCount`、`errorRate`、`avgDurationMs`、`p50DurationMs`、`p95DurationMs`、`totalBytes`。
 - `compare_sessions` 支持 `jsonPaths` 与 `diffMode=auto|json|text`。`diffMode=json` 对非 JSON 返回 `BODY_NOT_JSON`；任一侧 Body 扫描超过 8 MiB 返回 `BODY_TOO_LARGE`，不比较不完整内容。
-- `list_workspaces` 额外返回全局 `sessionCount`、`latestSessionAt`、`latestSessionId`、`sessionScope="global"`；`runtimeStatus` 仍为 `unknown`。
+- `list_workspaces` 是可选工具，不是检索入口：会话全局存储、不能按 workspace 过滤。它额外返回全局 `sessionCount`、`latestSessionAt`、`latestSessionId`、`sessionScope="global"`；`runtimeStatus` 仍为 `unknown`。数据库缺少工作区列时返回 `SCHEMA_INCOMPATIBLE`。
+- 数据库 schema 滞后（更新 AIProxy 后尚未启动应用）时，`get_session`、`get_session_fields`、`get_session_body`、`compare_sessions`、`get_websocket_messages`、`list_workspaces` 返回 `SCHEMA_INCOMPATIBLE`，`message` 明确要求先打开一次 AIProxy 完成迁移；`search_sessions`、`get_insights`、`get_session(summary)` 仍可用。
 
 脱敏配置位于 `agent-access.json` 的 `redaction` 字段，版本为 `2`：
 

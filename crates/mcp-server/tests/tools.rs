@@ -252,6 +252,7 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
     .unwrap();
     assert_eq!(search_data["items"].as_array().unwrap().len(), 1);
     assert!(search_data["items"][0].get("url").is_none());
+    assert_eq!(search_data["items"][0]["host"], "api.example.com");
     assert!(search_meta.next_cursor.is_some());
 
     let (filtered, _) = search(
@@ -314,6 +315,8 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
             json_paths: Vec::new(),
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -333,6 +336,8 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
             json_paths: Vec::new(),
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -350,6 +355,8 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
             json_paths: vec!["$.ab.ab_test".to_string()],
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -375,6 +382,8 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
             json_paths: Vec::new(),
             text_query: Some("hello".to_string()),
             context_bytes: Some(20),
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -468,6 +477,29 @@ async fn websocket_and_insights_use_permissions_and_scope() {
     .unwrap_err();
     assert_eq!(error.code, "INVALID_ARGUMENT");
 
+    let (by_since, _) = get_insights(
+        &context,
+        GetInsightsRequest {
+            since: Some("7d".to_string()),
+            ..GetInsightsRequest::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(by_since["totalRequests"], 2);
+
+    let conflict = get_insights(
+        &context,
+        GetInsightsRequest {
+            since: Some("7d".to_string()),
+            started_after: Some("2026-10-17T00:00:00Z".to_string()),
+            ..GetInsightsRequest::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(conflict.code, "INVALID_ARGUMENT");
+
     let _ = std::fs::remove_dir_all(directory);
 }
 
@@ -541,6 +573,222 @@ async fn session_prefixes_and_since_are_resolved_safely() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
+fn insert_form_request_session(directory: &Path, id: &str, body: &str, mime_type: &str) {
+    let connection = aiproxy_db::rusqlite::Connection::open(directory.join("aiproxy.db")).unwrap();
+    let summary = SessionSummaryRow {
+        id: id.to_string(),
+        method: "POST".to_string(),
+        host: "api.example.com".to_string(),
+        path: format!("/{id}"),
+        protocol: "HTTP/2".to_string(),
+        scheme: "https".to_string(),
+        http_version: "2".to_string(),
+        transport_protocol: "tcp".to_string(),
+        application_protocol: "http".to_string(),
+        started_at: "2026-10-17T12:00:00Z".to_string(),
+        finished_at: "2026-10-17T12:00:01Z".to_string(),
+        duration_ms: 60,
+        size_bytes: body.len(),
+        status_code: 200,
+        url: format!("https://api.example.com/{id}"),
+        response_mime_type: None,
+    };
+    let detail = SessionDetailRow {
+        id: format!("{id}-detail"),
+        session_summary_id: id.to_string(),
+        query_params: "[]".to_string(),
+        cookies: "[]".to_string(),
+        request_headers: json!([{ "name": "Content-Type", "value": mime_type }]).to_string(),
+        response_headers: "[]".to_string(),
+        raw_request: None,
+        raw_response: None,
+        client_address: None,
+        server_ip: None,
+        tls_cipher_suite: None,
+        tls_protocol: None,
+        request_body_ref: Some(
+            json!({
+                "file_path": null,
+                "inline_text": body,
+                "base64_text": null,
+                "mime_type": mime_type,
+                "encoding": null,
+                "size_bytes": body.len(),
+                "truncated": false,
+            })
+            .to_string(),
+        ),
+        response_body_ref: None,
+        timing: None,
+        trailers: None,
+        h2_stream_id: None,
+        via_upstream_proxy: None,
+    };
+    upsert_session(&connection, &summary, &detail).unwrap();
+}
+
+#[tokio::test]
+async fn form_request_parameters_are_extracted_and_redacted() {
+    let (directory, context) = create_fixture("form_params");
+    insert_form_request_session(
+        &directory,
+        "form-urlencoded",
+        "user_id=42&password=hunter2&page=2&tag=a&tag=b&note=hello+world&encoded=%E4%B8%AD%E6%96%87&email=alice%40example.com",
+        "application/x-www-form-urlencoded; charset=UTF-8",
+    );
+    let multipart = concat!(
+        "--AABoundary\r\n",
+        "Content-Disposition: form-data; name=\"title\"\r\n\r\n",
+        "hello form\r\n",
+        "--AABoundary\r\n",
+        "Content-Disposition: form-data; name=\"avatar\"; filename=\"a.png\"\r\n",
+        "Content-Type: image/png\r\n\r\n",
+        "fake-png-bytes\r\n",
+        "--AABoundary--\r\n"
+    );
+    insert_form_request_session(
+        &directory,
+        "form-multipart",
+        multipart,
+        "multipart/form-data; boundary=AABoundary",
+    );
+
+    let (all, meta) = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "form-urlencoded".to_string(),
+            part: BodyPart::Request,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: true,
+            form_param_names: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(all["encoding"], "form");
+    assert_eq!(all["formFormat"], "urlencoded");
+    assert_eq!(all["formParamCount"], 8);
+    assert_eq!(all["formParamsTruncated"], false);
+    assert_eq!(all["formParams"][0]["name"], "user_id");
+    assert_eq!(all["formParams"][0]["found"], true);
+    // Identifier names are replaced with a stable pseudonym, never the raw id.
+    assert!(all["formParams"][0]["value"]
+        .as_str()
+        .unwrap()
+        .starts_with("[ID:"));
+    assert_eq!(all["formParams"][1]["value"], "[REDACTED]");
+    assert_eq!(all["formParams"][2]["value"], "2");
+    assert_eq!(all["formParams"][4]["value"], "b");
+    assert_eq!(all["formParams"][5]["value"], "hello world");
+    assert_eq!(all["formParams"][6]["value"], "中文");
+    assert!(all["formParams"][7]["value"]
+        .as_str()
+        .unwrap()
+        .starts_with("[EMAIL:"));
+    let serialized = all.to_string();
+    assert!(!serialized.contains("hunter2"));
+    assert!(!serialized.contains("alice@example.com"));
+    assert!(meta.redacted);
+
+    let (selected, _) = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "form-urlencoded".to_string(),
+            part: BodyPart::Request,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: false,
+            form_param_names: vec!["page".to_string(), "missing".to_string()],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(selected["formParamCount"], 8);
+    assert_eq!(selected["formParams"][0]["name"], "page");
+    assert_eq!(selected["formParams"][0]["found"], true);
+    assert_eq!(selected["formParams"][0]["value"], "2");
+    assert_eq!(selected["formParams"][1]["name"], "missing");
+    assert_eq!(selected["formParams"][1]["found"], false);
+    assert_eq!(selected["formParams"][1]["valueType"], "missing");
+
+    let (multipart_body, _) = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "form-multipart".to_string(),
+            part: BodyPart::Request,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: true,
+            form_param_names: Vec::new(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(multipart_body["formFormat"], "multipart");
+    assert_eq!(multipart_body["formParamCount"], 2);
+    assert_eq!(multipart_body["formParams"][0]["name"], "title");
+    assert_eq!(multipart_body["formParams"][0]["value"], "hello form");
+    assert_eq!(multipart_body["formParams"][1]["name"], "avatar");
+    assert_eq!(multipart_body["formParams"][1]["valueType"], "file");
+    assert!(multipart_body["formParams"][1]["value"].is_null());
+    assert_eq!(multipart_body["formParams"][1]["fileName"], "a.png");
+    assert_eq!(multipart_body["formParams"][1]["contentType"], "image/png");
+    assert_eq!(multipart_body["formParams"][1]["sizeBytes"], 14);
+
+    let not_form = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "left".to_string(),
+            part: BodyPart::Response,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: true,
+            form_param_names: Vec::new(),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(not_form.code, "BODY_NOT_FORM");
+
+    let conflict = get_session_body(
+        &context,
+        GetSessionBodyRequest {
+            session_id: "form-urlencoded".to_string(),
+            part: BodyPart::Request,
+            redaction_mode: BodyRedactionMode::RedactedText,
+            offset: None,
+            max_bytes: None,
+            json_paths: Vec::new(),
+            text_query: None,
+            context_bytes: None,
+            include_form_params: true,
+            form_param_names: vec!["page".to_string()],
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(conflict.code, "INVALID_ARGUMENT");
+
+    let _ = std::fs::remove_dir_all(directory);
+}
+
 #[tokio::test]
 async fn body_extraction_reports_non_json_and_invalid_paths() {
     let (directory, context) = create_fixture("body_errors");
@@ -563,6 +811,8 @@ async fn body_extraction_reports_non_json_and_invalid_paths() {
             json_paths: vec!["$.ab.ab_test".to_string()],
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -580,6 +830,8 @@ async fn body_extraction_reports_non_json_and_invalid_paths() {
             json_paths: vec!["ab.ab_test".to_string()],
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -673,6 +925,8 @@ async fn custom_sensitive_keys_and_disabled_hashing_apply_from_config() {
             ],
             text_query: None,
             context_bytes: None,
+            include_form_params: false,
+            form_param_names: Vec::new(),
         },
     )
     .await
@@ -798,9 +1052,150 @@ fn sidecar_doctor_reports_ready_fixture() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
+#[tokio::test]
+async fn tool_meta_reports_freshness_and_capture_status() {
+    let (directory, context) = create_fixture("freshness");
+    let status_path = directory.join("agent-status.json");
+    std::fs::write(
+        &status_path,
+        json!({
+            "appRunning": true,
+            "capturing": true,
+            "proxyPort": 8888,
+            "updatedAt": chrono::Utc::now().to_rfc3339(),
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let freshness = context.freshness();
+    assert_eq!(
+        freshness.latest_session_at.as_deref(),
+        Some("2026-10-17T10:00:01Z")
+    );
+    assert_eq!(freshness.capture_status, "running");
+    assert!(freshness.capture_updated_at.is_some());
+
+    std::fs::write(
+        &status_path,
+        json!({
+            "appRunning": true,
+            "capturing": true,
+            "proxyPort": 8888,
+            "updatedAt": (chrono::Utc::now() - chrono::Duration::seconds(600)).to_rfc3339(),
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let stale_freshness = context.freshness();
+    assert_eq!(stale_freshness.capture_status, "unknown");
+
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn doctor_reports_disabled_agent_access() {
+    let (directory, context) = create_fixture("doctor_disabled");
+    write_config(
+        &context.paths.config_path,
+        &AgentAccessConfig {
+            enabled: false,
+            ..AgentAccessConfig::default()
+        },
+    )
+    .unwrap();
+
+    let result = context.doctor_result();
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["data"]["agentAccessEnabled"], false);
+    assert!(result["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|issue| issue["code"] == "AGENT_ACCESS_DISABLED"));
+
+    write_config(
+        &context.paths.config_path,
+        &AgentAccessConfig {
+            enabled: true,
+            ..AgentAccessConfig::default()
+        },
+    )
+    .unwrap();
+    let result = context.doctor_result();
+    assert_eq!(result["ok"], true);
+    assert_eq!(result["data"]["agentAccessEnabled"], true);
+    assert_eq!(result["data"]["schemaCompatible"], true);
+    assert_eq!(result["data"]["capabilities"]["sessionDetails"], true);
+
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[tokio::test]
+async fn stale_schema_returns_actionable_migration_error() {
+    let (directory, _context) = create_fixture("stale_schema");
+    {
+        let connection =
+            aiproxy_db::rusqlite::Connection::open(directory.join("aiproxy.db")).unwrap();
+        connection
+            .execute(
+                "ALTER TABLE session_details DROP COLUMN via_upstream_proxy",
+                [],
+            )
+            .unwrap();
+    }
+
+    let context = AppContext::new(AppPaths::resolve(Some(directory.clone()), None).unwrap());
+    let doctor = context.doctor_result();
+    assert_eq!(doctor["ok"], false);
+    assert_eq!(doctor["data"]["schemaCompatible"], false);
+    assert!(doctor["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|issue| issue["code"] == "SCHEMA_INCOMPATIBLE"));
+
+    let error = get_session(
+        &context,
+        GetSessionRequest {
+            session_id: "left".to_string(),
+            include: vec![SessionInclude::Headers],
+            redaction_mode: RedactionMode::RedactedText,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "SCHEMA_INCOMPATIBLE");
+    assert!(error.message.contains("Open AIProxy"));
+
+    let (search_data, _) = search(
+        &context,
+        SearchSessionsRequest {
+            limit: Some(1),
+            ..SearchSessionsRequest::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(search_data["items"].as_array().unwrap().len(), 1);
+
+    let _ = std::fs::remove_dir_all(directory);
+}
+
 #[test]
 fn sidecar_handles_mcp_initialize_and_tools_list() {
     let (directory, context) = create_fixture("stdio");
+    std::fs::write(
+        directory.join("agent-status.json"),
+        json!({
+            "appRunning": true,
+            "capturing": true,
+            "proxyPort": 8888,
+            "updatedAt": chrono::Utc::now().to_rfc3339(),
+        })
+        .to_string(),
+    )
+    .unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_aiproxy-mcp"))
         .args([
             "--data-dir",
@@ -918,6 +1313,9 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     }
     assert_eq!(envelope["ok"], true);
     assert_eq!(envelope["meta"]["schemaVersion"], MCP_TOOL_SCHEMA_VERSION);
+    assert_eq!(envelope["meta"]["latestSessionAt"], "2026-10-17T10:00:01Z");
+    assert_eq!(envelope["meta"]["captureStatus"], "running");
+    assert!(envelope["meta"]["captureUpdatedAt"].is_string());
 
     write_config(
         &context.paths.config_path,

@@ -3,7 +3,9 @@ use chrono::Utc;
 use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
 
-pub const MCP_TOOL_SCHEMA_VERSION: &str = "2.0";
+use crate::context::Freshness;
+
+pub const MCP_TOOL_SCHEMA_VERSION: &str = "2.2";
 
 #[derive(Debug, Clone, Default)]
 pub struct ToolMeta {
@@ -12,6 +14,9 @@ pub struct ToolMeta {
     pub redacted: bool,
     pub next_cursor: Option<String>,
     pub audit_degraded: bool,
+    pub latest_session_at: Option<String>,
+    pub capture_status: Option<&'static str>,
+    pub capture_updated_at: Option<String>,
 }
 
 impl ToolMeta {
@@ -35,11 +40,20 @@ impl ToolMeta {
         self
     }
 
+    pub fn with_freshness(mut self, freshness: Freshness) -> Self {
+        self.latest_session_at = freshness.latest_session_at;
+        self.capture_status = Some(freshness.capture_status);
+        self.capture_updated_at = freshness.capture_updated_at;
+        self
+    }
+
     fn to_json(&self, started: std::time::Instant) -> Value {
         json!({
             "schemaVersion": MCP_TOOL_SCHEMA_VERSION,
             "dataFreshness": "persisted",
-            "workspaceId": Value::Null,
+            "latestSessionAt": self.latest_session_at,
+            "captureStatus": self.capture_status.unwrap_or("unknown"),
+            "captureUpdatedAt": self.capture_updated_at,
             "truncated": self.truncated,
             "truncatedReason": self.truncated_reason,
             "redacted": self.redacted,
@@ -122,7 +136,11 @@ pub fn map_db_error(error: DbError, body_context: bool) -> ToolError {
     match error {
         DbError::Connection(message) => {
             if message.contains("does not exist") {
-                ToolError::new("AI_PROXY_NOT_INITIALIZED", message)
+                ToolError::new(
+                    "AI_PROXY_NOT_INITIALIZED",
+                    "No AIProxy database was found. Open AIProxy and capture some traffic first.",
+                )
+                .with_details(json!({ "context": message }))
             } else {
                 ToolError::new("INTERNAL_ERROR", message)
             }
@@ -160,9 +178,17 @@ pub fn map_db_error(error: DbError, body_context: bool) -> ToolError {
             _ if source.to_string().contains("no such table")
                 || source.to_string().contains("no such column") =>
             {
-                ToolError::new("SCHEMA_INCOMPATIBLE", context)
+                ToolError::new(
+                    "SCHEMA_INCOMPATIBLE",
+                    "The AIProxy database schema is out of date. Open AIProxy once so it can run migrations, then retry.",
+                )
+                .with_details(json!({ "context": context }))
             }
-            _ => ToolError::new("INTERNAL_ERROR", context),
+            _ => ToolError::new(
+                "INTERNAL_ERROR",
+                "The AIProxy database query failed. Open AIProxy once, then retry the tool call.",
+            )
+            .with_details(json!({ "context": context })),
         },
         other => ToolError::new("INTERNAL_ERROR", other.to_string()),
     }

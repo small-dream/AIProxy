@@ -52,6 +52,7 @@ pub fn finish_success(
             );
         }
     }
+    let meta = meta.with_freshness(state.freshness());
     let audit_ok = state.record_audit(
         started,
         AuditRecord {

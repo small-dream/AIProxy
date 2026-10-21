@@ -580,6 +580,7 @@ async fn start_proxy_impl(
         "start_proxy_succeeded"
     );
 
+    crate::agent_status::write_from_state(&state);
     Ok(status)
 }
 
@@ -619,6 +620,7 @@ async fn stop_proxy_impl(
         "stop_proxy_succeeded"
     );
 
+    crate::agent_status::write_from_state(&state);
     Ok(status)
 }
 

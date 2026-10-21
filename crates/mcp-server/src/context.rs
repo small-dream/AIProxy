@@ -13,6 +13,7 @@ use crate::config::{
     DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_SESSIONS,
 };
 use crate::protocol::ToolError;
+use crate::status::read_capture_status;
 
 pub const TOOL_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -37,6 +38,15 @@ pub struct AuditRecord<'a> {
     pub error_code: Option<&'a str>,
 }
 
+/// Metadata placed on every tool result so an Agent can tell the user how old
+/// the data is and whether capture is still running.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Freshness {
+    pub latest_session_at: Option<String>,
+    pub capture_status: &'static str,
+    pub capture_updated_at: Option<String>,
+}
+
 impl AppContext {
     pub fn new(paths: AppPaths) -> Self {
         let (capabilities, startup_error) = match open_read_only_database(&paths.db_path) {
@@ -46,7 +56,7 @@ impl AppContext {
                     None,
                     Some(ToolError::new(
                         "SCHEMA_INCOMPATIBLE",
-                        "The AIProxy database is missing required session tables or columns.",
+                        "The AIProxy database is missing required session tables or columns. Open AIProxy once so it can run migrations, then retry.",
                     )),
                 ),
                 Err(error) => (None, Some(crate::protocol::map_db_error(error, false))),
@@ -84,6 +94,43 @@ impl AppContext {
 
     pub fn config_for_doctor(&self) -> Result<AgentAccessConfig, ConfigReadError> {
         read_config(&self.paths.config_path)
+    }
+
+    pub fn freshness(&self) -> Freshness {
+        let latest_session_at = if self.startup_error.is_some() {
+            None
+        } else {
+            match open_read_only_database(&self.paths.db_path) {
+                Ok(connection) => connection
+                    .query_row("SELECT MAX(started_at) FROM session_summaries", [], |row| {
+                        row.get::<_, Option<String>>(0)
+                    })
+                    .unwrap_or_else(|error| {
+                        tracing::warn!(
+                            component = "mcp.freshness",
+                            event = "latest_session_query_failed",
+                            error = %error,
+                            "latest_session_query_failed"
+                        );
+                        None
+                    }),
+                Err(error) => {
+                    tracing::warn!(
+                        component = "mcp.freshness",
+                        event = "freshness_database_open_failed",
+                        error = %error,
+                        "freshness_database_open_failed"
+                    );
+                    None
+                }
+            }
+        };
+        let capture = read_capture_status(&self.paths.data_dir);
+        Freshness {
+            latest_session_at,
+            capture_status: capture.status,
+            capture_updated_at: capture.updated_at,
+        }
     }
 
     pub async fn with_db<T, F>(&self, operation: F) -> Result<T, ToolError>
@@ -152,25 +199,84 @@ impl AppContext {
         let config = self.config_for_doctor();
         let database_readable = self.startup_error.is_none();
         let config_readable = config.is_ok();
+        let capabilities = self.capabilities;
+        let schema_compatible = capabilities.is_some_and(|value| {
+            value.core_sessions && value.session_details && value.body_references
+        });
+        let enabled = config.as_ref().is_ok_and(|value| value.enabled);
+        let permissions = config.as_ref().ok().map(|value| {
+            json!({
+                "readSessions": value.permissions.read_sessions,
+                "readBodies": value.permissions.read_bodies,
+                "readRawBodies": value.permissions.read_raw_bodies,
+                "readWebSocket": value.permissions.read_web_socket,
+            })
+        });
+        let mut issues: Vec<Value> = Vec::new();
+        if !database_readable {
+            issues.push(json!({
+                "code": "DATABASE_UNREADABLE",
+                "message": "The AIProxy database could not be opened in read-only mode.",
+            }));
+        }
+        if let Some(error) = &self.startup_error {
+            issues.push(json!({
+                "code": error.code,
+                "message": error.message,
+            }));
+        } else if !schema_compatible {
+            issues.push(json!({
+                "code": "SCHEMA_INCOMPATIBLE",
+                "message": "The AIProxy database schema is out of date. Open AIProxy once so it can run migrations.",
+            }));
+        }
+        if capabilities.is_some_and(|value| !value.websocket_messages) {
+            issues.push(json!({
+                "code": "WEBSOCKET_SCHEMA_INCOMPATIBLE",
+                "message": "WebSocket message reading is unavailable until AIProxy migrates the database.",
+            }));
+        }
+        if capabilities.is_some_and(|value| !value.workspaces) {
+            issues.push(json!({
+                "code": "WORKSPACE_SCHEMA_INCOMPATIBLE",
+                "message": "Workspace listing is unavailable until AIProxy migrates the database.",
+            }));
+        }
+        match &config {
+            Ok(value) if !value.enabled => issues.push(json!({
+                "code": "AGENT_ACCESS_DISABLED",
+                "message": "Agent Access is disabled. Enable it in AIProxy Settings > Agent Access.",
+            })),
+            Err(error) => issues.push(json!({
+                "code": "AGENT_ACCESS_CONFIG_INVALID",
+                "message": error.message(),
+            })),
+            _ => {}
+        }
+
+        let ok = database_readable && config_readable && enabled && schema_compatible;
         let mut body = json!({
-            "ok": database_readable && config_readable,
+            "ok": ok,
             "data": {
                 "sidecarVersion": self.sidecar_version,
                 "dataDir": self.paths.data_dir.display().to_string(),
                 "databasePath": self.paths.db_path.display().to_string(),
                 "databaseReadable": database_readable,
                 "configReadable": config_readable,
-                "schemaCompatible": self.capabilities.is_some(),
-                "capabilities": self.capabilities.map(capabilities_json),
+                "agentAccessEnabled": enabled,
+                "schemaCompatible": schema_compatible,
+                "capabilities": capabilities.map(capabilities_json),
+                "permissions": permissions,
                 "availableTools": available_tools(),
             },
         });
         if let Some(error) = &self.startup_error {
             body["error"] = json!({ "code": error.code, "message": error.message });
         }
-        if let Err(error) = config {
+        if let Err(error) = &config {
             body["configError"] = json!(error.message());
         }
+        body["issues"] = json!(issues);
         body
     }
 }
@@ -178,6 +284,7 @@ impl AppContext {
 fn capabilities_json(capabilities: SchemaCapabilities) -> Value {
     json!({
         "coreSessions": capabilities.core_sessions,
+        "sessionDetails": capabilities.session_details,
         "bodyReferences": capabilities.body_references,
         "webSocketMessages": capabilities.websocket_messages,
         "ruleTraces": capabilities.rule_traces,

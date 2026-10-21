@@ -28,9 +28,9 @@ AIProxy turns captured traffic into an evidence source your coding agent can rea
 
 | Capability | What you get |
 |------------|--------------|
-| **Agent Access (MCP)** | One-click MCP setup for Codex, Claude Code, and Cursor. Eight read-only tools cover session search, header and timing inspection, JSON field extraction, WebSocket messages, traffic insights, and structured session comparison. |
+| **Agent Access (MCP)** | One-click MCP setup for Codex, Claude Code, and Cursor with a permission preset. Eight read-only tools cover session search, header and timing inspection, JSON field extraction, WebSocket messages, traffic insights, and structured session comparison; every result reports the latest session time and capture status. |
 | **AI diff summaries** | Generate a Markdown explanation of any Compare result with an OpenAI-compatible model. Preview the payload and redact sensitive fields locally before it is sent to your configured provider. |
-| **Private by default** | The MCP server runs as a local stdio sidecar with no open port. Reads are redacted by default, body access is bounded, and audit logs contain metadata only. Raw-body access requires a separate opt-in. |
+| **Private by default** | The MCP server runs as a local stdio sidecar with no open port. AIProxy never uploads captures, but once your agent reads them that content is sent to its model provider. Reads are redacted by default, body access is bounded, and audit logs contain metadata only. Raw-body access requires a separate opt-in. |
 
 > Example: ask your agent to “compare the failed `/api/checkout` requests with the last successful run and cite the session IDs.” Your agent gets the evidence through MCP and explains what changed.
 
