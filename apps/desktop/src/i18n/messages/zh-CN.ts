@@ -515,6 +515,7 @@ export const zhCNMessages: Messages = {
     description: "选择哪些域名需要解密。未被解密的域名仍会正常转发，只是看不到其流量内容。",
     modeAllExceptExcluded: "当前：解密除排除列表以外的全部域名。",
     modeIncludeList: "当前：仅解密包含列表中已启用的域名。",
+    modeAllHosts: "当前：排除列表已关闭，将解密全部域名。",
     includeEnabledLabel: "只看包含列表中的域名",
     includeEnabledDescription:
       "开启后仅解密包含列表中已启用的域名，其余盲转发；关闭后解密除排除列表以外的全部域名。",
@@ -1343,6 +1344,8 @@ export const zhCNMessages: Messages = {
     sslDecryptEnabled: "已启用 {{host}} 的 SSL 解密",
     sslDecryptToggleFailed: "更新 SSL 解密设置失败",
     addedToIncludeList: "已将 {{host}} 加入包含列表，仅解密包含列表中匹配的域名。",
+    addToIncludeListExcluded:
+      "{{host}} 位于排除列表中，加入包含列表也不会生效。请先从排除列表移除该域名。",
     addedToIncludeListFailed: "添加域名到包含列表失败",
     compareBaseSet: "已将 {{method}} {{path}} 设为对比基准。",
     filterAllSessions: "全部会话",

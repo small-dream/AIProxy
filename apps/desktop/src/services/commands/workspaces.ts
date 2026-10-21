@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import {
   coerceAppError,
+  DEFAULT_SSL_PROXYING_EXCLUSIONS,
   parseSslProxyingExclusions,
   parseUpstreamProxyProbeResult,
   parseWorkspace,
@@ -260,19 +261,7 @@ export async function testUpstreamProxy(input: {
 export async function loadDefaultSslProxyingExclusions(): Promise<string[]> {
   if (!isTauriRuntime()) {
     logDevDebug("ui.commands", "load_default_ssl_proxying_exclusions_bypassed_non_tauri_runtime");
-    return parseSslProxyingExclusions([
-      "*.tiktokv.com",
-      "*.tiktokcdn.com",
-      "*.tiktok-row.net",
-      "*.snssdk.com",
-      "*.byteoversea.com",
-      "*.icloud.com",
-      "*.icloud.com.cn",
-      "apps.apple.com",
-      "*.apps.apple.com",
-      "itunes.apple.com",
-      "*.itunes.apple.com",
-    ]);
+    return parseSslProxyingExclusions([...DEFAULT_SSL_PROXYING_EXCLUSIONS]);
   }
 
   try {

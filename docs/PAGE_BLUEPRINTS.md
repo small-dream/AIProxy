@@ -234,7 +234,7 @@ Sessions polling returns captured sessions
 
 **键盘与多选（P1）：** 会话树支持 `↑/↓`、`Home/End`、`Esc`；`⌘/Ctrl+点击` 多选、`Shift+点击` 范围选择（按树可见顺序，`collectVisibleSessionIds` 与键盘导航共用同一顺序源）；多选批量条支持导出 / 保存响应 / 删除（删除需确认）。
 
-**SSL 按 host 解密（P1）：** host 右键菜单可对 host 停用/启用 SSL 解密，写入 `Workspace.sslBlindHosts`（DB `ssl_blind_hosts` 列），代理运行时对列表内 host 直接盲通（`is_ssl_blind_tunnel` / `host_in_allowlist`），修改后自动重启代理生效。host 右键的 `Add to Include list` 会把 host 加入 `Workspace.sslProxying.include`（启用条目、打开 `includeEnabled`、并移除其 `sslBlindHosts` 盲通项），同样在代理运行时自动重启生效。
+**SSL 按 host 解密（P1）：** host 右键菜单可对 host 停用/启用 SSL 解密，写入 `Workspace.sslBlindHosts`（DB `ssl_blind_hosts` 列），代理运行时对列表内 host 直接盲通（`is_ssl_blind_tunnel` / `host_in_allowlist`），修改后自动重启代理生效。host 右键的 `Add to Include list` 会把 host 加入 `Workspace.sslProxying.include`（启用条目、打开 `includeEnabled`、并移除其 `sslBlindHosts` 盲通项），同样在代理运行时自动重启生效；若 host 已命中启用的 Exclude 条目则不得写入并提示冲突，避免白名单范围已收缩但目标仍不解密。
 
 ### 4.7 上下文菜单事件流
 
@@ -1315,12 +1315,14 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` �
 - **exclude 优先于 include**：exclude 是 App 出问题时的逃生舱，不能被宽泛的 include 规则击穿。
 - **默认保持历史行为**：`includeEnabled` 默认关闭 ⇒ 解密所有未被排除的域名。若默认改为白名单模式，升级后用户会突然什么都抓不到。
 - **总开关 + 条目开关**：每个列表一个总开关（`includeEnabled` / `excludeEnabled`），每条规则带独立 `enabled` 开关；关闭的条目保留但不生效。总开关内联在对应列表标题行右侧，与列表紧贴。「只看一个域名」= 打开 include 总开关并只启用该条目，「看全部」= 关闭 include 总开关，全程无需删除/重加规则。**总开关是列表的作用域开关**：关闭时整个列表不生效，因此 UI 必须让条目开关同步进入禁用态（置灰 + `sslProxying.listInactiveHint` 提示 + 列表整体降不透明度），条目 `enabled` 原始取值只作为保存的数据保留，绝不渲染成「貌似生效」的开启态。
-- **旧数据迁移**：升级前保存的 `{ include: string[], exclude: string[] }` 在 Rust 反序列化时自动迁移为条目形式（`includeEnabled = include 非空`、`excludeEnabled = true`、条目均 `enabled`），行为保持不变。
+- **旧数据迁移与缺字段回退**：升级前保存的 `{ include: string[], exclude: string[] }` 在 Rust 反序列化时自动迁移为条目形式（`includeEnabled = include 非空`、`excludeEnabled = true`、条目均 `enabled`），行为保持不变。新格式若缺少 `excludeEnabled`，必须回退为 `true`；若缺少 `exclude` 列表，必须回退为推荐排除表，禁止因部分/损坏 JSON 静默关闭安全网。
 - **「从未配置」≠「两个空列表」**：DB 列为空串时回退到内置推荐排除表，因此已有 workspace 升级后能直接获得保护，而不必手动配置。
 - **未解密仍然转发**：被排除的域名走 `tunnel_blind_relay`，与 `ssl_enabled=false` 是同一条代码路径，App 功能不受影响。
 - **仅在 `ssl_enabled` 为 true 时生效**：拦截关闭时没有可缩放的范围，此时运行时策略为 `None`。
 - **重启才生效**：策略在代理服务器生命周期内固定；保存时若代理正在运行会自动重启。
-- **推荐列表由后端提供**：`default_ssl_proxying_exclusions` 命令返回内置列表，避免前后端各存一份而漂移。
+- **推荐列表单一事实源**：推荐项维护在 `packages/shared-types/src/ssl-proxying-defaults.json`；Rust 通过 `include_str!` 加载，前端 non-Tauri 回退直接导入同一文件，`default_ssl_proxying_exclusions` 命令返回其解析结果。推荐表只收已知会导致 App 或平台流程失败的绑定域名，不使用 `*.googleapis.com` 这类大范围 API 通配来降低噪音。
+- **恢复推荐采用合并**：补充缺失推荐项并重新启用已有推荐项，保留用户自定义排除项及其顺序/启用状态，禁止整表覆盖。
+- **右键加入 Include 的冲突保护**：若 host 命中启用中的 Exclude（含通配符/CIDR），先提示冲突并中止，不修改 `includeEnabled`、Include 或盲通列表。
 - **推荐列表不可用时锁定保存**：从未配置过策略的工作区以推荐列表为草稿底稿；该列表加载失败（或尚未加载完）时保存按钮禁用并给出警示——否则会把空 exclude 列表持久化，静默丢掉对已知绑定证书域名的防护。已配置过的工作区不受影响（草稿来自已存设置）。
 - **保存成功的提示不被工作区刷新擦除**：保存后 workspace 缓存失效重取会生成同 id 的新对象，重置草稿与反馈分别依赖不同信号（内容 vs id），成功消息因此保留。
 - **握手失败按原因分级**：客户端以证书类 alert 拒绝记为 `debug`（多为证书绑定，无法通过配置解决；措辞不断言绑定——OpenSSL 系栈会把部分链校验失败也映射为 `bad_certificate`），客户端不信任根证书记为 `warn`（用户可修复）。此前两者都会各产生一条 WARN + 一条 ERROR，把真正的问题淹没掉。
@@ -1332,9 +1334,12 @@ Settings Page（`pages/settings/index.tsx`）内的独立 `SslProxyingSection` �
 | 页面 | `pages/settings/index.tsx` — `SslProxyingSection` | 总开关 + 条目列表（含每条 Switch/删除/新增）+ 恢复推荐 + 保存/重启 |
 | Feature Hooks | `features/workspace-manager/use-workspaces.ts` | `useUpdateWorkspace`（`sslProxying` 入参） |
 | 服务层 | `services/commands/workspaces.ts` | `updateWorkspace`, `loadDefaultSslProxyingExclusions` |
-| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` / `SslProxyEntry` 及其校验函数 |
+| 共享类型 | `packages/shared-types/src/workspaces.ts` | `SslProxyingSettings` / `SslProxyEntry` 及其校验函数；推荐排除项常量 |
+| 共享数据 | `packages/shared-types/src/ssl-proxying-defaults.json` | 前后端共用的推荐排除列表单一事实源 |
+| 共享匹配 | `packages/shared-types/src/host-pattern.ts` | 前端冲突提示使用的 host pattern 匹配（与 Rust 语义对齐） |
 | Rust 命令 | `src-tauri/src/commands/proxy.rs` | `default_ssl_proxying_exclusions`；`start_proxy` 中解析 workspace 策略 |
-| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`（总开关 + 条目开关判定）、旧格式迁移反序列化、推荐排除表 |
+| Rust 领域 | `crates/proxy-core/src/ssl_proxying.rs` | `should_intercept()`（总开关 + 条目开关判定）、旧格式迁移与缺字段安全回退 |
+| Rust 数据 | `crates/proxy-core/src/ssl_proxying_defaults.rs` | 编译期加载共享 JSON 推荐排除表 |
 | Rust 领域 | `crates/proxy-core/src/host_pattern.rs` | 域名模式匹配（与上游代理绕行列表共用） |
 | Rust 分流 | `crates/proxy-core/src/server.rs` | CONNECT 时按域名决定 MITM 还是盲转发 |
 | 存储 | `crates/db/src/workspaces.rs`, `schema.rs` | `workspaces.ssl_proxying` JSON 列 |

@@ -61,6 +61,36 @@ function sslProxyingSettingsKey(settings: SslProxyingSettings): string {
 }
 
 /**
+ * Merge recommended exclusions into the user's list instead of replacing it.
+ * Custom escape-hatch entries must survive the action; recommended entries are
+ * re-enabled without changing the casing or position of existing entries.
+ */
+function mergeRecommendedExclusions(
+  entries: SslProxyEntry[],
+  recommended: string[],
+): SslProxyEntry[] {
+  const recommendedKeys = new Set(recommended.map((pattern) => pattern.toLowerCase()));
+  const seen = new Set<string>();
+  const merged: SslProxyEntry[] = [];
+
+  for (const entry of entries) {
+    const key = entry.pattern.trim().toLowerCase();
+    if (key.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(recommendedKeys.has(key) ? { ...entry, enabled: true } : entry);
+  }
+
+  for (const pattern of recommended) {
+    const key = pattern.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ pattern, enabled: true });
+  }
+
+  return merged;
+}
+
+/**
  * A single rule list with per-entry switches and an add box, shared by the
  * include and exclude lists so both feel identical. Disabled entries are kept
  * around but do not apply, so switching scope never requires deleting rules.
@@ -379,6 +409,14 @@ export function SslProxyingSection() {
           </Alert>
         )}
 
+        <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+          {draft.includeEnabled
+            ? t("sslProxying.modeIncludeList")
+            : draft.excludeEnabled
+              ? t("sslProxying.modeAllExceptExcluded")
+              : t("sslProxying.modeAllHosts")}
+        </Typography>
+
         {isSslDisabled && (
           <Alert severity="info" variant="outlined" icon={<InfoRoundedIcon />} sx={compactAlertSx}>
             {t("sslProxying.sslDisabledHint")}
@@ -400,7 +438,7 @@ export function SslProxyingSection() {
               startIcon={<RestartAltRoundedIcon />}
               onClick={() =>
                 patchDraft({
-                  exclude: recommendedExclusions.map((pattern) => ({ pattern, enabled: true })),
+                  exclude: mergeRecommendedExclusions(draft.exclude, recommendedExclusions),
                   excludeEnabled: true,
                 })
               }

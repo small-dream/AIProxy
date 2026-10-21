@@ -1,4 +1,19 @@
 import { coerceAppError } from "./common";
+import defaultSslProxyingExclusionsJson from "./ssl-proxying-defaults.json";
+
+/**
+ * Recommended exclusions shipped with AIProxy.
+ *
+ * Keep this list narrow: an entry belongs here only when TLS interception is
+ * known to break an app or platform flow. Using wildcards to suppress noisy
+ * APIs would silently hide traffic the user may need to debug.
+ *
+ * The Rust proxy loads the same JSON file at compile time, so the desktop
+ * runtime, settings fallback and tests cannot drift apart.
+ */
+export const DEFAULT_SSL_PROXYING_EXCLUSIONS: readonly string[] = Object.freeze([
+  ...defaultSslProxyingExclusionsJson,
+]);
 
 /** Wire protocol spoken to an upstream (chained) proxy. */
 export type UpstreamProxyProtocol = "http" | "https" | "socks5";

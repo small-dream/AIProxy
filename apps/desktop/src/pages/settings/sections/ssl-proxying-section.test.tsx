@@ -1,4 +1,4 @@
-import { render, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Workspace } from "@aiproxy/shared-types";
@@ -87,6 +87,9 @@ describe("SslProxyingSection", () => {
     const include = getBlock("ssl-include");
     expect(include.getByLabelText("Disable *.planetart.com")).toBeEnabled();
     expect(include.queryByText(/kept but have no effect/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Decrypting only the enabled hosts under Include."),
+    ).toBeInTheDocument();
   });
 
   it("applies the same inactive treatment to the Exclude list", () => {
@@ -97,5 +100,28 @@ describe("SslProxyingSection", () => {
     const exclude = getBlock("ssl-exclude");
     expect(exclude.getByLabelText("Disable *.icloud.com")).toBeDisabled();
     expect(exclude.getByText(/kept but have no effect/i)).toBeInTheDocument();
+    expect(
+      screen.getByText("Decrypting every host because the Exclude list is off."),
+    ).toBeInTheDocument();
+  });
+
+  it("merges recommended exclusions without dropping custom entries", async () => {
+    const workspace = buildWorkspace({ includeEnabled: false });
+    workspace.sslProxying = {
+      ...workspace.sslProxying!,
+      exclude: [{ pattern: "custom.example", enabled: false }],
+    };
+    state.workspace = workspace;
+
+    render(<SslProxyingSection />, { wrapper: AppProviders });
+
+    const restoreButton = screen.getByRole("button", { name: "Restore Recommended" });
+    await waitFor(() => expect(restoreButton).toBeEnabled());
+    fireEvent.click(restoreButton);
+
+    expect(screen.getByText("custom.example")).toBeInTheDocument();
+    expect(screen.getByText("*.icloud.com")).toBeInTheDocument();
+    expect(screen.getByLabelText("Enable custom.example")).toBeInTheDocument();
+    expect(screen.getByLabelText("Disable *.icloud.com")).toBeEnabled();
   });
 });

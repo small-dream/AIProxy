@@ -1,0 +1,14 @@
+[
+  "*.tiktokv.com",
+  "*.tiktokcdn.com",
+  "*.tiktok-row.net",
+  "*.snssdk.com",
+  "*.byteoversea.com",
+  "*.icloud.com",
+  "*.icloud.com.cn",
+  "*.apps.apple.com",
+  "*.itunes.apple.com",
+  "play.googleapis.com",
+  "android.clients.google.com",
+  "accounts.google.com"
+]

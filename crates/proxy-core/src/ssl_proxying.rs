@@ -20,7 +20,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::host_pattern::matches_any;
-use crate::ssl_proxying_defaults::DEFAULT_SSL_PROXYING_EXCLUSIONS;
+use crate::ssl_proxying_defaults::default_ssl_proxying_exclusions;
 
 /// A resolved SSL proxying policy, consulted once per CONNECT.
 #[derive(Debug, Clone)]
@@ -106,15 +106,24 @@ impl Default for SslProxyingSettings {
             include_enabled: false,
             exclude_enabled: true,
             include: Vec::new(),
-            exclude: DEFAULT_SSL_PROXYING_EXCLUSIONS
-                .iter()
-                .map(|pattern| SslProxyEntry {
-                    pattern: (*pattern).to_string(),
-                    enabled: true,
-                })
-                .collect(),
+            exclude: default_exclude_entries(),
         }
     }
+}
+
+fn default_exclude_enabled() -> bool {
+    true
+}
+
+fn default_exclude_entries() -> Vec<SslProxyEntry> {
+    default_ssl_proxying_exclusions()
+        .iter()
+        .cloned()
+        .map(|pattern| SslProxyEntry {
+            pattern,
+            enabled: true,
+        })
+        .collect()
 }
 
 impl<'de> Deserialize<'de> for SslProxyingSettings {
@@ -127,14 +136,17 @@ impl<'de> Deserialize<'de> for SslProxyingSettings {
         struct New {
             // Every field defaults so a persisted payload missing some fields
             // (e.g. written by an older/newer build with a different field
-            // set) still partially parses instead of failing wholesale.
+            // set) still partially parses instead of failing wholesale. The
+            // defaults deliberately preserve the safe posture: the exclude
+            // list stays enabled and missing exclusions fall back to the
+            // bundled recommendations rather than silently disabling them.
             #[serde(default)]
             include_enabled: bool,
-            #[serde(default)]
+            #[serde(default = "default_exclude_enabled")]
             exclude_enabled: bool,
             #[serde(default)]
             include: Vec<SslProxyEntry>,
-            #[serde(default)]
+            #[serde(default = "default_exclude_entries")]
             exclude: Vec<SslProxyEntry>,
         }
 
@@ -233,22 +245,27 @@ mod tests {
         assert!(settings.exclude[0].enabled);
     }
 
-    // Regression: a new-shape payload missing some fields must partially
-    // parse (missing fields fall back to their Rust defaults) instead of
-    // failing the whole settings blob.
+    // Partial new-shape payloads must still parse, but missing fields must not
+    // fail open and disarm the exclude list.
     #[test]
-    fn new_shape_with_missing_fields_partially_deserializes() {
+    fn new_shape_with_missing_fields_uses_safe_defaults() {
         let settings: SslProxyingSettings = serde_json::from_str(r#"{"includeEnabled":true}"#)
             .expect("partial new shape must parse");
 
         assert!(settings.include_enabled);
-        assert!(!settings.exclude_enabled);
+        assert!(settings.exclude_enabled);
         assert!(settings.include.is_empty());
-        assert!(settings.exclude.is_empty());
+        assert_eq!(
+            settings.exclude.len(),
+            default_ssl_proxying_exclusions().len()
+        );
+
+        let policy = settings.to_runtime_config();
+        assert!(!policy.should_intercept("api22-normal-c-alisg.tiktokv.com"));
     }
 
     #[test]
-    fn new_shape_missing_lists_keeps_flags() {
+    fn new_shape_missing_lists_keeps_flags_and_safe_exclude_entries() {
         let settings: SslProxyingSettings =
             serde_json::from_str(r#"{"includeEnabled":true,"excludeEnabled":false}"#)
                 .expect("partial new shape must parse");
@@ -256,6 +273,19 @@ mod tests {
         assert!(settings.include_enabled);
         assert!(!settings.exclude_enabled);
         assert!(settings.include.is_empty());
+        assert_eq!(
+            settings.exclude.len(),
+            default_ssl_proxying_exclusions().len()
+        );
+    }
+
+    #[test]
+    fn new_shape_with_explicit_empty_exclude_stays_empty() {
+        let settings: SslProxyingSettings =
+            serde_json::from_str(r#"{"excludeEnabled":true,"exclude":[]}"#)
+                .expect("explicit empty exclude must parse");
+
+        assert!(settings.exclude_enabled);
         assert!(settings.exclude.is_empty());
     }
 

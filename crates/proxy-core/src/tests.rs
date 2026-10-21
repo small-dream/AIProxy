@@ -6492,23 +6492,24 @@ fn ssl_proxying_defaults_exclude_known_pinning_hosts() {
         "gateway.icloud.com.cn",
         "apps.apple.com",
         "amp-api-edge.apps.apple.com",
-    ] {
-        assert!(
-            !policy.should_intercept(host),
-            "{host} pins its certificate and must be excluded by default"
-        );
-    }
-    for host in [
         "play.googleapis.com",
         "android.clients.google.com",
-        "firebaseremoteconfig.googleapis.com",
-        "ssl.gstatic.com",
-        "lh3.googleusercontent.com",
         "accounts.google.com",
     ] {
         assert!(
             !policy.should_intercept(host),
-            "{host} should be excluded by default for Google Play / login flows"
+            "{host} is a known pinning-sensitive default exclusion"
+        );
+    }
+    for host in [
+        "firebaseremoteconfig.googleapis.com",
+        "ssl.gstatic.com",
+        "lh3.googleusercontent.com",
+        "www.googleapis.com",
+    ] {
+        assert!(
+            policy.should_intercept(host),
+            "{host} is ordinary API/CDN traffic and must stay inspectable"
         );
     }
     // Ordinary hosts still get captured out of the box.

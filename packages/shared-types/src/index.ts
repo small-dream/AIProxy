@@ -1,4 +1,5 @@
 export * from "./common";
+export * from "./host-pattern";
 export * from "./app";
 export * from "./proxy";
 export * from "./workspaces";

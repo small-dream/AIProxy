@@ -440,7 +440,7 @@ Sessions Page
 - 提供 `Save All Files...`（该 host 下所有响应体落盘）、`Export Host`（导出 HAR）
 - Host 视图状态：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`（与会话叶子菜单一致）
 - SSL 解密策略：
-  - `Add to Include list`：把 host 加入 `Workspace.sslProxying.include`（启用条目并打开 `includeEnabled`，同时从 `sslBlindHosts` 移除该 host），代理运行时自动重启使白名单生效
+  - `Add to Include list`：把 host 加入 `Workspace.sslProxying.include`（启用条目并打开 `includeEnabled`，同时从 `sslBlindHosts` 移除该 host），代理运行时自动重启使白名单生效；若 host 命中已启用的 Exclude 条目，则必须中止本次修改并提示用户先移除排除项，不能出现“已加入但完全不生效”的静默结果
   - `Disable / Enable SSL Decryption`：写 `Workspace.sslBlindHosts` 并重启代理生效
 - Host 级 SSL 策略只出现在 `DomainContextMenu`，会话叶子菜单不再重复提供
 
@@ -979,7 +979,7 @@ Settings Page
   - 启用时常驻一条 info `Alert` 说明「代理不可用时请求直接失败、不回退直连」
   - 填写密码时追加 warning `Alert` 说明凭据以明文存储于本地数据库
   - 切换协议时仅在当前端口仍是某个协议的默认值时才改写端口，手填端口不被静默覆盖
-- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各为一块列表（每条 pattern + 独立开关 + 删除 + 新增输入框），**总开关（`includeEnabled` / `excludeEnabled`）内联在各自列表标题行右侧**，与所控制的列表紧贴呈现；另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。**总开关关闭时，该列表整体处于不生效状态**：条目开关置灰禁用、列表整体降低不透明度，并在列表上方显示 `sslProxying.listInactiveHint` 说明「条目保留但不生效」，避免出现「总开关关闭、条目开关却仍是开启态」的误导。
+- `SslProxyingSection`：逐域名 SSL 解密策略配置，独立 `SectionCard`。include / exclude 各为一块列表（每条 pattern + 独立开关 + 删除 + 新增输入框），**总开关（`includeEnabled` / `excludeEnabled`）内联在各自列表标题行右侧**，与所控制的列表紧贴呈现；另有恢复推荐排除表按钮、pinning 风险提示与 SSL 关闭状态提示。`exclude` 优先于 `include`；`includeEnabled` 关闭表示解密全部未排除域名。顶部必须显示当前草稿的有效模式摘要（Include 白名单 / 除排除外全部 / 排除关闭后全部），避免两个总开关的组合语义只能靠阅读说明推断。**总开关关闭时，该列表整体处于不生效状态**：条目开关置灰禁用、列表整体降低不透明度，并在列表上方显示 `sslProxying.listInactiveHint` 说明「条目保留但不生效」，避免出现「总开关关闭、条目开关却仍是开启态」的误导。**恢复推荐列表采用合并语义**：补充缺失的推荐项、重新启用已存在的推荐项，但保留用户自定义项及其启用状态，禁止整表覆盖。
 
 ## 9.9 Compare Page — `已实现发布硬化版`
 

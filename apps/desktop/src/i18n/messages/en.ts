@@ -533,6 +533,7 @@ export const enMessages = {
       "Choose which hosts get decrypted. A host that is not proxied is still relayed, just without visibility into its traffic.",
     modeAllExceptExcluded: "Decrypting everything except the excluded hosts.",
     modeIncludeList: "Decrypting only the enabled hosts under Include.",
+    modeAllHosts: "Decrypting every host because the Exclude list is off.",
     includeEnabledLabel: "Intercept only the Include list",
     includeEnabledDescription:
       "When on, only hosts matching an enabled Include entry are decrypted and the rest are relayed blind. When off, every host that is not excluded is decrypted.",
@@ -1405,6 +1406,8 @@ export const enMessages = {
     sslDecryptToggleFailed: "Failed to update SSL decryption setting",
     addedToIncludeList:
       "Added {{host}} to the Include list — only matching hosts are now decrypted.",
+    addToIncludeListExcluded:
+      "{{host}} is in the Exclude list, so adding it to Include would have no effect. Remove it from Exclude first.",
     addedToIncludeListFailed: "Failed to add host to the Include list",
     compareBaseSet: "Compare base set to {{method}} {{path}}.",
     filterAllSessions: "All Sessions",

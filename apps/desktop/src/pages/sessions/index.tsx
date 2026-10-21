@@ -1,4 +1,4 @@
-import { coerceAppError, isAppError, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
+import { coerceAppError, DEFAULT_WORKSPACE_ID, isAppError } from "@aiproxy/shared-types";
 import type { SessionSummary } from "@aiproxy/shared-types";
 import DeleteSweepRoundedIcon from "@mui/icons-material/DeleteSweepRounded";
 import { Snackbar, Stack } from "@mui/material";
@@ -31,6 +31,7 @@ import type { WorkspaceHandle } from "@/features/sessions/components/SessionInsp
 import { SessionsWorkspacePanel } from "@/features/sessions/components/SessionsWorkspacePanel";
 import { useSessionImportExport } from "@/features/sessions/use-session-import-export";
 import { useSessionRepeat } from "@/features/sessions/use-session-repeat";
+import { isHostExcludedBySslProxying } from "@/features/sessions/ssl-proxying.helpers";
 import {
   readSessionsHostFilterAction,
   readSessionsMenuAction,
@@ -790,6 +791,11 @@ export function SessionsPage() {
             enabled: true,
           })),
         };
+
+        if (isHostExcludedBySslProxying(current, host)) {
+          showSnackbar(t("sessionsPage.addToIncludeListExcluded", { host }));
+          return;
+        }
 
         const normalized = host.toLowerCase();
         const alreadyListed = current.include.some(

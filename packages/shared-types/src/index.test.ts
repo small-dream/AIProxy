@@ -4,6 +4,7 @@ import {
   coerceAppError,
   createDefaultProxyStatus,
   createMockComposeSessionDetail,
+  DEFAULT_SSL_PROXYING_EXCLUSIONS,
   DEFAULT_PROXY_PORT,
   INVALID_WS_MESSAGES,
   isAppError,
@@ -1092,6 +1093,23 @@ describe("upstream proxy contract", () => {
 });
 
 describe("SslProxyingSettings", () => {
+  it("ships a narrow, unique recommended exclusion list", () => {
+    expect(DEFAULT_SSL_PROXYING_EXCLUSIONS).toEqual(
+      expect.arrayContaining([
+        "*.tiktokv.com",
+        "*.apps.apple.com",
+        "play.googleapis.com",
+        "android.clients.google.com",
+        "accounts.google.com",
+      ]),
+    );
+    expect(DEFAULT_SSL_PROXYING_EXCLUSIONS).not.toContain("*.googleapis.com");
+    expect(DEFAULT_SSL_PROXYING_EXCLUSIONS).not.toContain("*.gstatic.com");
+    expect(new Set(DEFAULT_SSL_PROXYING_EXCLUSIONS).size).toBe(
+      DEFAULT_SSL_PROXYING_EXCLUSIONS.length,
+    );
+  });
+
   it("validates a complete settings object", () => {
     expect(
       isSslProxyingSettings({

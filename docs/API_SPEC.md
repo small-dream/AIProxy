@@ -911,7 +911,7 @@ type UpstreamProxyProbeResult = {
 
 响应：`string[]`
 
-> **说明**：该列表由后端提供而非在前端重复定义，以保证单一事实源——否则往 Rust 列表里新增域名时，前端按钮会悄悄恢复出一份过时的列表。
+> **说明**：推荐项维护在 `packages/shared-types/src/ssl-proxying-defaults.json`。Rust 通过 `include_str!` 加载同一文件，前端 non-Tauri 回退也直接导入该文件；`default_ssl_proxying_exclusions` 返回其解析结果，避免运行时、设置页与开发预览各自维护一份列表。
 
 > **SSL 代理行为说明**：
 >
@@ -919,6 +919,8 @@ type UpstreamProxyProbeResult = {
 > - **总开关 + 条目开关**：`includeEnabled` / `excludeEnabled` 是两个列表的总开关；每条规则带独立的 `enabled` 开关，关闭的条目保留但不生效。
 > - **两种模式**：`includeEnabled=false` ⇒ 解密所有未被排除的域名（默认，保持历史行为）；`includeEnabled=true` ⇒ 仅解密 include 中已启用的条目，其余原样盲转发。
 > - **旧数据迁移**：升级前保存的 `{ include: string[], exclude: string[] }` 在反序列化时自动迁移为条目形式（`includeEnabled = include 非空`、`excludeEnabled = true`、条目均 `enabled`），行为保持不变。
+> - **缺字段安全回退**：新格式缺少 `excludeEnabled` 时按 `true` 处理；缺少 `exclude` 时回退到推荐排除表。只有显式写入 `"exclude": []` 才是空排除表，避免部分或损坏的持久化数据静默关闭证书绑定保护。
+> - **推荐表范围**：只包含有明确证据会导致 App/平台流程失败的证书绑定端点；不得用 `*.googleapis.com`、`*.gstatic.com`、`*.googleusercontent.com` 等大范围通配降低噪音，静态资源与普通 API 噪音应由 Focus / Ignore 处理。
 > - **模式匹配语法**与上游代理绕行列表一致（`crates/proxy-core/src/host_pattern.rs` 共用实现）：精确域名、`*.example.com` / `.example.com` 后缀（含 apex）、CIDR（仅对 IP 字面量目标生效）、`*` 通配全部。IPv6 字面量在规则与目标两侧都接受带/不带方括号、带/不带尾点 FQDN 点的写法并归一后比较。
 > - **未解密 ≠ 未转发**：被排除的域名走盲转发（`tunnel_blind_relay`），App 功能不受影响，只是看不到明文。这与 `ssl_enabled=false` 的全局关闭是同一条代码路径。
 > - **仅在 `ssl_enabled` 为 true 时生效**：拦截本身关闭时没有可缩放的范围，此时 `ProxyRuntimeConfig.ssl_proxying` 为 `None`。

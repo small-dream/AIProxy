@@ -36,10 +36,7 @@ pub struct TestUpstreamProxyInput {
 /// to appear behind the "restore recommended" button.
 #[tauri::command]
 pub fn default_ssl_proxying_exclusions() -> Vec<String> {
-    aiproxy_proxy_core::DEFAULT_SSL_PROXYING_EXCLUSIONS
-        .iter()
-        .map(|value| (*value).to_string())
-        .collect()
+    aiproxy_proxy_core::default_ssl_proxying_exclusions().to_vec()
 }
 
 /// Verify an upstream proxy configuration by opening a real tunnel through it.
