@@ -116,7 +116,6 @@ export const enMessages = {
     collections: "Collections",
     compare: "Compare",
     compose: "Compose",
-    docs: "Docs",
     insights: "Insights",
     manage: "Manage",
     rules: "Rules",
@@ -2418,6 +2417,7 @@ export const enMessages = {
       insights: "Insights",
       sessionCompare: "Compare",
       settings: "Settings",
+      agentAccess: "Agent Access (MCP)",
     },
   },
 } as const;

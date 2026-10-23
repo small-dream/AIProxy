@@ -47,6 +47,14 @@ describe("DocsPage", () => {
     });
   });
 
+  it("renders the Agent Access guide added for MCP setup", async () => {
+    renderDocsAt("/docs?doc=agent-access");
+
+    await waitFor(() => {
+      expect(articleHeading()).toHaveTextContent("Agent 接入（MCP）");
+    });
+  });
+
   it("falls back to the first guide when the slug is unknown", async () => {
     renderDocsAt("/docs?doc=does-not-exist");
 

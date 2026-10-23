@@ -112,9 +112,6 @@ export function useMenuActions(deps: MenuHandlerDeps) {
       case "goto_certificates":
         h.navigate("/certificates");
         break;
-      case "goto_docs":
-        h.navigate("/docs");
-        break;
       case "goto_settings":
         h.navigate("/settings");
         break;
@@ -293,7 +290,6 @@ export function useMenuActions(deps: MenuHandlerDeps) {
         "6": "/rules",
         "7": "/throttling",
         "8": "/certificates",
-        "9": "/docs",
         ",": "/settings",
       };
       const route = routeByKey[event.key];

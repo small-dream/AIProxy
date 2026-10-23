@@ -228,7 +228,8 @@ flowchart LR
 - Throttling
 - Certificates
 - Settings
-- Docs
+
+内置文档属于帮助内容，通过 **帮助 → AIProxy 文档** 打开，不作为一级导航项。
 
 ### 8.2 主工作台结构
 

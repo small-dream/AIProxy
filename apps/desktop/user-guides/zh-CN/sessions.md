@@ -9,6 +9,8 @@ Sessions 是 AIProxy 的核心页面：所有经过代理的 HTTP / HTTPS / WebS
 
 页面分为左右两栏：左侧是会话浏览器（树形列表 + 筛选），右侧是当前选中会话的检视工作区。
 
+代理运行后，顶部会显示 **记录中** 和累计录制时长。若代理正在运行但系统代理未开启，状态栏会提示当前只会收到显式指向代理端口的流量；需要自动接管应用流量时，请打开系统代理。
+
 ## 会话容器（Session Container）
 
 页面支持多个「会话容器」标签页，每个容器独立维护自己的会话集合和筛选状态，方便你把不同场景的流量隔开（例如「登录流程」「支付联调」）。
@@ -84,6 +86,8 @@ Sessions 是 AIProxy 的核心页面：所有经过代理的 HTTP / HTTPS / WebS
 | Messages | WebSocket 消息检视器（详见 [WebSocket 指南](./websocket-inspector.md)） |
 | Automation | 命中的 [Rewrite](./rewrite-rules.md) / [脚本](./script-rules.md) / [限速](./throttling.md) 追踪记录 |
 | Trailers | HTTP Trailer（存在时） |
+
+Timing 区域按连接池等待、DNS、建立连接、TLS、发送、等待和下载等阶段展开。复用已建立的连接时，DNS / 连接 / TLS 可能显示 **复用连接**；当同一主机的连接仍在建立、请求需要排队时，会单独显示 **连接等待**，避免这段延迟被计入 DNS 或 TCP 阶段。
 
 ### Body 大小限制
 

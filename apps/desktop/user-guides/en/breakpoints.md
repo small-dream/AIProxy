@@ -13,14 +13,15 @@ A breakpoint is a "manual intervention" tool: on a hit it **blocks** the request
 1. Click **Rules** in the left nav
 2. Click the **Breakpoint** tab at the top
 
-The page has two one-shot buttons in the **Quick Breakpoint** card at the top:
+Breakpoints use the same inline workbench as the other rule types: rule search, the rule list, and creation actions on the left, with the selected rule edited on the right. The creation area offers:
 
-- **Break on all requests**: adds an enabled catch-all rule for the request stage of every request
-- **Break on all responses**: adds an enabled catch-all rule for the response stage of every request
+- **New Breakpoint Rule**: append a blank draft to the end of the list and edit its match conditions on the right
+- **Break on all requests**: immediately add an enabled catch-all rule for the request stage
+- **Break on all responses**: immediately add an enabled catch-all rule for the response stage
 
-Both buttons are disabled while such a catch-all rule already exists — to stop intercepting everything again, disable or delete that rule in the list.
+Each catch-all button is disabled while a matching rule already exists — to stop intercepting everything again, disable or delete that rule in the list. When the list is empty, the same creation actions appear in the empty state.
 
-For fine control, click **Add Rule** to create a breakpoint rule with match conditions.
+For fine control, click **New Breakpoint Rule**, confirm the enabled state in the identity row, fill in URL Pattern, Match Type, HTTP Methods, and Match Stage, then click **Save** in the fixed editor footer.
 
 ## Breakpoint rule fields
 
@@ -93,7 +94,11 @@ On confirm, the request returns that mock response directly without hitting upst
 ## Managing breakpoint rules
 
 - Breakpoint rules are included in the Rules-page [import / export](./rewrite-rules.md#import--export-rules) file; imported breakpoint rules are appended disabled with fresh ids.
-- Closing the Add Rule dialog or switching tabs while a draft has unsaved changes asks first; deleting a rule asks for confirmation.
+- List order is match order: the first matching rule triggers the breakpoint. Drag the row handle or use `Alt + ↑` / `Alt + ↓` (`⌥` on macOS) to reorder the selected rule.
+- Search only filters visible rules. Reordering within search results keeps hidden rules in their original slots.
+- The row checkboxes support batch enable, disable, and delete; both single and batch deletion ask for confirmation.
+- Switching rules or tabs, or leaving the page, asks first when a draft has unsaved changes. `Ctrl/Cmd + S` saves the current draft.
+- New, duplicated, and imported rules are appended to the end of the list rather than taking an earlier rule's position.
 
 ## FAQ
 

@@ -1635,11 +1635,11 @@ nextAction        = [certGenerated, certTrusted, proxyRunning, systemProxyOrManu
 
 ## 15. Docs Page — 应用内文档查看器 `已实现`
 
-入口：Help → AIProxy 文档（macOS 原生菜单与 Windows/Linux 自定义菜单收敛到同一 `case "documentation" → navigate("/docs")`），同时位于左侧主导航 manage 分组（`/docs`）。把 `apps/desktop/user-guides/` 的用户指南在构建时打包进应用，离线浏览。
+入口：Help → AIProxy 文档（macOS 原生菜单与 Windows/Linux 自定义菜单收敛到同一 `case "documentation" → navigate("/docs")`）。文档页不占用左侧主导航，也不提供主视图切换快捷键；设置向导、证书错误指引、快捷键帮助等内部入口仍可直接深链到 `/docs`。把 `apps/desktop/user-guides/` 的用户指南在构建时打包进应用，离线浏览。
 
 ### 15.1 页面目标
 
-- 离线提供覆盖主要功能的用户指南，按四组组织（快速上手 / 抓包与检视 / 规则与改写 / 进阶），含证书安装、会话检视、DNS 映射、WebSocket、Rewrite、脚本、限速、断点、映射（本地/远程）、集合与环境变量、Compose、Insights、会话对比、设置等，无需维护独立文档站。
+- 离线提供覆盖主要功能的用户指南，按四组组织（快速上手 / 抓包与检视 / 规则与改写 / 进阶），含证书安装、会话检视、DNS 映射、WebSocket、Rewrite、脚本、限速、断点、映射（本地/远程）、集合与环境变量、Compose、Insights、会话对比、设置、Agent 接入等，无需维护独立文档站。
 - 文档源单一：`apps/desktop/user-guides/*.md` 是应用内置指南的事实源，经 Vite `@docs` 别名 + `import.meta.glob ?raw` eager 内联进前端 bundle。
 
 ### 15.2 低保真线框

@@ -1,4 +1,4 @@
-import { renderHook } from "@testing-library/react";
+import { fireEvent, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useMenuActions } from "./use-menu-actions";
@@ -74,5 +74,21 @@ describe("useMenuActions", () => {
     handleMenuCommand("goto_settings");
 
     expect(navigate).toHaveBeenCalledWith("/settings");
+  });
+
+  it("keeps user guides reachable from the Help menu", () => {
+    const handleMenuCommand = setup();
+
+    handleMenuCommand("documentation");
+
+    expect(navigate).toHaveBeenCalledWith("/docs");
+  });
+
+  it("keeps Ctrl/Cmd+9 out of the primary navigation shortcuts", () => {
+    setup();
+
+    fireEvent.keyDown(window, { ctrlKey: true, key: "9" });
+
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

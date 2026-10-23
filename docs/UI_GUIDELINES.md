@@ -247,7 +247,8 @@ App Shell
 - Throttling
 - Certificates
 - Settings
-- Docs
+
+文档页属于帮助内容，不作为一级导航项；通过 **帮助 → AIProxy 文档** 打开。
 
 ## 8.4 主工作台规范
 
@@ -338,7 +339,7 @@ Capture Workspace
 - `Rules Page`：规则类型切换（Breakpoint / Rewrite / Mapping / Script）、规则列表、规则编辑器
 - `Certificates Page`：证书状态、安装引导、风险说明
 - `Settings Page`：代理预设、设置导航与设置内容区
-- `Docs Page`：应用内文档查看器，离线浏览 `apps/desktop/user-guides` 用户指南（Help 菜单入口 + 左侧主导航 manage 分组）
+- `Docs Page`：应用内文档查看器，离线浏览 `apps/desktop/user-guides` 用户指南（仅 Help 菜单入口，不占用左侧主导航）
 
 ## 9.1 Sessions Page
 

@@ -5,7 +5,7 @@
 - 产品代号：`AIProxy`
 - 文档类型：工程开发规范
 - 当前阶段：`P3 / 持续改进完成后的治理基线`
-- 文档状态：`Living Spec v1.4`（P3 更新：DbError、proxy-core 模块边界、rule-engine 拆分、前端大型页面拆分约束）
+- 文档状态：`Living Spec v1.5`（新增内置帮助文档及时同步约束）
 - 关联文档：
   - `docs/PRD.md`
   - `docs/ARCHITECTURE.md`
@@ -342,6 +342,9 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 
 - 修改代码前，先确认是否需要更新文档
 - 如需求、架构、接口、目录结构、主题规范发生变化，必须先更新对应文档
+- 功能、入口、设置项、快捷键、能力边界、风险说明或排障流程发生变化时，必须在同一次任务 / PR 内更新对应的内置帮助文档，禁止留到后续任务补写
+- 仅更新代码、PRD、UI 规范、页面蓝图或 README 不算完成；内置帮助文档是用户可见功能的一部分
+- `apps/desktop/user-guides/zh-CN` 与 `apps/desktop/user-guides/en` 必须保持同名 slug 的 1:1 覆盖；两种语言的入口路径、能力边界、权限要求、风险说明和操作结果必须一致
 
 ### 10.2 必须同步的文档
 
@@ -350,6 +353,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - `docs/ARCHITECTURE.md`
 - `docs/API_SPEC.md`
 - `docs/UI_GUIDELINES.md`
+- `apps/desktop/user-guides/{zh-CN,en}/*.md`（受影响的全部指南；新增指南需同步 `features/docs/docs-manifest.ts` 与 `docsPage.entries.*` 中英文文案）
 - `docs/releases/v<版本号>.md`（每次发布必需；文件名与 Git tag 一致，包含中文和英文的用户可见更新摘要）
 
 ### 10.3 接口变更要求
@@ -362,6 +366,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - AI 生成代码必须遵循本规范和双文档驱动原则
 - 任何结构性改动都应先检查 `docs/PRD.md` 与 `docs/ARCHITECTURE.md`
 - AI 修改代码时优先在既有模块内收敛处理，避免平铺式新增重复实现
+- AI 必须在同一次任务内同步受影响的 `apps/desktop/user-guides/{zh-CN,en}` 双语帮助文档，不得以“后续补充”为由跳过
 - AI 提交实现时应说明：
   - 改动原因
   - 影响范围
@@ -378,6 +383,7 @@ AIProxy 是跨平台桌面工具（Windows / macOS / Linux），所有代码必�
 - 是否补充结构化日志
 - 是否补充单元测试
 - 是否同步更新相关文档
+- 是否同步更新受影响的 `apps/desktop/user-guides/{zh-CN,en}` 帮助文档，并通过文档清单 / 双语 parity 相关测试
 - **是否为三个平台（Windows / macOS / Linux）都提供了实现或合理的 fallback**
 
 ## 13. 优先级说明

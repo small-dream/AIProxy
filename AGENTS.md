@@ -39,6 +39,7 @@
 - `docs/ENGINEERING_GUIDELINES.md`：工程质量基线
 - `docs/DECISIONS/ADR-001-frontend-i18n.md`：前端国际化约束
 - `docs/SYSTEM_PROXY.md`：系统代理与平台差异说明
+- `apps/desktop/user-guides/{zh-CN,en}/*.md`：应用内双语帮助文档的事实源
 
 代码改动如果会让这些文档过时，必须在同一任务里同步更新。
 
@@ -90,6 +91,11 @@
 - 页面结构、状态模型、事件流变化：更新 `docs/PAGE_BLUEPRINTS.md`
 - 工程规则变化：更新 `docs/ENGINEERING_GUIDELINES.md`
 - 用户可见文案变化：同时更新中英文消息文件
+- 功能、入口、设置项、快捷键、能力边界、风险说明或排障流程变化：在同一次任务 / PR 内更新 `apps/desktop/user-guides/{zh-CN,en}` 中对应的双语帮助文档；新增指南还要同步文档清单与 `docsPage.entries.*` 中英文文案
+
+**及时更新帮助文档是项目硬约束。只更新代码、PRD、UI 规范或 README 不算完成；不得把已过时的帮助文档留到后续任务。**
+
+帮助文档不要求逐句直译，但两种语言的入口路径、能力边界、权限要求、风险说明和操作结果必须一致。相关变化至少运行 `pnpm --filter @aiproxy/desktop test -- src/features/docs/docs-navigation.test.ts`；涉及文档页行为或新指南渲染时，同时运行对应页面测试。
 
 注意：页面交互改动通常需要同时更新 `docs/UI_GUIDELINES.md` 和 `docs/PAGE_BLUEPRINTS.md`。
 
@@ -143,6 +149,7 @@
 
 - 符合当前模块边界
 - 与文档保持一致
+- 帮助文档已在同一次改动中同步且中英文一致
 - 不破坏双语体验
 - 覆盖三个平台（Windows / macOS / Linux），或为不支持的平台提供合理的 fallback
 - 带有必要的验证或测试

@@ -118,7 +118,6 @@ export const zhCNMessages: Messages = {
     collections: "集合",
     compare: "对比",
     compose: "构造请求",
-    docs: "文档",
     insights: "洞察",
     manage: "管理",
     rules: "规则",
@@ -2309,6 +2308,7 @@ export const zhCNMessages: Messages = {
       insights: "洞察",
       sessionCompare: "会话对比",
       settings: "设置",
+      agentAccess: "Agent 接入（MCP）",
     },
   },
 };

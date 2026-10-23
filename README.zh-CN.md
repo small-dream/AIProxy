@@ -195,7 +195,7 @@ cargo test --workspace                     # Rust 测试
 
 ### 应用内用户指南
 
-应用内的「文档」页面提供双语指南：从证书安装与抓包（会话检查、WebSocket 检查），到规则体系（改写、脚本、断点、Map Local / Remote、DNS 映射、弱网模拟），再到集合与环境变量、请求构造（Compose）、流量洞察、会话对比与设置。
+应用内的「文档」页面（**帮助 → AIProxy 文档**）提供双语指南：从证书安装与抓包（会话检查、WebSocket 检查），到规则体系（改写、脚本、断点、Map Local / Remote、DNS 映射、弱网模拟），再到集合与环境变量、请求构造（Compose）、流量洞察、会话对比、设置与 Agent 接入（MCP）。
 
 ## 国际化
 

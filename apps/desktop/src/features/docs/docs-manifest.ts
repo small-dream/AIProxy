@@ -118,4 +118,10 @@ export const docsEntries: DocsEntry[] = [
     group: "advanced",
     order: 4,
   },
+  {
+    slug: "agent-access",
+    titleKey: "docsPage.entries.agentAccess",
+    group: "advanced",
+    order: 5,
+  },
 ];

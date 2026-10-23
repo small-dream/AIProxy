@@ -76,7 +76,6 @@ export const WINDOWS_MENU_DEFINITIONS: readonly WindowsMenuDefinition[] = [
       { id: "goto_rules", labelKey: "navigation.rules", accelerator: "Ctrl+6" },
       { id: "goto_throttling", labelKey: "navigation.throttling", accelerator: "Ctrl+7" },
       { id: "goto_certificates", labelKey: "navigation.certificates", accelerator: "Ctrl+8" },
-      { id: "goto_docs", labelKey: "navigation.docs", accelerator: "Ctrl+9" },
       { id: "goto_settings", labelKey: "navigation.settings", accelerator: "Ctrl+," },
       { kind: "divider" },
       { id: "zoom_in", labelKey: "appShell.windowsMenu.zoomIn", accelerator: "Ctrl++" },

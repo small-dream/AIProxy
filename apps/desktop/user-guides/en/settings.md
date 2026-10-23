@@ -1,12 +1,12 @@
 # Settings Guide
 
-The Settings page centralizes proxy parameters, upstream proxying, SSL proxy policy, the AI model, appearance and language, notifications and confirmations, and software updates. For certificate install and capture-ready flow, see [Certificate Setup & Capture Troubleshooting](./certificate-setup.md); this page is for everyday config tweaks.
+The Settings page centralizes proxy parameters, upstream proxying, SSL proxy policy, Agent Access, the AI model, appearance and language, notifications and confirmations, and software updates. For certificate install and capture-ready flow, see [Certificate Setup & Capture Troubleshooting](./certificate-setup.md). For Agent permissions and client setup, see [Agent Access](./agent-access.md); this page covers everyday configuration.
 
 ## Where to find it
 
 1. Click **Settings** in the left nav
 
-The page is organized into **Proxy Presets**, **Upstream Proxy**, **SSL / TLS**, **AI Model**, **Appearance & Language**, **Notifications & Confirmations**, **Updates**, and **About**. Use the section navigator on the left to jump directly. The top **search settings** field supports localized keywords and jumps to — and briefly highlights — the matching section row.
+The page is organized into **Proxy Presets**, **Upstream Proxy**, **SSL / TLS**, **Agent Access**, **AI Model**, **Appearance & Language**, **Notifications & Confirmations**, **Updates**, and **About**. Use the section navigator on the left to jump directly. The top **search settings** field supports localized keywords and jumps to — and briefly highlights — the matching section row.
 
 > The system-proxy **on/off** toggle is not on this page — it's in the top control bar. This page only configures the proxy's own parameters.
 
@@ -26,6 +26,21 @@ Click **Save** to apply:
 - If the proxy is **stopped**, the new params apply on the **next proxy start**
 
 > After changing the port or SSL, confirm the capture chain is still ready (see the `captureReady` conditions in the [Certificate guide](./certificate-setup.md); SSL decryption being on is one of them).
+
+## Agent Access
+
+Let Codex, Claude Code, and Cursor query captured traffic through a local MCP sidecar in read-only mode. AIProxy opens no network port and does not upload captures, but content read by an Agent is sent to that client's model provider.
+
+- Turn on **Local Agent Access** and save before a client can call MCP tools.
+- Under **Connect an Agent client**, choose Codex, Claude Code, or Cursor, click **Connect**, then select **Metadata only**, **Include response bodies**, or **Include raw data (high risk)**.
+- Connecting writes user-level MCP configuration and installs the AIProxy Skill. Existing files are backed up first, and the client must be restarted or reloaded afterward.
+- **Read permissions** separately control session metadata, bodies, and WebSocket messages. Turning off Body access also turns off unredacted bodies; enable unredacted access only when a task truly requires it.
+- **Advanced permissions** include unredacted bodies, format-based sensitive-value detection, stable identifier hashing, custom sensitive field names, the page size, and the Body chunk limit.
+- **Diagnostics → Verify connection** checks the sidecar, database schema, MCP handshake, tool call, and client configuration. Failures show their reason inline.
+- **More actions** covers MCP config only, Skill only, manual configuration, and disconnect. Disconnecting confirms and backs up the original file; the AIProxy-managed Skill is removed while a custom Skill is preserved.
+- **Agent Audit Log** shows a call-count summary by default. Expand it to inspect the tool, client, result, duration, and returned bytes over time; payloads and secrets are not stored.
+
+> A successful connection means the configuration and Skill were written; it does not mean the client completed a handshake. Reload the client as prompted, then run **Verify connection**.
 
 ## AI model
 
@@ -118,9 +133,11 @@ Global shortcuts work from the Windows/Linux menu bar and from the keyboard:
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl/Cmd + 1` … `Ctrl/Cmd + 9` | Switch between Sessions, Insights, Compose, Collections, Compare, Rules, Throttling, Certificates, and Docs |
+| `Ctrl/Cmd + 1` … `Ctrl/Cmd + 8` | Switch between Sessions, Insights, Compose, Collections, Compare, Rules, Throttling, and Certificates |
 | `Ctrl/Cmd + ,` | Open Settings |
 | `Ctrl/Cmd + F` | Find in the active view; on Sessions this focuses inspector search |
+| `Ctrl/Cmd + S` | Save a changed draft in a rules editor |
+| `Alt + ↑` / `Alt + ↓` | Move the current rule up or down in a rules list (`⌥` on macOS) |
 | `Ctrl/Cmd + +` / `Ctrl/Cmd + -` / `Ctrl/Cmd + 0` | Zoom in, zoom out, reset zoom |
 | `Ctrl/Cmd + E` | Export sessions as HAR from the Sessions workspace |
 | `Ctrl/Cmd + L` | Clear sessions, using the configured confirmation preference |
@@ -128,6 +145,7 @@ Global shortcuts work from the Windows/Linux menu bar and from the keyboard:
 ## Persistence
 
 - Proxy params (port / SSL / HTTP/2) persist with the workspace config
+- Agent permissions, redaction, query limits, and client connection state persist through the backend
 - AI-model config persists via the backend
 - Preferences like language, theme, fonts, and font size persist locally (kept across restarts)
 
@@ -138,6 +156,7 @@ Global shortcuts work from the Windows/Linux menu bar and from the keyboard:
 | Language / theme / fonts / font size | Immediately |
 | AI model config / Test Connection | Immediately |
 | Proxy port / SSL / HTTP/2 | Proxy running: auto-restarts on save; proxy stopped: next start |
+| Agent permissions / redaction / query limits | Sidecar config updates on save; a running Agent picks it up on its next tool call |
 | Software update | Auto-restarts the app after install |
 
 ## FAQ
