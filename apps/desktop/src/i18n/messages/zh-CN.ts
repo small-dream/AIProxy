@@ -128,6 +128,17 @@ export const zhCNMessages: Messages = {
   },
   appShell: {
     appSubtitle: "桌面代理工作台",
+    agentControlClearSessions: "清空全部 Session",
+    agentControlConfigureWorkspace: "修改工作区配置",
+    agentControlDeleteSessions: "删除选定 Session",
+    agentControlActionFailure: "Agent 操作失败：{{action}}（{{code}}）",
+    agentControlActionSuccess: "Agent 已执行：{{action}}",
+    agentControlGenerateCertificate: "生成根证书",
+    agentControlOpenCertificateInstaller: "打开证书安装入口",
+    agentControlRemoveCertificateTrust: "移除根证书",
+    agentControlSetSystemProxy: "修改系统代理",
+    agentControlStartCapture: "启动抓包",
+    agentControlStopCapture: "停止抓包",
     updateAvailableAction: "更新",
     breakpointsPending: "{{count}} 个断点{{suffix}}",
     breakpointsPendingTitle: "有待处理断点，点击打开规则页面",
@@ -293,6 +304,8 @@ export const zhCNMessages: Messages = {
     aiTimeout: "超时 (ms)",
     agentAccess: {
       auditBytes: "字节数",
+      auditAction: "动作",
+      auditAgentControl: "控制",
       auditClient: "客户端",
       auditDescription: "仅记录 Agent 工具调用的元数据，不保存载荷与密钥。",
       auditDuration: "耗时",
@@ -308,8 +321,27 @@ export const zhCNMessages: Messages = {
       auditSummaryEmpty: "尚无 Agent 调用记录",
       advancedPermissions: "高级权限",
       advancedPermissionsDescription: "未脱敏 Body 读取、脱敏策略与查询上限",
+      controlCaptureDescription: "允许 Agent 修改端口与 SSL 配置，并启动或停止抓包。",
+      controlCaptureLabel: "控制抓包与工作区配置",
+      controlPermissionsDescription:
+        "开启后 Agent 可直接执行对应操作，应用内不再二次确认；请只授予当前任务需要的分组。",
+      controlPermissionsTitle: "控制权限",
+      controlSystemProxyDescription:
+        "允许 Agent 接管或交还系统代理。高风险操作只能由当前对话中的明确请求触发。",
+      controlSystemProxyLabel: "控制系统代理",
+      deleteSessionsDescription: "允许 Agent 清空全部会话或按 ID 删除会话及 Body。删除后无法恢复。",
+      deleteSessionsLabel: "删除会话",
+      enableFullControl: "启用完整控制",
+      fullControlBadge: "完整控制",
+      fullControlWarning:
+        "完整控制允许 Agent 启动/停止抓包、接管系统代理、管理根证书并删除会话。请仅在信任当前 Agent 与任务时开启；删除与撤销证书信任仍必须由你在当前对话中明确请求。",
+      manageCertificatesDescription:
+        "允许 Agent 生成或轮换根证书、打开系统安装入口，以及撤销信任并清理证书。系统密码或安装确认仍由操作系统要求你完成。",
+      manageCertificatesLabel: "管理根证书",
       checkBodyAccess: "Body 读取权限",
       checkClients: "客户端连接",
+      checkControlChannel: "Agent 控制通道",
+      checkControlPermissions: "控制权限",
       checkDataDirectory: "数据目录",
       checkDatabase: "数据库可读",
       checkDoctor: "MCP 诊断",
@@ -363,9 +395,10 @@ export const zhCNMessages: Messages = {
         "连接后，Agent 读取到的内容会发送给对应模型服务商；请只选择当前任务需要的范围。",
       connectDialogBackup: "目标文件已存在，会先备份原文件。",
       connectDialogConfirm: "连接并写入",
+      connectDialogNoReadPermissions: "无读取权限",
       connectDialogPath: "将写入：{{path}}",
-      connectDialogScopeHint: "将授予：{{permissions}}。连接后仍可在「读取权限」中调整。",
-      connectDialogScopeTitle: "Agent 可以读取",
+      connectDialogScopeHint: "将授予：{{permissions}}。连接后仍可按权限分组调整。",
+      connectDialogScopeTitle: "Agent 可访问与控制",
       connectDialogTitle: "连接 {{client}}",
       connectSuccess:
         "{{client}} 的 MCP 配置已写入，重启或重新加载 {{client}} 后生效；Skill 已安装。",
@@ -381,12 +414,12 @@ export const zhCNMessages: Messages = {
       cursorHint:
         "Cursor 从 ~/.cursor/mcp.json 读取用户级 MCP 服务。一键配置会自动合并 aiproxy 条目，完成后重新加载 Cursor 窗口即可。",
       dataFlowNote:
-        "AIProxy 不会上传抓包数据，但 Agent 读取后会把内容发送给对应模型服务商。默认脱敏与只读只能降低暴露面，不能消除；请只开启当前任务需要的权限。",
+        "AIProxy 不会上传抓包数据，但 Agent 读取后会把内容发送给对应模型服务商。读取权限默认保守，控制权限默认关闭；请只开启当前任务需要的权限。",
       dataDirLabel: "数据目录",
       detectSensitiveValuesDescription:
         "即使字段名不常见，也会按格式识别 JWT、邮箱、手机号、设备 ID、地址等敏感值。",
       detectSensitiveValuesLabel: "按格式识别敏感值",
-      description: "通过 MCP 让本地编码 Agent 以只读方式访问已抓取的流量。",
+      description: "通过 MCP 让本地编码 Agent 查询已抓取的流量，并按需授予受控的桌面操作能力。",
       diagnostics: "诊断信息",
       discardChanges: "放弃",
       disabledDescription:
@@ -403,9 +436,9 @@ export const zhCNMessages: Messages = {
       disconnectTitle: "断开 {{client}}？",
       disconnecting: "断开中...",
       enabledDescription:
-        "Agent 接入已开启。sidecar 只读取已持久化的流量，并写入仅含元数据的审计记录。",
+        "Agent 接入已开启。sidecar 可读取已持久化流量，并按已授权分组执行控制操作；所有工具调用都会写入仅含元数据的审计记录。",
       enabledLabel: "启用本地 Agent 接入",
-      exportSnapshotsDescription: "Snapshot 导出将在后续只读阶段提供，本版本无法启用。",
+      exportSnapshotsDescription: "Snapshot 导出将在后续版本提供，本版本无法启用。",
       exportSnapshotsLabel: "导出 Snapshot",
       hideAuditLog: "收起日志",
       hideDiagnostics: "收起诊断信息",
@@ -441,6 +474,11 @@ export const zhCNMessages: Messages = {
       reconnect: "重新连接",
       presetBodies: "含响应 Body",
       presetBodiesDescription: "额外允许脱敏后的请求/响应 Body 与 WebSocket 消息。",
+      presetCurrent: "保留当前权限",
+      presetCurrentDescription: "保留设置中已保存的完整权限组合，包括自定义或部分开启的控制权限。",
+      presetFull: "完整控制（高风险）",
+      presetFullDescription:
+        "允许读取脱敏 Body、WebSocket，并控制抓包、系统代理、根证书与会话删除；不启用未脱敏 Body。",
       presetMetadata: "仅元数据",
       presetMetadataDescription: "会话摘要、Header、Query、Timing 与规则命中；不读取 Body。",
       presetRaw: "含原始数据（高风险）",
@@ -460,7 +498,7 @@ export const zhCNMessages: Messages = {
       saveSuccess: "Agent 接入设置已保存。",
       saving: "保存中...",
       securityNote:
-        "AIProxy 不上传抓包数据；但 Agent 读取后会把内容发送给对应模型服务商。默认脱敏、只读和审计用于降低暴露面，不能替代你对权限的判断。",
+        "AIProxy 不上传抓包数据；但 Agent 读取后会把内容发送给对应模型服务商。默认脱敏、默认关闭的控制权限和审计用于降低暴露面，不能替代你对权限的判断。",
       sidecarMissing: "Sidecar 缺失",
       sidecarPathLabel: "MCP sidecar",
       sidecarReady: "Sidecar 就绪",
@@ -1085,6 +1123,8 @@ export const zhCNMessages: Messages = {
       partialTitle: "证书已删除，部分信任存储未能自动撤销",
       systemProxyErrorHint:
         "系统代理未能自动交还（{{error}}）。你的电脑可能仍指向 AIProxy 代理，浏览器会无法正常访问 HTTPS——请点击状态栏的「系统代理」开关或到「设置」中手动关闭。",
+      workspacePersistWarningHint:
+        "证书已移除，本次运行也已关闭 SSL，但工作区设置未能保存（{{error}}）。重启 AIProxy 后可能会在没有有效证书的情况下重新启用 SSL 拦截；必要时请再次关闭 SSL。",
       removing: "移除中...",
       storeLabel: "{{store}}：{{error}}",
       successBody: "证书文件已删除，系统信任已撤销。需要时可随时在本页重新生成。",

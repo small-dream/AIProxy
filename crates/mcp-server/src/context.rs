@@ -7,7 +7,7 @@ use aiproxy_db::connection::{inspect_schema, open_read_only_database, SchemaCapa
 use aiproxy_db::DbError;
 use serde_json::{json, Value};
 
-use crate::audit::{AuditEntry, AuditLog};
+use crate::audit::{is_agent_control_tool, AuditEntry, AuditLog};
 use crate::config::{
     read_config, AgentAccessConfig, AppPaths, ConfigReadError, DEFAULT_MAX_BODY_BYTES,
     DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_SESSIONS,
@@ -31,6 +31,7 @@ pub struct AuditRecord<'a> {
     pub client_name: &'a str,
     pub client_version: &'a str,
     pub tool: &'a str,
+    pub action_summary: Option<&'a str>,
     pub outcome: &'a str,
     pub returned_bytes: Option<usize>,
     pub redacted: bool,
@@ -185,6 +186,8 @@ impl AppContext {
             client_name: record.client_name,
             client_version: record.client_version,
             tool: record.tool,
+            action_summary: record.action_summary.map(str::to_string),
+            agent_control: is_agent_control_tool(record.tool),
             outcome: record.outcome,
             duration_ms: started.elapsed().as_millis() as u64,
             returned_bytes: record.returned_bytes,
@@ -210,6 +213,11 @@ impl AppContext {
                 "readBodies": value.permissions.read_bodies,
                 "readRawBodies": value.permissions.read_raw_bodies,
                 "readWebSocket": value.permissions.read_web_socket,
+                "exportSnapshots": value.permissions.export_snapshots,
+                "controlCapture": value.permissions.control_capture,
+                "controlSystemProxy": value.permissions.control_system_proxy,
+                "manageCertificates": value.permissions.manage_certificates,
+                "deleteSessions": value.permissions.delete_sessions,
             })
         });
         let mut issues: Vec<Value> = Vec::new();
@@ -302,6 +310,16 @@ pub fn available_tools() -> Vec<&'static str> {
         "get_websocket_messages",
         "get_insights",
         "compare_sessions",
+        "get_app_status",
+        "configure_workspace",
+        "start_capture",
+        "stop_capture",
+        "set_system_proxy",
+        "generate_certificate",
+        "open_certificate_installer",
+        "remove_certificate_trust",
+        "clear_sessions",
+        "delete_sessions",
     ]
 }
 

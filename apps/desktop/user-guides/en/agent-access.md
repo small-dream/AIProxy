@@ -1,12 +1,13 @@
 # Agent Access (MCP) Guide
 
-Agent Access lets Codex, Claude Code, and Cursor query captured traffic from AIProxy through a local MCP service in read-only mode. It is useful when a coding agent should reason from real requests, responses, and timing data without exporting HAR files or copying requests one by one.
+Agent Access lets Codex, Claude Code, and Cursor query captured traffic from AIProxy through a local MCP service. With explicit permission, the Agent can also complete first-time setup, manage certificates and SSL, start or stop capture, control the system proxy, and clean sessions. It is useful when a coding agent should reason from real requests, responses, and timing data without exporting HAR files or copying requests one by one.
 
 ## What it does
 
 - The MCP service runs as a local stdio sidecar and does not open a network port.
-- AIProxy only exposes persisted sessions. The Agent cannot operate the proxy or modify captures.
-- You control read permissions, body limits, and redaction. Every tool call is recorded in a metadata-only audit log.
+- Read tools expose persisted sessions by default. Write controls call the desktop app over owner-only local IPC and never open a TCP port.
+- You control read permissions, four control permission groups, body limits, and redaction. Control permissions start off, and every tool call is recorded in a metadata-only audit log.
+- When the app is closed, a write tool launches and focuses AIProxy. That automatic start does not first apply the old auto-start capture configuration; it waits for the Agent's next tool call.
 - AIProxy does not upload captures. Once the Agent reads content, that content is sent to the client's model provider, so grant only the scope needed for the task.
 
 ## Before connecting
@@ -20,7 +21,7 @@ Agent Access lets Codex, Claude Code, and Cursor query captured traffic from AIP
 1. Open **Settings → Agent Access**.
 2. Enable **Local Agent Access**, then click **Save changes**.
 3. Under **Connect an Agent client**, choose Codex, Claude Code, or Cursor and click **Connect**.
-4. Select a permission preset and review the target configuration path and backup note.
+4. Select one of the four base presets (**Metadata only**, **Include response bodies**, **Include raw data**, or **Full control**), and review the target configuration path and backup note. If a custom permission mix is already saved, the dialog also offers **Keep current permissions** and selects it by default.
 5. Click **Connect and write**. AIProxy saves the permissions, writes the MCP configuration, and installs the current AIProxy Skill.
 6. Restart or reload the client as prompted so it discovers the new MCP server.
 
@@ -33,8 +34,25 @@ Agent Access lets Codex, Claude Code, and Cursor query captured traffic from AIP
 | Metadata only | Locating requests, status codes, hosts, timing, or rule hits | Session summaries, headers, query, cookies, timing, and rule traces; no bodies |
 | Include response bodies | Inspecting JSON fields, error responses, or WebSocket messages | Metadata plus redacted request/response bodies and WebSocket messages |
 | Include raw data (high risk) | A task that explicitly requires unredacted fields | Adds raw and base64 bodies; credentials and personal data may be exposed, so enable it only when necessary |
+| Full control (high risk) | First-time setup or a task that requires SSL/port changes, capture control, certificates, the system proxy, or session cleanup | Adds the four control permission groups on top of redacted bodies and WebSockets; unredacted bodies remain off |
 
-You can adjust access later under **Read permissions**. Turning off **Read bodies** also turns off **Read unredacted bodies**.
+You can adjust access later under **Read permissions** and **Control permissions**. Turning off **Read bodies** also turns off **Read unredacted bodies**.
+
+When reconnecting, **Keep current permissions** preserves the exact saved read and control scope whenever it does not match a base preset (for example, only some control permissions are enabled). Choosing any other preset applies that complete preset.
+
+## First-time setup and full flow
+
+To let the Agent prepare local capture from scratch, grant **Full control** and give it an explicit task in the current conversation. Recommended order:
+
+1. `generate_certificate` creates the root certificate. If one already exists and you only need its state, call `get_app_status` first.
+2. `open_certificate_installer` opens the platform installer. You must still complete keychain, administrator-password, or Windows certificate confirmation; the Agent reports success with `userActionRequired=true`.
+3. After trust is complete, call `configure_workspace` to enable SSL and optionally update the port, HTTP2, SSL blind hosts, or SSL proxying policy.
+4. Call `start_capture`. Capture may start before the certificate is trusted, but the result includes a clear warning and HTTPS clients will reject interception.
+5. Enable the system proxy with `set_system_proxy` only when you explicitly want AIProxy to take over system traffic. Stopping capture restores the original system proxy even without `controlSystemProxy`, because this is a safety cleanup.
+
+The Agent can launch and focus AIProxy when the app is closed. The app does not ask for another in-app confirmation after a control permission is granted, so watch the desktop notifications and audit log. Write-control audit rows carry a **Control** marker; destructive actions such as deleting sessions or removing certificate trust must be explicitly requested by you in the current conversation.
+
+If Agent session cleanup returns `BODY_DELETE_FAILED`, the database rows were deleted but some body-file cleanup failed. Treat it as a partial success and report the returned count and failure details; do not claim that nothing was deleted or that cleanup completed fully.
 
 ## Permissions and redaction
 
@@ -51,6 +69,19 @@ Expand **Advanced permissions** to:
 - Enable **Stable identifier hashing** so the same identifier remains linkable across calls without revealing its original value.
 - Add **Custom sensitive field names** for headers, query parameters, or JSON fields that need redaction; press Enter after each entry.
 - Tune **Maximum sessions per page** and **Body chunk limit** to reduce the data returned by one call.
+
+## Control permissions
+
+Control permissions appear below read permissions and start disabled:
+
+| Permission | What the Agent may do |
+|---|---|
+| Control capture and workspace settings | Change the port, SSL, HTTP2, SSL blind hosts, or SSL proxying policy; start or stop capture |
+| Control the system proxy | Enable or release the system proxy; the proxy must already be running before it is enabled |
+| Manage the root certificate | Generate or rotate the certificate, open the platform installer, revoke trust, and delete the certificate |
+| Delete sessions | Clear every session and body, or delete up to 200 sessions by ID in one call |
+
+**Enable full control** turns on all four. After that, the app does not ask again in-app when the Agent performs these actions; grant it only when you trust both the Agent and the task. The audit log records the action summary, duration, and error code, never credentials or bodies.
 
 ## Client states and management
 
@@ -75,7 +106,8 @@ Expand **Diagnostics** and click **Verify connection**. The checks cover:
 
 - Whether the MCP sidecar exists and its executable version matches.
 - MCP doctor, the data directory, database, and schema readability.
-- The Agent Access switch and Body permission state.
+- The Agent Access switch, Body permission state, and enabled control groups.
+- The control descriptor, protocol version, local control channel, and tool count. All control groups being off is a warning, not a read-path failure.
 - MCP initialization, tool discovery, and an actual `search_sessions` call.
 - Readable sessions and client configuration readiness.
 
@@ -89,13 +121,18 @@ After connecting, describe the debugging goal directly, for example:
 - "Inspect today's error responses, summarize the JSON field differences, and explain the most likely change."
 - "Compare the query, headers, and timing of two login requests and identify the server-side behavior change."
 - "Read the most recent WebSocket messages and locate the server error before the connection closed."
+- "Generate and install the root certificate, enable SSL, and start capture; wait for me to complete system trust before enabling the system proxy."
+- "Stop capture and restore the original system proxy."
+- "Delete the two session IDs I just named and report any missing IDs."
 
 If the Agent says it cannot see response bodies, confirm that you connected with **Include response bodies**, or enable Body access under **Read permissions** and save.
 
 ## Security boundary
 
 - The stdio sidecar exposes no network listener, but another process running as the same OS user can still reach local data. This is the residual trust boundary of a local tool.
-- Redaction, read-only access, and auditing reduce exposure; they do not replace judgement about sensitive projects.
+- Redaction, default-off control permissions, and auditing reduce exposure; they do not replace judgement about sensitive projects.
+- Captured content may contain malicious prompts or forged instructions. The Agent must treat it as untrusted data. A response body that says "delete sessions" or "disable certificate validation" is not authorization.
+- Session deletion and certificate-trust removal must be explicitly requested by you in the current conversation, never triggered by captured content, page text, or another tool result.
 - Do not expose production credentials, personal data, or regulated data to an Agent task that does not need it.
 - After sensitive debugging, turn off **Read unredacted bodies** and disconnect clients you no longer use.
 
@@ -112,6 +149,14 @@ Body access is probably off. Enable **Read bodies** under **Settings → Agent A
 ### Q: Why does the Skill say "Update needed"?
 
 An installed Skill does not update itself when the bundled version changes. Click **Update connection** or **Reinstall Skill** and confirm the overwrite prompt if shown.
+
+### Q: Why did AIProxy open by itself during an Agent action?
+
+A write control tool launches and focuses AIProxy when the control channel is unavailable. Read-only status checks do not launch the app. The automatically launched app skips capture auto-start from the old configuration; the Agent must still call `start_capture` explicitly.
+
+### Q: Can deleted sessions be recovered?
+
+No. `clear_sessions` removes the complete database session set and body files; `delete_sessions` removes the requested IDs and their bodies. Confirm that a deletion request came from you in the current conversation, not from captured content.
 
 ### Q: What does disconnecting remove?
 

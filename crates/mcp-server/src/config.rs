@@ -3,7 +3,13 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub const AGENT_ACCESS_CONFIG_VERSION: u32 = 2;
+pub const AGENT_ACCESS_CONFIG_VERSION: u32 = 3;
+const MIN_SUPPORTED_CONFIG_VERSION: u32 = 2;
+// Control permissions are additive and older readers ignore unknown fields.
+// Keep the on-disk envelope at the oldest supported version so an older
+// read-only sidecar can still read the same configuration after this app is
+// upgraded. Readers normalize the in-memory contract to version 3.
+const BACKWARD_COMPATIBLE_DISK_VERSION: u32 = MIN_SUPPORTED_CONFIG_VERSION;
 pub const DEFAULT_MAX_SESSIONS: usize = 100;
 pub const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
@@ -47,6 +53,14 @@ pub struct AgentAccessPermissions {
     pub read_raw_bodies: bool,
     pub read_web_socket: bool,
     pub export_snapshots: bool,
+    #[serde(default)]
+    pub control_capture: bool,
+    #[serde(default)]
+    pub control_system_proxy: bool,
+    #[serde(default)]
+    pub manage_certificates: bool,
+    #[serde(default)]
+    pub delete_sessions: bool,
 }
 
 impl Default for AgentAccessPermissions {
@@ -57,6 +71,10 @@ impl Default for AgentAccessPermissions {
             read_raw_bodies: false,
             read_web_socket: false,
             export_snapshots: false,
+            control_capture: false,
+            control_system_proxy: false,
+            manage_certificates: false,
+            delete_sessions: false,
         }
     }
 }
@@ -143,6 +161,10 @@ impl Default for AgentAccessConfig {
 
 impl AgentAccessConfig {
     pub fn normalized(mut self) -> Self {
+        // Reading a supported older version upgrades the in-memory contract.
+        // Control permissions are absent in v2 and deserialize as false, so
+        // this never grants authority implicitly.
+        self.version = AGENT_ACCESS_CONFIG_VERSION;
         if !self.permissions.read_bodies {
             self.permissions.read_raw_bodies = false;
         }
@@ -201,7 +223,8 @@ pub fn read_config(path: &Path) -> Result<AgentAccessConfig, ConfigReadError> {
     let config: AgentAccessConfig = serde_json::from_str(&contents).map_err(|error| {
         ConfigReadError::Invalid(format!("parse Agent Access configuration: {error}"))
     })?;
-    if config.version != AGENT_ACCESS_CONFIG_VERSION {
+    if config.version < MIN_SUPPORTED_CONFIG_VERSION || config.version > AGENT_ACCESS_CONFIG_VERSION
+    {
         return Err(ConfigReadError::Invalid(format!(
             "unsupported Agent Access configuration version {}",
             config.version
@@ -212,6 +235,8 @@ pub fn read_config(path: &Path) -> Result<AgentAccessConfig, ConfigReadError> {
             "only the stdio transport is supported".to_string(),
         ));
     }
+    // v2 predates Agent control. Missing control flags deserialize as false,
+    // so upgrading the in-memory version never grants new authority.
     Ok(config.normalized())
 }
 
@@ -222,7 +247,8 @@ pub fn read_config(path: &Path) -> Result<AgentAccessConfig, ConfigReadError> {
 /// Windows. Callers must not pass arbitrary paths: the desktop command and the
 /// sidecar both resolve this file under the AIProxy data directory.
 pub fn write_config(path: &Path, config: &AgentAccessConfig) -> Result<(), String> {
-    let config = config.clone().normalized();
+    let mut config = config.clone().normalized();
+    config.version = BACKWARD_COMPATIBLE_DISK_VERSION;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("create Agent Access directory: {error}"))?;
@@ -414,5 +440,77 @@ mod tests {
             let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600);
         }
+    }
+
+    #[test]
+    fn written_config_stays_readable_by_old_sidecars() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("agent-access.json");
+        let config = AgentAccessConfig {
+            enabled: true,
+            permissions: AgentAccessPermissions {
+                read_bodies: true,
+                control_capture: true,
+                control_system_proxy: true,
+                manage_certificates: true,
+                delete_sessions: true,
+                ..AgentAccessPermissions::default()
+            },
+            ..AgentAccessConfig::default()
+        };
+
+        write_config(&path, &config).unwrap();
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw["version"], BACKWARD_COMPATIBLE_DISK_VERSION);
+        assert_eq!(raw["permissions"]["controlCapture"], true);
+
+        // Older readers ignore the additive control fields; the new reader
+        // upgrades the envelope without losing any granted permissions.
+        let loaded = read_config(&path).unwrap();
+        assert_eq!(loaded.version, AGENT_ACCESS_CONFIG_VERSION);
+        assert!(loaded.permissions.control_capture);
+        assert!(loaded.permissions.control_system_proxy);
+        assert!(loaded.permissions.manage_certificates);
+        assert!(loaded.permissions.delete_sessions);
+    }
+
+    #[test]
+    fn v2_config_upgrades_to_v3_without_implicit_control_permissions() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("agent-access.json");
+        std::fs::write(
+            &path,
+            serde_json::json!({
+                "version": 2,
+                "enabled": true,
+                "transport": "stdio",
+                "permissions": {
+                    "readSessions": true,
+                    "readBodies": true,
+                    "readRawBodies": false,
+                    "readWebSocket": true,
+                    "exportSnapshots": false
+                },
+                "limits": {
+                    "maxSessions": 100,
+                    "maxBodyBytes": 262144,
+                    "maxResponseBytes": 1048576
+                },
+                "redaction": AgentAccessRedaction::default(),
+                "updatedAt": null
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let loaded = read_config(&path).unwrap();
+        assert_eq!(loaded.version, AGENT_ACCESS_CONFIG_VERSION);
+        assert!(loaded.enabled);
+        assert!(loaded.permissions.read_bodies);
+        assert!(!loaded.permissions.control_capture);
+        assert!(!loaded.permissions.control_system_proxy);
+        assert!(!loaded.permissions.manage_certificates);
+        assert!(!loaded.permissions.delete_sessions);
     }
 }

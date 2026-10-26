@@ -92,7 +92,7 @@ pub use rules::{
     ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use server::{send_direct_request, send_direct_request_bytes, start_proxy_server};
-pub use ssl_proxying::{SslProxyingConfig, SslProxyingSettings};
+pub use ssl_proxying::{SslProxyEntry, SslProxyingConfig, SslProxyingSettings};
 pub use ssl_proxying_defaults::default_ssl_proxying_exclusions;
 pub use timing_connector::{ConnectionTiming, TimingConnector};
 pub use types::{

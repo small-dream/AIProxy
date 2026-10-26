@@ -43,6 +43,9 @@ tracing-appender = "0.2"
 rust-i18n = "4"
 sys-locale = "0.3"
 base64 = "0.22"
+interprocess = "2.4.7"
+aiproxy-agent-control = { version = "0.1.51", path = "../../../crates/agent-control" }
+tauri-plugin-single-instance = "2"
 
 [target.'cfg(unix)'.dependencies]
 # O_NOFOLLOW for export writes: refuse a symbolic link in the final path
@@ -53,6 +56,7 @@ libc = "0.2"
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
+widestring = "1"
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinInet", "Win32_Globalization"] }
 winreg = "0.56"
 

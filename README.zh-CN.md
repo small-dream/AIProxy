@@ -28,9 +28,9 @@
 
 | 能力 | 说明 |
 |------|------|
-| **Agent 接入（MCP）** | 一键为 Codex、Claude Code、Cursor 写入 MCP 配置，并在连接前选择权限模板。8 个只读工具覆盖会话检索、Headers 与 Timing 检查、JSON 字段提取、WebSocket 消息、流量聚合和结构化会话对比；每次结果都返回最新会话时间与抓包状态。 |
+| **Agent 接入（MCP）** | 一键为 Codex、Claude Code、Cursor 写入 MCP 配置，并在连接前选择权限模板。8 个读取工具覆盖会话检索、检查、字段提取、WebSocket 消息、流量聚合和结构化会话对比；另有 1 个状态工具和 9 个可选写控制工具，可配置工作区、管理证书、启停抓包、控制系统代理和清理 Session。每次结果都返回数据新鲜度与控制通道状态。 |
 | **AI 差异总结** | 使用 OpenAI 兼容模型为任意 Compare 结果生成 Markdown 总结；发送前可预览 Payload，并在本地完成敏感字段脱敏后再发送到你配置的模型服务。 |
-| **隐私默认保守** | MCP Server 以本地 stdio sidecar 运行，不开放端口。AIProxy 不上传抓包，但 Agent 读取后会把内容发送给其模型服务商；默认只读、脱敏并限制 Body 读取，审计日志仅记录元数据。原始 Body 需单独授权。 |
+| **隐私默认保守** | MCP Server 以本地 stdio sidecar 运行，不开放端口；写操作通过仅当前用户可访问的本地 IPC 调用桌面端，控制权限默认关闭。AIProxy 不上传抓包，但 Agent 读取后会把内容发送给其模型服务商；默认脱敏并限制 Body 读取，审计日志仅记录元数据。原始 Body 与控制能力都需单独授权。 |
 
 > 示例：让 Agent「对比失败的 `/api/checkout` 请求和最近一次成功请求，并引用 sessionId」。Agent 通过 MCP 获取证据，再解释具体变化。
 
@@ -73,7 +73,7 @@
 - 📬 **构造与重发（Compose）** — 编辑并重新发送请求
 - 📂 **集合（Collections）** — 保存、组织和批量执行请求，支持环境变量
 - 🔀 **会话对比（Compare）** — 对比两个会话，发现行为差异并生成 AI 总结
-- 🤖 **Agent 接入（MCP）** — 让 Codex、Claude Code、Cursor 通过 8 个只读工具查询抓包
+- 🤖 **Agent 接入（MCP）** — 让 Codex、Claude Code、Cursor 查询抓包，并按权限执行首装与抓包控制
 - 🧠 **AI 差异总结** — 使用任意 OpenAI 兼容模型总结 Compare 结果
 - 📊 **流量洞察（Insights）** — 聚合流量分析
 - 🔐 **证书中心** — 根 CA 生成、信任管理与二维码手机配置
@@ -161,7 +161,8 @@ crates/            Rust 核心模块
   rule-engine/     改写 / Map / Script 规则执行
   tls-manager/     证书颁发与 TLS 管理
   db/              SQLite 持久化层
-  mcp-server/      面向 AI Agent 的本地只读 MCP Server
+  mcp-server/      面向 AI Agent 的本地 MCP Server
+  agent-control/   Agent 控制共用的本地 IPC 协议
 packages/          共享 TypeScript 包
   shared-types/    前后端共享契约
   ui-tokens/       设计令牌
@@ -187,6 +188,7 @@ cargo test --workspace                     # Rust 测试
 - [API 规范](./docs/API_SPEC.md)
 - [MCP 与 Agent 接入架构](./docs/MCP_AGENT_SKILL_ARCHITECTURE.md)
 - [ADR-006：本地 MCP Agent 接入](./docs/DECISIONS/ADR-006-local-mcp-agent-access.md)
+- [ADR-007：受权限约束的 Agent 控制](./docs/DECISIONS/ADR-007-agent-control-ipc.md)
 - [UI 规范](./docs/UI_GUIDELINES.md)
 - [工程规范](./docs/ENGINEERING_GUIDELINES.md)
 - [构建运行打包指南](./docs/BUILD_RUN_PACKAGE_GUIDE.md)

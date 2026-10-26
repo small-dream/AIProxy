@@ -24,6 +24,25 @@ pub(crate) struct Repository {
     body_store: Arc<BodyStore>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BodyDeleteFailure {
+    pub session_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClearSessionsStorageResult {
+    pub deleted_count: usize,
+    pub body_cleanup_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeleteSessionsStorageResult {
+    pub deleted_count: usize,
+    pub missing_session_ids: Vec<String>,
+    pub body_delete_failures: Vec<BodyDeleteFailure>,
+}
+
 impl Repository {
     pub fn new(
         db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
@@ -150,6 +169,49 @@ impl Repository {
         );
     }
 
+    /// Clear every persisted session and body for Agent control. Unlike the
+    /// startup cleanup path, failures are returned so an Agent never receives
+    /// a false success when SQLite or the body store rejected the operation.
+    pub async fn clear_all_sessions_result(&self) -> Result<ClearSessionsStorageResult, String> {
+        let db = Arc::clone(&self.db);
+        let body_store = Arc::clone(&self.body_store);
+        tauri::async_runtime::spawn_blocking(move || {
+            let conn = lock_for_ipc_helper(&db)?;
+            let count = conn
+                .query_row("SELECT COUNT(*) FROM session_summaries", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map_err(|error| {
+                    persistence_error("DB_ERROR", format!("count sessions: {error}"))
+                })? as usize;
+            aiproxy_db::sessions::clear_all_sessions(&conn).map_err(|error| {
+                persistence_error("DB_ERROR", format!("clear sessions: {error}"))
+            })?;
+            // Release the global DB lock before deleting potentially many
+            // body files. The database rows are already committed and the
+            // body store has its own path isolation, so holding the connection
+            // mutex here would only block unrelated reads and writes.
+            drop(conn);
+            let body_cleanup_error = body_store.clear_all().err().map(|error| {
+                tracing::error!(
+                    component = "desktop.persistence",
+                    event = "clear_session_storage_bodies_failed",
+                    error = %error,
+                    "clear_session_storage_bodies_failed"
+                );
+                error.to_string()
+            });
+            Ok(ClearSessionsStorageResult {
+                deleted_count: count,
+                body_cleanup_error,
+            })
+        })
+        .await
+        .map_err(|error| {
+            persistence_error("INTERNAL_ERROR", format!("clear sessions task: {error}"))
+        })?
+    }
+
     /// M29: spawn a background task that retries `body_store.clear_all()` once
     /// after a short delay. Used when the synchronous clear failed, to avoid
     /// leaving orphan blob files behind without blocking the UI/clear command.
@@ -229,6 +291,83 @@ impl Repository {
                 );
             }
         }
+    }
+
+    /// Delete explicit session ids and return the ids that did not exist.
+    /// The UI batch-delete command and Agent control both use this strict
+    /// variant so counts, missing ids, and storage failures are observable.
+    /// The best-effort variant above remains for `delete_sessions_except`.
+    pub async fn delete_sessions_and_bodies_result(
+        &self,
+        ids: Vec<String>,
+    ) -> Result<DeleteSessionsStorageResult, String> {
+        let db = Arc::clone(&self.db);
+        let body_store = Arc::clone(&self.body_store);
+        tauri::async_runtime::spawn_blocking(move || {
+            let conn = lock_for_ipc_helper(&db)?;
+            let mut existing = Vec::new();
+            for chunk in ids.chunks(200) {
+                let placeholders = (0..chunk.len())
+                    .map(|index| format!("?{}", index + 1))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let sql = format!("SELECT id FROM session_summaries WHERE id IN ({placeholders})");
+                let params = chunk
+                    .iter()
+                    .map(|id| id as &dyn aiproxy_db::rusqlite::types::ToSql)
+                    .collect::<Vec<_>>();
+                let mut statement = conn.prepare(&sql).map_err(|error| {
+                    persistence_error("DB_ERROR", format!("prepare session lookup: {error}"))
+                })?;
+                let rows = statement
+                    .query_map(params.as_slice(), |row| row.get::<_, String>(0))
+                    .map_err(|error| {
+                        persistence_error("DB_ERROR", format!("query session ids: {error}"))
+                    })?;
+                for row in rows {
+                    existing.push(row.map_err(|error| {
+                        persistence_error("DB_ERROR", format!("read session id: {error}"))
+                    })?);
+                }
+            }
+            let deleted_count =
+                aiproxy_db::sessions::delete_sessions_by_ids(&conn, &ids).map_err(|error| {
+                    persistence_error("DB_ERROR", format!("delete sessions: {error}"))
+                })?;
+            drop(conn);
+            let mut body_delete_failures = Vec::new();
+            for id in &existing {
+                if let Err(error) = body_store.remove_bodies(id) {
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "delete_session_bodies_failed",
+                        session_id = %id,
+                        error = %error,
+                        "delete_session_bodies_failed"
+                    );
+                    body_delete_failures.push(BodyDeleteFailure {
+                        session_id: id.clone(),
+                        message: error.to_string(),
+                    });
+                }
+            }
+            let existing = existing
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>();
+            let missing = ids
+                .into_iter()
+                .filter(|id| !existing.contains(id))
+                .collect::<Vec<_>>();
+            Ok(DeleteSessionsStorageResult {
+                deleted_count,
+                missing_session_ids: missing,
+                body_delete_failures,
+            })
+        })
+        .await
+        .map_err(|error| {
+            persistence_error("INTERNAL_ERROR", format!("delete sessions task: {error}"))
+        })?
     }
 
     /// Load a session detail row from the database for an IPC-reachable path,
@@ -865,6 +1004,14 @@ fn delete_sessions_impl(
             );
         }
     }
+}
+
+fn persistence_error(code: &str, message: impl AsRef<str>) -> String {
+    serde_json::json!({
+        "code": code,
+        "message": message.as_ref(),
+    })
+    .to_string()
 }
 
 /// Persist all four trace categories for a session, logging each failure

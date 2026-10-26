@@ -17,7 +17,12 @@ import {
   upsertImportedSessions,
 } from "@/features/sessions/imported-sessions.store";
 import { isTauriRuntime, reportCommandFailure } from "./runtime";
-import { deleteSessions, deleteSessionsExcept, isCapturedSessionNotFoundError } from "./sessions";
+import {
+  clearSessions,
+  deleteSessions,
+  deleteSessionsExcept,
+  isCapturedSessionNotFoundError,
+} from "./sessions";
 
 function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -110,6 +115,70 @@ describe("deleteSessions", () => {
 
     await expect(deleteSessions(["session-1"])).rejects.toMatchObject({ code: "DB_POISONED" });
     expect(reportCommandFailure).toHaveBeenCalledWith("delete_sessions", failure);
+  });
+
+  it("keeps imported sessions when the backend fails before deleting storage", async () => {
+    upsertImportedSessions([detail({ id: "imported-1", summary: summary({ id: "imported-1" }) })]);
+    vi.mocked(invoke).mockRejectedValueOnce({ code: "DB_POISONED", message: "db lock poisoned" });
+
+    await expect(deleteSessions(["imported-1"])).rejects.toMatchObject({ code: "DB_POISONED" });
+    expect(listImportedSessionSummaries().map((session) => session.id)).toEqual(["imported-1"]);
+  });
+
+  it("drops imported sessions when the database was deleted but body cleanup failed", async () => {
+    upsertImportedSessions([detail({ id: "imported-1", summary: summary({ id: "imported-1" }) })]);
+    vi.mocked(invoke).mockRejectedValueOnce({
+      code: "BODY_DELETE_FAILED",
+      message: "body cleanup failed",
+      details: { sessionsDeleted: true, deletedCount: 1 },
+    });
+
+    await expect(deleteSessions(["imported-1"])).rejects.toMatchObject({
+      code: "BODY_DELETE_FAILED",
+    });
+    expect(listImportedSessionSummaries()).toEqual([]);
+  });
+});
+
+describe("clearSessions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearImportedSessions();
+    vi.mocked(isTauriRuntime).mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    clearImportedSessions();
+    vi.restoreAllMocks();
+  });
+
+  it("clears imported sessions only after the backend clear succeeds", async () => {
+    upsertImportedSessions([detail({ id: "imported-1", summary: summary({ id: "imported-1" }) })]);
+
+    await clearSessions();
+
+    expect(invoke).toHaveBeenCalledWith("clear_sessions");
+    expect(listImportedSessionSummaries()).toEqual([]);
+  });
+
+  it("keeps imported sessions when the backend clear fails before storage changes", async () => {
+    upsertImportedSessions([detail({ id: "imported-1", summary: summary({ id: "imported-1" }) })]);
+    vi.mocked(invoke).mockRejectedValueOnce({ code: "DB_POISONED", message: "db lock poisoned" });
+
+    await expect(clearSessions()).rejects.toMatchObject({ code: "DB_POISONED" });
+    expect(listImportedSessionSummaries().map((session) => session.id)).toEqual(["imported-1"]);
+  });
+
+  it("clears imported sessions after a committed database clear reports body errors", async () => {
+    upsertImportedSessions([detail({ id: "imported-1", summary: summary({ id: "imported-1" }) })]);
+    vi.mocked(invoke).mockRejectedValueOnce({
+      code: "BODY_DELETE_FAILED",
+      message: "body cleanup failed",
+      details: { sessionsCleared: true, deletedCount: 1 },
+    });
+
+    await expect(clearSessions()).rejects.toMatchObject({ code: "BODY_DELETE_FAILED" });
+    expect(listImportedSessionSummaries()).toEqual([]);
   });
 });
 

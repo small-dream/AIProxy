@@ -1100,12 +1100,13 @@ type SettingsPageState = {
 };
 ```
 
-### 8.4.1 Agent Access Section — `已实现（只读增强版 · 紧凑版）`
+### 8.4.1 Agent Access Section — `已实现（读取 + 受控操作 · 紧凑版）`
 
 页面目标：
 
 - 以低噪音状态头展示 sidecar、版本与连接状态
 - 让用户显式开启会话、Body、WebSocket 与未脱敏 Body 权限
+- 让用户按分组开启控制抓包、系统代理、根证书与 Session 删除权限
 - 让用户配置格式识别、稳定哈希和自定义敏感字段
 - 为 Codex、Claude Code、Cursor 提供一键连接（写 MCP 配置 + 安装 Skill）与断开
 - 提供「验证连接」：真实 MCP 握手、工具调用与逐项检查结果
@@ -1121,7 +1122,7 @@ AgentAccessSection
 │  └─ Diagnostics (collapsed)
 │     ├─ PathValue x4 (single-line + tooltip + copy)
 │     ├─ Verify connection
-│     └─ CheckList (sidecar / doctor / database / schema / enabled / body / handshake / tools / sessions / clients)
+│     └─ CheckList (sidecar / doctor / database / schema / enabled / body / handshake / tools / sessions / clients / controlChannel / controlPermissions)
 ├─ ClientList
 │  ├─ DataFlowNotice
 │  ├─ BodyDisabledNotice (已连接且 readBodies 关闭时)
@@ -1138,12 +1139,18 @@ AgentAccessSection
 │  │  ├─ Stable identifier hashing
 │  │  ├─ Custom sensitive field names
 │  │  └─ Query limits
+│  ├─ Control permissions group
+│  │  ├─ Enable full control shortcut
+│  │  ├─ Control capture and workspace settings
+│  │  ├─ Control system proxy
+│  │  ├─ Manage root certificate
+│  │  └─ Delete sessions
 │  └─ Save / Discard
 ├─ AgentAuditTable (collapsed summary by default)
 ├─ SecurityNote
 ├─ AgentConnectDialog
 │  ├─ target path + backup note
-│  ├─ PresetPicker (metadata / bodies / raw)
+│  ├─ PresetPicker (metadata / bodies / raw / full control)
 │  └─ data-flow notice
 ├─ ConfirmDialog (config overwrite)
 ├─ ConfirmDialog (custom Skill overwrite)
@@ -1153,16 +1160,18 @@ AgentAccessSection
 关键交互：
 
 1. 顶部启用开关和权限开关先写入本地草稿；只有 `Save changes` 才持久化。草稿与已保存值不一致时，状态头显示 `Unsaved`，状态头和权限区同时提供保存 / 放弃。关闭 `readBodies` 会立即在草稿中关闭 `readRawBodies`。
-2. 「验证连接」位于默认折叠的诊断区。它先运行 `aiproxy-mcp --doctor`，再执行真实 MCP 会话（initialize → tools/list → search_sessions），按 sidecar、诊断、数据库、schema、启用状态、Body 权限、握手、工具数、会话数、客户端连接逐项展示 ok / warning / error；失败项内联展示 detail，并提供「复制诊断」导出完整 JSON，不使用全局 toast。`sessions` 项同时展示最新会话时间。
-3. 客户端主操作是“连接”，始终先打开 `AgentConnectDialog`：选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据），确认后先保存对应权限，再写 MCP 配置并安装 Skill。模板会给出将授予的权限摘要；连接后仍可在「读取权限」中调整。
+2. 「验证连接」位于默认折叠的诊断区。它先运行 `aiproxy-mcp --doctor`，再执行真实 MCP 会话（initialize → tools/list → search_sessions），按 sidecar、诊断、数据库、schema、启用状态、Body 权限、握手、工具数、会话数、客户端连接、控制通道与控制权限逐项展示 ok / warning / error；失败项内联展示 detail，并提供「复制诊断」导出完整 JSON，不使用全局 toast。`sessions` 项同时展示最新会话时间；控制权限全关时只为 warning。
+3. 客户端主操作是“连接”，始终先打开 `AgentConnectDialog`：选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据 / 完整控制），确认后先保存对应权限，再写 MCP 配置并安装 Skill。模板会给出将授予的权限摘要；连接后仍可在「读取权限」和「控制权限」中调整。若当前保存的是自定义组合，对话框额外提供并默认选中「保留当前权限」，确保重新连接不会重置部分控制权限，也不会把读取范围回退到最近似的模板。
 4. 目标文件不存在时直接创建；覆盖已有文件前在连接对话框中展示目标路径与备份说明。Skill 命中非 AIProxy 管理的同名文件时再次确认覆盖。
 5. 连接流程必须处理部分成功：配置已写入但 Skill 安装失败或用户取消覆盖时，界面明确提示配置已生效、Skill 未完成，并保持该客户端为 `需更新`。
 6. 更多菜单提供“仅写入 MCP 配置”“仅安装 Skill”“手动配置”“断开连接”。手动配置展开后展示单行路径、Skill 路径与版本、配置片段与复制操作；路径禁止跨行断词。断开仅在客户端已有配置或 Skill 时出现。
 7. 客户端状态基于“aiproxy 条目是否存在 + Skill 内容是否为当前版本”，不使用“配置文件是否存在”判断；状态文案为 `已配置` / `需更新` / `未配置`。手动配置区展示已安装 Skill 版本与内置版本。
 8. 断开连接需二次确认：说明将移除的配置路径、将删除的受管 Skill 路径与备份行为；自定义 Skill 保留并提示。移除后状态回到 `未配置`。
-9. 客户端列表顶部固定展示数据流向说明：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；默认脱敏与只读只降低暴露面。已连接且 Body 关闭时追加 `BodyDisabledNotice`，说明 Agent 无法分析响应体。
-10. 审计表默认只显示最近调用数量摘要；展开后按时间倒序展示明细，刷新时重新读取 JSONL。
-11. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor 窗口；Claude Code 目标为 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`），连接后需重新启动 Claude Code。
+9. 客户端列表顶部固定展示数据流向说明：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；读取默认保守，控制权限默认关闭。已连接且 Body 关闭时追加 `BodyDisabledNotice`，说明 Agent 无法分析响应体。
+10. 控制权限分组展示四项开关，并提供“启用完整控制”快捷操作；开启后不显示应用内二次确认。删除类操作和撤销证书信任仍由 Agent Skill 要求当前对话的明确用户请求。
+11. 审计表默认只显示最近调用数量摘要；展开后按时间倒序展示明细，新增动作摘要列与 `agentControl` 写控制标记，刷新时重新读取 JSONL。
+12. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor 窗口；Claude Code 目标为 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`），连接后需重新启动 Claude Code。
+13. `AppShell` 订阅 `agent-control-action` 并读取最近 20 条回放缓冲区：按 `eventId` 去重后刷新代理、工作区、证书与 Session 查询；删除类动作清除详情缓存；除 `getStatus` 外显示动作成功/失败通知，确保自动拉起后的首个 Agent 动作也可见。
 
 状态：
 

@@ -16,6 +16,7 @@ extern crate rust_i18n;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+mod agent_control;
 mod agent_status;
 mod bootstrap;
 mod commands;
@@ -43,14 +44,10 @@ use window_state::{
 
 static SHUTDOWN_CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    if let Err(error) = dev_logger::initialize() {
-        write_stderr_line(&format!(
-            "level=ERROR component=desktop.app event=logger_init_failed error=\"{error}\""
-        ));
-    }
-
+/// Open persistent state only after the single-instance plugin has had a chance
+/// to reject a duplicate process. `AppState::new` clears startup session data,
+/// so doing this before that check could erase the running instance's sessions.
+fn initialize_app_state() -> Result<AppState, String> {
     match session_stats::initialize() {
         Ok(Some(path)) => {
             tracing::info!(
@@ -71,29 +68,23 @@ pub fn run() {
         }
     }
 
-    // Initialize database before building the app
-    let db_connection = match aiproxy_db::connection::open_database() {
-        Ok(conn) => {
-            tracing::info!(
-                component = "desktop.app",
-                event = "database_opened",
-                "database_opened"
-            );
-            conn
-        }
-        Err(error) => {
-            tracing::error!(
-                component = "desktop.app",
-                event = "database_open_failed",
-                error = %error,
-                "database_open_failed"
-            );
-            write_stderr_line(&format!(
-                "level=ERROR component=desktop.app event=database_open_failed error=\"{error}\""
-            ));
-            std::process::exit(1);
-        }
-    };
+    let db_connection = aiproxy_db::connection::open_database().map_err(|error| {
+        tracing::error!(
+            component = "desktop.app",
+            event = "database_open_failed",
+            error = %error,
+            "database_open_failed"
+        );
+        write_stderr_line(&format!(
+            "level=ERROR component=desktop.app event=database_open_failed error=\"{error}\""
+        ));
+        format!("open AIProxy database: {error}")
+    })?;
+    tracing::info!(
+        component = "desktop.app",
+        event = "database_opened",
+        "database_opened"
+    );
 
     let body_store_dir = aiproxy_db::connection::resolve_db_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("aiproxy"))
@@ -109,6 +100,11 @@ pub fn run() {
     }
 
     let app_state = AppState::new(Arc::new(Mutex::new(db_connection)), Arc::new(body_store));
+    app_state.set_launch_source(if std::env::args().any(|arg| arg == "--agent-launched") {
+        "agent"
+    } else {
+        "user"
+    });
 
     // Seed default workspace to DB if empty. Fail-closed on poison: skip the
     // whole block (the is_empty read + the conditional upsert write) rather
@@ -178,14 +174,32 @@ pub fn run() {
         }
     }
 
+    Ok(app_state)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    if let Err(error) = dev_logger::initialize() {
+        write_stderr_line(&format!(
+            "level=ERROR component=desktop.app event=logger_init_failed error=\"{error}\""
+        ));
+    }
+
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(Arc::new(app_state))
         .invoke_handler(tauri::generate_handler![
+            agent_control::get_recent_agent_control_actions,
             commands::get_bootstrap_status,
             commands::list_sessions,
             commands::get_session_detail,
@@ -293,6 +307,8 @@ pub fn run() {
             commands::set_menu_locale,
         ])
         .setup(|app| {
+            let app_state = initialize_app_state().map_err(std::io::Error::other)?;
+            let _ = app.manage(Arc::new(app_state));
             let state = app.state::<Arc<AppState>>();
             state.set_app_handle(app.handle().clone());
             agent_status::write_from_state(&state);
@@ -313,8 +329,23 @@ pub fn run() {
             window.set_decorations(false)?;
             register_main_window_state_tracking(&window);
             restore_or_initialize_main_window_state(&window);
+            let _ = window.unminimize();
             window.show()?;
+            let _ = window.set_focus();
             schedule_main_window_state_restore(&window);
+
+            // Publish the Agent control descriptor only after startup recovery
+            // and window initialization complete. An on-demand Agent launch
+            // waits for this descriptor, so this ordering prevents its first
+            // write from racing the pending system-proxy restore.
+            if let Err(error) = agent_control::start(app.handle()) {
+                tracing::error!(
+                    component = "desktop.agent_control",
+                    event = "control_server_start_failed",
+                    error = %error,
+                    "control_server_start_failed"
+                );
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -363,6 +394,7 @@ fn run_heavy_shutdown_cleanup(app_handle: &tauri::AppHandle) {
         return;
     }
 
+    agent_control::shutdown();
     let app_state = app_handle.state::<Arc<AppState>>();
     agent_status::write_shutdown(&app_state);
     let workspace_id = app_state

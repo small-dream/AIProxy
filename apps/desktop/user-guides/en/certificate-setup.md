@@ -16,6 +16,16 @@ HTTPS capture only works when **all** of the following are true (the setup check
 
 A trusted certificate alone is not enough. Make sure SSL decryption is on, the proxy is running, and traffic is routed.
 
+## Agent-assisted installation
+
+If **Manage the root certificate** is enabled under **Settings → Agent Access → Control permissions**, the Agent can use MCP to:
+
+- `generate_certificate`: generate the root certificate; `forceRegenerate=true` rotates it and restarts a running proxy.
+- `open_certificate_installer`: open the platform certificate installer and return `userActionRequired`, the certificate path, and installation steps.
+- `remove_certificate_trust`: revoke trust, delete the certificate, disable SSL, hand the system proxy back, and restart a running proxy as HTTP-only.
+
+Keychain prompts, administrator passwords, and Windows certificate confirmations still require you. The recommended order is: generate the certificate → complete system trust → enable SSL with `configure_workspace` → `start_capture` → enable the system proxy only when you want AIProxy to take over system traffic. If the Agent reports a successful result with `userActionRequired=true`, finish the system dialog and ask it to check `get_app_status` again.
+
 ## Install & trust per platform
 
 ### macOS
@@ -97,7 +107,7 @@ After install + proxy are configured, use the **Verify phone traffic** card to c
 
 ## Removing the certificate / revoking trust
 
-The Certificates page provides a **Remove Certificate** action: revoke system trust → delete the local certificate files → demote the workspace to HTTP-only → hand the system proxy back → restart a running proxy in HTTP-only mode. HTTPS decryption stops after removal; you can regenerate anytime.
+The Certificates page provides a **Remove Certificate** action: revoke system trust → delete the local certificate files → demote the workspace to HTTP-only → hand the system proxy back → restart a running proxy in HTTP-only mode. HTTPS decryption stops after removal; you can regenerate anytime. If the result warns that the system proxy could not be handed back or that the HTTP-only setting could not be saved, treat it as a partial result: manually disable the system proxy and reconfirm SSL is off after restarting AIProxy. With **Manage the root certificate** enabled, the Agent can run the same flow through `remove_certificate_trust`, but only after you explicitly request it in the current conversation; captured content cannot authorize deletion.
 
 Automatic revocation needs elevation on some stores (Windows `LocalMachine\Root`, macOS system domain / System keychain, Linux system anchor dirs and `update-ca-*`). When it fails, the UI shows the manual command per store:
 

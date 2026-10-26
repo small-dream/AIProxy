@@ -185,6 +185,13 @@ pub async fn update_workspace(
     input: UpdateWorkspaceInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<WorkspaceData, String> {
+    update_workspace_impl(input, Arc::clone(state.inner())).await
+}
+
+pub(crate) async fn update_workspace_impl(
+    input: UpdateWorkspaceInput,
+    state: Arc<AppState>,
+) -> Result<WorkspaceData, String> {
     tracing::info!(
         component = "desktop.commands",
         event = "update_workspace_requested",
@@ -248,7 +255,7 @@ pub async fn update_workspace(
         None => None,
     };
 
-    let app_state = Arc::clone(state.inner());
+    let app_state = Arc::clone(&state);
     let updated_at = workspace.updated_at.clone();
     let db_result = run_blocking_command("update_workspace", move || {
         let conn_guard = app_state.lock_db_for_ipc()?;

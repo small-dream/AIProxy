@@ -65,6 +65,22 @@ describe("SettingsPage navigation", () => {
     expect(await screen.findByText("Read permissions")).toBeInTheDocument();
   });
 
+  it("finds and jumps to an Agent control permission from settings search", async () => {
+    renderSettings();
+
+    fireEvent.change(screen.getByLabelText("Search settings"), {
+      target: { value: "system proxy" },
+    });
+
+    const results = screen.getAllByText("Control the system proxy");
+    fireEvent.click(results.at(-1)!);
+
+    expect(
+      await screen.findByRole("switch", { name: "Control the system proxy" }),
+    ).toBeInTheDocument();
+    expect(document.getElementById("settings-item-agent-control-system-proxy")).toBeInTheDocument();
+  });
+
   it("shows a compact Agent client list with manual setup in the overflow menu", async () => {
     renderSettings("/settings?section=agent");
 

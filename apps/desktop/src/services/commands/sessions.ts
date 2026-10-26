@@ -221,9 +221,8 @@ export async function getSessionDetailWithContent(
 }
 
 export async function clearSessions(): Promise<void> {
-  clearImportedSessions();
-
   if (!isTauriRuntime()) {
+    clearImportedSessions();
     logDevDebug("ui.commands", "clear_sessions_bypassed_non_tauri_runtime");
     return;
   }
@@ -231,10 +230,18 @@ export async function clearSessions(): Promise<void> {
   try {
     logDevInfo("ui.commands", "clear_sessions_requested");
     await invoke("clear_sessions");
+    clearImportedSessions();
     logDevInfo("ui.commands", "clear_sessions_succeeded");
   } catch (error) {
+    const appError = coerceAppError(error);
+    // The backend can commit the database clear and still report a body-file
+    // cleanup failure. Keep renderer-only imports in sync with that partial
+    // success, while retaining them when the database operation itself failed.
+    if (appError.details?.sessionsCleared === true) {
+      clearImportedSessions();
+    }
     reportCommandFailure("clear_sessions", error);
-    throw coerceAppError(error);
+    throw appError;
   }
 }
 
@@ -244,11 +251,10 @@ export async function clearSessions(): Promise<void> {
 // the "deleted" session back. On success the backend's `sessions-removed`
 // event drives the local store/query cleanup.
 export async function deleteSessions(sessionIds: string[]): Promise<void> {
-  // Imported (HAR) sessions live only in the renderer; the backend never saw
-  // them, so they are dropped from the import store here.
-  removeImportedSessions(sessionIds);
-
   if (!isTauriRuntime()) {
+    // Imported (HAR) sessions live only in the renderer; the backend never saw
+    // them, so they are dropped from the import store here.
+    removeImportedSessions(sessionIds);
     logDevDebug("ui.commands", "delete_sessions_bypassed_non_tauri_runtime", {
       sessionCount: sessionIds.length,
     });
@@ -260,12 +266,20 @@ export async function deleteSessions(sessionIds: string[]): Promise<void> {
       sessionCount: sessionIds.length,
     });
     await invoke("delete_sessions", { input: { sessionIds } });
+    removeImportedSessions(sessionIds);
     logDevInfo("ui.commands", "delete_sessions_succeeded", {
       sessionCount: sessionIds.length,
     });
   } catch (error) {
+    const appError = coerceAppError(error);
+    // Preserve imports when the backend failed before deleting storage. A body
+    // cleanup failure happens after the database commit and is marked so the
+    // renderer can still discard the matching imported sessions.
+    if (appError.details?.sessionsDeleted === true) {
+      removeImportedSessions(sessionIds);
+    }
     reportCommandFailure("delete_sessions", error);
-    throw coerceAppError(error);
+    throw appError;
   }
 }
 

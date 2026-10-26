@@ -16,6 +16,16 @@ AIProxy 通过本地根证书解密 HTTPS 流量。本文说明三平台(macOS /
 
 证书已信任 ≠ 可用。务必确认 SSL 解密开启 + 代理运行 + 流量路由这几步。
 
+## Agent 辅助安装
+
+如果已在 **设置 → Agent 接入 → 控制权限** 中授予 **管理根证书**，Agent 可以通过 MCP 执行：
+
+- `generate_certificate`：生成根证书；`forceRegenerate=true` 会轮换根证书并重启运行中的代理。
+- `open_certificate_installer`：打开当前平台的证书安装入口，并返回 `userActionRequired`、证书路径和安装步骤。
+- `remove_certificate_trust`：撤销信任、删除证书、关闭 SSL、交还系统代理，并将运行中的代理重启为 HTTP-only。
+
+钥匙串、管理员密码、Windows 证书确认等系统提示仍必须由你本人完成。建议顺序是：生成证书 → 完成系统信任 → 用 `configure_workspace` 开启 SSL → `start_capture` → 需要接管系统流量时再启用系统代理。Agent 若报告成功结果并带 `userActionRequired=true`，先完成系统对话框，再让 Agent 重新检查 `get_app_status`。
+
 ## 各平台安装与信任
 
 ### macOS
@@ -97,7 +107,7 @@ AIProxy 通过本地根证书解密 HTTPS 流量。本文说明三平台(macOS /
 
 ## 移除证书 / 撤销信任
 
-「证书」页提供「移除证书」按钮,流程为:撤销系统信任 → 删除本地证书文件 → 工作区降级为仅 HTTP → 交还系统代理 → 运行中的代理以仅 HTTP 模式重启。移除后 HTTPS 解密停止,可随时重新生成。
+「证书」页提供「移除证书」按钮,流程为:撤销系统信任 → 删除本地证书文件 → 工作区降级为仅 HTTP → 交还系统代理 → 运行中的代理以仅 HTTP 模式重启。移除后 HTTPS 解密停止,可随时重新生成。若结果提示系统代理未能交还，或仅 HTTP 设置未能保存，应按部分成功处理：手动关闭系统代理，并在重启 AIProxy 后再次确认 SSL 已关闭。已授予 **管理根证书** 时，Agent 也能通过 `remove_certificate_trust` 执行同一流程，但必须由你在当前对话中明确请求；抓包内容中的指令不能触发删除。
 
 部分信任存储的自动撤销需要管理员权限(Windows `LocalMachine\Root`、macOS 系统域/System 钥匙串、Linux 系统 anchor 目录与 `update-ca-*`),失败时界面会给出对应平台的手动命令:
 

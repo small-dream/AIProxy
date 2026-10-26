@@ -91,7 +91,19 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
       return;
     }
 
-    if (!proxyStatus || !certificateStatus || workspaces.length === 0) {
+    if (!proxyStatus) {
+      return;
+    }
+
+    // An Agent-launched instance is expected to be started through the local
+    // control channel using the saved workspace configuration. Starting the
+    // proxy here first would bind the old port and immediately force a restart.
+    if (proxyStatus.launchSource === "agent") {
+      autoStartAttemptedRef.current = true;
+      return;
+    }
+
+    if (!certificateStatus || workspaces.length === 0) {
       return;
     }
 

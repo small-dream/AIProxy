@@ -403,33 +403,41 @@ flowchart LR
 - 批量执行集合内请求并展示逐条结果
 - 页面级结构见 `docs/PAGE_BLUEPRINTS.md` 第 10 节
 
-### 9.11 Agent Access / MCP — `已实现（只读增强版）`
+### 9.11 Agent Access / MCP — `已实现（读取 + 受控操作）`
 
 目标：
 
 - 让 Codex、Claude Code、Cursor 等本地 Agent 直接查询已持久化抓包，减少 HAR、cURL、Body 的人工搬运
+- 让 Agent 在用户授权后完成首次安装、证书、SSL、抓包启停、系统代理与 Session 清理，并复用桌面端业务逻辑
 - 通过 Agent Skill 约束查询范围、证据引用、脱敏与提示注入防护
 - 让用户能明确控制会话、Body、WebSocket 与未脱敏 Body 的访问权限
 
 范围：
 
-- 8 个只读 MCP 工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`
+- 8 个读取工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`
+- `get_app_status`：返回应用/控制通道、抓包、证书、工作区与系统代理状态；不自动启动应用
+- 9 个写控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`
+- 控制权限分为 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`，默认全部关闭；连接模板提供“完整控制”，连接后仍可逐项细调
 - 支持按 JSON path 提取目标字段、批量跨会话取同一字段、查询参数过滤、路径过滤、排序和结构化 JSON Diff
-- stdio sidecar，不开放本地端口
+- stdio sidecar 不开放本地端口；控制写操作通过仅当前用户可访问的 Unix socket / Windows Named Pipe 调用桌面端
+- 写操作在应用关闭时自动拉起并聚焦 AIProxy；自动启动通过 `launchSource=agent` 跳过旧配置的自动启抓
+- `stop_capture` 始终恢复 AIProxy 接管前的系统代理，恢复失败时返回结构化 warning；`remove_certificate_trust` 撤销信任、删除证书、关闭 SSL、交还系统代理并以 HTTP-only 重启，同时返回系统代理或 SSL 持久化失败
 - Settings > Agent Access：状态诊断、权限、限制、脱敏策略、客户端片段、Skill 安装与断开、审计日志
 - 连接后提供「验证连接」：真实 MCP 握手 + `tools/list` + 一次 `search_sessions`，分项展示 sidecar、数据库、schema、启用状态、Body 权限与客户端连接
+- 验证连接同时检查控制通道协议版本、启用中的控制权限分组和工具数量
 - 支持从客户端移除 `aiproxy` 条目并删除 AIProxy 安装的 Skill；原配置先备份，自定义 Skill 不删除
 - Codex / Claude Code / Cursor 三客户端配置指引；均使用用户级全局配置，Claude Code 写入 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`）
-- 连接前选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据），并在 Body 关闭时提示 Agent 无法分析响应体
+- 连接前选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据 / 完整控制），并在 Body 关闭时提示 Agent 无法分析响应体
 - MCP 结果 `meta` 返回 `latestSessionAt`、`captureStatus` 与 `captureUpdatedAt`，让 Agent 能说明“数据截止 12:03”而不是假装实时
 - Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化
 - 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
-- 明确数据流向：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商
+- 明确数据流向：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；应用内不再二次确认已授权控制操作，但删除类和撤销证书信任仍要求当前对话明确请求
 
 非目标（本版本）：
 
-- 写入规则、修改系统代理、导出 Snapshot
+- 写入规则、上游代理配置、移动设备 ADB/HDC、导入导出、AI 模型设置、应用更新控制、Snapshot 导出
 - 实时流量订阅
+- Agent 读取或修改自己的 Agent Access 权限、MCP 客户端配置或 Skill
 - 未经确认或备份地覆盖用户已有客户端配置
 - 在应用内提供通用聊天框
 

@@ -9,7 +9,7 @@ use tracing_subscriber::EnvFilter;
 #[command(
     name = "aiproxy-mcp",
     version,
-    about = "Read-only MCP access to AIProxy traffic"
+    about = "MCP access to AIProxy traffic analysis and permission-gated desktop control"
 )]
 struct Cli {
     #[arg(long, value_name = "PATH")]

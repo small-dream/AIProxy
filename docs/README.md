@@ -34,6 +34,7 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [BUILD_RUN_PACKAGE_GUIDE.md](./BUILD_RUN_PACKAGE_GUIDE.md) | How to build, run, and package the app |
 | [RELEASE_GUIDE.md](./RELEASE_GUIDE.md) | Release process and publishing guide |
 | [DECISIONS/ADR-006-local-mcp-agent-access.md](./DECISIONS/ADR-006-local-mcp-agent-access.md) | Local MCP sidecar and read-only Agent Access decision |
+| [DECISIONS/ADR-007-agent-control-ipc.md](./DECISIONS/ADR-007-agent-control-ipc.md) | Permission-gated Agent control over owner-only local IPC |
 | [releases/](./releases/) | Versioned bilingual release summaries used by GitHub Releases and in-app updates |
 
 ### Architecture Decision Records (ADRs)
@@ -47,6 +48,8 @@ ADRs capture important architectural decisions and their rationale.
 | [ADR-003](./DECISIONS/ADR-003-proxy-http-client-strategy.md) | Proxy HTTP Client Strategy |
 | [ADR-004](./DECISIONS/ADR-004-panic-strategy.md) | Panic Strategy (unwinding vs abort) |
 | [ADR-005](./DECISIONS/ADR-005-mutex-poison-policy.md) | Mutex Poison Recovery Policy |
+| [ADR-006](./DECISIONS/ADR-006-local-mcp-agent-access.md) | Local MCP sidecar and read-only Agent Access decision |
+| [ADR-007](./DECISIONS/ADR-007-agent-control-ipc.md) | Permission-gated Agent control over owner-only local IPC |
 
 ### Screenshots
 

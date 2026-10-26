@@ -12,7 +12,9 @@ export function shouldConfirmConfigWrite(info: AgentClientInfo) {
   return info.configExists;
 }
 
-export type AgentPermissionPreset = "metadata" | "bodies" | "raw";
+export type AgentPermissionPreset = "metadata" | "bodies" | "raw" | "full";
+/** The reconnect dialog can also preserve a user's custom permission mix. */
+export type AgentConnectPreset = AgentPermissionPreset | "current";
 
 /**
  * Scenario templates offered when connecting a client. They intentionally set
@@ -28,6 +30,10 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         readRawBodies: false,
         readWebSocket: false,
         exportSnapshots: false,
+        controlCapture: false,
+        controlSystemProxy: false,
+        manageCertificates: false,
+        deleteSessions: false,
       };
     case "bodies":
       return {
@@ -36,6 +42,10 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         readRawBodies: false,
         readWebSocket: true,
         exportSnapshots: false,
+        controlCapture: false,
+        controlSystemProxy: false,
+        manageCertificates: false,
+        deleteSessions: false,
       };
     case "raw":
       return {
@@ -44,14 +54,43 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         readRawBodies: true,
         readWebSocket: true,
         exportSnapshots: false,
+        controlCapture: false,
+        controlSystemProxy: false,
+        manageCertificates: false,
+        deleteSessions: false,
+      };
+    case "full":
+      return {
+        readSessions: true,
+        readBodies: true,
+        readRawBodies: false,
+        readWebSocket: true,
+        exportSnapshots: false,
+        controlCapture: true,
+        controlSystemProxy: true,
+        manageCertificates: true,
+        deleteSessions: true,
       };
   }
 }
 
-export function presetForPermissions(permissions: AgentAccessPermissions): AgentPermissionPreset {
-  if (permissions.readRawBodies) return "raw";
-  if (permissions.readBodies) return "bodies";
-  return "metadata";
+export function presetForPermissions(permissions: AgentAccessPermissions): AgentConnectPreset {
+  for (const preset of ["full", "raw", "bodies", "metadata"] as const) {
+    if (permissionsEqual(permissions, permissionsForPreset(preset))) return preset;
+  }
+  return "current";
+}
+
+/**
+ * Resolve the permissions represented by the connect dialog. "current" keeps
+ * the exact saved permission mix so reconnecting never silently revokes a
+ * user's partial control grants or other custom settings.
+ */
+export function permissionsForConnectPreset(
+  preset: AgentConnectPreset,
+  current: AgentAccessPermissions,
+): AgentAccessPermissions {
+  return preset === "current" ? { ...current } : permissionsForPreset(preset);
 }
 
 export function permissionsEqual(
@@ -63,6 +102,10 @@ export function permissionsEqual(
     current.readBodies === next.readBodies &&
     current.readRawBodies === next.readRawBodies &&
     current.readWebSocket === next.readWebSocket &&
-    current.exportSnapshots === next.exportSnapshots
+    current.exportSnapshots === next.exportSnapshots &&
+    current.controlCapture === next.controlCapture &&
+    current.controlSystemProxy === next.controlSystemProxy &&
+    current.manageCertificates === next.manageCertificates &&
+    current.deleteSessions === next.deleteSessions
   );
 }

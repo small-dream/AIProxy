@@ -45,11 +45,12 @@ import {
 } from "@/features/agent-access/AgentClientRow";
 import { AgentPathValue } from "@/features/agent-access/AgentPathValue";
 import {
+  permissionsForConnectPreset,
   permissionsEqual,
   permissionsForPreset,
   presetForPermissions,
   shouldConfirmConfigWrite,
-  type AgentPermissionPreset,
+  type AgentConnectPreset,
 } from "@/features/agent-access/agent-access.helpers";
 import { useI18n } from "@/i18n";
 import {
@@ -94,7 +95,7 @@ type PendingConfigWrite = {
 
 type PendingConnect = {
   info: AgentClientInfo;
-  preset: AgentPermissionPreset;
+  preset: AgentConnectPreset;
 };
 
 type ConnectInput = PendingConnect;
@@ -308,7 +309,7 @@ export function AgentAccessSection() {
   const connectMutation = useMutation({
     mutationFn: async (input: ConnectInput): Promise<ConnectResult> => {
       if (!draft) throw new Error(t("common.errors.generic"));
-      const permissions = permissionsForPreset(input.preset);
+      const permissions = permissionsForConnectPreset(input.preset, draft.permissions);
       let settings: AgentAccessSettings | null = null;
       if (!permissionsEqual(draft.permissions, permissions)) {
         try {
@@ -887,6 +888,114 @@ export function AgentAccessSection() {
           </SettingsGroup>
 
           <Divider sx={{ mt: 1 }} />
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: "center", justifyContent: "space-between", pt: 1.5 }}
+          >
+            <Box>
+              <Typography variant="subtitle2">
+                {t("settingsPage.agentAccess.controlPermissionsTitle")}
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                {t("settingsPage.agentAccess.controlPermissionsDescription")}
+              </Typography>
+            </Box>
+            <Button
+              size="small"
+              color="warning"
+              variant="outlined"
+              onClick={() =>
+                setDraft((current) =>
+                  current
+                    ? {
+                        ...current,
+                        permissions: {
+                          ...current.permissions,
+                          controlCapture: true,
+                          controlSystemProxy: true,
+                          manageCertificates: true,
+                          deleteSessions: true,
+                        },
+                      }
+                    : current,
+                )
+              }
+              sx={{ flexShrink: 0 }}
+            >
+              {t("settingsPage.agentAccess.enableFullControl")}
+            </Button>
+          </Stack>
+          <SettingsGroup>
+            <SettingsRow
+              itemId="agent-control-capture"
+              label={t("settingsPage.agentAccess.controlCaptureLabel")}
+              description={t("settingsPage.agentAccess.controlCaptureDescription")}
+            >
+              <Switch
+                size="small"
+                checked={draft.permissions.controlCapture}
+                onChange={(event) => updatePermission("controlCapture", event.target.checked)}
+                slotProps={{
+                  input: { "aria-label": t("settingsPage.agentAccess.controlCaptureLabel") },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-control-system-proxy"
+              label={t("settingsPage.agentAccess.controlSystemProxyLabel")}
+              description={t("settingsPage.agentAccess.controlSystemProxyDescription")}
+            >
+              <Switch
+                size="small"
+                color="warning"
+                checked={draft.permissions.controlSystemProxy}
+                onChange={(event) => updatePermission("controlSystemProxy", event.target.checked)}
+                slotProps={{
+                  input: {
+                    "aria-label": t("settingsPage.agentAccess.controlSystemProxyLabel"),
+                  },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-control-certificates"
+              label={t("settingsPage.agentAccess.manageCertificatesLabel")}
+              description={t("settingsPage.agentAccess.manageCertificatesDescription")}
+            >
+              <Switch
+                size="small"
+                color="warning"
+                checked={draft.permissions.manageCertificates}
+                onChange={(event) => updatePermission("manageCertificates", event.target.checked)}
+                slotProps={{
+                  input: {
+                    "aria-label": t("settingsPage.agentAccess.manageCertificatesLabel"),
+                  },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-control-delete-sessions"
+              label={t("settingsPage.agentAccess.deleteSessionsLabel")}
+              description={t("settingsPage.agentAccess.deleteSessionsDescription")}
+            >
+              <Switch
+                size="small"
+                color="error"
+                checked={draft.permissions.deleteSessions}
+                onChange={(event) => updatePermission("deleteSessions", event.target.checked)}
+                slotProps={{
+                  input: { "aria-label": t("settingsPage.agentAccess.deleteSessionsLabel") },
+                }}
+              />
+            </SettingsRow>
+          </SettingsGroup>
+          <Alert severity="warning" variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
+            {t("settingsPage.agentAccess.fullControlWarning")}
+          </Alert>
+
+          <Divider sx={{ mt: 1 }} />
           <Box sx={{ pt: 1.5 }}>
             <Button
               size="small"
@@ -1130,6 +1239,7 @@ export function AgentAccessSection() {
       <AgentConnectDialog
         busy={connectMutation.isPending}
         clientLabel={pendingConnect ? clientName(pendingConnect.info.client, t) : ""}
+        currentPermissions={draft?.permissions ?? permissionsForPreset("metadata")}
         errorMessage={connectError}
         info={pendingConnect?.info ?? null}
         onCancel={() => {
@@ -1281,6 +1391,10 @@ function checkLabel(id: string, t: ReturnType<typeof useI18n>["t"]) {
       return t("settingsPage.agentAccess.checkSessions");
     case "clients":
       return t("settingsPage.agentAccess.checkClients");
+    case "controlChannel":
+      return t("settingsPage.agentAccess.checkControlChannel");
+    case "controlPermissions":
+      return t("settingsPage.agentAccess.checkControlPermissions");
     default:
       return id;
   }
@@ -1368,6 +1482,10 @@ function draftsEqual(current: AgentAccessDraft, saved: AgentAccessDraft) {
     "readRawBodies",
     "readWebSocket",
     "exportSnapshots",
+    "controlCapture",
+    "controlSystemProxy",
+    "manageCertificates",
+    "deleteSessions",
   ];
   const limitKeys: Array<keyof AgentAccessLimits> = [
     "maxSessions",

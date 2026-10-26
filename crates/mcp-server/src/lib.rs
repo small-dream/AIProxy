@@ -1,6 +1,7 @@
 pub mod audit;
 pub mod config;
 pub mod context;
+pub mod control_client;
 pub mod protocol;
 pub mod redaction;
 pub mod server;

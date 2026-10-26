@@ -3,7 +3,9 @@
 ## 1. 文档信息
 
 - 文档类型：技术方案与总体架构
-- 文档状态：`Implemented v1.1（只读增强版已实现）`
+- 文档状态：`Historical v1.1（只读基线；控制能力已由 ADR-007 扩展）`
+
+> 历史说明：本文记录 v1 只读架构与当时的实现决策。v3.0 已新增 `get_app_status` 与 9 个受权限约束的写控制工具，通过本地 IPC 复用桌面端业务逻辑。当前工具契约、权限与错误码以 `docs/API_SPEC.md` 和 `docs/DECISIONS/ADR-007-agent-control-ipc.md` 为准；下文的“只读”“写操作后置”“`runtimeStatus=unknown`”等描述仅保留为历史基线。
 > 实现说明：2026-10-18 已落地 schema 2.1、字段提取、批量字段读取、结构化比较与可配置脱敏；同轮补齐「验证连接」真实 MCP 握手、断开连接、doctor 列级 schema 检查，以及 `since` 统一、`compact` 保留 host、`part` 必填说明与可行动错误信息。实际模块、命令、客户端路径与验证结果见文末「实现状态」。
 - 更新日期：`2026-10-18`
 - 适用范围：AIProxy Desktop、Rust 核心、`aiproxy-mcp` sidecar、Codex / Claude Code / Cursor 等 Agent 客户端

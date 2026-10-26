@@ -126,6 +126,17 @@ export const enMessages = {
   },
   appShell: {
     appSubtitle: "Desktop proxy workbench",
+    agentControlClearSessions: "deleted all sessions",
+    agentControlConfigureWorkspace: "updated workspace settings",
+    agentControlDeleteSessions: "deleted selected sessions",
+    agentControlActionFailure: "Agent action failed: {{action}} ({{code}})",
+    agentControlActionSuccess: "Agent action completed: {{action}}",
+    agentControlGenerateCertificate: "generated the root certificate",
+    agentControlOpenCertificateInstaller: "opened the certificate installer",
+    agentControlRemoveCertificateTrust: "removed the root certificate",
+    agentControlSetSystemProxy: "changed the system proxy",
+    agentControlStartCapture: "started capture",
+    agentControlStopCapture: "stopped capture",
     updateAvailableAction: "Update",
     breakpointsPending: "{{count}} breakpoint{{suffix}}",
     breakpointsPendingTitle: "Breakpoints pending, click to open Rules",
@@ -294,6 +305,8 @@ export const enMessages = {
     aiTimeout: "Timeout (ms)",
     agentAccess: {
       auditBytes: "Bytes",
+      auditAction: "Action",
+      auditAgentControl: "Control",
       auditClient: "Client",
       auditDescription:
         "Metadata-only record of Agent tool calls. Payloads and secrets are never stored.",
@@ -310,8 +323,29 @@ export const enMessages = {
       auditSummaryEmpty: "No Agent calls recorded yet",
       advancedPermissions: "Advanced permissions",
       advancedPermissionsDescription: "Unredacted body access, redaction policy, and query limits",
+      controlCaptureDescription:
+        "Let the Agent change ports and SSL settings, and start or stop capture.",
+      controlCaptureLabel: "Control capture and workspace settings",
+      controlPermissionsDescription:
+        "When enabled, the Agent performs these actions without another in-app confirmation. Grant only the groups this task needs.",
+      controlPermissionsTitle: "Control permissions",
+      controlSystemProxyDescription:
+        "Let the Agent take over or release the system proxy. High-risk actions must be explicitly requested in the current conversation.",
+      controlSystemProxyLabel: "Control the system proxy",
+      deleteSessionsDescription:
+        "Let the Agent clear all sessions or delete sessions and bodies by ID. Deletion cannot be undone.",
+      deleteSessionsLabel: "Delete sessions",
+      enableFullControl: "Enable full control",
+      fullControlBadge: "full control",
+      fullControlWarning:
+        "Full control lets the Agent start or stop capture, take over the system proxy, manage the root certificate, and delete sessions. Enable it only when you trust the Agent and task; deletion and certificate-trust removal still require an explicit request in the current conversation.",
+      manageCertificatesDescription:
+        "Let the Agent generate or rotate the root certificate, open the system installer, and revoke trust. The operating system still asks you for passwords or installation approval.",
+      manageCertificatesLabel: "Manage the root certificate",
       checkBodyAccess: "Body read permission",
       checkClients: "Client connections",
+      checkControlChannel: "Agent control channel",
+      checkControlPermissions: "Control permissions",
       checkDataDirectory: "Data directory",
       checkDatabase: "Database readable",
       checkDoctor: "MCP diagnostics",
@@ -368,10 +402,11 @@ export const enMessages = {
         "After connecting, anything the Agent reads is sent to the model provider. Enable only the scope this task needs.",
       connectDialogBackup: "The target file already exists and is backed up first.",
       connectDialogConfirm: "Connect and write",
+      connectDialogNoReadPermissions: "No read permissions",
       connectDialogPath: "Writes to: {{path}}",
       connectDialogScopeHint:
-        "Grants: {{permissions}}. You can adjust this later under Read permissions.",
-      connectDialogScopeTitle: "What the Agent can read",
+        "Grants: {{permissions}}. You can adjust each permission group after connecting.",
+      connectDialogScopeTitle: "What the Agent can access and control",
       connectDialogTitle: "Connect {{client}}",
       connectSuccess:
         "MCP configuration written for {{client}}. Restart or reload {{client}} to activate it; the Skill is installed.",
@@ -387,12 +422,13 @@ export const enMessages = {
       cursorHint:
         "Cursor reads user-level MCP servers from ~/.cursor/mcp.json. One-click setup merges the aiproxy entry for you; reload the Cursor window afterwards.",
       dataFlowNote:
-        "AIProxy never uploads captured traffic. Once an Agent reads it, that content is sent to the model provider you connected. Redaction and read-only access reduce exposure; they do not remove it. Enable only the permissions this task needs.",
+        "AIProxy never uploads captured traffic. Once an Agent reads it, that content is sent to the model provider you connected. Read access is conservative by default and control permissions start off. Enable only the permissions this task needs.",
       dataDirLabel: "Data directory",
       detectSensitiveValuesDescription:
         "Detect JWTs, emails, phone numbers, device IDs, addresses, and sensitive values even when the field name is unfamiliar.",
       detectSensitiveValuesLabel: "Detect sensitive values by format",
-      description: "Give local coding agents read-only access to captured traffic through MCP.",
+      description:
+        "Let local coding agents inspect captured traffic through MCP and grant permission-gated desktop control when needed.",
       diagnostics: "Diagnostics",
       discardChanges: "Discard",
       disabledDescription:
@@ -410,10 +446,10 @@ export const enMessages = {
       disconnectTitle: "Disconnect {{client}}?",
       disconnecting: "Disconnecting...",
       enabledDescription:
-        "Agent Access is on. The sidecar reads only persisted traffic and writes metadata-only audit entries.",
+        "Agent Access is on. The sidecar can read persisted traffic and perform control actions granted by permission group; every tool call writes a metadata-only audit entry.",
       enabledLabel: "Enable local Agent access",
       exportSnapshotsDescription:
-        "Snapshot export is deferred to a future read-only phase and cannot be enabled in this build.",
+        "Snapshot export is deferred to a future release and cannot be enabled in this build.",
       exportSnapshotsLabel: "Export snapshots",
       hideAuditLog: "Hide log",
       hideDiagnostics: "Hide diagnostics",
@@ -450,6 +486,12 @@ export const enMessages = {
       presetBodies: "Include response bodies",
       presetBodiesDescription:
         "Also allows redacted request/response bodies and WebSocket messages.",
+      presetCurrent: "Keep current permissions",
+      presetCurrentDescription:
+        "Preserves the exact permission mix saved in Settings, including any custom or partial control grants.",
+      presetFull: "Full control (high risk)",
+      presetFullDescription:
+        "Allow redacted bodies and WebSockets plus capture, system proxy, root certificate, and session deletion control. Unredacted bodies remain off.",
       presetMetadata: "Metadata only",
       presetMetadataDescription:
         "Session summaries, headers, query, timing, and rule traces. No bodies.",
@@ -474,7 +516,7 @@ export const enMessages = {
       saveSuccess: "Agent Access settings saved.",
       saving: "Saving...",
       securityNote:
-        "AIProxy does not upload captured traffic, but once an Agent reads it, that content is sent to the model provider. Redaction, read-only access, and audit logs reduce exposure; they do not replace your judgement about permissions.",
+        "AIProxy does not upload captured traffic, but once an Agent reads it, that content is sent to the model provider. Redaction, default-off control permissions, and audit logs reduce exposure; they do not replace your judgement about permissions.",
       sidecarMissing: "Sidecar missing",
       sidecarPathLabel: "MCP sidecar",
       sidecarReady: "Sidecar ready",
@@ -1133,6 +1175,8 @@ export const enMessages = {
       partialTitle: "Certificate deleted; some trust stores could not be revoked automatically",
       systemProxyErrorHint:
         'The system proxy could not be handed back ({{error}}). Your machine may still be routed through AIProxy and HTTPS browsing will fail — turn off "System Proxy" from the status bar or Settings manually.',
+      workspacePersistWarningHint:
+        "The certificate was removed and SSL was disabled for this run, but the workspace setting could not be saved ({{error}}). After restarting AIProxy, SSL interception may be enabled again without a valid certificate; turn SSL off again if needed.",
       removing: "Removing...",
       storeLabel: "{{store}}: {{error}}",
       successBody:

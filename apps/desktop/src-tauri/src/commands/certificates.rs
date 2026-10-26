@@ -21,6 +21,10 @@ pub struct RemoveCertificateTrustOutput {
     pub status: CertificateStateSnapshot,
     pub trust_removal: TrustRemovalReport,
     pub system_proxy_handback_error: Option<String>,
+    /// Set when the certificate was removed and SSL was disabled in memory,
+    /// but persisting `ssl_enabled=false` failed. A restart may otherwise
+    /// restore SSL interception without a certificate.
+    pub workspace_persist_warning: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -236,7 +240,9 @@ pub async fn install_harmony_certificate_via_hdc(
     .await
 }
 
-fn get_certificate_status_impl(state: Arc<AppState>) -> Result<CertificateStateSnapshot, String> {
+pub(crate) fn get_certificate_status_impl(
+    state: Arc<AppState>,
+) -> Result<CertificateStateSnapshot, String> {
     let platform = detect_platform();
 
     let storage = CertStorage::resolve()
@@ -431,7 +437,7 @@ fn ios_simctl_available() -> bool {
     }
 }
 
-async fn generate_root_certificate_impl(
+pub(crate) async fn generate_root_certificate_impl(
     input: GenerateRootCertificateInput,
     state: Arc<AppState>,
 ) -> Result<CertificateStateSnapshot, String> {
@@ -578,7 +584,7 @@ async fn generate_root_certificate_impl(
 ///    true and the restart epilogue re-applies the OS proxy pointing at this
 ///    proxy — that failure is returned as `systemProxyHandbackError` so the
 ///    UI can tell the user to disable it manually (status bar / Settings).
-async fn remove_certificate_trust_impl(
+pub(crate) async fn remove_certificate_trust_impl(
     state: Arc<AppState>,
 ) -> Result<RemoveCertificateTrustOutput, String> {
     let storage = CertStorage::resolve()
@@ -650,6 +656,7 @@ async fn remove_certificate_trust_impl(
             "remove_certificate_trust_workspace_update_failed"
         );
     }
+    let mut workspace_persist_warning = None;
     let state_for_persist = Arc::clone(&state);
     let persist_workspace_id = workspace_id.clone();
     if let Err(error) = run_blocking_command("remove_certificate_trust_persist", move || {
@@ -665,6 +672,9 @@ async fn remove_certificate_trust_impl(
             error = %error,
             "remove_certificate_trust_persist_failed: cert removed but ssl_enabled was NOT persisted; UI is degraded"
         );
+        workspace_persist_warning = Some(format!(
+            "The certificate was removed and SSL was disabled in memory, but the workspace setting could not be saved: {error}. After restarting AIProxy, SSL interception may be re-enabled without a valid certificate; turn SSL off again if needed."
+        ));
     }
 
     // (4) Hand the system proxy back while the proxy is still running, so the
@@ -712,10 +722,13 @@ async fn remove_certificate_trust_impl(
         status,
         trust_removal,
         system_proxy_handback_error,
+        workspace_persist_warning,
     })
 }
 
-fn open_certificate_install_guide_impl(state: Arc<AppState>) -> Result<serde_json::Value, String> {
+pub(crate) fn open_certificate_install_guide_impl(
+    state: Arc<AppState>,
+) -> Result<serde_json::Value, String> {
     let platform = detect_platform();
     let cert_status = get_certificate_status_impl(state)?;
     let cert_path = cert_status.cert_path.clone().unwrap_or_default();
@@ -752,7 +765,7 @@ fn open_certificate_install_guide_impl(state: Arc<AppState>) -> Result<serde_jso
     }))
 }
 
-fn launch_certificate_installer_impl(state: Arc<AppState>) -> Result<(), String> {
+pub(crate) fn launch_certificate_installer_impl(state: Arc<AppState>) -> Result<(), String> {
     let cert_status = get_certificate_status_impl(state)?;
     let cert_path = cert_status.cert_path.ok_or_else(|| {
         app_error(

@@ -3,6 +3,7 @@ import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import {
   Box,
   Button,
+  Chip,
   Collapse,
   IconButton,
   Stack,
@@ -90,6 +91,7 @@ export function AgentAuditTable({ data, loading, onRefresh }: AgentAuditTablePro
                   <TableRow>
                     <TableCell>{t("settingsPage.agentAccess.auditTime")}</TableCell>
                     <TableCell>{t("settingsPage.agentAccess.auditTool")}</TableCell>
+                    <TableCell>{t("settingsPage.agentAccess.auditAction")}</TableCell>
                     <TableCell>{t("settingsPage.agentAccess.auditClient")}</TableCell>
                     <TableCell>{t("settingsPage.agentAccess.auditOutcome")}</TableCell>
                     <TableCell align="right">
@@ -105,6 +107,20 @@ export function AgentAuditTable({ data, loading, onRefresh }: AgentAuditTablePro
                         {entry.timestamp ?? "-"}
                       </TableCell>
                       <TableCell sx={{ fontFamily: "monospace" }}>{entry.tool ?? "-"}</TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+                          <span>{entry.actionSummary ?? "-"}</span>
+                          {entry.agentControl ? (
+                            <Chip
+                              size="small"
+                              color="warning"
+                              variant="outlined"
+                              label={t("settingsPage.agentAccess.auditAgentControl")}
+                              sx={{ height: 20, "& .MuiChip-label": { px: 0.75, fontSize: 11 } }}
+                            />
+                          ) : null}
+                        </Stack>
+                      </TableCell>
                       <TableCell>
                         <Stack spacing={0}>
                           <Typography variant="body2">{entry.clientName ?? "unknown"}</Typography>

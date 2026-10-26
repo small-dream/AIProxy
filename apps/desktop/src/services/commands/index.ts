@@ -15,3 +15,4 @@ export * from "./environments";
 export * from "./ws";
 export * from "./ai";
 export * from "./agent-access";
+export * from "./agent-control";

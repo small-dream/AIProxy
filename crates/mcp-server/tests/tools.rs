@@ -171,6 +171,7 @@ fn create_fixture(name: &str) -> (PathBuf, AppContext) {
                 read_raw_bodies: false,
                 read_web_socket: true,
                 export_snapshots: false,
+                ..AgentAccessPermissions::default()
             },
             ..AgentAccessConfig::default()
         },
@@ -480,7 +481,7 @@ async fn websocket_and_insights_use_permissions_and_scope() {
     let (by_since, _) = get_insights(
         &context,
         GetInsightsRequest {
-            since: Some("7d".to_string()),
+            since: Some("30d".to_string()),
             ..GetInsightsRequest::default()
         },
     )
@@ -491,7 +492,7 @@ async fn websocket_and_insights_use_permissions_and_scope() {
     let conflict = get_insights(
         &context,
         GetInsightsRequest {
-            since: Some("7d".to_string()),
+            since: Some("30d".to_string()),
             started_after: Some("2026-10-17T00:00:00Z".to_string()),
             ..GetInsightsRequest::default()
         },
@@ -896,6 +897,7 @@ async fn custom_sensitive_keys_and_disabled_hashing_apply_from_config() {
                 read_raw_bodies: false,
                 read_web_socket: false,
                 export_snapshots: false,
+                ..AgentAccessPermissions::default()
             },
             redaction: AgentAccessRedaction {
                 detect_sensitive_values: true,
@@ -955,6 +957,7 @@ async fn raw_session_and_compare_require_and_honor_raw_permission() {
                 read_raw_bodies: true,
                 read_web_socket: false,
                 export_snapshots: false,
+                ..AgentAccessPermissions::default()
             },
             ..AgentAccessConfig::default()
         },
@@ -1282,7 +1285,10 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     assert!(tools.contains(&"search_sessions".to_string()));
     assert!(tools.contains(&"get_session_body".to_string()));
     assert!(tools.contains(&"get_session_fields".to_string()));
-    assert_eq!(tools.len(), 8);
+    assert!(tools.contains(&"get_app_status".to_string()));
+    assert!(tools.contains(&"configure_workspace".to_string()));
+    assert!(tools.contains(&"clear_sessions".to_string()));
+    assert_eq!(tools.len(), 18);
 
     writeln!(
         stdin,
@@ -1327,6 +1333,7 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
                 read_raw_bodies: false,
                 read_web_socket: true,
                 export_snapshots: false,
+                ..AgentAccessPermissions::default()
             },
             limits: AgentAccessLimits {
                 max_response_bytes: 1,

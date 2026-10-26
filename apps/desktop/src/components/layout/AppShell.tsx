@@ -16,6 +16,7 @@ import {
 } from "@/components/layout/AppShellTopControls";
 import {
   useAdbActions,
+  useAgentControlEvents,
   useMenuActions,
   useProxyLifecycle,
   useSystemProxyWarning,
@@ -52,6 +53,7 @@ export function AppShell() {
     location.pathname === "/throttling" ||
     location.pathname === "/certificates";
   useBreakpointEvents();
+  useAgentControlEvents();
   useSessionEvents();
   useSystemProxyWarning();
   const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);

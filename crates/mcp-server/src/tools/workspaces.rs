@@ -5,7 +5,9 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::context::AppContext;
+use crate::control_client::try_control;
 use crate::protocol::{ToolError, ToolMeta};
+use aiproxy_agent_control::ControlOperation;
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -38,9 +40,26 @@ pub async fn list_workspaces(
             Ok((workspaces, stats))
         })
         .await?;
+    let runtime = try_control(&state.paths, ControlOperation::GetStatus)
+        .await
+        .ok();
+    let active_workspace = runtime
+        .as_ref()
+        .and_then(|value| value.get("activeWorkspaceId"))
+        .and_then(Value::as_str);
+    let runtime_capture_status = runtime
+        .as_ref()
+        .and_then(|value| value.get("capture"))
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str);
     let items = workspaces
         .into_iter()
         .map(|workspace| {
+            let runtime_status = if active_workspace == Some(workspace.id.as_str()) {
+                runtime_capture_status.unwrap_or("unknown")
+            } else {
+                "unknown"
+            };
             json!({
                 "workspaceId": workspace.id,
                 "name": workspace.name,
@@ -49,7 +68,7 @@ pub async fn list_workspaces(
                 "http2Enabled": workspace.http2_enabled,
                 "systemProxyEnabled": workspace.system_proxy_enabled,
                 "verifyUpstreamTls": workspace.verify_upstream_tls,
-                "runtimeStatus": "unknown",
+                "runtimeStatus": runtime_status,
                 "sessionScope": "global",
                 "sessionCount": stats.session_count,
                 "latestSessionAt": stats.latest_session_at,

@@ -18,6 +18,7 @@ import {
   isSslProxyEntry,
   isRewriteRule,
   normalizeRewriteRule,
+  parseAgentControlActionEvent,
   parseSslProxyingExclusions,
   isUpstreamProxySettings,
   normalizeStartProxyInput,
@@ -937,6 +938,26 @@ describe("parseRemoveCertificateTrustOutput", () => {
       parseRemoveCertificateTrustOutput({ ...base, systemProxyHandbackError: 42 }),
     ).toThrow();
   });
+
+  it("keeps a workspace persistence warning and rejects a non-string value", () => {
+    const base = {
+      status: { trusted: false, platform: "macos" },
+      trustRemoval: { attempted: [], succeeded: [], failed: [] },
+    };
+
+    expect(
+      parseRemoveCertificateTrustOutput({ ...base, workspacePersistWarning: null }),
+    ).not.toHaveProperty("workspacePersistWarning");
+    expect(
+      parseRemoveCertificateTrustOutput({
+        ...base,
+        workspacePersistWarning: "persist failed",
+      }).workspacePersistWarning,
+    ).toBe("persist failed");
+    expect(() =>
+      parseRemoveCertificateTrustOutput({ ...base, workspacePersistWarning: 42 }),
+    ).toThrow();
+  });
 });
 
 describe("parseWsMessages", () => {
@@ -1225,5 +1246,60 @@ describe("session parse error payload previews", () => {
     expect(details).not.toHaveProperty("payload");
     expect(typeof details.payloadPreview).toBe("string");
     expect((details.payloadPreview as string).length).toBeLessThanOrEqual(120);
+  });
+});
+
+describe("parseAgentControlActionEvent", () => {
+  it("accepts a valid action and normalizes optional fields", () => {
+    expect(
+      parseAgentControlActionEvent({
+        eventId: "event-1",
+        timestamp: "2026-10-26T00:00:00Z",
+        method: "startCapture",
+        actionSummary: "Start capture",
+        ok: true,
+        errorCode: null,
+        durationMs: 12,
+      }),
+    ).toEqual({
+      eventId: "event-1",
+      timestamp: "2026-10-26T00:00:00Z",
+      method: "startCapture",
+      actionSummary: "Start capture",
+      ok: true,
+      errorCode: null,
+      durationMs: 12,
+    });
+
+    expect(
+      parseAgentControlActionEvent({
+        eventId: "event-2",
+        timestamp: "2026-10-26T00:00:01Z",
+        method: "clearSessions",
+        ok: false,
+        durationMs: 0,
+      }),
+    ).toMatchObject({ actionSummary: null, errorCode: null });
+  });
+
+  it("rejects malformed event payloads", () => {
+    const valid = {
+      eventId: "event-1",
+      timestamp: "2026-10-26T00:00:00Z",
+      method: "startCapture",
+      ok: true,
+      durationMs: 12,
+    };
+
+    expect(parseAgentControlActionEvent(null)).toBeNull();
+    expect(parseAgentControlActionEvent("event")).toBeNull();
+    expect(parseAgentControlActionEvent({ ...valid, eventId: "" })).toBeNull();
+    expect(parseAgentControlActionEvent({ ...valid, ok: "yes" })).toBeNull();
+    expect(parseAgentControlActionEvent({ ...valid, durationMs: Number.NaN })).toBeNull();
+    expect(
+      parseAgentControlActionEvent({ ...valid, durationMs: Number.POSITIVE_INFINITY }),
+    ).toBeNull();
+    expect(parseAgentControlActionEvent({ ...valid, actionSummary: 1 })).toBeNull();
+    expect(parseAgentControlActionEvent({ ...valid, errorCode: false })).toBeNull();
   });
 });

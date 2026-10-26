@@ -68,6 +68,7 @@ pub struct BootstrapStatus {
     pub system_proxy_enabled: bool,
     pub started_at: Option<String>,
     pub system_proxy_recovery_warning: Option<String>,
+    pub launch_source: String,
 }
 
 impl Default for BootstrapStatus {
@@ -81,8 +82,22 @@ impl Default for BootstrapStatus {
             system_proxy_enabled: false,
             started_at: None,
             system_proxy_recovery_warning: None,
+            launch_source: "user".to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearSessionsResult {
+    pub deleted_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteSessionsResult {
+    pub deleted_count: usize,
+    pub missing_session_ids: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -214,6 +229,13 @@ impl AppState {
             .clone()
     }
 
+    pub fn set_launch_source(&self, source: impl Into<String>) {
+        self.status
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .launch_source = source.into();
+    }
+
     pub fn read_sessions(&self) -> Vec<ProxySessionSummary> {
         self.cache.read_summaries()
     }
@@ -277,9 +299,13 @@ impl AppState {
 
     // ── session lifecycle ───────────────────────────────────────────
 
-    pub async fn clear_sessions(&self) {
+    pub async fn clear_sessions(&self) -> Result<ClearSessionsResult, String> {
         self.session_generation.fetch_add(1, Ordering::AcqRel);
         let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
+        // The repository only returns after the SQLite transaction commits.
+        // Once it does, mirror the durable state in the cache and emit the
+        // clear event even if body-file cleanup fails.
+        let storage_result = self.repository.clear_all_sessions_result().await?;
         let ids_to_clear = self.cache.clear_summaries();
         let ids_set: HashSet<String> = ids_to_clear.iter().cloned().collect();
         self.cache.remove_details(&ids_set);
@@ -287,19 +313,31 @@ impl AppState {
         if let Some(handle) = self.read_app_handle() {
             emit_sessions_cleared(&handle);
         }
-
-        if !ids_to_clear.is_empty() {
-            self.repository
-                .delete_sessions_and_bodies_async(ids_to_clear)
-                .await;
+        if let Some(body_cleanup_error) = storage_result.body_cleanup_error {
+            return Err(serde_json::json!({
+                "code": "BODY_DELETE_FAILED",
+                "message": format!(
+                    "All {} sessions were removed from the database, but some body files could not be deleted: {body_cleanup_error}",
+                    storage_result.deleted_count
+                ),
+                "details": {
+                    "deletedCount": storage_result.deleted_count,
+                    "sessionsCleared": true,
+                    "bodyCleanupError": body_cleanup_error,
+                },
+            })
+            .to_string());
         }
+        Ok(ClearSessionsResult {
+            deleted_count: storage_result.deleted_count,
+        })
     }
 
     // M14: async variant. Cache update + event emission stay inline (fast,
     // lock-only); the heavy DB delete + body-file removal is offloaded to
     // `spawn_blocking` via `delete_sessions_and_bodies_async` so the IPC thread
     // is not blocked on SQLite + file I/O.
-    pub async fn delete_sessions_except(&self, keep_session_id: &str) {
+    pub async fn delete_sessions_except(&self, keep_session_id: &str) -> Result<(), String> {
         self.session_generation.fetch_add(1, Ordering::AcqRel);
         let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
         let ids_to_remove = self.cache.retain_summaries(keep_session_id);
@@ -316,6 +354,7 @@ impl AppState {
         self.repository
             .delete_sessions_and_bodies_async(ids_to_remove)
             .await;
+        Ok(())
     }
 
     // H4: explicit-id variant of `delete_sessions_except` for multi-select
@@ -326,20 +365,66 @@ impl AppState {
     // only the ids found in the cache): the frontend passes every selected id,
     // including import-only sessions the backend never saw, and relies on this
     // event to drop them from its own stores.
-    pub async fn delete_sessions(&self, session_ids: Vec<String>) {
+    pub async fn delete_sessions(
+        &self,
+        session_ids: Vec<String>,
+    ) -> Result<DeleteSessionsResult, String> {
+        let mut unique_ids = Vec::with_capacity(session_ids.len());
+        let mut seen = HashSet::with_capacity(session_ids.len());
+        for id in session_ids {
+            let id = id.trim().to_string();
+            if !id.is_empty() && seen.insert(id.clone()) {
+                unique_ids.push(id);
+            }
+        }
         self.session_generation.fetch_add(1, Ordering::AcqRel);
         let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
-        let ids_set: HashSet<String> = session_ids.iter().cloned().collect();
+        // Keep the visible cache and events unchanged if the SQLite delete
+        // fails. After a successful commit, mirror that durable state in the
+        // cache and events even if body-file cleanup reports a partial failure.
+        let storage_result = self
+            .repository
+            .delete_sessions_and_bodies_result(unique_ids.clone())
+            .await?;
+
+        let ids_set: HashSet<String> = unique_ids.iter().cloned().collect();
         self.cache.remove_summaries(&ids_set);
         self.cache.remove_details(&ids_set);
 
         if let Some(handle) = self.read_app_handle() {
-            emit_sessions_removed(&handle, session_ids.clone());
+            emit_sessions_removed(&handle, unique_ids.clone());
         }
-
-        self.repository
-            .delete_sessions_and_bodies_async(session_ids)
-            .await;
+        if !storage_result.body_delete_failures.is_empty() {
+            let body_delete_failures = storage_result
+                .body_delete_failures
+                .iter()
+                .map(|failure| {
+                    serde_json::json!({
+                        "sessionId": failure.session_id,
+                        "message": failure.message,
+                    })
+                })
+                .collect::<Vec<_>>();
+            return Err(serde_json::json!({
+                "code": "BODY_DELETE_FAILED",
+                "message": format!(
+                    "{} sessions were removed from the database, but {} body directory cleanup operation(s) failed.",
+                    storage_result.deleted_count,
+                    body_delete_failures.len()
+                ),
+                "details": {
+                    "deletedCount": storage_result.deleted_count,
+                    "missingSessionIds": storage_result.missing_session_ids,
+                    "sessionsDeleted": true,
+                    "bodyDeleteFailures": body_delete_failures,
+                },
+            })
+            .to_string());
+        }
+        Ok(DeleteSessionsResult {
+            deleted_count: storage_result.deleted_count,
+            missing_session_ids: storage_result.missing_session_ids,
+        })
     }
 
     /// Persist one session (async).  All blocking IO is offloaded to the
@@ -392,6 +477,52 @@ impl AppState {
             .await;
         for session in &sessions {
             self.update_session_cache_and_emit(session);
+        }
+    }
+
+    /// Persist a WebSocket message only if the session generation that produced
+    /// it is still current. The same lifecycle lock used by clear/delete closes
+    /// the race where a message insert starts just before a destructive action.
+    pub(crate) async fn insert_ws_message_at_generation(
+        &self,
+        row: aiproxy_db::sessions::WsMessageRow,
+        generation: u64,
+    ) {
+        let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
+        if self.session_generation.load(Ordering::Acquire) != generation {
+            tracing::debug!(
+                component = "desktop.ws_collector",
+                event = "insert_ws_message_skipped_stale_generation",
+                session_id = %row.session_id,
+                "insert_ws_message_skipped_stale_generation"
+            );
+            return;
+        }
+
+        let db = Arc::clone(self.read_db_connection());
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            // Fail-closed on poison: skip the insert rather than write through a
+            // poisoned Connection.
+            let conn = crate::bootstrap::lock_recovery::lock_db_best_effort(&db, "ws_collector")
+                .map_err(|()| "database lock unavailable".to_string())?;
+            aiproxy_db::sessions::insert_ws_message(&conn, &row).map_err(|error| error.to_string())
+        })
+        .await;
+
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::error!(
+                component = "desktop.ws_collector",
+                event = "insert_ws_message_failed",
+                error = %error,
+                "insert_ws_message_failed"
+            ),
+            Err(error) => tracing::error!(
+                component = "desktop.ws_collector",
+                event = "insert_ws_message_task_failed",
+                error = %error,
+                "insert_ws_message_task_failed"
+            ),
         }
     }
 
@@ -735,7 +866,13 @@ mod tests {
             .cache
             .seed_summaries(vec![deleted.clone(), kept.clone()]);
 
-        tauri::async_runtime::block_on(state.delete_sessions(vec!["del-1".to_string()]));
+        let result = tauri::async_runtime::block_on(
+            state.delete_sessions(vec!["del-1".to_string(), "missing-1".to_string()]),
+        )
+        .expect("strict delete succeeds");
+
+        assert_eq!(result.deleted_count, 1);
+        assert_eq!(result.missing_session_ids, vec!["missing-1".to_string()]);
 
         let remaining = state.read_sessions();
         assert!(remaining.iter().all(|s| s.id != "del-1"));
@@ -755,6 +892,226 @@ mod tests {
             "unrelated session must survive"
         );
 
+        let _ = std::fs::remove_dir_all(body_store_dir);
+    }
+
+    #[test]
+    fn clear_sessions_returns_the_persisted_count_and_clears_cache() {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+
+        let first = build_summary("clear-1", "one.example.com");
+        let second = build_summary("clear-2", "two.example.com");
+        for summary in [&first, &second] {
+            let detail = build_detail(summary);
+            let summary_row = proxy_summary_to_row(summary);
+            let detail_row = proxy_detail_to_row(&detail, state.repository.body_store().as_ref());
+            let conn = state
+                .repository
+                .db()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+        }
+        state.cache.seed_summaries(vec![first, second]);
+
+        let result =
+            tauri::async_runtime::block_on(state.clear_sessions()).expect("strict clear succeeds");
+        assert_eq!(result.deleted_count, 2);
+        assert!(state.read_sessions().is_empty());
+        assert!(state
+            .read_session_detail("clear-1")
+            .expect("db read succeeds")
+            .is_none());
+
+        let _ = std::fs::remove_dir_all(body_store_dir);
+    }
+
+    #[test]
+    fn clear_sessions_updates_cache_when_body_cleanup_fails_after_db_commit() {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        std::fs::write(&body_store_dir, b"not a directory").unwrap();
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+
+        let summary = build_summary("body-fail-1", "body-fail.example.com");
+        let detail = build_detail(&summary);
+        let summary_row = proxy_summary_to_row(&summary);
+        let detail_row = proxy_detail_to_row(&detail, state.repository.body_store().as_ref());
+        let conn = state
+            .repository
+            .db()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+        drop(conn);
+        state.cache.seed_summaries(vec![summary]);
+
+        let error = tauri::async_runtime::block_on(state.clear_sessions())
+            .expect_err("body cleanup failure must be surfaced");
+        let payload: serde_json::Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(payload["code"], "BODY_DELETE_FAILED");
+        assert_eq!(payload["details"]["deletedCount"], 1);
+        assert_eq!(payload["details"]["sessionsCleared"], true);
+
+        assert!(state.read_sessions().is_empty());
+        assert!(state
+            .read_session_detail("body-fail-1")
+            .expect("db read succeeds")
+            .is_none());
+
+        let _ = std::fs::remove_file(body_store_dir);
+    }
+
+    #[test]
+    fn delete_sessions_removes_db_rows_and_cache_before_reporting_body_failures() {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+
+        let deleted = build_summary("body-fail-delete", "delete.example.com");
+        let kept = build_summary("body-keep", "keep.example.com");
+        for summary in [&deleted, &kept] {
+            let detail = build_detail(summary);
+            let summary_row = proxy_summary_to_row(summary);
+            let detail_row = proxy_detail_to_row(&detail, state.repository.body_store().as_ref());
+            let conn = state
+                .repository
+                .db()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+        }
+        std::fs::write(body_store_dir.join("body-fail-delete"), b"not a directory").unwrap();
+        state
+            .cache
+            .seed_summaries(vec![deleted.clone(), kept.clone()]);
+
+        let error = tauri::async_runtime::block_on(
+            state.delete_sessions(vec!["body-fail-delete".to_string()]),
+        )
+        .expect_err("body cleanup failure must be surfaced");
+        let payload: serde_json::Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(payload["code"], "BODY_DELETE_FAILED");
+        assert_eq!(payload["details"]["deletedCount"], 1);
+        assert_eq!(payload["details"]["sessionsDeleted"], true);
+        assert_eq!(
+            payload["details"]["bodyDeleteFailures"][0]["sessionId"],
+            "body-fail-delete"
+        );
+
+        let remaining = state.read_sessions();
+        assert!(remaining
+            .iter()
+            .all(|session| session.id != "body-fail-delete"));
+        assert!(remaining.iter().any(|session| session.id == "body-keep"));
+        assert!(state
+            .read_session_detail("body-fail-delete")
+            .expect("db read succeeds")
+            .is_none());
+
+        let _ = std::fs::remove_dir_all(body_store_dir);
+    }
+
+    #[test]
+    fn delete_sessions_treats_invalid_missing_ids_as_missing_without_body_cleanup() {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+
+        let result = tauri::async_runtime::block_on(
+            state.delete_sessions(vec!["../not-a-session".to_string()]),
+        )
+        .expect("missing ids must not trigger body-path validation errors");
+        assert_eq!(result.deleted_count, 0);
+        assert_eq!(
+            result.missing_session_ids,
+            vec!["../not-a-session".to_string()]
+        );
+
+        let _ = std::fs::remove_dir_all(body_store_dir);
+    }
+
+    #[test]
+    fn websocket_inserts_skip_a_stale_session_generation() {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+
+        let summary = build_summary("ws-session", "ws.example.com");
+        let detail = build_detail(&summary);
+        let summary_row = proxy_summary_to_row(&summary);
+        let detail_row = proxy_detail_to_row(&detail, state.repository.body_store().as_ref());
+        {
+            let conn = state
+                .repository
+                .db()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+        }
+
+        let generation = state.session_generation();
+        let current = aiproxy_db::sessions::WsMessageRow {
+            id: "ws-current".to_string(),
+            session_id: summary.id.clone(),
+            direction: "clientToServer".to_string(),
+            timestamp: "2026-04-15T00:00:00Z".to_string(),
+            opcode: "text".to_string(),
+            payload_text: Some("current".to_string()),
+            payload_size: 7,
+            fin: true,
+            truncated: false,
+        };
+        tauri::async_runtime::block_on(state.insert_ws_message_at_generation(current, generation));
+
+        state
+            .session_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        let stale = aiproxy_db::sessions::WsMessageRow {
+            id: "ws-stale".to_string(),
+            session_id: summary.id.clone(),
+            direction: "serverToClient".to_string(),
+            timestamp: "2026-04-15T00:00:01Z".to_string(),
+            opcode: "text".to_string(),
+            payload_text: Some("stale".to_string()),
+            payload_size: 5,
+            fin: true,
+            truncated: false,
+        };
+        tauri::async_runtime::block_on(state.insert_ws_message_at_generation(stale, generation));
+
+        let conn = state
+            .repository
+            .db()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        assert_eq!(
+            aiproxy_db::sessions::count_ws_messages(&conn, &summary.id).unwrap(),
+            1
+        );
+
+        drop(conn);
         let _ = std::fs::remove_dir_all(body_store_dir);
     }
 

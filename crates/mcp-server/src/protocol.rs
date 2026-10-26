@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use crate::context::Freshness;
 
-pub const MCP_TOOL_SCHEMA_VERSION: &str = "2.2";
+pub const MCP_TOOL_SCHEMA_VERSION: &str = "3.0";
 
 #[derive(Debug, Clone, Default)]
 pub struct ToolMeta {
@@ -67,19 +67,23 @@ impl ToolMeta {
 
 #[derive(Debug, Clone)]
 pub struct ToolError {
-    pub code: &'static str,
+    pub code: String,
     pub message: String,
     pub retryable: bool,
     pub details: Option<Value>,
+    /// Internal only: the desktop control channel already wrote the action
+    /// audit entry, so the sidecar must not duplicate it.
+    pub audit_recorded_remotely: bool,
 }
 
 impl ToolError {
-    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
-            code,
+            code: code.into(),
             message: message.into(),
             retryable: false,
             details: None,
+            audit_recorded_remotely: false,
         }
     }
 
@@ -90,6 +94,11 @@ impl ToolError {
 
     pub fn with_details(mut self, details: Value) -> Self {
         self.details = Some(details);
+        self
+    }
+
+    pub fn with_remote_audit(mut self) -> Self {
+        self.audit_recorded_remotely = true;
         self
     }
 

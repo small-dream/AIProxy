@@ -16,3 +16,4 @@
 - `ADR-004-panic-strategy.md`
 - `ADR-005-mutex-poison-policy.md`
 - `ADR-006-local-mcp-agent-access.md`
+- `ADR-007-agent-control-ipc.md`

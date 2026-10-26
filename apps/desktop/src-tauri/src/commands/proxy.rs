@@ -184,7 +184,7 @@ pub(crate) async fn restart_proxy_with_ssl_override(
     start_proxy_impl(input, state).await.map(|_| ())
 }
 
-async fn start_proxy_impl(
+pub(crate) async fn start_proxy_impl(
     input: StartProxyInput,
     state: Arc<AppState>,
 ) -> Result<BootstrapStatus, String> {
@@ -438,8 +438,6 @@ async fn start_proxy_impl(
                 ws_msg = ws_message_receiver.recv() => {
                     match ws_msg {
                         Some(msg) => {
-                            // Offload WS message DB insert to blocking thread.
-                            let db = Arc::clone(state_for_ws.read_db_connection());
                             let row = aiproxy_db::sessions::WsMessageRow {
                                 id: msg.id.clone(),
                                 session_id: msg.session_id.clone(),
@@ -453,24 +451,13 @@ async fn start_proxy_impl(
                             };
                             // H8: do NOT await — spawn and track the handle so the
                             // receive loop can pull the next message immediately.
-                            let handle = tauri::async_runtime::spawn_blocking(move || {
-                                // Fail-closed on poison: skip the insert rather
-                                // than write through a poisoned Connection.
-                                let conn = match crate::bootstrap::lock_recovery::lock_db_best_effort(
-                                    &db,
-                                    "ws_collector",
-                                ) {
-                                    Ok(conn) => conn,
-                                    Err(()) => return,
-                                };
-                                if let Err(e) = aiproxy_db::sessions::insert_ws_message(&conn, &row) {
-                                    tracing::error!(
-                                        component = "desktop.ws_collector",
-                                        event = "insert_ws_message_failed",
-                                        error = %e,
-                                        "insert_ws_message_failed"
-                                    );
-                                }
+                            // The generation check shares the session lifecycle
+                            // lock, so clear/delete cannot race this insert.
+                            let state_for_ws_insert = Arc::clone(&state_for_ws);
+                            let handle = tauri::async_runtime::spawn(async move {
+                                state_for_ws_insert
+                                    .insert_ws_message_at_generation(row, session_generation)
+                                    .await;
                             });
                             inflight_ws_inserts.push(handle);
                             // H8: backpressure — if too many inserts are in flight,
@@ -584,7 +571,7 @@ async fn start_proxy_impl(
     Ok(status)
 }
 
-async fn stop_proxy_impl(
+pub(crate) async fn stop_proxy_impl(
     input: StopProxyInput,
     state: Arc<AppState>,
 ) -> Result<BootstrapStatus, String> {
@@ -605,6 +592,13 @@ async fn stop_proxy_impl(
                 error = %error,
                 "stop_proxy_system_proxy_restore_failed"
             );
+            // The proxy can still be stopped safely, but leaving the OS routed
+            // to it would break network access after shutdown. Keep the flag
+            // true and surface the failure through the existing recovery
+            // warning so both the UI and Agent control callers can report it.
+            state.set_system_proxy_recovery_warning(Some(format!(
+                "Capture stopped, but the original system proxy could not be restored: {error}. Turn off the system proxy manually or retry from Settings."
+            )));
         }
     }
 
@@ -637,7 +631,9 @@ pub(crate) async fn shutdown_proxy_runtime(state: Arc<AppState>) -> bool {
     true
 }
 
-async fn enable_system_proxy_impl(state: Arc<AppState>) -> Result<BootstrapStatus, String> {
+pub(crate) async fn enable_system_proxy_impl(
+    state: Arc<AppState>,
+) -> Result<BootstrapStatus, String> {
     // M17: serialize against concurrent disable/restart so overlapping IPC
     // calls cannot interleave snapshot capture/restore and desynchronize the
     // snapshot from the actually-applied state.

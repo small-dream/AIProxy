@@ -153,7 +153,7 @@ pub async fn delete_sessions_except(
     input: DeleteSessionsExceptInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    state.delete_sessions_except(&input.keep_session_id).await;
+    state.delete_sessions_except(&input.keep_session_id).await?;
     Ok(())
 }
 
@@ -165,7 +165,7 @@ pub async fn delete_sessions(
     input: DeleteSessionsInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    state.delete_sessions(input.session_ids).await;
+    state.delete_sessions(input.session_ids).await?;
     Ok(())
 }
 
@@ -642,7 +642,7 @@ fn estimate_session_body_content_patch_bytes(
 #[tauri::command]
 pub async fn clear_sessions(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let state = Arc::clone(state.inner());
-    state.clear_sessions().await;
+    state.clear_sessions().await?;
     Ok(())
 }
 

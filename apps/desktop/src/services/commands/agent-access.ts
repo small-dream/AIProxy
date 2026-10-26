@@ -25,6 +25,10 @@ const defaultPermissions = {
   readRawBodies: false,
   readWebSocket: false,
   exportSnapshots: false,
+  controlCapture: false,
+  controlSystemProxy: false,
+  manageCertificates: false,
+  deleteSessions: false,
 };
 
 const fallbackClients: AgentAccessSettings["clients"] = [
@@ -37,7 +41,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "2.2",
+    bundledSkillVersion: "3.0",
     configFormat: "toml",
     configSnippet:
       '[mcp_servers.aiproxy]\ncommand = "<path-to-aiproxy-mcp>"\nargs = ["--data-dir", "<path-to-aiproxy-data>"]\n',
@@ -51,7 +55,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "2.2",
+    bundledSkillVersion: "3.0",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {
@@ -76,7 +80,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "2.2",
+    bundledSkillVersion: "3.0",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {
@@ -94,7 +98,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
 ];
 
 let fallbackSettings: AgentAccessSettings = {
-  version: 2,
+  version: 3,
   enabled: false,
   transport: "stdio",
   permissions: defaultPermissions,

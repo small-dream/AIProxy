@@ -6,6 +6,10 @@ export type AgentAccessPermissions = {
   readRawBodies: boolean;
   readWebSocket: boolean;
   exportSnapshots: boolean;
+  controlCapture: boolean;
+  controlSystemProxy: boolean;
+  manageCertificates: boolean;
+  deleteSessions: boolean;
 };
 
 export type AgentAccessLimits = {
@@ -132,6 +136,8 @@ export type AgentAuditEntry = {
   clientName?: string | null;
   clientVersion?: string | null;
   tool?: string | null;
+  actionSummary?: string | null;
+  agentControl?: boolean | null;
   outcome?: string | null;
   durationMs?: number | null;
   returnedBytes?: number | null;
@@ -145,3 +151,46 @@ export type AgentAuditLog = {
   path: string;
   truncated: boolean;
 };
+
+export type AgentControlActionEvent = {
+  eventId: string;
+  timestamp: string;
+  method: string;
+  actionSummary?: string | null;
+  ok: boolean;
+  errorCode?: string | null;
+  durationMs: number;
+};
+
+export function parseAgentControlActionEvent(value: unknown): AgentControlActionEvent | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Partial<AgentControlActionEvent>;
+  if (
+    typeof candidate.eventId !== "string" ||
+    candidate.eventId.length === 0 ||
+    typeof candidate.timestamp !== "string" ||
+    candidate.timestamp.length === 0 ||
+    typeof candidate.method !== "string" ||
+    candidate.method.length === 0 ||
+    (candidate.actionSummary !== undefined &&
+      candidate.actionSummary !== null &&
+      typeof candidate.actionSummary !== "string") ||
+    typeof candidate.ok !== "boolean" ||
+    (candidate.errorCode !== undefined &&
+      candidate.errorCode !== null &&
+      typeof candidate.errorCode !== "string") ||
+    typeof candidate.durationMs !== "number" ||
+    !Number.isFinite(candidate.durationMs)
+  ) {
+    return null;
+  }
+  return {
+    eventId: candidate.eventId,
+    timestamp: candidate.timestamp,
+    method: candidate.method,
+    actionSummary: typeof candidate.actionSummary === "string" ? candidate.actionSummary : null,
+    ok: candidate.ok,
+    errorCode: typeof candidate.errorCode === "string" ? candidate.errorCode : null,
+    durationMs: candidate.durationMs,
+  };
+}

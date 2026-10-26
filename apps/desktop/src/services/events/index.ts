@@ -2,9 +2,11 @@ import { listen } from "@tauri-apps/api/event";
 import {
   isWsConnectionStatusEvent,
   isWsMessage,
+  parseAgentControlActionEvent,
   parseBreakpointHit,
   parseBreakpointReleased,
   parseSessionSummary,
+  type AgentControlActionEvent,
   type BreakpointHit,
   type BreakpointReleased,
   type SessionRemoveEvent,
@@ -179,6 +181,25 @@ export type SystemProxyWarningPayload = {
   reason: string;
   error: string;
 };
+
+export function onAgentControlAction(
+  callback: (event: AgentControlActionEvent) => void,
+): Promise<Unlisten> {
+  if (!isTauriRuntime()) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<unknown>("agent-control-action", (event) => {
+    const parsed = parseAgentControlActionEvent(event.payload);
+    if (parsed) {
+      callback(parsed);
+    } else {
+      logDevWarn("events", "agent_control_action_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
+    }
+  });
+}
 
 /**
  * Emitted by the backend when the OS system proxy could not be re-applied

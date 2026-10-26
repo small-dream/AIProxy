@@ -385,7 +385,7 @@ pub async fn get_session_fields(
                     Err(error) => items.push(field_item_error(
                         &requested,
                         Some(&id),
-                        error.code,
+                        &error.code,
                         &error.message,
                     )),
                 }

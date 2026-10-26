@@ -31,7 +31,12 @@ type MobileQuickActionsPanel = "ios" | "android" | "harmony";
 // Outcome of a completed (or failed) removal, rendered under the status card.
 type RemoveFeedback =
   | { kind: "success" }
-  | { kind: "partial"; failed: TrustRemovalFailure[]; systemProxyError?: string }
+  | {
+      kind: "partial";
+      failed: TrustRemovalFailure[];
+      systemProxyError?: string;
+      workspacePersistWarning?: string;
+    }
   | { kind: "error"; message: string };
 
 // Manual removal commands for stores where the automated attempt is expected
@@ -103,6 +108,13 @@ function RemoveFeedbackAlert({
           <Typography variant="body2" sx={{ mt: feedback.failed.length > 0 ? 1 : 0 }}>
             {t("certificatesPage.remove.systemProxyErrorHint", {
               error: feedback.systemProxyError,
+            })}
+          </Typography>
+        )}
+        {feedback.workspacePersistWarning && (
+          <Typography variant="body2" sx={{ mt: 1 }}>
+            {t("certificatesPage.remove.workspacePersistWarningHint", {
+              error: feedback.workspacePersistWarning,
             })}
           </Typography>
         )}
@@ -226,7 +238,9 @@ export function CertificatesPage() {
       onSuccess: (output) => {
         setRemoveConfirmOpen(false);
         const hasIssues =
-          output.trustRemoval.failed.length > 0 || !!output.systemProxyHandbackError;
+          output.trustRemoval.failed.length > 0 ||
+          !!output.systemProxyHandbackError ||
+          !!output.workspacePersistWarning;
         setRemoveFeedback(
           hasIssues
             ? {
@@ -234,6 +248,9 @@ export function CertificatesPage() {
                 failed: output.trustRemoval.failed,
                 ...(output.systemProxyHandbackError
                   ? { systemProxyError: output.systemProxyHandbackError }
+                  : {}),
+                ...(output.workspacePersistWarning
+                  ? { workspacePersistWarning: output.workspacePersistWarning }
                   : {}),
               }
             : { kind: "success" },

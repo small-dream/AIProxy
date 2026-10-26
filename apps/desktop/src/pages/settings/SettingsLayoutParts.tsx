@@ -49,7 +49,7 @@ export function SettingsRow({
 }) {
   return (
     <Box
-      id={itemId}
+      id={itemId ? `settings-item-${itemId}` : undefined}
       data-settings-item={itemId}
       sx={{
         display: "flex",

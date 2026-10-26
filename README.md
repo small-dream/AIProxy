@@ -28,9 +28,9 @@ AIProxy turns captured traffic into an evidence source your coding agent can rea
 
 | Capability | What you get |
 |------------|--------------|
-| **Agent Access (MCP)** | One-click MCP setup for Codex, Claude Code, and Cursor with a permission preset. Eight read-only tools cover session search, header and timing inspection, JSON field extraction, WebSocket messages, traffic insights, and structured session comparison; every result reports the latest session time and capture status. |
+| **Agent Access (MCP)** | One-click MCP setup for Codex, Claude Code, and Cursor with permission presets. Eight read tools cover session search, inspection, extraction, WebSocket messages, insights, and comparison; one status tool and nine opt-in write controls can configure workspaces, manage certificates, start/stop capture, control the system proxy, and clean sessions. Every result reports freshness and control availability. |
 | **AI diff summaries** | Generate a Markdown explanation of any Compare result with an OpenAI-compatible model. Preview the payload and redact sensitive fields locally before it is sent to your configured provider. |
-| **Private by default** | The MCP server runs as a local stdio sidecar with no open port. AIProxy never uploads captures, but once your agent reads them that content is sent to its model provider. Reads are redacted by default, body access is bounded, and audit logs contain metadata only. Raw-body access requires a separate opt-in. |
+| **Private by default** | The MCP server runs as a local stdio sidecar with no open port. Write actions reach the desktop over an owner-only local IPC channel; control permissions default to off. AIProxy never uploads captures, but once your agent reads them that content is sent to its model provider. Reads are redacted by default, body access is bounded, and audit logs contain metadata only. Raw-body and control access require separate opt-ins. |
 
 > Example: ask your agent to “compare the failed `/api/checkout` requests with the last successful run and cite the session IDs.” Your agent gets the evidence through MCP and explains what changed.
 
@@ -73,7 +73,7 @@ Aggregate analytics dashboard with overview cards, per-host breakdown table, and
 - 📬 **Compose & Repeat** — craft and resend requests with full editing
 - 📂 **Collections** — save, organize, and batch-execute requests with environments
 - 🔀 **Session Compare** — diff two sessions to spot behavioral changes, then generate an AI summary
-- 🤖 **Agent Access (MCP)** — let Codex, Claude Code, and Cursor query captured traffic through eight read-only tools
+- 🤖 **Agent Access (MCP)** — let Codex, Claude Code, and Cursor inspect traffic and perform permission-gated setup/capture actions
 - 🧠 **AI diff summaries** — summarize Compare results with any OpenAI-compatible model
 - 📊 **Insights** — aggregate traffic analytics
 - 🔐 **Certificate Center** — root CA generation, trust management, and QR-code mobile setup
@@ -161,7 +161,8 @@ crates/            Rust core modules
   rule-engine/     Rewrite / Map / Script rule execution
   tls-manager/     Certificate authority & TLS management
   db/              SQLite persistence layer
-  mcp-server/      Local read-only MCP server for AI agents
+  mcp-server/      Local MCP server for AI agents
+  agent-control/   Shared local IPC protocol for Agent control
 packages/          Shared TypeScript packages
   shared-types/    Frontend ↔ backend contracts
   ui-tokens/       Design tokens
@@ -187,6 +188,7 @@ cargo test --workspace                     # Rust tests
 - [API Specification](./docs/API_SPEC.md)
 - [MCP & Agent Access Architecture](./docs/MCP_AGENT_SKILL_ARCHITECTURE.md)
 - [ADR-006: Local MCP Agent Access](./docs/DECISIONS/ADR-006-local-mcp-agent-access.md)
+- [ADR-007: Permission-gated Agent control](./docs/DECISIONS/ADR-007-agent-control-ipc.md)
 - [UI Guidelines](./docs/UI_GUIDELINES.md)
 - [Engineering Guidelines](./docs/ENGINEERING_GUIDELINES.md)
 - [Build, Run & Package Guide](./docs/BUILD_RUN_PACKAGE_GUIDE.md)

@@ -3,7 +3,9 @@
 ## 1. 文档信息
 
 - 文档类型：产品与技术规划
-- 文档状态：`Implemented v1.1（只读增强版已实现）`
+- 文档状态：`Historical v1.1（只读基线；控制能力已由 ADR-007 扩展）`
+
+> 历史说明：本文是 v1 只读能力的产品规划与验收记录。v3.0 已新增 `get_app_status` 与 9 个受权限约束的写控制工具；当前工具契约、权限和错误码以 `docs/API_SPEC.md` 与 `docs/DECISIONS/ADR-007-agent-control-ipc.md` 为准，下文“MVP 只读”“写操作后置”等表述不再代表当前能力边界。
 - 更新日期：`2026-10-18`
 - 适用范围：AIProxy Desktop、Rust 核心、Codex / Claude Code / Cursor 等 Agent 客户端
 - 本轮评审重点：MVP 只读边界、stdio sidecar、工具契约、Agent Access 权限与审计

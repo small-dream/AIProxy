@@ -13,24 +13,30 @@ import {
   Typography,
 } from "@mui/material";
 
-import type { AgentClientInfo } from "@aiproxy/shared-types";
+import type { AgentAccessPermissions, AgentClientInfo } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 
-import { permissionsForPreset, type AgentPermissionPreset } from "./agent-access.helpers";
+import {
+  permissionsForConnectPreset,
+  presetForPermissions,
+  type AgentConnectPreset,
+  type AgentPermissionPreset,
+} from "./agent-access.helpers";
 
-const PRESETS: AgentPermissionPreset[] = ["metadata", "bodies", "raw"];
+const PRESETS: AgentPermissionPreset[] = ["metadata", "bodies", "raw", "full"];
 
 type AgentConnectDialogProps = {
   busy: boolean;
   clientLabel: string;
+  currentPermissions: AgentAccessPermissions;
   errorMessage?: string | null;
   info: AgentClientInfo | null;
   onCancel: () => void;
-  onChangePreset: (preset: AgentPermissionPreset) => void;
+  onChangePreset: (preset: AgentConnectPreset) => void;
   onConfirm: () => void;
   open: boolean;
-  preset: AgentPermissionPreset;
+  preset: AgentConnectPreset;
 };
 
 /**
@@ -41,6 +47,7 @@ type AgentConnectDialogProps = {
 export function AgentConnectDialog({
   busy,
   clientLabel,
+  currentPermissions,
   errorMessage,
   info,
   onCancel,
@@ -50,6 +57,11 @@ export function AgentConnectDialog({
   preset,
 }: AgentConnectDialogProps) {
   const { t } = useI18n();
+  const selectedPermissions = permissionsForConnectPreset(preset, currentPermissions);
+  const hasCustomPermissions = presetForPermissions(currentPermissions) === "current";
+  const visiblePresets = hasCustomPermissions
+    ? (["current", ...PRESETS] as AgentConnectPreset[])
+    : PRESETS;
 
   return (
     <Dialog fullWidth maxWidth="sm" onClose={onCancel} open={open}>
@@ -77,9 +89,9 @@ export function AgentConnectDialog({
             <RadioGroup
               aria-label={t("settingsPage.agentAccess.connectDialogScopeTitle")}
               value={preset}
-              onChange={(_, value) => onChangePreset(value as AgentPermissionPreset)}
+              onChange={(_, value) => onChangePreset(value as AgentConnectPreset)}
             >
-              {PRESETS.map((option) => (
+              {visiblePresets.map((option) => (
                 <FormControlLabel
                   key={option}
                   disabled={busy}
@@ -102,14 +114,22 @@ export function AgentConnectDialog({
               sx={{ color: "text.secondary", display: "block", mt: 0.5 }}
             >
               {t("settingsPage.agentAccess.connectDialogScopeHint", {
-                permissions: permissionsSummary(permissionsForPreset(preset), t),
+                permissions: permissionsSummary(selectedPermissions, t),
               })}
             </Typography>
           </Box>
 
-          {preset === "raw" ? (
+          {selectedPermissions.readRawBodies ? (
             <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
               {t("settingsPage.agentAccess.rawBodiesWarning")}
+            </Alert>
+          ) : null}
+          {selectedPermissions.controlCapture &&
+          selectedPermissions.controlSystemProxy &&
+          selectedPermissions.manageCertificates &&
+          selectedPermissions.deleteSessions ? (
+            <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
+              {t("settingsPage.agentAccess.fullControlWarning")}
             </Alert>
           ) : null}
           <Alert severity="info" variant="outlined" sx={{ py: 0.5 }}>
@@ -130,7 +150,7 @@ export function AgentConnectDialog({
   );
 }
 
-function presetLabel(preset: AgentPermissionPreset, t: ReturnType<typeof useI18n>["t"]) {
+function presetLabel(preset: AgentConnectPreset, t: ReturnType<typeof useI18n>["t"]) {
   switch (preset) {
     case "metadata":
       return t("settingsPage.agentAccess.presetMetadata");
@@ -138,10 +158,14 @@ function presetLabel(preset: AgentPermissionPreset, t: ReturnType<typeof useI18n
       return t("settingsPage.agentAccess.presetBodies");
     case "raw":
       return t("settingsPage.agentAccess.presetRaw");
+    case "full":
+      return t("settingsPage.agentAccess.presetFull");
+    case "current":
+      return t("settingsPage.agentAccess.presetCurrent");
   }
 }
 
-function presetDescription(preset: AgentPermissionPreset, t: ReturnType<typeof useI18n>["t"]) {
+function presetDescription(preset: AgentConnectPreset, t: ReturnType<typeof useI18n>["t"]) {
   switch (preset) {
     case "metadata":
       return t("settingsPage.agentAccess.presetMetadataDescription");
@@ -149,19 +173,40 @@ function presetDescription(preset: AgentPermissionPreset, t: ReturnType<typeof u
       return t("settingsPage.agentAccess.presetBodiesDescription");
     case "raw":
       return t("settingsPage.agentAccess.presetRawDescription");
+    case "full":
+      return t("settingsPage.agentAccess.presetFullDescription");
+    case "current":
+      return t("settingsPage.agentAccess.presetCurrentDescription");
   }
 }
 
 function permissionsSummary(
-  permissions: ReturnType<typeof permissionsForPreset>,
+  permissions: AgentAccessPermissions,
   t: ReturnType<typeof useI18n>["t"],
 ) {
-  const parts = [t("settingsPage.agentAccess.readSessionsLabel")];
+  const parts: string[] = [];
+  if (permissions.readSessions) parts.push(t("settingsPage.agentAccess.readSessionsLabel"));
   if (permissions.readWebSocket) parts.push(t("settingsPage.agentAccess.readWebSocketLabel"));
   if (permissions.readRawBodies) {
     parts.push(t("settingsPage.agentAccess.readRawBodiesLabel"));
   } else if (permissions.readBodies) {
     parts.push(t("settingsPage.agentAccess.readBodiesLabel"));
+  }
+  if (parts.length === 0) {
+    parts.push(t("settingsPage.agentAccess.connectDialogNoReadPermissions"));
+  }
+  const controlPermissionCount = [
+    permissions.controlCapture,
+    permissions.controlSystemProxy,
+    permissions.manageCertificates,
+    permissions.deleteSessions,
+  ].filter(Boolean).length;
+  if (controlPermissionCount > 0) {
+    parts.push(
+      controlPermissionCount === 4
+        ? t("settingsPage.agentAccess.fullControlBadge")
+        : t("settingsPage.agentAccess.controlPermissionsTitle"),
+    );
   }
   return parts.join(" · ");
 }

@@ -126,6 +126,17 @@ describe("useProxyLifecycle auto-start", () => {
     expect(enableSystemProxyMutateAsync).not.toHaveBeenCalled();
   });
 
+  it("does not auto-start or restore the system proxy when launched by an Agent", async () => {
+    workspacesState.current = [createWorkspace({ systemProxyEnabled: true })];
+    proxyStatusState.current = { ...createDefaultProxyStatus(), launchSource: "agent" };
+
+    renderHook(() => useProxyLifecycle({ onSnackbarMessage: vi.fn() }));
+
+    await waitFor(() => expect(proxyStatusState.current?.launchSource).toBe("agent"));
+    expect(startMutateAsync).not.toHaveBeenCalled();
+    expect(enableSystemProxyMutateAsync).not.toHaveBeenCalled();
+  });
+
   it("does not auto-start before workspaces are loaded", async () => {
     workspacesState.current = [];
 

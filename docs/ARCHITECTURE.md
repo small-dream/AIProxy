@@ -381,18 +381,30 @@ TLS 证书缓存机制：
 
 职责：
 
-- 通过 `aiproxy-mcp` stdio sidecar 向 Codex、Claude Code、Cursor 暴露只读 MCP 工具
+- 通过 `aiproxy-mcp` stdio sidecar 向 Codex、Claude Code、Cursor 暴露 8 个读取工具和 9 个受权限约束的写控制工具，外加 `get_app_status`
 - 复用 `aiproxy-db` 的会话检索、详情、Body、WebSocket、Insights 与规则 trace 查询
 - 在 sidecar 内强制执行 Agent Access 权限、统一脱敏、字段提取、返回上限、cursor 分页与审计
+- 新增共享 crate `aiproxy-agent-control`，定义控制协议 v1、请求/响应信封、操作 DTO、权限、错误码和描述文件格式
+- 桌面端 `agent_control` 模块启动本地控制服务，复用现有代理、证书、工作区与 Session 内部实现；不复制业务逻辑
+- sidecar 与桌面端双重校验 Agent Access 启用状态、权限分组、token、参数与审计可写性；写操作串行执行并设置 60 秒超时
+- 写操作在应用未运行时以 `--agent-launched` 拉起并聚焦主窗口；单实例插件聚焦已有实例，前端根据 `launchSource=agent` 跳过自动启抓
 - 桌面端写 `agent-status.json` 心跳（抓包状态、端口、工作区），sidecar 据此在 `meta.captureStatus` / `meta.captureUpdatedAt` 中报告新鲜度，并从数据库读取 `meta.latestSessionAt`
-- 由桌面端 Settings > Agent Access 管理配置、诊断与真实 MCP 握手验证、权限模板、脱敏策略、客户端片段、一键写入/断开与 Skill 安装
+- 由桌面端 Settings > Agent Access 管理读取权限、控制权限、诊断与真实 MCP 握手验证、权限模板、脱敏策略、客户端片段、一键写入/断开与 Skill 安装
 
 边界：
 
 - 不使用会创建目录或执行 migration 的 `open_database()`；sidecar 使用 `open_read_only_database()` 与 `PRAGMA query_only=ON`
-- 不提供任意 SQL、任意文件读取、规则写入、系统代理修改或 Snapshot 导出
+- 不提供任意 SQL、任意文件读取、规则写入、上游代理配置、移动设备 ADB/HDC、导入导出、AI 模型设置、应用更新控制或 Snapshot 导出
+- Agent 不能读取或修改自己的 Agent Access 权限、MCP 配置或 Skill，避免自我提权
 - SQL 只存在于 `aiproxy-db`，MCP 层不复制聚合查询
 - stdout 仅供 MCP 协议使用，日志写 stderr
+
+控制通道：
+
+- Unix：`<data-dir>/agent-control.sock`，权限 `0600`；Windows：仅当前用户 ACL 的 Named Pipe。两种平台均不开放 TCP 端口。
+- 描述文件：`<data-dir>/agent-control.json`，包含协议版本、端点、随机 token、PID、应用版本与启动时间；Unix `0600`，应用退出时删除。
+- 只读 `get_app_status` 不自动启动应用；写工具在控制通道不可用时自动拉起桌面端。控制通道不可用时，只读工具仍按原有数据库/心跳路径工作。
+- 审计日志在动作前确认可写，失败返回 `AUDIT_UNAVAILABLE` 且不执行；控制动作由桌面端作为权威写入点，成功与失败都记录工具、动作摘要、真实客户端身份、耗时和错误码，不记录凭据或 Body。sidecar 不重复记录已由桌面端执行的控制动作。
 
 客户端接入：
 
@@ -402,7 +414,7 @@ TLS 证书缓存机制：
 
 应用在用户确认后合并写入客户端配置、先备份原文件，并支持从客户端移除 `aiproxy` 条目与受管 Skill；复制片段保留为兜底。Sidecar 通过 Tauri `externalBin` 与桌面安装包一起分发。
 
-详细契约见 `docs/MCP_AGENT_SKILL_ARCHITECTURE.md`、`docs/DECISIONS/ADR-006-local-mcp-agent-access.md` 与 `docs/API_SPEC.md` 6.14。
+详细契约见 `docs/MCP_AGENT_SKILL_ARCHITECTURE.md`、`docs/DECISIONS/ADR-006-local-mcp-agent-access.md`、`docs/DECISIONS/ADR-007-agent-control-ipc.md` 与 `docs/API_SPEC.md` 6.14。
 
 ## 7. 前后端交互设计
 

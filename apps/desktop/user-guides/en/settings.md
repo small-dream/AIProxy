@@ -29,16 +29,17 @@ Click **Save** to apply:
 
 ## Agent Access
 
-Let Codex, Claude Code, and Cursor query captured traffic through a local MCP sidecar in read-only mode. AIProxy opens no network port and does not upload captures, but content read by an Agent is sent to that client's model provider.
+Let Codex, Claude Code, and Cursor query captured traffic through a local MCP sidecar, and perform permitted setup, certificate, capture, system-proxy, and session-cleanup actions. Control writes call the desktop app through a local IPC channel accessible only to the current user; AIProxy opens no network port and does not upload captures, but content read by an Agent is sent to that client's model provider.
 
 - Turn on **Local Agent Access** and save before a client can call MCP tools.
-- Under **Connect an Agent client**, choose Codex, Claude Code, or Cursor, click **Connect**, then select **Metadata only**, **Include response bodies**, or **Include raw data (high risk)**.
+- Under **Connect an Agent client**, choose Codex, Claude Code, or Cursor, click **Connect**, then select **Metadata only**, **Include response bodies**, **Include raw data (high risk)**, or the **Full control** preset. If a custom permission mix is saved, reconnecting defaults to **Keep current permissions** instead of resetting it.
 - Connecting writes user-level MCP configuration and installs the AIProxy Skill. Existing files are backed up first, and the client must be restarted or reloaded afterward.
 - **Read permissions** separately control session metadata, bodies, and WebSocket messages. Turning off Body access also turns off unredacted bodies; enable unredacted access only when a task truly requires it.
 - **Advanced permissions** include unredacted bodies, format-based sensitive-value detection, stable identifier hashing, custom sensitive field names, the page size, and the Body chunk limit.
-- **Diagnostics → Verify connection** checks the sidecar, database schema, MCP handshake, tool call, and client configuration. Failures show their reason inline.
+- **Control permissions** are off by default and split into capture/workspace control, system-proxy control, root-certificate management, and session deletion. Enable them individually, or use **Enable full control** to turn on all four. Once enabled, the app does not ask for a second in-app confirmation for an authorized action.
+- **Diagnostics → Verify connection** checks the sidecar, database schema, MCP handshake, tool call, client configuration, control channel, and control permissions. Failures show their reason inline.
 - **More actions** covers MCP config only, Skill only, manual configuration, and disconnect. Disconnecting confirms and backs up the original file; the AIProxy-managed Skill is removed while a custom Skill is preserved.
-- **Agent Audit Log** shows a call-count summary by default. Expand it to inspect the tool, client, result, duration, and returned bytes over time; payloads and secrets are not stored.
+- **Agent Audit Log** shows a call-count summary by default. Expand it to inspect the tool, action summary, client, result, duration, and returned bytes over time; payloads and secrets are not stored.
 
 > A successful connection means the configuration and Skill were written; it does not mean the client completed a handshake. Reload the client as prompted, then run **Verify connection**.
 
@@ -145,7 +146,7 @@ Global shortcuts work from the Windows/Linux menu bar and from the keyboard:
 ## Persistence
 
 - Proxy params (port / SSL / HTTP/2) persist with the workspace config
-- Agent permissions, redaction, query limits, and client connection state persist through the backend
+- Agent read and control permissions, redaction, query limits, and client connection state persist through the backend
 - AI-model config persists via the backend
 - Preferences like language, theme, fonts, and font size persist locally (kept across restarts)
 
@@ -156,7 +157,7 @@ Global shortcuts work from the Windows/Linux menu bar and from the keyboard:
 | Language / theme / fonts / font size | Immediately |
 | AI model config / Test Connection | Immediately |
 | Proxy port / SSL / HTTP/2 | Proxy running: auto-restarts on save; proxy stopped: next start |
-| Agent permissions / redaction / query limits | Sidecar config updates on save; a running Agent picks it up on its next tool call |
+| Agent read permissions / control permissions / redaction / query limits | Sidecar config updates on save; a running Agent picks it up on its next tool call |
 | Software update | Auto-restarts the app after install |
 
 ## FAQ

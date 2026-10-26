@@ -5,6 +5,7 @@ export type ProxyStatus = {
   port: number;
   sslEnabled: boolean;
   systemProxyEnabled: boolean;
+  launchSource?: "user" | "agent";
   http2Enabled?: boolean;
   activeWorkspaceId?: string;
   startedAt?: string;
@@ -25,6 +26,7 @@ export type StopProxyInput = {
 export function createDefaultProxyStatus(): ProxyStatus {
   return {
     activeWorkspaceId: DEFAULT_WORKSPACE_ID,
+    launchSource: "user",
     port: DEFAULT_PROXY_PORT,
     running: false,
     sslEnabled: true,
@@ -86,6 +88,15 @@ export function isProxyStatus(value: unknown): value is ProxyStatus {
     return false;
   }
 
+  if (
+    candidate.launchSource !== undefined &&
+    candidate.launchSource !== null &&
+    candidate.launchSource !== "user" &&
+    candidate.launchSource !== "agent"
+  ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -114,6 +125,9 @@ export function parseProxyStatus(value: unknown): ProxyStatus {
         : {}),
       ...(candidate.http2Enabled !== null && candidate.http2Enabled !== undefined
         ? { http2Enabled: candidate.http2Enabled }
+        : {}),
+      ...(candidate.launchSource !== null && candidate.launchSource !== undefined
+        ? { launchSource: candidate.launchSource }
         : {}),
     };
   }

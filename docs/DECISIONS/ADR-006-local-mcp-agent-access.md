@@ -1,6 +1,6 @@
 # ADR-006：本地 MCP Agent Access 采用 stdio 只读 Sidecar
 
-- 状态：`Accepted`
+- 状态：`Accepted（只读边界由 ADR-007 扩展）`
 - 日期：`2026-10-17`
 - 关联文档：`docs/MCP_AGENT_SKILL_PLAN.md`、`docs/MCP_AGENT_SKILL_ARCHITECTURE.md`、`docs/API_SPEC.md`
 
@@ -31,3 +31,7 @@
 - Codex、Claude、Cursor 的工具发现与 Skill 加载行为由客户端决定；AIProxy 只负责生成正确配置和文件。
 - 应用内不能伪造代理实时运行状态；stdio 模式的 `runtimeStatus` 固定为 `unknown`。
 - 后续若增加写工具或实时流，必须新增 ADR，并单独评审权限、审计和回滚策略。
+
+## 后续决策
+
+ADR-007 在本 ADR 的 stdio sidecar、只读数据库连接、脱敏和审计基线上，增加了受权限约束的本地 IPC 控制能力。当前工具契约以 `docs/API_SPEC.md` 为准；本 ADR 中“MVP 只读”“`runtimeStatus` 固定为 `unknown`”等表述仅描述 v1 只读基线，不再是完整产品边界。

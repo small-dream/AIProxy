@@ -41,7 +41,7 @@ import {
   diagnoseCertificateSetup,
 } from "@/services/commands";
 
-const CERTIFICATE_STATUS_QUERY_KEY = ["certificate-status"] as const;
+export const CERTIFICATE_STATUS_QUERY_KEY = ["certificate-status"] as const;
 const ANDROID_ADB_DEVICES_QUERY_KEY = ["android-adb-devices"] as const;
 const HARMONY_HDC_DEVICES_QUERY_KEY = ["harmony-hdc-devices"] as const;
 const IOS_SIMULATORS_QUERY_KEY = ["ios-simulators"] as const;

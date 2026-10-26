@@ -9,11 +9,13 @@ name = "aiproxy-mcp"
 path = "src/bin/aiproxy-mcp.rs"
 
 [dependencies]
+aiproxy-agent-control = { version = "0.1.51", path = "../agent-control" }
 aiproxy-db = { path = "../db" }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 clap = { version = "4", features = ["derive"] }
 hmac = "0.12"
+interprocess = "2.4.7"
 regex = "1"
 rmcp = { version = "3.5.1", features = ["server", "macros", "transport-io"] }
 schemars = "1"
@@ -24,6 +26,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "syn
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 tempfile = "3"

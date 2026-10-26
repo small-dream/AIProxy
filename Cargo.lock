@@ -30,6 +30,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aiproxy-agent-control"
+version = "0.1.51"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "aiproxy-db"
 version = "0.1.51"
 dependencies = [
@@ -47,6 +56,7 @@ dependencies = [
 name = "aiproxy-desktop"
 version = "0.1.51"
 dependencies = [
+ "aiproxy-agent-control",
  "aiproxy-db",
  "aiproxy-mcp",
  "aiproxy-proxy-core",
@@ -56,6 +66,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "dirs",
+ "interprocess",
  "libc",
  "mime_guess",
  "percent-encoding",
@@ -70,6 +81,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tauri-plugin-process",
+ "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tempfile",
  "tokio",
@@ -79,6 +91,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "widestring",
  "windows-sys 0.61.2",
  "winreg 0.56.0",
 ]
@@ -87,11 +100,13 @@ dependencies = [
 name = "aiproxy-mcp"
 version = "0.1.51"
 dependencies = [
+ "aiproxy-agent-control",
  "aiproxy-db",
  "base64 0.22.1",
  "chrono",
  "clap",
  "hmac",
+ "interprocess",
  "regex",
  "rmcp",
  "schemars 1.2.1",
@@ -103,6 +118,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -1597,6 +1613,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "doctest-file"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2db04e74f0a9a93103b50e90b96024c9b2bdca8bce6a632ec71b88736d3d359"
+
+[[package]]
 name = "dom_query"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2769,6 +2791,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a588916bfdfd92e71cacef98a63d9b1f0d74d6599980d11894290e7ddefffcf7"
 dependencies = [
  "cfb",
+]
+
+[[package]]
+name = "interprocess"
+version = "2.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4a4fff6c51dece332bdbf3af5fe376c49cfc8dced782725e95be0bb489e35d7"
+dependencies = [
+ "doctest-file",
+ "libc",
+ "recvmsg",
+ "widestring",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4297,6 +4332,12 @@ dependencies = [
  "x509-parser 0.16.0",
  "yasna",
 ]
+
+[[package]]
+name = "recvmsg"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
 
 [[package]]
 name = "redox_syscall"
@@ -6170,6 +6211,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-single-instance"
+version = "2.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db817fe9295e19b7d8357e900af31edb93703dd9fb6de524b007b47b6afc63b0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "windows-sys 0.60.2",
+ "zbus",
+]
+
+[[package]]
 name = "tauri-plugin-updater"
 version = "2.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7283,6 +7340,12 @@ dependencies = [
  "windows",
  "windows-core 0.61.2",
 ]
+
+[[package]]
+name = "widestring"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
 
 [[package]]
 name = "winapi"

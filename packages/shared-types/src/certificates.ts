@@ -395,6 +395,10 @@ export type RemoveCertificateTrustOutput = {
    * routed through the (now untrusted) proxy; the UI must warn and point the
    * user at manually disabling the system proxy. */
   systemProxyHandbackError?: string;
+  /** Set when SSL was disabled in memory but the workspace row could not be
+   * persisted. A later restart may restore SSL interception for a certificate
+   * that no longer exists. */
+  workspacePersistWarning?: string;
 };
 
 export function isTrustRemovalFailure(value: unknown): value is TrustRemovalFailure {
@@ -428,12 +432,20 @@ export function parseRemoveCertificateTrustOutput(value: unknown): RemoveCertifi
           systemProxyHandbackError?: string | null;
         }
       ).systemProxyHandbackError,
+    ) ||
+    !isNullableString(
+      (
+        value as Partial<RemoveCertificateTrustOutput> & {
+          workspacePersistWarning?: string | null;
+        }
+      ).workspacePersistWarning,
     )
   ) {
     throw coerceAppError(value);
   }
   const candidate = value as RemoveCertificateTrustOutput & {
     systemProxyHandbackError?: string | null;
+    workspacePersistWarning?: string | null;
   };
   return {
     status: parseCertificateStatus(candidate.status),
@@ -441,6 +453,10 @@ export function parseRemoveCertificateTrustOutput(value: unknown): RemoveCertifi
     ...(candidate.systemProxyHandbackError !== null &&
     candidate.systemProxyHandbackError !== undefined
       ? { systemProxyHandbackError: candidate.systemProxyHandbackError }
+      : {}),
+    ...(candidate.workspacePersistWarning !== null &&
+    candidate.workspacePersistWarning !== undefined
+      ? { workspacePersistWarning: candidate.workspacePersistWarning }
       : {}),
   };
 }

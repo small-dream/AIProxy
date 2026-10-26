@@ -179,6 +179,9 @@ type ProxyStatus = {
   activeWorkspaceId?: string; // 当前激活代理预设 ID，字段名保持兼容
   startedAt?: string;
   http2Enabled?: boolean;
+  // 本次进程的启动来源。`agent` 表示由 MCP sidecar 为写控制工具自动拉起；
+  // 前端据此跳过基于上次配置的页面自动启抓，避免先绑定旧端口再由 Agent 重启。
+  launchSource?: "user" | "agent";
   // 系统代理恢复 / 重新应用失败时的警告信息（如重启后 reapply 失败）；
   // 无警告时缺省。disable_system_proxy 成功后清空。
   systemProxyRecoveryWarning?: string;
@@ -1029,7 +1032,9 @@ type ClearSessionsOutput = void;
 
 说明：
 
-- 清空当前 workspace 的全部会话（含持久化数据），UI 侧需先做危险操作确认
+- 清空全局全部会话（含 SQLite 与 Body Store）；内部会统计实际删除的数据库 Session 数供 Agent 控制返回。UI 侧需先做危险操作确认。
+- 数据库清理失败时不更新缓存、不发射事件。数据库已提交但 Body 清理失败时返回 `BODY_DELETE_FAILED`，`details` 含 `deletedCount`、`sessionsCleared=true` 和 `bodyCleanupError`；此时缓存与 `sessions-cleared` 事件仍按数据库的最终状态同步，避免 UI 长期显示已不存在的 Session。
+- Session 生命周期锁覆盖持久化、缓存和 Body 写入，保证清理期间不会与新的 Session 写入交叉污染。
 
 ### `delete_sessions`
 
@@ -1049,8 +1054,9 @@ type DeleteSessionsOutput = void;
 
 说明：
 
-- 按 id 批量删除会话（多选删除），含持久化数据与 body 文件；DB 删除按批次执行（`DELETE_SESSIONS_BATCH_SIZE`）
+- 按 id 批量删除会话（多选删除），含持久化数据与 Body 文件；内部严格结果包含删除数与不存在的 ID，供 Agent 控制返回，UI command 契约仍为 `void`。
 - 成功后后端发射 `sessions-removed`（回显请求的 id 列表，含后端未持有的导入会话 id），前端依赖该事件更新本地状态并对这些 id 记录 tombstone，防止进行中的会话被后续 `session-upsert` 复活
+- 数据库删除失败时不更新缓存；数据库已提交但某个已存在 Session 的 Body 目录删除失败时返回 `BODY_DELETE_FAILED`，`details` 含 `deletedCount`、`missingSessionIds`、`sessionsDeleted=true` 与 `bodyDeleteFailures`，同时缓存和事件按数据库状态同步。仅对数据库中真实存在的 id 清理 Body，未知 id 只计入 `missingSessionIds`，不会因非法路径段被误报为 Body 错误。
 
 ### `delete_sessions_except`
 
@@ -1786,6 +1792,7 @@ type RemoveCertificateTrustOutput = {
   status: CertificateStatus; // 移除后：certPath 为空、trusted=false
   trustRemoval: TrustRemovalReport;
   systemProxyHandbackError?: string; // 系统代理交还失败的原因（见下方语义）
+  workspacePersistWarning?: string; // ssl_enabled=false 持久化失败的原因
 };
 ```
 
@@ -1808,6 +1815,7 @@ type RemoveCertificateTrustOutput = {
 - 顺序刚性：先撤销信任（macOS/Linux 命令需要证书文件定位目标）→ 再删文件 → 清 TLS manager → 持久化 `ssl_enabled=false` → 关系统代理 → HTTP-only 重启。
 - DB 持久化失败仅告警（M9 降级语义），不回滚移除动作。
 - 若系统代理此前已接管，会调用 `disable_system_proxy` 恢复用户原代理设置，避免移除证书后整机指向不受信任的 MITM 代理。**交还失败时**：`disable_system_proxy` 只有恢复成功才把 `system_proxy_enabled` 写回 false，因此该标志仍为 true，随后的 HTTP-only 重启尾声会重新把 OS 代理指向本代理——整机仍被劫持。此错误经 `systemProxyHandbackError` 返回，前端以 warning 提示用户从状态栏/设置手动关闭系统代理。
+- 证书移除后，内存工作区先关闭 SSL，再持久化 `ssl_enabled=false`。若数据库写入失败，输出 `workspacePersistWarning`；本次运行保持 HTTP-only，但重启后可能恢复旧 SSL 配置，前端和 Agent 都必须提示用户复核 SSL 设置。
 
 ### `diagnose_certificate_setup`
 
@@ -2262,13 +2270,15 @@ type ShowLogFileOutput = string; // 日志文件的绝对路径
 - 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
 - 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
 
-## 6.14 Agent Access / MCP Commands — `已实现（只读增强版，工具契约 2.2）`
+## 6.14 Agent Access / MCP Commands — `已实现（读取 + 受控操作，工具契约 3.0）`
 
-Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
+Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量，并按权限分组执行桌面控制。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
 
 - `agent-access.json`：权限与限制，Unix `0600`，Windows 仅当前用户 ACL。
-- `agent-audit.jsonl`：仅记录工具名、客户端、耗时、字节数、脱敏/截断状态和错误码；不记录载荷。
+- `agent-audit.jsonl`：仅记录工具名、动作摘要、Agent 控制标记、客户端、耗时、字节数、脱敏/截断状态和错误码；不记录载荷。
 - `agent-status.json`：桌面端心跳（`appRunning`、`capturing`、`proxyPort`、`workspaceId`、`captureStartedAt`、`updatedAt`），每 30 秒刷新，不含流量数据；sidecar 用它生成 `meta.captureStatus`。
+- `agent-control.json`：桌面端 Agent 控制描述文件，包含协议版本、本地端点、随机 token、PID、应用版本与启动时间；Unix `0600`，Windows 仅当前用户 ACL，应用退出时删除。
+- Unix 控制端点为 `<data-dir>/agent-control.sock`（`0600`）；Windows 使用当前用户 ACL 的 Named Pipe。两种平台都不开放 TCP 端口。
 
 ### `get_agent_access_settings`
 
@@ -2287,6 +2297,10 @@ type AgentAccessSettings = {
     readRawBodies: boolean;
     readWebSocket: boolean;
     exportSnapshots: boolean;
+    controlCapture: boolean;
+    controlSystemProxy: boolean;
+    manageCertificates: boolean;
+    deleteSessions: boolean;
   };
   limits: { maxSessions: number; maxBodyBytes: number; maxResponseBytes: number };
   redaction: {
@@ -2325,7 +2339,9 @@ type AgentClientInfo = {
 
 说明：
 
-- 配置缺失时返回默认值（关闭、只读会话、Body/WebSocket/raw 关闭），不视为命令失败。
+- 配置缺失时返回默认值（关闭、读取会话开启、Body/WebSocket/raw 与四个控制权限关闭），不视为命令失败。
+- 内存配置契约版本为 `3`。为兼容旧只读 sidecar，磁盘文件仍使用 v2 信封；新增控制权限为 additive 字段，旧 sidecar 会忽略，新 desktop / sidecar 读取后在内存归一化为 v3。
+- 读取 v2 配置时会补齐四个控制权限为 `false`，不产生隐式提权。`get_agent_access_settings.version` 返回归一化后的 `3`。
 - `clients` 生成可复制片段；实际写入由 `install_agent_client_config` 完成。
 - Cursor 目标为 `~/.cursor/mcp.json`，使用标准 `mcpServers` 结构且不写 `type` 字段。
 - Codex 目标为 `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）。
@@ -2356,7 +2372,7 @@ type UpdateAgentAccessSettingsInput = {
 
 ```ts
 type AgentAccessCheck = {
-  id: string; // sidecar | dataDirectory | doctor | database | schema | agentAccessEnabled | bodyAccess | handshake | tools | sessions | clients
+  id: string; // sidecar | dataDirectory | doctor | database | schema | agentAccessEnabled | bodyAccess | handshake | tools | sessions | clients | controlChannel | controlPermissions
   status: "ok" | "warning" | "error";
   detail?: string | null;
 };
@@ -2376,6 +2392,7 @@ type AgentAccessTestResult = {
 - 先运行 `aiproxy-mcp --doctor`，检查 sidecar、配置是否启用、数据库可读性与列级 schema。
 - `agentAccessEnabled=true` 时再由桌面端执行一次真实 MCP stdio 会话：`initialize` → `tools/list` → `search_sessions(limit=1)`，确认 Agent 使用的同一条链路可用。
 - `bodyAccess` 为 warning 表示 Body 读取关闭，Agent 无法分析响应体。
+- `controlChannel` 先检查描述文件与协议版本，再通过真实 `getStatus` 控制请求探活并确认 `controlAvailable=true`；描述文件存在但端点失效或版本不匹配时分别返回 warning/error。`controlPermissions` 汇总当前启用的控制权限分组，全关时为 warning，不代表错误。
 - 诊断失败返回 `ok=false`，不抛出命令错误；`checks` 供 UI 逐项展示与本地化。
 
 `aiproxy-mcp --doctor` 的 JSON：
@@ -2399,7 +2416,17 @@ type DoctorResult = {
       ruleTraces: boolean;
       workspaces: boolean;
     } | null;
-    permissions: { readSessions: boolean; readBodies: boolean; readRawBodies: boolean; readWebSocket: boolean } | null;
+    permissions: {
+      readSessions: boolean;
+      readBodies: boolean;
+      readRawBodies: boolean;
+      readWebSocket: boolean;
+      exportSnapshots: boolean;
+      controlCapture: boolean;
+      controlSystemProxy: boolean;
+      manageCertificates: boolean;
+      deleteSessions: boolean;
+    } | null;
     availableTools: string[];
   };
   issues: Array<{ code: string; message: string }>;
@@ -2495,6 +2522,14 @@ type InstallAgentClientConfigResult = {
 - Claude Code 合并 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）顶层的 `mcpServers.aiproxy`，保留其他用户配置，并写入 `type: "stdio"`。
 - 目标文件已存在且内容将变化时，先写入同目录 `.aiproxy-backup-<timestamp>` 备份，再原子替换；解析失败、根结构不是对象或目标是符号链接时拒绝写入。
 
+### `get_recent_agent_control_actions`
+
+请求：无参数。
+
+响应：`AgentControlActionEvent[]`，按发生时间正序返回最多 20 条内存回放事件。
+
+说明：自动拉起 AIProxy 时，首个 Agent 控制动作可能早于 React 挂载事件监听器。渲染器在订阅 `agent-control-action` 后读取此缓冲区，并按 `eventId` 去重，确保首个动作的通知与查询刷新不丢失。该缓冲区不持久化，应用退出即清空。
+
 ### `get_agent_audit_log`
 
 请求：`{ limit?: number }`，默认 50，最大 200。
@@ -2508,6 +2543,8 @@ type AgentAuditLog = {
     clientName?: string | null;
     clientVersion?: string | null;
     tool?: string | null;
+    actionSummary?: string | null;
+    agentControl?: boolean | null; // 是否为 Agent 写控制动作（读取与 get_app_status 为 false/缺省）
     outcome?: string | null;
     durationMs?: number | null;
     returnedBytes?: number | null;
@@ -2522,9 +2559,13 @@ type AgentAuditLog = {
 
 ### MCP stdio tool contract
 
-`aiproxy-mcp` 当前工具契约版本为 `2.2`，提供 8 个只读工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
+`aiproxy-mcp` 当前工具契约版本为 `3.0`，共 18 个工具：
 
-所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。`meta` 包含 `schemaVersion`、`dataFreshness`、`latestSessionAt`、`captureStatus`、`captureUpdatedAt`、`truncated`、`redacted`、`nextCursor`、`tookMs`、`readAt`；会话是全局的，不再返回恒为 `null` 的 `workspaceId`。稳定排序：
+- 8 个读取工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
+- 1 个状态工具：`get_app_status`。
+- 9 个写控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`。
+
+所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。`meta` 包含 `schemaVersion`、`dataFreshness`、`latestSessionAt`、`captureStatus`、`captureUpdatedAt`、`truncated`、`redacted`、`nextCursor`、`tookMs`、`readAt`、`auditDegraded`；会话是全局的，不再返回恒为 `null` 的 `workspaceId`。稳定排序：
 
 - `latestSessionAt`：最新持久化会话的 `startedAt`，无会话时为 `null`；Agent 应据此说明数据截止时间。
 - `captureStatus`：`running` | `stopped` | `unknown`。来自 `agent-status.json` 心跳；文件缺失、解析失败或超过 120 秒未刷新时为 `unknown`，不得据此声称正在实时抓包。
@@ -2560,10 +2601,43 @@ Body 与字段提取：
 
 - `get_insights` 支持 `since`（相对时长，例如 `2h`）或 `startedAfter` / `startedBefore`；两者互斥。另支持 `pathContains`、`queryParams` 和 `groupBy=host|path|queryParam`；`queryParam` 需提供 `groupQueryParam`。每组返回 `key`、`requestCount`、`errorCount`、`errorRate`、`avgDurationMs`、`p50DurationMs`、`p95DurationMs`、`totalBytes`。
 - `compare_sessions` 支持 `jsonPaths` 与 `diffMode=auto|json|text`。`diffMode=json` 对非 JSON 返回 `BODY_NOT_JSON`；任一侧 Body 扫描超过 8 MiB 返回 `BODY_TOO_LARGE`，不比较不完整内容。
-- `list_workspaces` 是可选工具，不是检索入口：会话全局存储、不能按 workspace 过滤。它额外返回全局 `sessionCount`、`latestSessionAt`、`latestSessionId`、`sessionScope="global"`；`runtimeStatus` 仍为 `unknown`。数据库缺少工作区列时返回 `SCHEMA_INCOMPATIBLE`。
+- `list_workspaces` 是可选工具，不是检索入口：会话全局存储、不能按 workspace 过滤。它额外返回全局 `sessionCount`、`latestSessionAt`、`latestSessionId`、`sessionScope="global"`；控制通道可用时，当前激活工作区返回真实 `runtimeStatus`，否则为 `unknown`。数据库缺少工作区列时返回 `SCHEMA_INCOMPATIBLE`。
 - 数据库 schema 滞后（更新 AIProxy 后尚未启动应用）时，`get_session`、`get_session_fields`、`get_session_body`、`compare_sessions`、`get_websocket_messages`、`list_workspaces` 返回 `SCHEMA_INCOMPATIBLE`，`message` 明确要求先打开一次 AIProxy 完成迁移；`search_sessions`、`get_insights`、`get_session(summary)` 仍可用。
 
-脱敏配置位于 `agent-access.json` 的 `redaction` 字段，版本为 `2`：
+控制工具：
+
+| 工具 | 所需权限 | 行为 |
+|---|---|---|
+| `get_app_status` | Agent Access 已启用 | 返回应用/控制通道、抓包、证书、工作区、系统代理状态与建议下一步；不返回 Agent 自身权限，也不自动启动应用 |
+| `configure_workspace` | `controlCapture` | 修改端口、SSL、HTTP2、SSL blind hosts、SSL proxying；默认保存后立即应用，运行中且为当前工作区时自动重启代理 |
+| `start_capture` | `controlCapture` | 使用工作区已保存配置启动抓包；SSL 未信任时仍可启动，但返回明确 warning |
+| `stop_capture` | `controlCapture` | 停止代理并恢复 AIProxy 接管前的系统代理；该收尾动作不额外要求 `controlSystemProxy`。恢复失败时返回 `systemProxyRestoreFailed=true` 与 `warnings`，不会把失败伪装成完整成功 |
+| `set_system_proxy` | `controlSystemProxy` | 启停系统代理；启用前要求代理已运行 |
+| `generate_certificate` | `manageCertificates` | 生成或强制轮换根证书；运行中按现有逻辑重启代理 |
+| `open_certificate_installer` | `manageCertificates` | 打开平台证书安装入口，返回 `userActionRequired`、证书路径和步骤 |
+| `remove_certificate_trust` | `manageCertificates` | 撤销信任、删除证书、关闭 SSL、交还系统代理并重启为 HTTP-only |
+| `clear_sessions` | `deleteSessions` | 删除全部 Session 与 Body，返回删除数量 |
+| `delete_sessions` | `deleteSessions` | 按 session ID 批量删除，单次最多 200 个，返回 `deletedCount` 与 `missingSessionIds` |
+
+状态响应边界：
+
+- `get_app_status.data.workspaces[]` 仅返回 Agent 决策所需的工作区状态：`workspaceId`、`name`、`proxyPort`、`sslEnabled`、`http2Enabled`、`systemProxyEnabled`、`verifyUpstreamTls`、`tlsVerifyHosts`、`sslBlindHosts`、`sslProxying`、`upstreamProxyConfigured`、`upstreamProxyEnabled`、`runtimeStatus`。上游代理的用户名、密码、完整 URL 和其他凭据永不返回。
+- `configure_workspace.data.workspace` 使用同一套状态投影，不包含上游代理凭据；Agent 只能确认上游代理是否配置和是否启用。本版也不允许通过控制工具读取或修改上游代理配置。
+- `get_app_status` 在控制通道不可用或状态探测超时时仍可返回只读降级状态，但 `controlAvailable=false`；不会自动启动应用。降级 payload 的 `controlError` 为 `{ code, message, retryable } | null`，协议版本不一致、描述文件损坏、探测超时等具体原因不会被吞掉。
+- `configure_workspace` 对空 `workspaceId`、空条目、超过 500 条的 SSL 列表、超过 1024 字节的 pattern 等参数返回 `INVALID_ARGUMENT`，不会静默截断或丢弃。
+
+控制调用规则：
+
+- sidecar 仅在描述文件缺失或连接阶段失败且心跳表明桌面端未运行时自动拉起；若 AIProxy 已在运行但控制通道不可用（例如旧版本或控制服务启动失败），返回带升级/重启提示的 `CONTROL_UNAVAILABLE`，避免单实例插件只聚焦旧实例后无意义等待。通道已建立后若写请求超时或连接中断，不会自动重试，避免非幂等操作重复执行。读取状态不会启动应用。自动拉起参数为 `--agent-launched`，单实例插件聚焦已有窗口；`launchSource=agent` 时前端跳过旧配置自动启抓。
+- sidecar 与桌面端都校验 Agent Access 启用、权限分组、token、参数和审计可写性；直接连接 IPC 不能绕过 sidecar 权限。写请求在等待串行锁期间会重新读取权限与审计状态，因此排队期间撤销授权会使该请求在执行前被拒绝。
+- 写操作超时 60 秒并返回 `CONTROL_TIMEOUT`，所有 Agent 写请求串行执行；系统代理和 Session 生命周期继续使用桌面端现有锁。只读状态探测使用 5 秒短超时，避免控制通道异常拖慢 `get_app_status` / `list_workspaces`；`get_app_status` 会把探测超时降级为 `CONTROL_TIMEOUT` 状态，而不是让整个只读调用失败。超时或已发送请求后的连接中断都不自动重试，调用方应先通过 `get_app_status` 确认当前状态。
+- 控制帧硬上限为请求 4 MiB、响应 1 MiB；请求上限覆盖 500+500 条、每条最长 1 KiB 的 SSL proxying 规则。超过硬上限返回 `INVALID_ARGUMENT` / `RESULT_TOO_LARGE`，不会截断后执行。
+- 审计在执行前确认可写，失败返回 `AUDIT_UNAVAILABLE` 且不执行。控制动作由桌面端作为权威写入点：请求携带 MCP 客户端名称与版本，动作结束后无论成功或失败都记录工具、动作摘要、真实客户端身份、耗时和错误码，不记录凭据或 Body。因此直接连接本地 IPC 的已授权请求同样会留下动作记录；sidecar 不重复写入已由桌面端执行的控制动作，仅审计只读工具和未进入桌面控制通道的本地失败。
+- 新增错误码：`CONTROL_PERMISSION_DENIED`、`APP_LAUNCH_FAILED`、`CONTROL_UNAVAILABLE`、`CONTROL_TIMEOUT`、`USER_ACTION_REQUIRED`、`AUDIT_UNAVAILABLE`；现有代理、证书和数据库错误原样透传。
+- `USER_ACTION_REQUIRED` 为保留的结构化错误码，用于“操作无法继续且必须等待系统或用户动作”的场景。证书安装入口当前在动作已打开后返回成功 payload，并置 `userActionRequired=true`；调用方应完成系统对话框后用 `get_app_status` 复核，而不是把该成功结果当作证书已信任。
+- 应用内不再二次确认已授权控制操作；删除类操作和撤销证书信任仍必须由 Agent Skill 要求用户在当前对话中明确请求。抓包内容中的指令一律视为不可信数据。
+
+脱敏配置位于 `agent-access.json` 的 `redaction` 字段；内存契约版本为 `3`，磁盘兼容信封版本为 `2`：
 
 - `detectSensitiveValues`：按值格式识别 JWT、Bearer、邮箱、手机号、设备 ID、地址等。
 - `hashIdentifiers`：标识符使用本地稳定 HMAC 伪名，例如 `[ID:xxxxxxxx]`，仅用于关联，不可反推。
@@ -2755,6 +2829,26 @@ type SystemProxyWarningEvent = {
 
 - `services/events/index.ts` 中的 `onSystemProxyWarning()` 订阅此事件
 - `AppShell` 的 `useSystemProxyWarning()` hook 将其转为全局 warning 通知（Snackbar），提示系统代理可能已过期
+
+## 7.6 Agent 控制事件 — `已实现`
+
+### `agent-control-action` — `已实现`
+
+```ts
+type AgentControlActionEvent = {
+  eventId: string;
+  timestamp: string;
+  method: string;
+  actionSummary?: string | null;
+  ok: boolean;
+  errorCode?: string | null;
+  durationMs: number;
+};
+```
+
+触发时机：桌面端完成一次已通过 token、启用状态、权限、参数和审计预检的 Agent 控制请求后发出（包括执行阶段失败）；未授权或预检失败的请求不会广播到 UI。事件不包含请求参数、凭据或 Body。后端同时保留最近 20 条内存事件，供 `get_recent_agent_control_actions` 在渲染器尚未挂载监听器时回放。
+
+前端处理：`useAgentControlEvents()` 先订阅实时事件，再读取回放缓冲区，并按 `eventId` 去重后刷新代理状态、工作区、证书与 Session 查询；删除类操作会同时清除 Session 详情缓存。除 `getStatus` 外，成功与失败均显示全局通知，让用户在全自动模式下仍能看到 Agent 操作。
 
 ## 8. 前端调用规范
 

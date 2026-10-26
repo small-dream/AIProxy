@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 
 const SKILL_MARKER: &str = "<!-- aiproxy-managed-skill: v1 -->";
-const AGENT_SKILL_VERSION: &str = "2.3";
+const AGENT_SKILL_VERSION: &str = "3.0";
 const SKILL_CONTENT: &str = include_str!("../../resources/agent-skill/aiproxy/SKILL.md");
 const MAX_AUDIT_ENTRIES: usize = 200;
 
@@ -131,6 +131,8 @@ pub struct AgentAuditEntry {
     pub client_name: Option<String>,
     pub client_version: Option<String>,
     pub tool: Option<String>,
+    pub action_summary: Option<String>,
+    pub agent_control: Option<bool>,
     pub outcome: Option<String>,
     pub duration_ms: Option<u64>,
     pub returned_bytes: Option<usize>,
@@ -366,7 +368,7 @@ fn test_agent_access_blocking() -> Result<AgentAccessTestResult, String> {
                 push(check("handshake", "ok", probe.protocol_version.clone()));
                 push(check(
                     "tools",
-                    if probe.tool_count == 8 {
+                    if probe.tool_count >= 18 {
                         "ok"
                     } else {
                         "warning"
@@ -388,6 +390,92 @@ fn test_agent_access_blocking() -> Result<AgentAccessTestResult, String> {
                             )
                         }
                         (count, None) => format!("search_sessions returned {count} session(s)"),
+                    }),
+                ));
+
+                match aiproxy_agent_control::read_descriptor(&paths.data_dir) {
+                    Ok(descriptor)
+                        if descriptor.protocol_version
+                            == aiproxy_agent_control::CONTROL_PROTOCOL_VERSION =>
+                    {
+                        let probe = tauri::async_runtime::block_on(
+                            aiproxy_mcp::control_client::try_control(
+                                &paths,
+                                aiproxy_agent_control::ControlOperation::GetStatus,
+                            ),
+                        );
+                        match probe {
+                            Ok(status) if status["controlAvailable"].as_bool() == Some(true) => {
+                                push(check(
+                                    "controlChannel",
+                                    "ok",
+                                    Some(format!(
+                                        "Protocol {} · PID {}",
+                                        descriptor.protocol_version, descriptor.pid
+                                    )),
+                                ));
+                            }
+                            Ok(_) => push(check(
+                                "controlChannel",
+                                "warning",
+                                Some(
+                                    "The control descriptor exists, but AIProxy did not report an active control channel. Restart AIProxy."
+                                        .to_string(),
+                                ),
+                            )),
+                            Err(error) => push(check(
+                                "controlChannel",
+                                if error.code == "CONTROL_UNAVAILABLE" {
+                                    "warning"
+                                } else {
+                                    "error"
+                                },
+                                Some(format!(
+                                    "The control descriptor exists, but a live status probe failed: {}: {}",
+                                    error.code, error.message
+                                )),
+                            )),
+                        }
+                    }
+                    Ok(descriptor) => push(check(
+                        "controlChannel",
+                        "error",
+                        Some(format!(
+                            "Unsupported control protocol {}. Update AIProxy and the MCP sidecar together.",
+                            descriptor.protocol_version
+                        )),
+                    )),
+                    Err(error) => push(check(
+                        "controlChannel",
+                        "warning",
+                        Some(format!("AIProxy control channel is not active: {error}")),
+                    )),
+                }
+                let controls = doctor_data
+                    .and_then(|data| data.get("permissions"))
+                    .map(|permissions| {
+                        [
+                            ("controlCapture", "capture control"),
+                            ("controlSystemProxy", "system proxy"),
+                            ("manageCertificates", "certificates"),
+                            ("deleteSessions", "session deletion"),
+                        ]
+                        .into_iter()
+                        .filter(|(key, _)| {
+                            permissions.get(*key).and_then(Value::as_bool) == Some(true)
+                        })
+                        .map(|(_, label)| label)
+                        .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                push(check(
+                    "controlPermissions",
+                    if controls.is_empty() { "warning" } else { "ok" },
+                    Some(if controls.is_empty() {
+                        "No control permissions are enabled; Agent tools remain read-only."
+                            .to_string()
+                    } else {
+                        format!("Enabled: {}", controls.join(", "))
                     }),
                 ));
             }

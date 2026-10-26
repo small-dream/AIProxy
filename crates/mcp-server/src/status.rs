@@ -10,6 +10,7 @@ const STALE_AFTER_SECONDS: i64 = 120;
 pub struct CaptureStatus {
     pub status: &'static str,
     pub updated_at: Option<String>,
+    pub app_running: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,12 +32,14 @@ pub fn read_capture_status(data_dir: &Path) -> CaptureStatus {
         return CaptureStatus {
             status: "unknown",
             updated_at: None,
+            app_running: false,
         };
     };
     let Ok(file) = serde_json::from_str::<StatusFile>(&contents) else {
         return CaptureStatus {
             status: "unknown",
             updated_at: None,
+            app_running: false,
         };
     };
     let updated_at = file.updated_at.clone();
@@ -44,6 +47,7 @@ pub fn read_capture_status(data_dir: &Path) -> CaptureStatus {
         return CaptureStatus {
             status: "unknown",
             updated_at,
+            app_running: false,
         };
     }
     let status = if file.app_running && file.capturing {
@@ -51,7 +55,11 @@ pub fn read_capture_status(data_dir: &Path) -> CaptureStatus {
     } else {
         "stopped"
     };
-    CaptureStatus { status, updated_at }
+    CaptureStatus {
+        status,
+        updated_at,
+        app_running: file.app_running,
+    }
 }
 
 fn is_fresh(updated_at: Option<&str>) -> bool {
