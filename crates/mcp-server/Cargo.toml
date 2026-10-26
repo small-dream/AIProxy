@@ -9,7 +9,7 @@ name = "aiproxy-mcp"
 path = "src/bin/aiproxy-mcp.rs"
 
 [dependencies]
-aiproxy-agent-control = { version = "0.1.51", path = "../agent-control" }
+aiproxy-agent-control = { version = "0.2.0", path = "../agent-control" }
 aiproxy-db = { path = "../db" }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
