@@ -44,7 +44,7 @@ rust-i18n = "4"
 sys-locale = "0.3"
 base64 = "0.22"
 interprocess = "2.4.7"
-aiproxy-agent-control = { version = "0.2.0", path = "../../../crates/agent-control" }
+aiproxy-agent-control = { version = "0.2.1", path = "../../../crates/agent-control" }
 tauri-plugin-single-instance = "2"
 
 [target.'cfg(unix)'.dependencies]
