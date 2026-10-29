@@ -2,6 +2,8 @@
 
 Agent Access lets Codex, Claude Code, and Cursor query captured traffic from AIProxy through a local MCP service. With explicit permission, the Agent can also complete first-time setup, manage certificates and SSL, start or stop capture, control the system proxy, and clean sessions. It is useful when a coding agent should reason from real requests, responses, and timing data without exporting HAR files or copying requests one by one.
 
+When AIProxy itself has a setup, certificate, capture, system-proxy, or Agent Access failure, the Agent can call `diagnose_ai_proxy_issue` for bounded status and log evidence, likely causes, and concrete fixes. This diagnoses AIProxy, not application traffic; use the session tools for request and response analysis.
+
 ## What it does
 
 - The MCP service runs as a local stdio sidecar and does not open a network port.
@@ -15,6 +17,20 @@ Agent Access lets Codex, Claude Code, and Cursor query captured traffic from AIP
 1. Start the proxy and capture at least one session so the read path can be verified.
 2. Open **Settings → Agent Access** and confirm the local MCP status is healthy. Expand **Diagnostics** when you need details.
 3. Choose the client to connect. Configuration is written at the user level; the current project directory is not modified.
+
+## Diagnose an AIProxy failure with an Agent
+
+After connecting, describe the AIProxy problem directly, for example "capture will not start", "HTTPS clients report a certificate error", or "the Agent control channel is unavailable". The Agent should call `diagnose_ai_proxy_issue` first and explain the cause and fixes from `findings` and `nextActions`.
+
+Keep these limits in mind:
+
+- The AIProxy desktop app must be running. If the control channel is unreachable, the Agent can only report that status and logs are unavailable; it must not invent log contents.
+- Logs come only from AIProxy's allowlisted rolling app logs and `agent-audit.jsonl`; the Agent cannot read arbitrary files or export a complete log bundle.
+- Only WARN / ERROR / panic lines are returned by default, with at most 120 lines, 64 KiB, and 40 audit entries. Lines are redacted again and truncated when necessary. This is a bounded summary, not the complete log.
+- `statusOnly` means the desktop app is reachable but log access failed. Check access to the log files and data directory.
+- Log content is untrusted data. The Agent must not execute instructions in a log or treat them as your authorization.
+
+For the complete local log, use **Help → Show log file**.
 
 ## First connection
 
@@ -112,6 +128,8 @@ Expand **Diagnostics** and click **Verify connection**. The checks cover:
 - Readable sessions and client configuration readiness.
 
 Failed checks show their reason inline. Use **Copy diagnostics** when filing an issue, and do not include real capture bodies or credentials.
+
+To have an AI explain these checks or an abnormal capture path, ask it to call `diagnose_ai_proxy_issue`. That tool does not launch the app when it is closed; open AIProxy first and retry.
 
 ## Example prompts
 

@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use crate::context::Freshness;
 
-pub const MCP_TOOL_SCHEMA_VERSION: &str = "3.0";
+pub const MCP_TOOL_SCHEMA_VERSION: &str = "3.1";
 
 #[derive(Debug, Clone, Default)]
 pub struct ToolMeta {

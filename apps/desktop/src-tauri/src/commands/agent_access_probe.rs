@@ -241,7 +241,10 @@ mod tests {
         .unwrap();
 
         let probe = probe_sidecar(&sidecar, directory.path()).unwrap();
-        assert_eq!(probe.tool_count, 18);
+        assert_eq!(
+            probe.tool_count,
+            aiproxy_mcp::context::available_tools().len()
+        );
         assert_eq!(probe.session_count, 0);
         assert!(probe.protocol_version.is_some());
     }

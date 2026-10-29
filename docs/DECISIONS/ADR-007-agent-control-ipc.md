@@ -28,10 +28,12 @@ ADR-006 的 stdio sidecar 解决了 Agent 读取抓包的问题，但首次安�
 8. 只读 `get_app_status` 不自动启动应用。写工具在应用未运行时通过 `--agent-launched` 拉起并聚焦 AIProxy；启动来源为 `agent` 时前端跳过自动启抓，避免旧配置先启动再重启。
 9. 审计日志在执行前确认可写；失败返回 `AUDIT_UNAVAILABLE` 且不执行。控制动作由桌面端作为权威审计写入点，在动作结束后记录工具、动作摘要、真实客户端身份、耗时和错误码，不记录凭据或 Body；即使同用户进程直接连接 IPC、绕过 sidecar，也会留下动作记录。sidecar 只记录只读工具和未进入桌面控制通道的本地失败，避免重复记账。
 10. Agent 不能读取或修改自己的 Agent Access 权限、MCP 客户端配置和 Skill；这些仍只能在桌面 UI 操作，避免自我提权。
+11. 控制协议 v1 新增 additive 操作 `readDiagnosticLogs`，由 `diagnose_ai_proxy_issue` 调用。它只读取白名单应用日志与元数据审计，不新增权限，也不开放任意路径；该操作的独立安全决策见 ADR-008。
 
 ## 工具范围
 
-- 读取：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`、`get_app_status`（新增）。
+- 读取：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
+- 只读诊断：`get_app_status` 与 `diagnose_ai_proxy_issue`。后者通过 `readDiagnosticLogs` 获取受限日志摘要，不要求控制权限。
 - 控制：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`（共 9 个写工具）。
 - 本版不开放规则写入、上游代理配置、移动设备 ADB/HDC、导入导出、AI 模型设置或应用更新控制。
 

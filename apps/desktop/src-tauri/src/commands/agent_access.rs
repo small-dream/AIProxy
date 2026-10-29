@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 
 const SKILL_MARKER: &str = "<!-- aiproxy-managed-skill: v1 -->";
-const AGENT_SKILL_VERSION: &str = "3.0";
+const AGENT_SKILL_VERSION: &str = "3.1";
 const SKILL_CONTENT: &str = include_str!("../../resources/agent-skill/aiproxy/SKILL.md");
 const MAX_AUDIT_ENTRIES: usize = 200;
 
@@ -368,7 +368,7 @@ fn test_agent_access_blocking() -> Result<AgentAccessTestResult, String> {
                 push(check("handshake", "ok", probe.protocol_version.clone()));
                 push(check(
                     "tools",
-                    if probe.tool_count >= 18 {
+                    if probe.tool_count >= aiproxy_mcp::context::available_tools().len() {
                         "ok"
                     } else {
                         "warning"

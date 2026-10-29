@@ -764,6 +764,9 @@ export function AgentAccessSection() {
                     onCopy={(value) => void copyText(value, "diagnostics")}
                     value={settings.auditPath}
                   />
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    {t("settingsPage.agentAccess.diagnosticsHint")}
+                  </Typography>
                   {feedback?.area === "diagnostics" ? <FeedbackAlert feedback={feedback} /> : null}
                   <Box>
                     <Button

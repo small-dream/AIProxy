@@ -430,6 +430,8 @@ export const enMessages = {
       description:
         "Let local coding agents inspect captured traffic through MCP and grant permission-gated desktop control when needed.",
       diagnostics: "Diagnostics",
+      diagnosticsHint:
+        "Ask your Agent to call diagnose_ai_proxy_issue to collect a bounded, redacted status and log summary with likely causes and fixes.",
       discardChanges: "Discard",
       disabledDescription:
         "Agent Access is off. MCP clients can start the sidecar, but every tool call is denied.",

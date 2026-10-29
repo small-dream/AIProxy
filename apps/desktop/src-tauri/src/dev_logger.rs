@@ -63,6 +63,53 @@ pub fn current_log_file_path() -> PathBuf {
     current_rolling_log_file_path(&resolve_log_file_base_path())
 }
 
+/// Return the current app log plus recent daily rotations. The MCP control
+/// channel only reads paths from this allowlist; it never accepts a path from
+/// the Agent.
+pub fn diagnostic_log_files() -> Vec<PathBuf> {
+    let base = resolve_log_file_base_path();
+    let directory = base.parent().unwrap_or_else(|| Path::new("."));
+    let (prefix, suffix) = rolling_filename_parts(&base);
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut files = entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_file())
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let Some(rest) = name.strip_prefix(&format!("{prefix}.")) else {
+                return false;
+            };
+            let date_end = if suffix.is_empty() {
+                rest.len()
+            } else {
+                let Some(value) = rest.strip_suffix(&format!(".{suffix}")) else {
+                    return false;
+                };
+                value.len()
+            };
+            let date = &rest[..date_end];
+            date.len() == 10
+                && date.as_bytes()[4] == b'-'
+                && date.as_bytes()[7] == b'-'
+                && date
+                    .bytes()
+                    .enumerate()
+                    .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+        })
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    files.sort();
+    files.reverse();
+    files.truncate(RETAINED_LOG_FILE_COUNT);
+    if files.is_empty() {
+        files.push(current_log_file_path());
+    }
+    files
+}
+
 pub fn write_stderr_line(line: &str) {
     let mut stderr = std::io::stderr().lock();
     let _ = writeln!(stderr, "{line}");

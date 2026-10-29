@@ -311,6 +311,7 @@ pub fn available_tools() -> Vec<&'static str> {
         "get_insights",
         "compare_sessions",
         "get_app_status",
+        "diagnose_ai_proxy_issue",
         "configure_workspace",
         "start_capture",
         "stop_capture",

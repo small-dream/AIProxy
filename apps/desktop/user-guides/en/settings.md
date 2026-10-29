@@ -38,6 +38,7 @@ Let Codex, Claude Code, and Cursor query captured traffic through a local MCP si
 - **Advanced permissions** include unredacted bodies, format-based sensitive-value detection, stable identifier hashing, custom sensitive field names, the page size, and the Body chunk limit.
 - **Control permissions** are off by default and split into capture/workspace control, system-proxy control, root-certificate management, and session deletion. Enable them individually, or use **Enable full control** to turn on all four. Once enabled, the app does not ask for a second in-app confirmation for an authorized action.
 - **Diagnostics → Verify connection** checks the sidecar, database schema, MCP handshake, tool call, client configuration, control channel, and control permissions. Failures show their reason inline.
+- **Diagnostics** also points the Agent to `diagnose_ai_proxy_issue`, which uses desktop status, allowlisted redacted logs, and metadata-only audit entries to diagnose an AIProxy failure. The desktop app must be running; logs are bounded summaries, not arbitrary-file access or a complete log export.
 - **More actions** covers MCP config only, Skill only, manual configuration, and disconnect. Disconnecting confirms and backs up the original file; the AIProxy-managed Skill is removed while a custom Skill is preserved.
 - **Agent Audit Log** shows a call-count summary by default. Expand it to inspect the tool, action summary, client, result, duration, and returned bytes over time; payloads and secrets are not stored.
 

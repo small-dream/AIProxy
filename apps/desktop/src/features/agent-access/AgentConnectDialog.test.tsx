@@ -8,7 +8,7 @@ import { AgentConnectDialog } from "./AgentConnectDialog";
 import { permissionsForPreset } from "./agent-access.helpers";
 
 const INFO: AgentClientInfo = {
-  bundledSkillVersion: "3.0",
+  bundledSkillVersion: "3.1",
   client: "codex",
   configExists: false,
   configFormat: "toml",

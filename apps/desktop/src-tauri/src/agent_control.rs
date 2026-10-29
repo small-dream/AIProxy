@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 use aiproxy_agent_control::{
     read_json_line, remove_descriptor, token_matches, write_descriptor, write_json_line,
     ConfigureWorkspaceParams, ControlDescriptor, ControlError, ControlOperation, ControlPermission,
-    ControlRequest, ControlResponse, CONTROL_MAX_REQUEST_BYTES, CONTROL_MAX_RESPONSE_BYTES,
-    CONTROL_PROTOCOL_VERSION,
+    ControlRequest, ControlResponse, DiagnosticLogLevel, ReadDiagnosticLogsParams,
+    CONTROL_MAX_REQUEST_BYTES, CONTROL_MAX_RESPONSE_BYTES, CONTROL_PROTOCOL_VERSION,
+    DIAGNOSTIC_AUDIT_MAX_ENTRIES, DIAGNOSTIC_LOG_MAX_BYTES, DIAGNOSTIC_LOG_MAX_LINES,
 };
 use aiproxy_mcp::audit::{AuditEntry, AuditLog};
 use aiproxy_mcp::config::{read_config, AgentAccessConfig};
@@ -264,16 +265,10 @@ fn handle_connection(
     };
     drop(reader);
 
-    let request = match serde_json::from_slice::<ControlRequest>(&request_bytes) {
+    let request = match parse_control_request(&request_bytes) {
         Ok(request) => request,
         Err(error) => {
-            let response = ControlResponse::failure(
-                String::new(),
-                ControlError::new(
-                    "INVALID_ARGUMENT",
-                    format!("Parse AIProxy control request: {error}"),
-                ),
-            );
+            let response = ControlResponse::failure(String::new(), error);
             let _ = write_json_line(&mut &connection, &response);
             return;
         }
@@ -432,6 +427,30 @@ fn cap_response_size(response: ControlResponse) -> ControlResponse {
     }
 }
 
+fn parse_control_request(bytes: &[u8]) -> Result<ControlRequest, ControlError> {
+    match serde_json::from_slice::<ControlRequest>(bytes) {
+        Ok(request) => Ok(request),
+        Err(error) => Err(control_request_parse_error(error)),
+    }
+}
+
+fn control_request_parse_error(error: serde_json::Error) -> ControlError {
+    if error
+        .to_string()
+        .contains("unknown variant `readDiagnosticLogs`")
+    {
+        ControlError::new(
+            "CONTROL_UNAVAILABLE",
+            "This AIProxy build does not support the diagnostic log request. Update AIProxy and the MCP sidecar together, then retry.",
+        )
+    } else {
+        ControlError::new(
+            "INVALID_ARGUMENT",
+            format!("Parse AIProxy control request: {error}"),
+        )
+    }
+}
+
 fn execute_request(
     app: &AppHandle,
     token: &str,
@@ -454,7 +473,11 @@ fn execute_request(
         let result = match preflight_request(token, data_dir, &request) {
             Ok(()) => {
                 let state = Arc::clone(app.state::<Arc<AppState>>().inner());
-                tauri::async_runtime::block_on(dispatch(state, request.operation))
+                tauri::async_runtime::block_on(dispatch(
+                    state,
+                    data_dir.to_path_buf(),
+                    request.operation,
+                ))
             }
             Err(error) => Err(error),
         };
@@ -462,7 +485,7 @@ fn execute_request(
         result
     } else {
         let state = Arc::clone(app.state::<Arc<AppState>>().inner());
-        tauri::async_runtime::block_on(dispatch(state, request.operation))
+        tauri::async_runtime::block_on(dispatch(state, data_dir.to_path_buf(), request.operation))
     };
     ControlExecution {
         result,
@@ -532,10 +555,12 @@ fn preflight_request(
 
 async fn dispatch(
     state: Arc<AppState>,
+    data_dir: PathBuf,
     operation: ControlOperation,
 ) -> Result<Value, ControlError> {
     match operation {
         ControlOperation::GetStatus => get_status(state).await,
+        ControlOperation::ReadDiagnosticLogs(params) => read_diagnostic_logs(&data_dir, params),
         ControlOperation::ConfigureWorkspace(params) => configure_workspace(state, params).await,
         ControlOperation::StartCapture(params) => start_capture(state, params.workspace_id).await,
         ControlOperation::StopCapture(params) => stop_capture(state, params.workspace_id).await,
@@ -622,6 +647,220 @@ async fn dispatch(
             })?)
         }
     }
+}
+
+fn read_diagnostic_logs(
+    data_dir: &Path,
+    params: ReadDiagnosticLogsParams,
+) -> Result<Value, ControlError> {
+    let query = params
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if query.is_some_and(|value| value.chars().count() > 128 || value.chars().any(char::is_control))
+    {
+        return Err(ControlError::new(
+            "INVALID_ARGUMENT",
+            "diagnostic query must be at most 128 characters and contain no control characters",
+        ));
+    }
+    if params.max_lines == 0 || params.max_lines > DIAGNOSTIC_LOG_MAX_LINES {
+        return Err(ControlError::new(
+            "INVALID_ARGUMENT",
+            format!("diagnostic maxLines must be between 1 and {DIAGNOSTIC_LOG_MAX_LINES}."),
+        ));
+    }
+    let max_lines = params.max_lines;
+    let level = params.level.unwrap_or(DiagnosticLogLevel::Any);
+    let app_logs = if params.include_app_log {
+        read_app_log_evidence(query, level, max_lines)?
+    } else {
+        Vec::new()
+    };
+    let (audit_entries, audit_truncated) = if params.include_audit_log {
+        read_audit_evidence(data_dir, query, max_lines)?
+    } else {
+        (Vec::new(), false)
+    };
+    Ok(json!({
+        "available": true,
+        "appLog": {
+            "query": query,
+            "level": serde_json::to_value(level).unwrap_or(Value::Null),
+            "maxLines": max_lines,
+            "files": app_logs,
+        },
+        "auditLog": {
+            "query": query,
+            "maxEntries": DIAGNOSTIC_AUDIT_MAX_ENTRIES,
+            "truncated": audit_truncated,
+            "entries": audit_entries,
+        },
+        "limits": {
+            "maxLines": DIAGNOSTIC_LOG_MAX_LINES,
+            "maxBytes": DIAGNOSTIC_LOG_MAX_BYTES,
+            "maxAuditEntries": DIAGNOSTIC_AUDIT_MAX_ENTRIES,
+        }
+    }))
+}
+
+#[derive(Default)]
+struct DiagnosticFileEvidence {
+    path: String,
+    matched_lines: usize,
+    truncated: bool,
+    lines: Vec<String>,
+}
+
+fn read_app_log_evidence(
+    query: Option<&str>,
+    level: DiagnosticLogLevel,
+    max_lines: usize,
+) -> Result<Vec<Value>, ControlError> {
+    let mut remaining_lines = max_lines;
+    let mut remaining_bytes = DIAGNOSTIC_LOG_MAX_BYTES;
+    let mut evidence = Vec::new();
+    for path in crate::dev_logger::diagnostic_log_files() {
+        let mut file_evidence = DiagnosticFileEvidence {
+            path: path.display().to_string(),
+            ..DiagnosticFileEvidence::default()
+        };
+        let file = match std::fs::File::open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(ControlError::new(
+                    "LOG_UNAVAILABLE",
+                    format!("read AIProxy log {}: {error}", path.display()),
+                ))
+            }
+        };
+        let reader = BufReader::new(file);
+        let mut selected = VecDeque::new();
+        for line in reader.lines() {
+            let line = line.map_err(|error| {
+                ControlError::new(
+                    "LOG_UNAVAILABLE",
+                    format!("read AIProxy log {}: {error}", path.display()),
+                )
+            })?;
+            if !line_matches_query(&line, query) || !line_matches_level(&line, level) {
+                continue;
+            }
+            file_evidence.matched_lines += 1;
+            if selected.len() >= max_lines {
+                file_evidence.truncated = true;
+                selected.pop_front();
+            }
+            selected.push_back(line);
+        }
+        // Keep the newest matches first while preserving each file's order.
+        let selected = selected.into_iter().rev().collect::<Vec<_>>();
+        for line in selected {
+            let line_bytes = line.len();
+            if remaining_lines == 0 || line_bytes > remaining_bytes {
+                file_evidence.truncated = true;
+                break;
+            }
+            file_evidence.lines.push(line);
+            remaining_lines -= 1;
+            remaining_bytes -= line_bytes;
+        }
+        if !file_evidence.lines.is_empty() {
+            evidence.push(json!({
+                "path": file_evidence.path,
+                "matchedLines": file_evidence.matched_lines,
+                "returnedLines": file_evidence.lines.len(),
+                "truncated": file_evidence.truncated,
+                "lines": file_evidence.lines,
+            }));
+        }
+        if remaining_lines == 0 || remaining_bytes == 0 {
+            break;
+        }
+    }
+    Ok(evidence)
+}
+
+fn read_audit_evidence(
+    data_dir: &Path,
+    query: Option<&str>,
+    max_lines: usize,
+) -> Result<(Vec<Value>, bool), ControlError> {
+    let path = data_dir.join("agent-audit.jsonl");
+    let file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((Vec::new(), false))
+        }
+        Err(error) => {
+            return Err(ControlError::new(
+                "LOG_UNAVAILABLE",
+                format!("read Agent audit log {}: {error}", path.display()),
+            ))
+        }
+    };
+    let max_entries = max_lines
+        .saturating_mul(2)
+        .clamp(1, DIAGNOSTIC_AUDIT_MAX_ENTRIES);
+    let reader = BufReader::new(file);
+    let mut entries = VecDeque::new();
+    let mut matched_entries = 0usize;
+    for line in reader.lines() {
+        let line = line.map_err(|error| {
+            ControlError::new(
+                "LOG_UNAVAILABLE",
+                format!("read Agent audit log {}: {error}", path.display()),
+            )
+        })?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if !line_matches_query(&line, query) {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        matched_entries += 1;
+        if entries.len() == max_entries {
+            entries.pop_front();
+        }
+        entries.push_back(entry);
+    }
+    let truncated = matched_entries > max_entries;
+    Ok((entries.into_iter().rev().collect(), truncated))
+}
+
+fn line_matches_query(line: &str, query: Option<&str>) -> bool {
+    let Some(query) = query else {
+        return true;
+    };
+    line.to_lowercase().contains(&query.to_lowercase())
+}
+
+fn line_matches_level(line: &str, level: DiagnosticLogLevel) -> bool {
+    match level {
+        DiagnosticLogLevel::Any => true,
+        DiagnosticLogLevel::Error => line_has_level(line, "ERROR") || line_has_panic_event(line),
+        DiagnosticLogLevel::Warning => {
+            line_has_level(line, "WARN")
+                || line_has_level(line, "ERROR")
+                || line_has_panic_event(line)
+        }
+    }
+}
+
+fn line_has_panic_event(line: &str) -> bool {
+    line.contains("event=\"panic\"") || line.contains("event=panic")
+}
+
+fn line_has_level(line: &str, level: &str) -> bool {
+    let upper = line.to_ascii_uppercase();
+    upper.starts_with(level)
+        || upper.contains(&format!(" {level} "))
+        || upper.ends_with(&format!(" {level}"))
 }
 
 async fn get_status(state: Arc<AppState>) -> Result<Value, ControlError> {
@@ -1404,6 +1643,173 @@ mod tests {
         assert_eq!(audit_identity(None), "unknown");
         assert_eq!(audit_identity(Some("codex")), "codex");
         assert_eq!(audit_identity(Some(&"x".repeat(300))).len(), 128);
+    }
+
+    #[test]
+    fn diagnostic_log_level_filter_keeps_warnings_and_errors() {
+        assert!(line_matches_level(
+            "2026-10-29 WARN disk space low",
+            DiagnosticLogLevel::Warning
+        ));
+        assert!(line_matches_level(
+            "2026-10-29 ERROR port in use",
+            DiagnosticLogLevel::Warning
+        ));
+        assert!(!line_matches_level(
+            "2026-10-29 INFO started",
+            DiagnosticLogLevel::Warning
+        ));
+        assert!(!line_matches_level(
+            "2026-10-29 WARN disk space low",
+            DiagnosticLogLevel::Error
+        ));
+        assert!(line_matches_level(
+            "2026-10-29 INFO started",
+            DiagnosticLogLevel::Any
+        ));
+        assert!(line_matches_level(
+            "ERROR capture start failed",
+            DiagnosticLogLevel::Error
+        ));
+        assert!(line_matches_level(
+            "WARN port in use",
+            DiagnosticLogLevel::Warning
+        ));
+        assert!(line_matches_level(
+            "2026-10-29 error lowercase failure",
+            DiagnosticLogLevel::Error
+        ));
+        assert!(!line_matches_level(
+            "2026-10-29 INFO errorCode=PANIC handled",
+            DiagnosticLogLevel::Error
+        ));
+    }
+
+    #[test]
+    fn diagnostic_audit_evidence_is_newest_first_and_bounded() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("agent-audit.jsonl");
+        let mut contents = String::new();
+        for index in 0..60 {
+            contents.push_str(&format!(
+                "{{\"tool\":\"search_sessions\",\"outcome\":\"error\",\"errorCode\":\"E{index}\"}}\n"
+            ));
+        }
+        std::fs::write(&path, contents).unwrap();
+        let (entries, truncated) = read_audit_evidence(directory.path(), None, 5).unwrap();
+        assert!(truncated);
+        assert_eq!(entries.len(), 10);
+        assert_eq!(entries[0]["errorCode"], "E59");
+        assert_eq!(entries[9]["errorCode"], "E50");
+    }
+
+    #[test]
+    fn diagnostic_audit_truncation_requires_a_dropped_matching_entry() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("agent-audit.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"errorCode\":\"E1\"}\n",
+                "{\"errorCode\":\"E2\"}\n",
+                "{\"partial\":\n",
+            ),
+        )
+        .unwrap();
+
+        let (entries, truncated) = read_audit_evidence(directory.path(), None, 1).unwrap();
+        assert!(!truncated);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["errorCode"], "E2");
+    }
+
+    #[test]
+    fn control_request_parse_errors_preserve_compatibility_and_argument_codes() {
+        #[derive(Debug, serde::Deserialize)]
+        #[serde(tag = "method", content = "params", rename_all = "camelCase")]
+        enum OlderControlOperation {
+            GetStatus,
+        }
+
+        let error = serde_json::from_value::<OlderControlOperation>(json!({
+            "method": "readDiagnosticLogs",
+            "params": {}
+        }))
+        .unwrap_err();
+        assert_eq!(
+            control_request_parse_error(error).code,
+            "CONTROL_UNAVAILABLE"
+        );
+
+        assert_eq!(
+            parse_control_request(br#"{"protocolVersion":"invalid"}"#)
+                .unwrap_err()
+                .code,
+            "INVALID_ARGUMENT"
+        );
+    }
+
+    #[test]
+    fn diagnostic_log_response_reports_availability() {
+        let directory = tempfile::tempdir().unwrap();
+        let response = read_diagnostic_logs(
+            directory.path(),
+            ReadDiagnosticLogsParams {
+                query: None,
+                max_lines: 5,
+                level: Some(DiagnosticLogLevel::Warning),
+                include_app_log: false,
+                include_audit_log: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(response["available"], true);
+        assert_eq!(response["appLog"]["files"], json!([]));
+        assert_eq!(response["auditLog"]["entries"], json!([]));
+    }
+
+    #[test]
+    fn diagnostic_log_read_rejects_zero_and_oversized_limits() {
+        for max_lines in [0, DIAGNOSTIC_LOG_MAX_LINES + 1] {
+            let result = read_diagnostic_logs(
+                Path::new("."),
+                ReadDiagnosticLogsParams {
+                    query: None,
+                    max_lines,
+                    level: Some(DiagnosticLogLevel::Any),
+                    include_app_log: false,
+                    include_audit_log: false,
+                },
+            );
+            assert_eq!(result.unwrap_err().code, "INVALID_ARGUMENT");
+        }
+    }
+
+    #[test]
+    fn diagnostic_app_log_budget_returns_the_newest_lines_without_overshoot() {
+        let directory = tempfile::tempdir().unwrap();
+        let log_path = directory.path().join("aiproxy-desktop-dev.log");
+        let rotated_path = directory.path().join("aiproxy-desktop-dev.2026-10-29.log");
+        let mut contents = String::new();
+        for index in 0..5 {
+            contents.push_str(&format!("2026-10-29 ERROR failure-{index}\n"));
+        }
+        std::fs::write(&rotated_path, contents).unwrap();
+        let previous = std::env::var_os("AIPROXY_DEV_LOG_FILE");
+        std::env::set_var("AIPROXY_DEV_LOG_FILE", &log_path);
+
+        let result = read_app_log_evidence(None, DiagnosticLogLevel::Error, 3);
+
+        match previous {
+            Some(value) => std::env::set_var("AIPROXY_DEV_LOG_FILE", value),
+            None => std::env::remove_var("AIPROXY_DEV_LOG_FILE"),
+        }
+        let evidence = result.unwrap();
+        assert_eq!(evidence[0]["returnedLines"], 3);
+        assert_eq!(evidence[0]["truncated"], true);
+        assert_eq!(evidence[0]["lines"][0], "2026-10-29 ERROR failure-4");
+        assert_eq!(evidence[0]["lines"][2], "2026-10-29 ERROR failure-2");
     }
 
     #[test]

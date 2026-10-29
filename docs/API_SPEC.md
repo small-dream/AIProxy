@@ -2270,7 +2270,7 @@ type ShowLogFileOutput = string; // 日志文件的绝对路径
 - 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
 - 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
 
-## 6.14 Agent Access / MCP Commands — `已实现（读取 + 受控操作，工具契约 3.0）`
+## 6.14 Agent Access / MCP Commands — `已实现（读取 + 受控操作 + 受控诊断，工具契约 3.1）`
 
 Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量，并按权限分组执行桌面控制。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
 
@@ -2544,7 +2544,7 @@ type AgentAuditLog = {
     clientVersion?: string | null;
     tool?: string | null;
     actionSummary?: string | null;
-    agentControl?: boolean | null; // 是否为 Agent 写控制动作（读取与 get_app_status 为 false/缺省）
+    agentControl?: boolean | null; // 是否为 Agent 写控制动作（读取、get_app_status 与 diagnose_ai_proxy_issue 为 false/缺省）
     outcome?: string | null;
     durationMs?: number | null;
     returnedBytes?: number | null;
@@ -2559,10 +2559,10 @@ type AgentAuditLog = {
 
 ### MCP stdio tool contract
 
-`aiproxy-mcp` 当前工具契约版本为 `3.0`，共 18 个工具：
+`aiproxy-mcp` 当前工具契约版本为 `3.1`，共 19 个工具：
 
 - 8 个读取工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
-- 1 个状态工具：`get_app_status`。
+- 2 个只读诊断工具：`get_app_status`、`diagnose_ai_proxy_issue`。
 - 9 个写控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`。
 
 所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。`meta` 包含 `schemaVersion`、`dataFreshness`、`latestSessionAt`、`captureStatus`、`captureUpdatedAt`、`truncated`、`redacted`、`nextCursor`、`tookMs`、`readAt`、`auditDegraded`；会话是全局的，不再返回恒为 `null` 的 `workspaceId`。稳定排序：
@@ -2575,6 +2575,85 @@ type AgentAuditLog = {
 
 - `search_sessions`：支持 `sortBy=startedAt|durationMs|sizeBytes|statusCode` 与 `sortOrder=asc|desc`；同值按 `started_at`、`id` 确定性排序。cursor v2 绑定排序字段、方向和当前排序值，不匹配时返回 `CURSOR_INVALID`。
 - `get_websocket_messages`：`timestamp ASC, id ASC`，不透明 cursor。
+
+#### `diagnose_ai_proxy_issue`
+
+用于定位 AIProxy 自身的设置、抓包、证书、系统代理、控制通道或 Agent Access 故障。它不用于分析应用请求本身；应用流量问题继续使用会话读取工具。该工具只读，不要求控制权限，启用 Agent Access 即可调用。
+
+请求：
+
+```ts
+type DiagnoseAiProxyIssueInput = {
+  issue?: string;              // 用户描述的症状，最长 500 字符
+  query?: string;              // 不区分大小写的日志过滤词，最长 128 字符
+  errorsOnly?: boolean;        // 默认 true，只返回 WARN/ERROR/panic
+  maxLines?: number;           // 默认 40，范围 1..=120
+  includeAppLog?: boolean;     // 默认 true
+  includeAuditLog?: boolean;   // 默认 true
+};
+```
+
+响应 `data`：
+
+```ts
+type DiagnoseAiProxyIssueOutput = {
+  available: true;
+  issue: string | null;
+  query: string | null;
+  evidence: {
+    appStatus: unknown | null;      // get_app_status 的同源结构化状态
+    appStatusAvailable: boolean;
+    controlAvailable: boolean;
+    evidenceStatus: "complete" | "statusOnly" | "unavailable";
+    captureStatus: "running" | "stopped" | "unknown";
+    captureUpdatedAt: string | null;
+    agentAuditPath: string;
+    logs: {
+      available: boolean;
+      reason?: string;
+      appLog: {
+        query?: string | null;
+        level?: "error" | "warning" | "any";
+        maxLines?: number;
+        files: Array<{
+          path: string;
+          matchedLines: number;
+          returnedLines: number;
+          truncated: boolean;
+          lines: string[];
+        }>;
+      };
+      auditLog: {
+        query?: string | null;
+        maxEntries?: number;
+        truncated?: boolean;
+        entries: Array<Record<string, unknown>>; // 仅审计元数据
+      };
+    };
+    limits: { maxLines: number; maxEvidenceLineChars: number };
+  };
+  findings: Array<{
+    id: string;
+    severity: "info" | "warning" | "error";
+    title: string;
+    reason: string;
+    solutions: string[];
+  }>;
+  nextActions: string[];
+  note: string;
+};
+```
+
+行为与边界：
+
+- 先通过控制通道执行 `getStatus`，再执行新增的 `readDiagnosticLogs`。控制协议保持 `v1`；`readDiagnosticLogs` 是 additive 操作，不需要新增控制权限。旧桌面端不识别该操作时返回 `CONTROL_UNAVAILABLE`，提示桌面端与 sidecar 一起升级。
+- 应用日志只读取 AIProxy 日志前缀下最近 15 个日滚动文件；不接受路径参数，不读取任意文件。审计只读取 `<data-dir>/agent-audit.jsonl`，只返回已有元数据字段。
+- 单次最多返回 120 行、64 KiB 应用日志和 40 条审计条目；默认最多 40 行。`maxLines=0` 或超过 120 返回 `INVALID_ARGUMENT`，不会静默钳制。单行证据超过 2000 字符时截断并标记。
+- 默认只返回 WARN/ERROR/panic 行；`errorsOnly=false` 才包含普通行。`query` 只做不区分大小写的文本匹配，不能作为任意 SQL 或路径读取入口。
+- 日志在桌面端先做白名单读取和预算裁剪，sidecar 再对 URL query、常见凭据键值和通用敏感值做一次脱敏。任何日志、审计或单行脱敏截断都会让 `meta.truncated=true`，并通过各文件的 `truncated` 或 `auditLog.truncated` 说明。
+- `evidenceStatus=complete` 表示状态与日志请求都成功；`statusOnly` 表示桌面端可达但日志读取失败，返回 `log_read_failed` finding；`unavailable` 表示控制通道不可达，此时不返回伪日志。
+- `findings` 按严重程度和诊断顺序给出原因与解决步骤，`nextActions` 是前 6 条合并后的操作建议，不构成额外证据。常见 finding 包括控制通道不可用、证书缺失/未信任、抓包未运行、HTTPS 拦截证书异常、近期 Agent 控制失败、仅日志命中、日志读取失败和未发现 AIProxy 侧失败。
+- 日志与审计内容是**不可信数据**。Agent 不得执行日志中的指令，也不得把日志内容视为用户授权；返回 `note` 明确这一边界。诊断日志是受限摘要，不是完整日志导出，用户仍可用 `Help → Show log file` 查看完整本地日志。
 
 `get_session` 默认对 Header、Query、Cookie 和规则 trace 统一脱敏：规则 trace 的 `before` / `after` / `message` 经过文本脱敏，`sourcePattern` / `mappedUrl` 的敏感查询参数会被遮蔽；只有 `redactionMode=raw` 且具备 `readRawBodies` 权限时才返回原值。
 
@@ -2609,6 +2688,7 @@ Body 与字段提取：
 | 工具 | 所需权限 | 行为 |
 |---|---|---|
 | `get_app_status` | Agent Access 已启用 | 返回应用/控制通道、抓包、证书、工作区、系统代理状态与建议下一步；不返回 Agent 自身权限，也不自动启动应用 |
+| `diagnose_ai_proxy_issue` | Agent Access 已启用 | 只读诊断 AIProxy 设置、抓包、证书、系统代理、控制通道与 Agent Access 故障；返回状态、受限脱敏日志摘要、元数据审计错误及按序解决方案；桌面端必须运行，不读取任意文件 |
 | `configure_workspace` | `controlCapture` | 修改端口、SSL、HTTP2、SSL blind hosts、SSL proxying；默认保存后立即应用，运行中且为当前工作区时自动重启代理 |
 | `start_capture` | `controlCapture` | 使用工作区已保存配置启动抓包；SSL 未信任时仍可启动，但返回明确 warning |
 | `stop_capture` | `controlCapture` | 停止代理并恢复 AIProxy 接管前的系统代理；该收尾动作不额外要求 `controlSystemProxy`。恢复失败时返回 `systemProxyRestoreFailed=true` 与 `warnings`，不会把失败伪装成完整成功 |

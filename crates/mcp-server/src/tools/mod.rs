@@ -1,6 +1,7 @@
 pub mod body;
 pub mod compare;
 pub mod control;
+pub mod diagnostics;
 pub mod insights;
 pub mod sessions;
 pub mod websocket;

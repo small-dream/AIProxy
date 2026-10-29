@@ -28,7 +28,7 @@
 
 | 能力 | 说明 |
 |------|------|
-| **Agent 接入（MCP）** | 一键为 Codex、Claude Code、Cursor 写入 MCP 配置，并在连接前选择权限模板。8 个读取工具覆盖会话检索、检查、字段提取、WebSocket 消息、流量聚合和结构化会话对比；另有 1 个状态工具和 9 个可选写控制工具，可配置工作区、管理证书、启停抓包、控制系统代理和清理 Session。每次结果都返回数据新鲜度与控制通道状态。 |
+| **Agent 接入（MCP）** | 一键为 Codex、Claude Code、Cursor 写入 MCP 配置，并在连接前选择权限模板。8 个读取工具覆盖会话检索、检查、字段提取、WebSocket 消息、流量聚合和结构化会话对比；另有 2 个只读诊断工具，可查看应用状态，并基于受限、脱敏的日志摘要定位 AIProxy 故障；9 个可选写控制工具可配置工作区、管理证书、启停抓包、控制系统代理和清理 Session。每次结果都返回数据新鲜度与控制通道状态。 |
 | **AI 差异总结** | 使用 OpenAI 兼容模型为任意 Compare 结果生成 Markdown 总结；发送前可预览 Payload，并在本地完成敏感字段脱敏后再发送到你配置的模型服务。 |
 | **隐私默认保守** | MCP Server 以本地 stdio sidecar 运行，不开放端口；写操作通过仅当前用户可访问的本地 IPC 调用桌面端，控制权限默认关闭。AIProxy 不上传抓包，但 Agent 读取后会把内容发送给其模型服务商；默认脱敏并限制 Body 读取，审计日志仅记录元数据。原始 Body 与控制能力都需单独授权。 |
 
@@ -189,6 +189,7 @@ cargo test --workspace                     # Rust 测试
 - [MCP 与 Agent 接入架构](./docs/MCP_AGENT_SKILL_ARCHITECTURE.md)
 - [ADR-006：本地 MCP Agent 接入](./docs/DECISIONS/ADR-006-local-mcp-agent-access.md)
 - [ADR-007：受权限约束的 Agent 控制](./docs/DECISIONS/ADR-007-agent-control-ipc.md)
+- [ADR-008：受限诊断日志访问](./docs/DECISIONS/ADR-008-bounded-diagnostic-log-access.md)
 - [UI 规范](./docs/UI_GUIDELINES.md)
 - [工程规范](./docs/ENGINEERING_GUIDELINES.md)
 - [构建运行打包指南](./docs/BUILD_RUN_PACKAGE_GUIDE.md)

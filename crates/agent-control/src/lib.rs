@@ -13,6 +13,10 @@ pub const CONTROL_MAX_REQUEST_BYTES: usize = 4 * 1024 * 1024;
 pub const CONTROL_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 pub const CONTROL_WRITE_TIMEOUT_SECS: u64 = 60;
 
+pub const DIAGNOSTIC_LOG_MAX_LINES: usize = 120;
+pub const DIAGNOSTIC_LOG_MAX_BYTES: usize = 64 * 1024;
+pub const DIAGNOSTIC_AUDIT_MAX_ENTRIES: usize = 40;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ControlDescriptor {
@@ -43,6 +47,7 @@ pub struct ControlRequest {
 #[serde(tag = "method", content = "params", rename_all = "camelCase")]
 pub enum ControlOperation {
     GetStatus,
+    ReadDiagnosticLogs(ReadDiagnosticLogsParams),
     ConfigureWorkspace(ConfigureWorkspaceParams),
     StartCapture(WorkspaceParams),
     StopCapture(WorkspaceParams),
@@ -57,7 +62,7 @@ pub enum ControlOperation {
 impl ControlOperation {
     pub fn required_permission(&self) -> Option<ControlPermission> {
         match self {
-            Self::GetStatus => None,
+            Self::GetStatus | Self::ReadDiagnosticLogs(_) => None,
             Self::ConfigureWorkspace(_) | Self::StartCapture(_) | Self::StopCapture(_) => {
                 Some(ControlPermission::ControlCapture)
             }
@@ -72,12 +77,13 @@ impl ControlOperation {
     }
 
     pub fn is_write(&self) -> bool {
-        !matches!(self, Self::GetStatus)
+        !matches!(self, Self::GetStatus | Self::ReadDiagnosticLogs(_))
     }
 
     pub fn method_name(&self) -> &'static str {
         match self {
             Self::GetStatus => "getStatus",
+            Self::ReadDiagnosticLogs(_) => "readDiagnosticLogs",
             Self::ConfigureWorkspace(_) => "configureWorkspace",
             Self::StartCapture(_) => "startCapture",
             Self::StopCapture(_) => "stopCapture",
@@ -96,6 +102,7 @@ impl ControlOperation {
     pub fn audit_tool_name(&self) -> &'static str {
         match self {
             Self::GetStatus => "get_app_status",
+            Self::ReadDiagnosticLogs(_) => "diagnose_ai_proxy_issue",
             Self::ConfigureWorkspace(_) => "configure_workspace",
             Self::StartCapture(_) => "start_capture",
             Self::StopCapture(_) => "stop_capture",
@@ -112,6 +119,12 @@ impl ControlOperation {
     pub fn action_summary(&self) -> String {
         match self {
             Self::GetStatus => "Read AIProxy application status".to_string(),
+            Self::ReadDiagnosticLogs(params) => {
+                format!(
+                    "Read bounded AIProxy diagnostics (lines={})",
+                    params.max_lines
+                )
+            }
             Self::ConfigureWorkspace(params) => format!(
                 "Configure workspace {} (port/SSL/HTTP2 policy)",
                 params.workspace_id.as_deref().unwrap_or("active")
@@ -196,6 +209,29 @@ pub struct SetSystemProxyParams {
 #[serde(rename_all = "camelCase")]
 pub struct GenerateCertificateParams {
     pub force_regenerate: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadDiagnosticLogsParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub max_lines: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<DiagnosticLogLevel>,
+    #[serde(default)]
+    pub include_app_log: bool,
+    #[serde(default)]
+    pub include_audit_log: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DiagnosticLogLevel {
+    Error,
+    Warning,
+    Any,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -582,6 +618,17 @@ mod tests {
     fn write_operations_require_a_permission() {
         assert_eq!(ControlOperation::GetStatus.required_permission(), None);
         assert_eq!(
+            ControlOperation::ReadDiagnosticLogs(ReadDiagnosticLogsParams {
+                query: None,
+                max_lines: 20,
+                level: None,
+                include_app_log: true,
+                include_audit_log: true,
+            })
+            .required_permission(),
+            None
+        );
+        assert_eq!(
             ControlOperation::StopCapture(WorkspaceParams::default()).required_permission(),
             Some(ControlPermission::ControlCapture)
         );
@@ -598,6 +645,13 @@ mod tests {
     fn audit_tool_names_use_the_public_mcp_contract() {
         let names = [
             ControlOperation::GetStatus,
+            ControlOperation::ReadDiagnosticLogs(ReadDiagnosticLogsParams {
+                query: None,
+                max_lines: 20,
+                level: None,
+                include_app_log: true,
+                include_audit_log: true,
+            }),
             ControlOperation::ConfigureWorkspace(Default::default()),
             ControlOperation::StartCapture(Default::default()),
             ControlOperation::StopCapture(Default::default()),
@@ -616,6 +670,7 @@ mod tests {
             names,
             [
                 "get_app_status",
+                "diagnose_ai_proxy_issue",
                 "configure_workspace",
                 "start_capture",
                 "stop_capture",

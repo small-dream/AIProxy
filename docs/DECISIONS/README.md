@@ -17,3 +17,4 @@
 - `ADR-005-mutex-poison-policy.md`
 - `ADR-006-local-mcp-agent-access.md`
 - `ADR-007-agent-control-ipc.md`
+- `ADR-008-bounded-diagnostic-log-access.md`

@@ -16,6 +16,7 @@ use aiproxy_mcp::tools::body::{
     GetSessionFieldsRequest,
 };
 use aiproxy_mcp::tools::compare::{compare_sessions, CompareSessionsRequest, DiffMode};
+use aiproxy_mcp::tools::diagnostics::{diagnose_issue, DiagnoseIssueRequest};
 use aiproxy_mcp::tools::insights::{get_insights, GetInsightsRequest, GroupBy};
 use aiproxy_mcp::tools::sessions::{
     get_session, search, GetSessionRequest, RedactionMode, SearchSessionsRequest, SessionInclude,
@@ -1185,6 +1186,42 @@ async fn stale_schema_returns_actionable_migration_error() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
+#[tokio::test]
+async fn diagnostic_max_lines_is_validated_instead_of_silently_clamped() {
+    let (directory, context) = create_fixture("diagnostic_limits");
+
+    let error = diagnose_issue(
+        &context,
+        DiagnoseIssueRequest {
+            max_lines: Some(0),
+            ..DiagnoseIssueRequest::default()
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.code, "INVALID_ARGUMENT");
+    assert!(error.message.contains("between 1 and"));
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[tokio::test]
+async fn diagnostic_control_unavailable_is_structured_without_fake_logs() {
+    let (directory, context) = create_fixture("diagnostic_unavailable");
+    std::fs::remove_file(directory.join("agent-control.json")).ok();
+
+    let (data, _) = diagnose_issue(&context, DiagnoseIssueRequest::default())
+        .await
+        .unwrap();
+
+    assert_eq!(data["available"], true);
+    assert_eq!(data["evidence"]["controlAvailable"], false);
+    assert_eq!(data["evidence"]["evidenceStatus"], "unavailable");
+    assert_eq!(data["evidence"]["logs"]["available"], false);
+    assert_eq!(data["findings"][0]["id"], "control_unavailable");
+    let _ = std::fs::remove_dir_all(directory);
+}
+
 #[test]
 fn sidecar_handles_mcp_initialize_and_tools_list() {
     let (directory, context) = create_fixture("stdio");
@@ -1286,9 +1323,14 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     assert!(tools.contains(&"get_session_body".to_string()));
     assert!(tools.contains(&"get_session_fields".to_string()));
     assert!(tools.contains(&"get_app_status".to_string()));
+    assert!(tools.contains(&"diagnose_ai_proxy_issue".to_string()));
     assert!(tools.contains(&"configure_workspace".to_string()));
     assert!(tools.contains(&"clear_sessions".to_string()));
-    assert_eq!(tools.len(), 18);
+    let mut expected_tools = aiproxy_mcp::context::available_tools();
+    let mut actual_tools = tools.clone();
+    expected_tools.sort_unstable();
+    actual_tools.sort_unstable();
+    assert_eq!(actual_tools, expected_tools);
 
     writeln!(
         stdin,

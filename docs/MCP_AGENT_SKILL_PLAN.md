@@ -3,10 +3,10 @@
 ## 1. 文档信息
 
 - 文档类型：产品与技术规划
-- 文档状态：`Historical v1.1（只读基线；控制能力已由 ADR-007 扩展）`
+- 文档状态：`Historical v1.1（只读基线；控制与受限诊断已由 ADR-007 / ADR-008 扩展）`
 
-> 历史说明：本文是 v1 只读能力的产品规划与验收记录。v3.0 已新增 `get_app_status` 与 9 个受权限约束的写控制工具；当前工具契约、权限和错误码以 `docs/API_SPEC.md` 与 `docs/DECISIONS/ADR-007-agent-control-ipc.md` 为准，下文“MVP 只读”“写操作后置”等表述不再代表当前能力边界。
-- 更新日期：`2026-10-18`
+> 历史说明：本文是 v1 只读能力的产品规划与验收记录。v3.1 已新增 `get_app_status`、受限诊断工具 `diagnose_ai_proxy_issue` 与 9 个受权限约束的写控制工具；当前工具契约、权限和错误码以 `docs/API_SPEC.md`、`docs/DECISIONS/ADR-007-agent-control-ipc.md` 与 `docs/DECISIONS/ADR-008-bounded-diagnostic-log-access.md` 为准，下文“MVP 只读”“写操作后置”等表述不再代表当前能力边界。
+- 更新日期：`2026-10-29`
 - 适用范围：AIProxy Desktop、Rust 核心、Codex / Claude Code / Cursor 等 Agent 客户端
 - 本轮评审重点：MVP 只读边界、stdio sidecar、工具契约、Agent Access 权限与审计
 > 实现说明：2026-10-18 已落地 schema 2.1、字段提取、批量字段、结构化比较、搜索排序和可配置脱敏，并补齐「验证连接」真实 MCP 握手、断开连接、doctor 列级 schema 检查与工具契约一致性修复。实际实现与本文档的差异、验证结果和后续项见文末「实现状态」；本文档保留作为产品与技术决策记录。
@@ -751,15 +751,15 @@ MVP 稳定后再评估：
 在上述文档同步完成前，本文件仅作为规划稿，不构成实现承诺。
 
 
-## 20. 实现状态（2026-10-18）
+## 20. 实现状态（2026-10-29）
 
 已完成：
 
-- `crates/mcp-server`：8 个只读 MCP 工具、schema 2.1、stdio transport、统一 envelope、Freshness meta（`latestSessionAt` / `captureStatus` / `captureUpdatedAt`）、字段提取、批量字段、结构化比较、权限、脱敏、审计、cursor 分页。
+- `crates/mcp-server`：8 个读取工具与 2 个只读诊断工具、schema 3.1、stdio transport、统一 envelope、Freshness meta（`latestSessionAt` / `captureStatus` / `captureUpdatedAt`）、字段提取、批量字段、结构化比较、权限、脱敏、受控诊断日志、审计、cursor 分页。
 - `crates/db`：只读连接、schema capabilities、Body 范围读取与路径安全检查、Session v2 排序 cursor、WebSocket 稳定 cursor、Insights path/query 分组。
-- 桌面端：Settings > Agent Access、7 个 Tauri 命令、权限/限制/脱敏策略保存、连接前权限模板、真实 MCP 握手验证、诊断、客户端配置一键写入/断开、Skill 安装与版本展示、审计表、`agent-status.json` 心跳。
+- 桌面端：Settings > Agent Access、7 个 Tauri 命令、权限/限制/脱敏策略保存、连接前权限模板、真实 MCP 握手验证、诊断、客户端配置一键写入/断开、Skill 安装与版本展示、审计表、`agent-status.json` 心跳、受控 `readDiagnosticLogs` 控制操作。
 - 客户端：Codex、Claude Code、Cursor，均使用用户级全局配置：Codex `$CODEX_HOME/config.toml`、Claude Code `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）、Cursor `~/.cursor/mcp.json`。
-- Skill：英文 canonical 正文 + 中英双语 `description` 触发词；frontmatter `version: 2.2`，安装状态按内容与版本比较并展示升级提示。
+- Skill：英文 canonical 正文 + 中英双语 `description` 触发词；frontmatter `version: 3.1`，安装状态按内容与版本比较并展示升级提示。
 - 打包：`scripts/build-mcp-sidecar.mjs` 构建 `aiproxy-mcp-<target-triple>`，Tauri `externalBin` 与 Skill resources 已配置。
 - 文档：`PRD.md`、`ARCHITECTURE.md`、`API_SPEC.md`、`UI_GUIDELINES.md`、`PAGE_BLUEPRINTS.md`、`ADR-006` 已同步。
 - 验证：Rust workspace 的 fmt / clippy / test 与前端 typecheck / lint / test / build / API contract 全部通过；MCP 集成测试覆盖规则 trace 脱敏。

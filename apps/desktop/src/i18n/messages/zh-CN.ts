@@ -421,6 +421,8 @@ export const zhCNMessages: Messages = {
       detectSensitiveValuesLabel: "按格式识别敏感值",
       description: "通过 MCP 让本地编码 Agent 查询已抓取的流量，并按需授予受控的桌面操作能力。",
       diagnostics: "诊断信息",
+      diagnosticsHint:
+        "可让 Agent 调用 diagnose_ai_proxy_issue，收集受限、脱敏的状态与日志摘要，以及可能原因和解决步骤。",
       discardChanges: "放弃",
       disabledDescription:
         "Agent 接入未开启。MCP 客户端仍可启动 sidecar，但所有工具调用都会被拒绝。",
