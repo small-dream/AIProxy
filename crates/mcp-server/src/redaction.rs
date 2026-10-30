@@ -118,6 +118,12 @@ impl Redactor {
         self.output(headers, records)
     }
 
+    /// Return true when a field name is classified as sensitive and should be
+    /// represented by an environment placeholder in generated commands.
+    pub fn is_sensitive_value_name(&self, name: &str) -> bool {
+        self.classify(name).is_some()
+    }
+
     pub fn redact_cookie_headers(
         &self,
         headers: Vec<HeaderEntry>,

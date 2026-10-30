@@ -21,6 +21,7 @@ pub struct InsightsResult {
     pub by_host: Vec<HostInsight>,
     pub by_status_code: Vec<StatusCodeDistribution>,
     pub by_method: Vec<MethodDistribution>,
+    pub by_failure_kind: Vec<FailureKindDistribution>,
     pub groups: Vec<InsightGroup>,
     pub slow_requests: Vec<SlowRequest>,
     pub largest_requests: Vec<SlowRequest>,
@@ -66,6 +67,13 @@ pub struct MethodDistribution {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FailureKindDistribution {
+    pub kind: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SlowRequest {
     pub session_id: String,
     pub url: String,
@@ -99,6 +107,12 @@ pub struct InsightsFilter {
     pub started_before: Option<String>,
     pub group_by: InsightGroupBy,
     pub group_query_param: Option<String>,
+    /// Optional cap for slow/largest request rankings. None preserves legacy behavior.
+    pub top_n: Option<usize>,
+    /// Optional cap for grouped insights. None preserves the 50-group cap.
+    pub max_groups: Option<usize>,
+    /// Optional cap for host distribution. None preserves the 50-host cap.
+    pub max_hosts: Option<usize>,
 }
 
 fn build_where(filter: &InsightsFilter) -> (String, Vec<rusqlite::types::Value>) {
@@ -305,7 +319,10 @@ pub fn compute_insights(
 ) -> Result<InsightsResult, DbError> {
     let (where_clause, where_params) = build_where(filter);
     let params = || -> Vec<rusqlite::types::Value> { where_params.clone() };
-    let ranking_limit_clause = if is_host_scoped(filter) {
+    let ranking_limit = filter.top_n.map(|limit| limit.clamp(1, 101));
+    let ranking_limit_clause = if let Some(limit) = ranking_limit {
+        format!(" LIMIT {limit}")
+    } else if is_host_scoped(filter) {
         String::new()
     } else {
         " LIMIT 20".to_string()
@@ -367,6 +384,10 @@ pub fn compute_insights(
 
     // --- By host (top 50) ---
     let by_host = {
+        let host_limit = filter
+            .max_hosts
+            .map(|limit| limit.clamp(1, 51))
+            .unwrap_or(50);
         let mut stmt = conn
             .prepare(&format!(
                 "SELECT LOWER(host) AS host,
@@ -377,7 +398,7 @@ pub fn compute_insights(
                  FROM session_summaries{where_clause}
                  GROUP BY LOWER(host)
                  ORDER BY request_count DESC, host
-                 LIMIT 50"
+                 LIMIT {host_limit}"
             ))
             .map_err(|e| DbError::query("insights by_host prepare", e))?;
 
@@ -499,6 +520,33 @@ pub fn compute_insights(
         rows?
     };
 
+    // --- By failure kind ---
+    let by_failure_kind =
+        if crate::connection::table_has_columns(conn, "session_summaries", &["failure_kind"])? {
+            let mut stmt = conn
+                .prepare(&format!(
+                    "SELECT failure_kind AS kind, COUNT(*) AS count
+                 FROM session_summaries{where_clause}
+                 GROUP BY failure_kind
+                 HAVING failure_kind IS NOT NULL
+                 ORDER BY count DESC, failure_kind"
+                ))
+                .map_err(|e| DbError::query("insights by_failure_kind prepare", e))?;
+            let rows: Result<Vec<FailureKindDistribution>, DbError> = stmt
+                .query_map(rusqlite::params_from_iter(params()), |row| {
+                    Ok(FailureKindDistribution {
+                        kind: row.get("kind")?,
+                        count: row.get("count")?,
+                    })
+                })
+                .map_err(|e| DbError::query("insights by_failure_kind query", e))?
+                .map(|r| r.map_err(|e| DbError::query("decode insight row", e)))
+                .collect();
+            rows?
+        } else {
+            Vec::new()
+        };
+
     // --- Slow requests (top 20) ---
     let slow_requests: Vec<SlowRequest> = {
         let mut stmt = conn
@@ -567,6 +615,7 @@ pub fn compute_insights(
         by_host,
         by_status_code,
         by_method,
+        by_failure_kind,
         groups,
         slow_requests,
         largest_requests,
@@ -680,7 +729,12 @@ fn compute_groups(
             .cmp(&left.request_count)
             .then_with(|| left.key.cmp(&right.key))
     });
-    output.truncate(50);
+    output.truncate(
+        filter
+            .max_groups
+            .map(|limit| limit.clamp(1, 51))
+            .unwrap_or(50),
+    );
     Ok(output)
 }
 

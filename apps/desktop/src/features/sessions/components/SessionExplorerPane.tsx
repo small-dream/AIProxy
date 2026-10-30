@@ -1,4 +1,5 @@
 import CableRoundedIcon from "@mui/icons-material/CableRounded";
+import CloudOffRoundedIcon from "@mui/icons-material/CloudOffRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
@@ -1103,6 +1104,10 @@ function getResourceTooltipLabel(
     return t("sessionExplorer.resourceKinds.cancelled");
   }
 
+  if (resourceKind === "connectionFailed") {
+    return t("sessionExplorer.resourceKinds.connectionFailed");
+  }
+
   if (resourceKind === "pending") {
     return t("sessionExplorer.resourceKinds.pending");
   }
@@ -1122,7 +1127,11 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
   const sx = (theme: Theme) => ({
     fontSize: getWorkbenchFontSize(
       theme,
-      resourceKind === "warning" || resourceKind === "cancelled" ? 13.5 : 14,
+      resourceKind === "warning" ||
+        resourceKind === "cancelled" ||
+        resourceKind === "connectionFailed"
+        ? 13.5
+        : 14,
     ),
   });
 
@@ -1176,6 +1185,10 @@ function renderResourceIcon(resourceKind: SessionExplorerResourceKind) {
     return <CircularProgress color="inherit" size={12} thickness={6} />;
   }
 
+  if (resourceKind === "connectionFailed") {
+    return <CloudOffRoundedIcon sx={sx} />;
+  }
+
   if (resourceKind === "warning" || resourceKind === "cancelled") {
     return <WarningAmberRoundedIcon sx={sx} />;
   }
@@ -1202,6 +1215,10 @@ function getResourceColor(theme: Theme, resourceKind: SessionExplorerResourceKin
 
   if (resourceKind === "cancelled") {
     return theme.palette.warning.dark;
+  }
+
+  if (resourceKind === "connectionFailed") {
+    return theme.palette.error.main;
   }
 
   if (resourceKind === "api") {

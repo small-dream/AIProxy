@@ -17,6 +17,8 @@ extern crate rust_i18n;
 rust_i18n::i18n!("locales", fallback = "en");
 
 mod agent_control;
+mod agent_replay;
+mod agent_rules;
 mod agent_status;
 mod bootstrap;
 mod commands;
@@ -200,6 +202,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             agent_control::get_recent_agent_control_actions,
+            agent_control::clear_agent_rules,
             commands::get_bootstrap_status,
             commands::list_sessions,
             commands::get_session_detail,
@@ -311,6 +314,7 @@ pub fn run() {
             let _ = app.manage(Arc::new(app_state));
             let state = app.state::<Arc<AppState>>();
             state.set_app_handle(app.handle().clone());
+            state.read_agent_rule_registry().spawn_cleanup();
             agent_status::write_from_state(&state);
             agent_status::spawn_heartbeat(Arc::clone(state.inner()));
             system_proxy_recovery::restore_pending_snapshot_on_startup(app.handle(), &state);

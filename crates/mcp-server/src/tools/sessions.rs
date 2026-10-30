@@ -1,12 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::{Duration as StdDuration, Instant};
 
 use aiproxy_db::rusqlite::OptionalExtension;
 use aiproxy_db::session_search::{
-    search_sessions as db_search_sessions, SessionSearchField, SessionSearchFilter,
-    SessionSortField, SortOrder, MAX_SESSION_SEARCH_LIMIT,
+    latest_completed_session_rowid, search_sessions as db_search_sessions, SessionSearchField,
+    SessionSearchFilter, SessionSortField, SortOrder, MAX_SESSION_SEARCH_LIMIT,
 };
 use aiproxy_db::sessions::{load_session_detail, load_session_summary, SessionSummaryRow};
 use chrono::{Duration, SecondsFormat, Utc};
+use rmcp::model::{ProgressNotificationParam, ProgressToken};
+use rmcp::service::Peer;
+use rmcp::RoleServer;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -18,50 +22,82 @@ use crate::redaction::{HeaderEntry, RedactionOutput, Redactor};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum SearchField {
+    /// Search the full URL, including scheme, host, path, and query.
     #[default]
     Url,
+    /// Search the host name only.
     Host,
+    /// Search the URL path only.
     Path,
+    /// Search the HTTP method only.
     Method,
+    /// Search raw request and response header JSON.
     Headers,
+    /// Search persisted query parameter JSON.
     Query,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionSortBy {
+    /// Sort by session start time. This is the default.
     #[default]
     StartedAt,
+    /// Sort by total duration in milliseconds.
     DurationMs,
+    /// Sort by captured response size in bytes.
     SizeBytes,
+    /// Sort by HTTP status code.
     StatusCode,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionSortDirection {
+    /// Newest, largest, or highest first. This is the default.
     #[default]
     Desc,
+    /// Oldest, smallest, or lowest first.
     Asc,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum SummaryField {
+    /// Stable session identifier.
     SessionId,
+    /// HTTP method.
     Method,
+    /// Request host without scheme.
     Host,
+    /// URL path without query parameters.
     Path,
+    /// Captured protocol label, for example HTTP/2.
     Protocol,
+    /// URL scheme, for example https.
     Scheme,
+    /// HTTP version string, for example 2.
     HttpVersion,
+    /// RFC 3339 capture start timestamp.
     StartedAt,
+    /// RFC 3339 capture finish timestamp.
     FinishedAt,
+    /// Total duration in milliseconds.
     DurationMs,
+    /// Captured response size in bytes.
     SizeBytes,
+    /// HTTP status code; 0 means no response was captured.
     StatusCode,
+    /// Full request URL. Redacted unless raw mode is authorized.
     Url,
+    /// Response MIME type when captured.
     ResponseMimeType,
+    /// Application protocol label, for example http or websocket.
+    ApplicationProtocol,
+    /// Transport protocol label, for example tcp.
+    TransportProtocol,
+    /// Structured failure metadata, omitted when the session succeeded.
+    Failure,
 }
 
 impl SummaryField {
@@ -81,6 +117,9 @@ impl SummaryField {
             Self::StatusCode => "statusCode",
             Self::Url => "url",
             Self::ResponseMimeType => "responseMimeType",
+            Self::ApplicationProtocol => "applicationProtocol",
+            Self::TransportProtocol => "transportProtocol",
+            Self::Failure => "failure",
         }
     }
 }
@@ -88,64 +127,175 @@ impl SummaryField {
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SearchSessionsRequest {
+    /// Exact host match, case-insensitive. Do not include a scheme or path.
     pub host: Option<String>,
+    /// Case-insensitive host substring match.
     pub host_contains: Option<String>,
+    /// Case-sensitive URL path substring match.
     pub path_contains: Option<String>,
+    /// Query parameters that must all exist with these exact, case-sensitive values.
     #[serde(default)]
     pub query_params: BTreeMap<String, String>,
+    /// Exact HTTP method match, case-insensitive, for example GET or POST.
     pub method: Option<String>,
+    /// Inclusive minimum HTTP status code (0-65535).
     pub status_min: Option<u16>,
+    /// Inclusive maximum HTTP status code (0-65535).
     pub status_max: Option<u16>,
+    /// Exact protocol match across scheme, protocol, and HTTP version, case-insensitive.
     pub protocol: Option<String>,
+    /// Case-insensitive response MIME substring; "json" matches "application/json".
     pub mime: Option<String>,
+    /// Inclusive RFC 3339 UTC lower bound on startedAt.
     pub started_after: Option<String>,
+    /// Inclusive RFC 3339 UTC upper bound on startedAt.
     pub started_before: Option<String>,
+    /// Relative lookback such as 30m, 2h, or 7d. Use instead of startedAfter.
     pub since: Option<String>,
+    /// Inclusive minimum duration in milliseconds.
     pub min_duration_ms: Option<u64>,
+    /// Inclusive maximum duration in milliseconds.
     pub max_duration_ms: Option<u64>,
+    /// Return only sessions with a recorded failure.
+    #[serde(default)]
+    pub failed_only: bool,
+    /// Exact failure kind, for example connect_refused or upstream_timeout.
+    pub failure_kind: Option<String>,
+    /// Exact failure origin: client, proxy, or upstream.
+    pub failure_origin: Option<String>,
+    /// Case-insensitive substring searched in searchIn fields; defaults to url, host, path, and method.
     pub keyword: Option<String>,
+    /// Fields searched by keyword. Empty uses url, host, path, and method.
     #[serde(default)]
     pub search_in: Vec<SearchField>,
+    /// Sort field. Default startedAt.
     #[serde(default)]
     pub sort_by: SessionSortBy,
+    /// Sort direction. Default desc.
     #[serde(default)]
     pub sort_order: SessionSortDirection,
+    /// Return only sessionId, method, host, path, statusCode, durationMs, sizeBytes, and startedAt.
     #[serde(default)]
     pub compact: bool,
+    /// Explicit summary field projection. Takes precedence over compact.
     #[serde(default)]
     pub fields: Vec<SummaryField>,
+    /// Page size, 1-100; default 20 and further capped by Agent Access maxSessions.
+    #[schemars(range(min = 1, max = 100))]
     pub limit: Option<usize>,
+    /// Opaque nextCursor returned by a previous call with the same sort settings.
     pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionInclude {
+    /// Session summary fields.
     Summary,
+    /// Request and response headers.
     Headers,
+    /// Persisted query parameters.
     Query,
+    /// Persisted cookies.
     Cookies,
+    /// Timing breakdown.
     Timing,
+    /// TLS protocol, cipher, addresses, and upstream-proxy status.
     Tls,
+    /// HTTP/2 stream id and trailers.
     Http2,
+    /// Rewrite, script, map, and throttle rule traces.
     RuleTraces,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct GetSessionRequest {
+    /// Exact session id or a unique prefix of at least 8 characters.
     pub session_id: String,
+    /// Sections to include. Empty includes only summary. Bodies are never included.
     #[serde(default)]
     pub include: Vec<SessionInclude>,
+    /// redactedText redacts sensitive values; raw requires readRawBodies.
     #[serde(default)]
     pub redaction_mode: RedactionMode,
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct WaitForSessionsRequest {
+    /// Exact host match, case-insensitive. Do not include a scheme or path.
+    pub host: Option<String>,
+    /// Case-insensitive host substring match.
+    pub host_contains: Option<String>,
+    /// Case-sensitive URL path substring match.
+    pub path_contains: Option<String>,
+    /// Query parameters that must all exist with these exact, case-sensitive values.
+    #[serde(default)]
+    pub query_params: BTreeMap<String, String>,
+    /// Exact HTTP method match, case-insensitive.
+    pub method: Option<String>,
+    /// Inclusive minimum HTTP status code.
+    pub status_min: Option<u16>,
+    /// Inclusive maximum HTTP status code.
+    pub status_max: Option<u16>,
+    /// Case-insensitive response MIME substring; "json" matches "application/json".
+    pub mime: Option<String>,
+    /// Case-insensitive substring searched in url, host, path, and method.
+    pub keyword: Option<String>,
+    /// Return only sessions with a recorded failure.
+    #[serde(default)]
+    pub failed_only: bool,
+    /// Exact failure kind, for example client_tls_rejected.
+    pub failure_kind: Option<String>,
+    /// Exact failure origin: client, proxy, or upstream.
+    pub failure_origin: Option<String>,
+    /// Watermark returned by search_sessions or a previous wait_for_sessions call.
+    /// Omit to start from the latest completed session at call time.
+    pub after_watermark: Option<String>,
+    /// Minimum number of matching completed sessions before returning, 1-100.
+    #[schemars(range(min = 1, max = 100))]
+    pub min_count: Option<usize>,
+    /// Maximum wait in milliseconds, 1000-30000; default 15000.
+    #[schemars(range(min = 1000, max = 30000))]
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Clone)]
+pub struct WaitNotifier {
+    peer: Peer<RoleServer>,
+    token: ProgressToken,
+}
+
+impl WaitNotifier {
+    pub fn from_context(context: &rmcp::service::RequestContext<RoleServer>) -> Option<Self> {
+        context.meta.get_progress_token().map(|token| Self {
+            peer: context.peer.clone(),
+            token,
+        })
+    }
+
+    async fn notify(&self, found: usize, requested: usize) {
+        let _ = self
+            .peer
+            .notify_progress(
+                ProgressNotificationParam::new(self.token.clone(), found as f64)
+                    .with_total(requested as f64)
+                    .with_message(format!(
+                        "Waiting for completed sessions ({found}/{requested})"
+                    )),
+            )
+            .await;
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum RedactionMode {
+    /// Replace configured and detected sensitive values. This is the default.
     #[default]
     RedactedText,
+    /// Return stored values unchanged. Requires readRawBodies.
     Raw,
 }
 
@@ -279,6 +429,11 @@ pub async fn search(
             .collect(),
         sort_by: request.sort_by.into(),
         sort_order: request.sort_order.into(),
+        after_rowid: None,
+        completed_only: false,
+        failed_only: request.failed_only,
+        failure_kind: request.failure_kind,
+        failure_origin: request.failure_origin,
     };
     let compact = request.compact;
     let fields = request.fields;
@@ -288,9 +443,11 @@ pub async fn search(
         .clamp(1, MAX_SESSION_SEARCH_LIMIT)
         .min(config.limits.max_sessions);
     let cursor = request.cursor;
-    let page = state
+    let (page, watermark) = state
         .with_db(move |connection| {
-            db_search_sessions(connection, &filter, limit, cursor.as_deref())
+            let page = db_search_sessions(connection, &filter, limit, cursor.as_deref())?;
+            let watermark = latest_completed_session_rowid(connection)?;
+            Ok((page, watermark))
         })
         .await?;
     let items = page
@@ -298,8 +455,134 @@ pub async fn search(
         .iter()
         .map(|summary| summary_to_json(summary, &redactor, false, compact, &fields))
         .collect::<Vec<Value>>();
-    let meta = ToolMeta::new(page.truncated, true, page.next_cursor);
+    let meta = ToolMeta::new(page.truncated, true, page.next_cursor)
+        .with_watermark(encode_watermark(watermark));
     Ok((json!({ "items": items }), meta))
+}
+
+/// Long-poll persisted sessions until the requested number of completed
+/// matches appears or the bounded timeout expires. This intentionally uses
+/// SQLite polling instead of pretending to provide a real-time stream.
+pub async fn wait_for_sessions(
+    state: &AppContext,
+    request: WaitForSessionsRequest,
+    notifier: Option<WaitNotifier>,
+) -> Result<(Value, ToolMeta), ToolError> {
+    let config = state.config()?;
+    if !config.permissions.read_sessions {
+        return Err(ToolError::permission_denied(
+            "Session reading is disabled. Enable readSessions in AIProxy Settings > Agent Access.",
+        ));
+    }
+    let redactor = Redactor::from_config(&config, &state.paths.data_dir)
+        .map_err(|message| ToolError::new("INVALID_REDACTION_CONFIG", message))?;
+    let min_count = request.min_count.unwrap_or(1);
+    if !(1..=100).contains(&min_count) {
+        return Err(ToolError::invalid("minCount must be between 1 and 100."));
+    }
+    if min_count > config.limits.max_sessions {
+        return Err(ToolError::invalid(format!(
+            "minCount cannot exceed the configured maxSessions limit ({}).",
+            config.limits.max_sessions
+        )));
+    }
+    let timeout_ms = request.timeout_ms.unwrap_or(15_000);
+    if !(1_000..=30_000).contains(&timeout_ms) {
+        return Err(ToolError::invalid(
+            "timeoutMs must be between 1000 and 30000.",
+        ));
+    }
+
+    let initial_watermark = match request.after_watermark.as_deref() {
+        Some(value) => parse_watermark(value)?,
+        None => state.with_db(latest_completed_session_rowid).await?,
+    };
+    let filter = SessionSearchFilter {
+        host: request.host,
+        host_contains: request.host_contains,
+        path_contains: request.path_contains,
+        query_params: request.query_params.into_iter().collect(),
+        method: request.method,
+        status_min: request.status_min,
+        status_max: request.status_max,
+        mime: request.mime,
+        keyword: request.keyword,
+        after_rowid: Some(initial_watermark),
+        completed_only: true,
+        failed_only: request.failed_only,
+        failure_kind: request.failure_kind,
+        failure_origin: request.failure_origin,
+        ..SessionSearchFilter::default()
+    };
+    let limit = min_count.min(config.limits.max_sessions).clamp(1, 100);
+    let started = Instant::now();
+    let deadline = StdDuration::from_millis(timeout_ms);
+    let capture = state.freshness();
+    let mut notes = Vec::new();
+    if capture.capture_status != "running" {
+        notes.push("Capture is not running, so no new traffic may arrive.".to_string());
+    }
+
+    loop {
+        let filter_for_query = filter.clone();
+        let page = state
+            .with_db(move |connection| {
+                db_search_sessions(connection, &filter_for_query, limit, None)
+            })
+            .await?;
+        let watermark = state.with_db(latest_completed_session_rowid).await?;
+        let satisfied = page.items.len() >= min_count;
+        if satisfied || started.elapsed() >= deadline {
+            let items = page
+                .items
+                .iter()
+                .map(|summary| summary_to_json(summary, &redactor, false, true, &[]))
+                .collect::<Vec<_>>();
+            let data = json!({
+                "satisfied": satisfied,
+                "timedOut": !satisfied,
+                "items": items,
+                "watermark": encode_watermark(watermark),
+                "notes": notes,
+            });
+            let mut meta =
+                ToolMeta::new(false, true, None).with_watermark(encode_watermark(watermark));
+            if !satisfied {
+                meta = meta.with_truncated_reason(format!(
+                    "wait_for_sessions timed out after {timeout_ms}ms with {} of {} required matches",
+                    page.items.len(),
+                    min_count
+                ));
+            }
+            return Ok((data, meta));
+        }
+        if let Some(notifier) = &notifier {
+            notifier.notify(page.items.len(), min_count).await;
+        }
+        tokio::time::sleep(StdDuration::from_millis(300)).await;
+    }
+}
+
+pub(crate) fn encode_watermark(rowid: i64) -> String {
+    format!("w1:{}", rowid.max(0))
+}
+
+pub(crate) fn parse_watermark(value: &str) -> Result<i64, ToolError> {
+    let value = value.trim();
+    let Some(rowid) = value.strip_prefix("w1:") else {
+        return Err(ToolError::invalid(
+            "afterWatermark must be a watermark returned by an AIProxy tool (format w1:<rowid>).",
+        ));
+    };
+    let rowid = rowid
+        .parse::<i64>()
+        .map_err(|_| ToolError::invalid("afterWatermark contains an invalid rowid."))?;
+    if rowid < 0 {
+        return Err(ToolError::invalid(
+            "afterWatermark must not contain a negative rowid.",
+        ));
+    }
+    Ok(rowid)
 }
 
 pub async fn get_session(
@@ -414,7 +697,7 @@ pub async fn get_session(
                         detail
                             .timing
                             .as_deref()
-                            .and_then(|value| serde_json::from_str(value).ok())
+                            .and_then(parse_timing_json)
                             .unwrap_or(Value::Null),
                     );
                 }
@@ -471,6 +754,47 @@ pub async fn get_session(
     Ok((data.0, ToolMeta::new(false, data.1, None)))
 }
 
+pub(crate) fn parse_timing_json(value: &str) -> Option<Value> {
+    serde_json::from_str::<Value>(value)
+        .ok()
+        .map(normalize_timing_value)
+}
+
+/// Persisted timing uses snake_case, while public MCP fields use camelCase.
+/// Normalize recursively so timing and nested snapshots share one contract.
+pub(crate) fn normalize_timing_value(value: Value) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .into_iter()
+                .map(|(key, value)| (snake_to_camel(&key), normalize_timing_value(value)))
+                .collect(),
+        ),
+        Value::Array(items) => {
+            Value::Array(items.into_iter().map(normalize_timing_value).collect())
+        }
+        other => other,
+    }
+}
+
+fn snake_to_camel(key: &str) -> String {
+    let mut output = String::with_capacity(key.len());
+    let mut uppercase_next = false;
+    for character in key.chars() {
+        if character == '_' {
+            uppercase_next = true;
+            continue;
+        }
+        if uppercase_next {
+            output.extend(character.to_uppercase());
+            uppercase_next = false;
+        } else {
+            output.push(character);
+        }
+    }
+    output
+}
+
 pub(crate) fn summary_to_json(
     summary: &SessionSummaryRow,
     redactor: &Redactor,
@@ -478,7 +802,7 @@ pub(crate) fn summary_to_json(
     compact: bool,
     fields: &[SummaryField],
 ) -> Value {
-    let full = json!({
+    let mut full = json!({
         "sessionId": summary.id,
         "method": summary.method,
         "host": summary.host,
@@ -496,6 +820,11 @@ pub(crate) fn summary_to_json(
         "url": if raw { summary.url.clone() } else { redactor.redact_url(&summary.url) },
         "responseMimeType": summary.response_mime_type,
     });
+    if let Some(failure) = failure_to_json(summary, redactor, raw) {
+        if let Some(object) = full.as_object_mut() {
+            object.insert("failure".to_string(), failure);
+        }
+    }
 
     let fields = if !fields.is_empty() {
         fields.to_vec()
@@ -509,6 +838,7 @@ pub(crate) fn summary_to_json(
             SummaryField::DurationMs,
             SummaryField::SizeBytes,
             SummaryField::StartedAt,
+            SummaryField::Failure,
         ]
     } else {
         return full;
@@ -521,6 +851,23 @@ pub(crate) fn summary_to_json(
         }
     }
     Value::Object(projected)
+}
+
+fn failure_to_json(summary: &SessionSummaryRow, redactor: &Redactor, raw: bool) -> Option<Value> {
+    let origin = summary.failure_origin.as_deref()?;
+    let kind = summary.failure_kind.as_deref()?;
+    let message = if raw {
+        summary.failure_message.clone().unwrap_or_default()
+    } else {
+        redactor
+            .redact_text(summary.failure_message.as_deref().unwrap_or_default())
+            .value
+    };
+    Some(json!({
+        "origin": origin,
+        "kind": kind,
+        "message": message,
+    }))
 }
 
 pub(crate) fn parse_since(value: &str) -> Result<String, ToolError> {
@@ -831,6 +1178,9 @@ mod tests {
             status_code: 200,
             url: "https://api.example.com/v1?token=secret".to_string(),
             response_mime_type: Some("application/json".to_string()),
+            failure_origin: None,
+            failure_kind: None,
+            failure_message: None,
         };
         let value = summary_to_json(&summary, &redactor, false, true, &[]);
         assert_eq!(value["sessionId"], "s1");

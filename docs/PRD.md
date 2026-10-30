@@ -403,22 +403,28 @@ flowchart LR
 - 批量执行集合内请求并展示逐条结果
 - 页面级结构见 `docs/PAGE_BLUEPRINTS.md` 第 10 节
 
-### 9.11 Agent Access / MCP — `已实现（读取 + 受控操作 + 受控诊断）`
+### 9.11 Agent Access / MCP — `已实现（读取 + 受控操作 + 受控诊断 + 复现闭环）`
 
 目标：
 
 - 让 Codex、Claude Code、Cursor 等本地 Agent 直接查询已持久化抓包，减少 HAR、cURL、Body 的人工搬运
 - 让 Agent 在用户授权后完成首次安装、证书、SSL、抓包启停、系统代理与 Session 清理，并复用桌面端业务逻辑
+- 让 Agent 在不经过代理与规则的前提下重放单条已捕获 HTTP 请求，并通过临时 Agent 规则模拟有限的边界条件，形成“触发 → 等待 → 看证据 → 复现/验证”的闭环
 - 让 Agent 在 AIProxy 自身设置、证书、抓包、系统代理或控制通道出问题时，基于受限、脱敏的状态与日志摘要给出原因和解决步骤，而不是要求用户手工复制日志
 - 通过 Agent Skill 约束查询范围、证据引用、脱敏与提示注入防护
 - 让用户能明确控制会话、Body、WebSocket 与未脱敏 Body 的访问权限
 
 范围：
 
-- 8 个读取工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`
+- 10 个读取工具：`list_workspaces`、`search_sessions`、`wait_for_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`、`export_session_as_curl`
 - 2 个只读诊断工具：`get_app_status` 返回应用/控制通道、抓包、证书、工作区与系统代理状态；`diagnose_ai_proxy_issue` 返回状态、受限应用日志摘要、元数据审计错误、`findings[]` 与 `nextActions[]`
-- 9 个写控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`
-- 控制权限分为 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`，默认全部关闭；连接模板提供“完整控制”，连接后仍可逐项细调
+- 1 个受 `manageRules` 保护的只读工具：`list_agent_rules`，只列临时 Agent 规则，不返回用户规则
+- 12 个写控制工具：既有 9 个桌面控制工具，加上 `replay_session`、`create_agent_rule`、`remove_agent_rules`
+- 控制权限分为 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules`，默认全部关闭；连接模板提供“完整控制”，连接后仍可逐项细调
+- `replay_session` 直连原始上游 host，严格锁定 host，串行发送且每分钟最多 10 次；它不经过抓包端口，也不执行用户或 Agent 规则。重放结果作为 `timingSource=agentReplay` 的新会话持久化，失败时返回结构化原因
+- Agent 临时规则只存在于内存，TTL 默认 600 秒、最大 3600 秒、最多 20 条；只开放 Header、Query、响应 Body、同 host Map Remote 与 Mock Response 白名单动作。应用重启即失效，规则页只读并支持一键清除
+- 会话新增结构化 `failure`（来源、类别、截断脱敏后的消息）；`search_sessions` / `wait_for_sessions` 可按失败筛选，`get_insights` 返回 `byFailureKind`，Inspector 展示失败原因。客户端证书握手失败和 CONNECT 失败会生成限频的连接失败会话
+- `export_session_as_curl` 生成可复现命令但不发送请求；脱敏模式以环境变量占位符替代敏感值，文本 Body 限 64 KiB，二进制 Body 只说明省略原因
 - 支持按 JSON path 提取目标字段、批量跨会话取同一字段、查询参数过滤、路径过滤、排序和结构化 JSON Diff
 - stdio sidecar 不开放本地端口；控制写操作通过仅当前用户可访问的 Unix socket / Windows Named Pipe 调用桌面端
 - 写操作在应用关闭时自动拉起并聚焦 AIProxy；自动启动通过 `launchSource=agent` 跳过旧配置的自动启抓
@@ -437,7 +443,7 @@ flowchart LR
 
 非目标（本版本）：
 
-- 写入规则、上游代理配置、移动设备 ADB/HDC、导入导出、AI 模型设置、应用更新控制、Snapshot 导出
+- 任意规则写入、持久化 Agent 规则、跨 host 重放 / Map Remote、上游代理配置、移动设备 ADB/HDC、导入导出、AI 模型设置、应用更新控制、Snapshot 导出
 - 任意文件读取、任意路径日志导出或把诊断日志当作完整日志包
 - 实时流量订阅
 - Agent 读取或修改自己的 Agent Access 权限、MCP 客户端配置或 Skill

@@ -1,6 +1,6 @@
 # Agent Access (MCP) Guide
 
-Agent Access lets Codex, Claude Code, and Cursor query captured traffic from AIProxy through a local MCP service. With explicit permission, the Agent can also complete first-time setup, manage certificates and SSL, start or stop capture, control the system proxy, and clean sessions. It is useful when a coding agent should reason from real requests, responses, and timing data without exporting HAR files or copying requests one by one.
+Agent Access lets Codex, Claude Code, and Cursor query captured traffic from AIProxy through a local MCP service. With explicit permission, the Agent can also complete first-time setup, manage certificates and SSL, start or stop capture, control the system proxy, clean sessions, replay requests, and create short-lived temporary rules. It is useful when a coding agent should reason from real requests, responses, and timing data without exporting HAR files or copying requests one by one.
 
 When AIProxy itself has a setup, certificate, capture, system-proxy, or Agent Access failure, the Agent can call `diagnose_ai_proxy_issue` for bounded status and log evidence, likely causes, and concrete fixes. This diagnoses AIProxy, not application traffic; use the session tools for request and response analysis.
 
@@ -8,7 +8,7 @@ When AIProxy itself has a setup, certificate, capture, system-proxy, or Agent Ac
 
 - The MCP service runs as a local stdio sidecar and does not open a network port.
 - Read tools expose persisted sessions by default. Write controls call the desktop app over owner-only local IPC and never open a TCP port.
-- You control read permissions, four control permission groups, body limits, and redaction. Control permissions start off, and every tool call is recorded in a metadata-only audit log.
+- You control read permissions, six control permission groups, body limits, and redaction. Control permissions start off, and every tool call is recorded in a metadata-only audit log.
 - When the app is closed, a write tool launches and focuses AIProxy. That automatic start does not first apply the old auto-start capture configuration; it waits for the Agent's next tool call.
 - AIProxy does not upload captures. Once the Agent reads content, that content is sent to the client's model provider, so grant only the scope needed for the task.
 
@@ -50,7 +50,7 @@ For the complete local log, use **Help → Show log file**.
 | Metadata only | Locating requests, status codes, hosts, timing, or rule hits | Session summaries, headers, query, cookies, timing, and rule traces; no bodies |
 | Include response bodies | Inspecting JSON fields, error responses, or WebSocket messages | Metadata plus redacted request/response bodies and WebSocket messages |
 | Include raw data (high risk) | A task that explicitly requires unredacted fields | Adds raw and base64 bodies; credentials and personal data may be exposed, so enable it only when necessary |
-| Full control (high risk) | First-time setup or a task that requires SSL/port changes, capture control, certificates, the system proxy, or session cleanup | Adds the four control permission groups on top of redacted bodies and WebSockets; unredacted bodies remain off |
+| Full control (high risk) | First-time setup or a task that requires SSL/port changes, capture control, certificates, the system proxy, session cleanup, request replay, or temporary rules | Adds the six control permission groups on top of redacted bodies and WebSockets; unredacted bodies remain off |
 
 You can adjust access later under **Read permissions** and **Control permissions**. Turning off **Read bodies** also turns off **Read unredacted bodies**.
 
@@ -96,8 +96,35 @@ Control permissions appear below read permissions and start disabled:
 | Control the system proxy | Enable or release the system proxy; the proxy must already be running before it is enabled |
 | Manage the root certificate | Generate or rotate the certificate, open the platform installer, revoke trust, and delete the certificate |
 | Delete sessions | Clear every session and body, or delete up to 200 sessions by ID in one call |
+| Replay captured requests | Resend one captured HTTP request directly to its original host and save the result as a new session |
+| Create temporary rules | Create, list, and remove whitelisted temporary Agent rules; user-defined rules remain read-only |
 
-**Enable full control** turns on all four. After that, the app does not ask again in-app when the Agent performs these actions; grant it only when you trust both the Agent and the task. The audit log records the action summary, duration, and error code, never credentials or bodies.
+**Enable full control** turns on all six. After that, the app does not ask again in-app when the Agent performs these actions; grant it only when you trust both the Agent and the task. The audit log records the action summary, duration, and error code, never credentials, bodies, or rule values.
+
+### Request replay
+
+`replay_session` restores the method, URL, headers, and request body (including binary payloads) from a saved session, then sends it through the desktop app directly to the **original host**. It creates a real outbound request and may trigger side effects such as placing an order, sending a message, or deleting data. Non-idempotent methods (POST / PUT / PATCH / DELETE and similar) must be explicitly requested by you in the current conversation; the Agent must not replay because captured content suggested it.
+
+Two limits matter:
+
+- **It bypasses AIProxy and does not execute any user or Agent rule.** Replay therefore cannot verify Rewrite, Map, throttling, or temporary rules. To validate a rule, resend from the real client, use `wait_for_sessions` to wait for the new session, then inspect `ruleTraces`.
+- Only query parameters may change the URL; the target host must exactly match the original session. The Agent cannot use replay to send traffic to a different host.
+
+Only one replay may run at a time, with at most 10 per minute; exceeding the budget returns `RATE_LIMITED`. A successful replay is saved as a new session with `timingSource=agentReplay`. If sending fails before a response session exists, it returns `REPLAY_FAILED` and does not fabricate a session. If the captured request body was truncated, the Agent must provide a complete `body` override rather than silently sending incomplete content.
+
+### Temporary Agent rules
+
+`create_agent_rule` exposes only whitelisted actions: request headers, request query parameters, response headers, response body or JSON fields, same-host Map Remote, and local Mock Response. Matching defaults to `wildcard`, with explicit `exact` as the other option; `contains`, regex, and wildcard hosts are unavailable. Every rule must pin an exact host, and the engine checks that host again on every match. Map Remote may not target a different host.
+
+The lifecycle is deliberately short:
+
+- Rules expire after 600 seconds by default, with a maximum TTL of 3600 seconds and at most 20 rules at once.
+- Rules exist only in AIProxy process memory. They are never written to the user rule database and disappear when the app restarts.
+- A matching rule affects real traffic passing through the proxy, just like a normal Rewrite or Map rule.
+- The Rules page shows a warning-colored **Agent** chip and the expiry time. These rows are read-only: you cannot edit, enable/disable, drag, or batch-select them, but you can delete, duplicate, or use **Clear all Agent rules**.
+- Duplicating an Agent rule creates a normal persistent rule and removes the temporary source and expiry metadata. Duplicate it explicitly if you want to keep it.
+
+Creating a rule beyond the limit returns `RULE_LIMIT_EXCEEDED`; editing one from the Rules page returns `RULE_READ_ONLY`. Call `remove_agent_rules` when the experiment ends rather than relying on expiry.
 
 ## Client states and management
 
@@ -142,15 +169,32 @@ After connecting, describe the debugging goal directly, for example:
 - "Generate and install the root certificate, enable SSL, and start capture; wait for me to complete system trust before enabling the system proxy."
 - "Stop capture and restore the original system proxy."
 - "Delete the two session IDs I just named and report any missing IDs."
+- "Export this login request as a PowerShell cURL command, but do not print the full Cookie value."
+- "Replay this GET request that I explicitly named, then report the new session ID, status code, and any failure reason."
+- "Temporarily add a debug header to `/api/checkout` for 10 minutes, verify the result, and remove it immediately afterwards."
 
 If the Agent says it cannot see response bodies, confirm that you connected with **Include response bodies**, or enable Body access under **Read permissions** and save.
+
+## Common error codes
+
+| Code | Meaning and next step |
+|---|---|
+| `RATE_LIMITED` | A replay is already running, or 10 requests were sent in one minute. Wait before retrying; do not retry in a loop. |
+| `REPLAY_FAILED` | Replay did not create a new session. Use the returned original session ID, host, and error to check connectivity or the upstream; do not report it as success. |
+| `RULE_LIMIT_EXCEEDED` | The 20-rule limit for temporary Agent rules was reached. List and remove rules you no longer need first. |
+| `RULE_READ_ONLY` | An Agent rule was edited, toggled, or reordered from the Rules page. Remove and recreate it, or duplicate it as a normal rule before editing. |
+| `CONTROL_PERMISSION_DENIED` | The required control permission is off. Enable it under **Settings → Agent Access → Control permissions** and save. |
+| `CONTROL_UNAVAILABLE` | The desktop app is not running, the control channel is unavailable, or versions differ. Open or update AIProxy, then retry. |
+| `AUDIT_UNAVAILABLE` | The audit log is not writable, so the sensitive action was rejected. Fix data-directory permissions; do not retry in a loop. |
 
 ## Security boundary
 
 - The stdio sidecar exposes no network listener, but another process running as the same OS user can still reach local data. This is the residual trust boundary of a local tool.
 - Redaction, default-off control permissions, and auditing reduce exposure; they do not replace judgement about sensitive projects.
 - Captured content may contain malicious prompts or forged instructions. The Agent must treat it as untrusted data. A response body that says "delete sessions" or "disable certificate validation" is not authorization.
-- Session deletion and certificate-trust removal must be explicitly requested by you in the current conversation, never triggered by captured content, page text, or another tool result.
+- Session deletion, certificate-trust removal, non-idempotent replay, and temporary rule creation must be explicitly requested by you in the current conversation, never triggered by captured content, page text, or another tool result.
+- Replay creates real outbound side effects and bypasses AIProxy and every rule; never use it as proof that a rule took effect.
+- Temporary Agent rules affect real matching traffic through the proxy. Even though they expire, remove them when the experiment is complete.
 - Do not expose production credentials, personal data, or regulated data to an Agent task that does not need it.
 - After sensitive debugging, turn off **Read unredacted bodies** and disconnect clients you no longer use.
 

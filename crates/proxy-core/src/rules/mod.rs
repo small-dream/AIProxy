@@ -24,6 +24,7 @@ pub(crate) use types::{
 };
 
 // Re-export pub(crate) functions used outside this module
+pub use json_path::set_json_path_from_str;
 pub(crate) use map::apply_map_rules;
 pub(crate) use patterns::{compile_match_regex, pattern_matches};
 pub(crate) use rewrite::{
@@ -106,6 +107,7 @@ fn active_rewrite_rules_for_stage(
         .filter(|cr| cr.rule.workspace_id == workspace_id)
         .filter(|cr| rule_stage_matches(&cr.rule.r#match.stage, stage))
         .filter(|cr| method_matches(&cr.rule.r#match.methods, &request.method))
+        .filter(|cr| host_lock_matches(cr.host_lock.as_deref(), &request.host))
         .filter(|cr| {
             // Use pre-compiled regex for "regex" match type; fall back to
             // pattern_matches for other match types (exact/wildcard/contains).
@@ -137,21 +139,27 @@ fn active_map_rule_for_request(
     };
 
     let mut rules: Vec<MapRule> = manager
-        .list_rules()
+        .compiled_rules()
         .into_iter()
-        .filter(|rule| rule.enabled)
-        .filter(|rule| rule.workspace_id == workspace_id)
-        .filter(|rule| {
+        .filter(|entry| entry.rule.enabled)
+        .filter(|entry| entry.rule.workspace_id == workspace_id)
+        .filter(|entry| host_lock_matches(entry.host_lock.as_deref(), &request.host))
+        .filter(|entry| {
             pattern_matches(
-                &rule.source_pattern,
+                &entry.rule.source_pattern,
                 request.url.as_str(),
-                rule.match_type.as_deref(),
+                entry.rule.match_type.as_deref(),
             )
         })
+        .map(|entry| entry.rule)
         .collect();
 
     rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
     rules.into_iter().next()
+}
+
+fn host_lock_matches(host_lock: Option<&str>, request_host: &str) -> bool {
+    host_lock.is_none_or(|locked| locked.eq_ignore_ascii_case(request_host))
 }
 
 fn active_script_rules_for_stage(

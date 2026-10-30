@@ -122,11 +122,14 @@ export type RewriteRedirectPayload = {
 
 type RewriteRuleBase = {
   enabled: boolean;
+  /** Present only for temporary Agent rules returned by the desktop runtime. */
+  expiresAt?: string;
   id: string;
   match: RuleMatch;
   name: string;
   note?: string;
   priority: number;
+  source?: "agent";
   workspaceId: string;
 };
 
@@ -150,6 +153,8 @@ export type MapRuleMode = "local" | "remote";
 
 export type MapRule = {
   enabled: boolean;
+  /** Present only for temporary Agent rules returned by the desktop runtime. */
+  expiresAt?: string;
   id: string;
   mode: MapRuleMode;
   name: string;
@@ -158,6 +163,7 @@ export type MapRule = {
   preserveQuery: boolean;
   priority: number;
   sourcePattern: string;
+  source?: "agent";
   targetValue: string;
   matchType?: MatchType;
   workspaceId: string;

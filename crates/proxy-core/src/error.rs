@@ -7,8 +7,11 @@
 /// errors (rule messages, breakpoint context) remain as `String`.
 #[derive(Debug, thiserror::Error)]
 pub enum ProxyError {
-    #[error("upstream connection failed: {0}")]
-    UpstreamError(String),
+    #[error("upstream connection failed: {message}")]
+    UpstreamError {
+        kind: UpstreamFailureKind,
+        message: String,
+    },
 
     /// The upstream did not deliver a response HEAD within the configured
     /// request timeout (P1-5). Distinct from [`ProxyError::UpstreamError`] so
@@ -45,6 +48,67 @@ pub enum ProxyError {
 
     #[error("{0}")]
     Other(String),
+}
+
+/// Stable failure classes shared by the session store, diagnostics, and UI.
+/// Keep these strings in sync with `SessionFailure` consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpstreamFailureKind {
+    Dns,
+    ConnectRefused,
+    ConnectTimeout,
+    UpstreamTls,
+    UpstreamReset,
+    UpstreamTimeout,
+    Other,
+}
+
+impl UpstreamFailureKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Dns => "dns",
+            Self::ConnectRefused => "connect_refused",
+            Self::ConnectTimeout => "connect_timeout",
+            Self::UpstreamTls => "upstream_tls",
+            Self::UpstreamReset => "upstream_reset",
+            Self::UpstreamTimeout => "upstream_timeout",
+            Self::Other => "other",
+        }
+    }
+}
+
+impl ProxyError {
+    pub fn upstream(kind: UpstreamFailureKind, message: impl Into<String>) -> Self {
+        Self::UpstreamError {
+            kind,
+            message: message.into(),
+        }
+    }
+
+    pub fn upstream_from_io(message: impl Into<String>, error: &std::io::Error) -> Self {
+        let kind = match error.kind() {
+            std::io::ErrorKind::NotFound => UpstreamFailureKind::Dns,
+            std::io::ErrorKind::ConnectionRefused => UpstreamFailureKind::ConnectRefused,
+            std::io::ErrorKind::TimedOut => UpstreamFailureKind::ConnectTimeout,
+            std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::UnexpectedEof => UpstreamFailureKind::UpstreamReset,
+            std::io::ErrorKind::InvalidData => UpstreamFailureKind::UpstreamTls,
+            _ => UpstreamFailureKind::Other,
+        };
+        Self::upstream(kind, format!("{}: {error}", message.into()))
+    }
+
+    pub fn upstream_from_hyper(message: impl Into<String>, error: &hyper::Error) -> Self {
+        let kind = if error.is_timeout() {
+            UpstreamFailureKind::UpstreamTimeout
+        } else if error.is_closed() || error.is_incomplete_message() {
+            UpstreamFailureKind::UpstreamReset
+        } else {
+            UpstreamFailureKind::Other
+        };
+        Self::upstream(kind, format!("{}: {error}", message.into()))
+    }
 }
 
 impl From<String> for ProxyError {

@@ -235,12 +235,16 @@ pub struct ListRewriteRulesInput {
 pub fn list_rewrite_rules(
     input: ListRewriteRulesInput,
     state: State<'_, Arc<AppState>>,
-) -> Result<Vec<RewriteRule>, String> {
+) -> Result<Vec<serde_json::Value>, String> {
+    let registry = state.read_agent_rule_registry();
+    let snapshot = registry.snapshot();
     Ok(state
         .read_rewrite_manager()
         .list_rules()
         .into_iter()
         .filter(|r| r.workspace_id == input.workspace_id)
+        .filter(|rule| !snapshot.auxiliary_rule_ids.contains(&rule.id))
+        .map(|rule| annotate_agent_rule(&rule, snapshot.by_rule_id.get(&rule.id)))
         .collect())
 }
 
@@ -249,6 +253,7 @@ pub async fn save_rewrite_rule(
     input: RewriteRule,
     state: State<'_, Arc<AppState>>,
 ) -> Result<RewriteRule, String> {
+    ensure_rule_is_user_editable(&state, &input.id)?;
     // Build the DB row up front so `input` stays available for the manager
     // mutation after the closure runs.
     let row = aiproxy_db::rules::RewriteRuleRow {
@@ -431,7 +436,9 @@ pub struct ThrottleSessionTraceOutput {
 pub fn list_map_rules(
     input: ListMapRulesInput,
     state: State<'_, Arc<AppState>>,
-) -> Result<Vec<MapRule>, String> {
+) -> Result<Vec<serde_json::Value>, String> {
+    let registry = state.read_agent_rule_registry();
+    let snapshot = registry.snapshot();
     Ok(state
         .read_map_manager()
         .list_rules()
@@ -441,6 +448,7 @@ pub fn list_map_rules(
             Some(mode) => r.mode == *mode,
             None => true,
         })
+        .map(|rule| annotate_agent_rule(&rule, snapshot.by_rule_id.get(&rule.id)))
         .collect())
 }
 
@@ -449,6 +457,7 @@ pub async fn save_map_rule(
     input: MapRule,
     state: State<'_, Arc<AppState>>,
 ) -> Result<MapRule, String> {
+    ensure_rule_is_user_editable(&state, &input.id)?;
     validate_map_rule(&input)?;
 
     // Build the DB row up front so `input` stays available for the manager
@@ -761,13 +770,51 @@ pub async fn delete_rule(
     .await?;
 
     match input.rule_type.as_str() {
-        "rewrite" => state.read_rewrite_manager().delete_rule(&input.rule_id),
-        "map" => state.read_map_manager().delete_rule(&input.rule_id),
+        "rewrite" => {
+            state.read_rewrite_manager().delete_rule(&input.rule_id);
+            state
+                .read_agent_rule_registry()
+                .forget_deleted_rule(&input.rule_id);
+        }
+        "map" => {
+            state.read_map_manager().delete_rule(&input.rule_id);
+            state
+                .read_agent_rule_registry()
+                .forget_deleted_rule(&input.rule_id);
+        }
         "dns" => state.read_dns_manager().delete_rule(&input.rule_id),
         "script" => state.read_script_manager().delete_rule(&input.rule_id),
         _ => unreachable!("validated above"),
     }
 
+    Ok(())
+}
+
+fn annotate_agent_rule<T: serde::Serialize>(
+    rule: &T,
+    info: Option<&crate::agent_rules::AgentRuleInfo>,
+) -> serde_json::Value {
+    let mut value = serde_json::to_value(rule).unwrap_or(serde_json::Value::Null);
+    if let (Some(info), Some(object)) = (info, value.as_object_mut()) {
+        object.insert("source".to_string(), serde_json::json!("agent"));
+        object.insert(
+            "expiresAt".to_string(),
+            serde_json::json!(info.expires_at.as_str()),
+        );
+    }
+    value
+}
+
+fn ensure_rule_is_user_editable(
+    state: &State<'_, Arc<AppState>>,
+    rule_id: &str,
+) -> Result<(), String> {
+    if state.read_agent_rule_registry().contains_rule(rule_id) {
+        return Err(app_error(
+            "RULE_READ_ONLY",
+            "Temporary Agent rules are read-only. Remove this rule and create a normal rule if it should persist.",
+        ));
+    }
     Ok(())
 }
 
@@ -870,6 +917,18 @@ pub async fn bulk_update_rules(
 
     let updates = input.updates.clone();
     let state = Arc::clone(state.inner());
+    if matches!(rule_type.as_str(), "rewrite" | "map") {
+        let registry = state.read_agent_rule_registry();
+        if updates
+            .iter()
+            .any(|update| registry.contains_rule(&update.id))
+        {
+            return Err(app_error(
+                "RULE_READ_ONLY",
+                "Temporary Agent rules are read-only and cannot be edited, reordered, or toggled from the rules page.",
+            ));
+        }
+    }
     run_blocking_command("bulk_update_rules", {
         let state = Arc::clone(&state);
         move || {

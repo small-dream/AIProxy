@@ -343,6 +343,9 @@ User double clicks a token in the JSON Text view
 - 「时序」分组的连接类阶段（DNS / Connect / TLS Handshake）使用三态取值，避免同一件事出现三种说法：新建连接 → 实测毫秒；`connectionReused` 为 `true`（复用连接池连接）→「复用连接」，此时 DNS/Connect 不再显示 0 ms、TLS 不再显示缺数据；未观测到出网连接（mock / Map Local / script 合成响应、Compose）或字段缺省 → `N/A`。纯 HTTP 会话的 TLS 行始终为 `N/A`。`Request`（请求发送耗时）、`Request End Time`、`Request Speed` 三行仅在 `timing.requestSendMs` 有值时渲染——代理捕获会话无法观测「请求写完」边界，这三行此前对每条代理会话都恒显示 `Unavailable`。
 - 「时序」分组在 `timing.connectionWaitMs > 0` 时增加一行「连接等待」，排在 DNS 之前（时间轴顺序：先等连接就绪，才轮到自己拨号或直接复用），色带同步多一段同色块。这段等待来自连接池（等另一条同主机请求的在途拨号完成，或等 h1 连接释放），并发冷连接时可达数百毫秒；它不属于本请求的 DNS/连接/TLS（本请求没有拨号，那三行只显示「复用连接」），也不属于 `Latency`，此前完全没有表达，导致「总时长 > 各阶段之和」。稳态下该值为 0，行与色块都不出现，界面不变。
 - Inspector Request Overview 的 General 分组包含 `Route`（出网路径）行，取值为 `Direct`（直连）/ `Via upstream proxy`（经上游代理）/ `N/A`。`N/A` 对应 `viaUpstreamProxy` 为空的情况——mock / Map Local / script 合成响应根本没有出网，以及该字段存在之前抓的历史会话；这类会话不显示为 `Direct`，否则会被误读成「上游代理被绕过了」。
+- Inspector Request Overview 的 General 分组在会话存在结构化 `failure` 时追加两行：`Failure` 展示 `origin · kind`（来源 · 类型），`Failure Message` 展示按当前视图规则截断/脱敏后的消息；无失败或迁移前历史会话不渲染空行，也不把失败消息拼进状态码列。
+- 连接阶段失败且 `statusCode=0` 的会话在会话树使用独立的 `connectionFailed` 资源类型：`CloudOff` 图标、错误色与「连接失败」Tooltip，不能继续复用 Pending 的加载动画；有 HTTP 响应后失败的会话仍按错误状态码/`warning` 路径展示。
+- 失败原因只作为只读证据展示；切换脱敏设置后重新读取会话详情，不在前端缓存中把已脱敏文本还原。
 - JSON 树视图（Response JSON Tab）中右键节点弹出独立菜单，提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，字符串不带引号，对象/数组以格式化 JSON 输出）。
 - 代码块视图（JSON Text、Raw、Text Body 等 Tab）中选中文字右键弹出独立菜单，提供 `Copy`（复制选中文字到剪贴板）和 `Search`（用选中文字激活搜索栏并填入搜索词）。仅当有文字选中且 `onSearchWithText` 回调存在时，`Search` 选项才显示。
 - JSON Text 视图额外支持语义 token 交互：双击把选区吸附到指针下的 token（字符串不含引号），三击选中整行；右键按指针下的 token 提供 `Copy Key` / `Copy Value` 与 `Copy Path`（`$` 前缀的 JSON 路径，文本不可解析时不显示），选中内容与 token 相同时只保留一项 `Copy`。实现位于 `features/sessions/components/json-text-token.helpers.ts`，虚拟化代码块通过每行的 `data-line-start` 把指针位置映射回源文本偏移。
@@ -805,6 +808,19 @@ User switches rule type
    完成），批量删除同样经确认对话框；未保存的新草稿 Remove 直接丢弃不确认
    （与其他域一致）；regex 校验保留为字段级 helperText
 
+2026-10 Agent 临时规则：
+-> Rewrite / Map 列表对 `source="agent"` 的行展示 warning 色「Agent」chip 与
+   「到期 HH:mm:ss」chip；不渲染行首 Checkbox、拖拽手柄和启停 Switch
+-> 选中 Agent 规则后编辑器整体降透明度并禁用指针事件，顶部显示只读说明与
+   到期时间；Save 禁用，保存命令入口若被绕过则后端返回 `RULE_READ_ONLY`
+-> “...” 溢出菜单仍提供 Duplicate / Remove：复制会去掉 source / expiresAt，
+   生成普通持久化规则；删除走现有确认流程并同步删除注册表与 mock Body
+-> 列表上方出现 warning Alert「N 条临时 Agent 规则将在到期后自动移除」，
+   提供「清除全部 Agent 规则」按钮；点击后必须二次确认，再调用
+   `clear_agent_rules` 并刷新 Rewrite / Map 查询
+-> `use-agent-control-events` 在 create / remove / clear Agent 规则后刷新规则查询，
+   确保 Agent 调用后规则页无需手动重载
+
 ## 6.6 Throttling Page — `已实现 P0/P1`
 
 ### 6.6.1 页面目标
@@ -1106,7 +1122,7 @@ type SettingsPageState = {
 
 - 以低噪音状态头展示 sidecar、版本与连接状态
 - 让用户显式开启会话、Body、WebSocket 与未脱敏 Body 权限
-- 让用户按分组开启控制抓包、系统代理、根证书与 Session 删除权限
+- 让用户按分组开启控制抓包、系统代理、根证书、Session 删除、请求重放与临时规则权限
 - 让用户配置格式识别、稳定哈希和自定义敏感字段
 - 为 Codex、Claude Code、Cursor 提供一键连接（写 MCP 配置 + 安装 Skill）与断开
 - 提供「验证连接」：真实 MCP 握手、工具调用与逐项检查结果
@@ -1145,7 +1161,9 @@ AgentAccessSection
 │  │  ├─ Control capture and workspace settings
 │  │  ├─ Control system proxy
 │  │  ├─ Manage root certificate
-│  │  └─ Delete sessions
+│  │  ├─ Delete sessions
+│  │  ├─ Replay captured requests
+│  │  └─ Manage temporary Agent rules
 │  └─ Save / Discard
 ├─ AgentAuditTable (collapsed summary by default)
 ├─ SecurityNote
@@ -1170,10 +1188,10 @@ AgentAccessSection
 8. 客户端状态基于“aiproxy 条目是否存在 + Skill 内容是否为当前版本”，不使用“配置文件是否存在”判断；状态文案为 `已配置` / `需更新` / `未配置`。手动配置区展示已安装 Skill 版本与内置版本。
 9. 断开连接需二次确认：说明将移除的配置路径、将删除的受管 Skill 路径与备份行为；自定义 Skill 保留并提示。移除后状态回到 `未配置`。
 10. 客户端列表顶部固定展示数据流向说明：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；读取默认保守，控制权限默认关闭。已连接且 Body 关闭时追加 `BodyDisabledNotice`，说明 Agent 无法分析响应体。
-11. 控制权限分组展示四项开关，并提供“启用完整控制”快捷操作；开启后不显示应用内二次确认。删除类操作和撤销证书信任仍由 Agent Skill 要求当前对话的明确用户请求。
+11. 控制权限分组展示六项开关，并提供“启用完整控制”快捷操作；`sendRequests` 明确说明会发出真实外部请求，`manageRules` 明确说明只创建内存临时规则但仍会影响经过代理的匹配流量。开启后不显示应用内二次确认。删除类操作、撤销证书信任、非幂等重放和创建规则仍由 Agent Skill 要求当前对话的明确用户请求。
 12. 审计表默认只显示最近调用数量摘要；展开后按时间倒序展示明细，新增动作摘要列与 `agentControl` 写控制标记，刷新时重新读取 JSONL。
 13. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor 窗口；Claude Code 目标为 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`），连接后需重新启动 Claude Code。
-14. `AppShell` 订阅 `agent-control-action` 并读取最近 20 条回放缓冲区：按 `eventId` 去重后刷新代理、工作区、证书与 Session 查询；删除类动作清除详情缓存；除 `getStatus` 外显示动作成功/失败通知，确保自动拉起后的首个 Agent 动作也可见。
+14. `AppShell` 订阅 `agent-control-action` 并读取最近 20 条回放缓冲区：按 `eventId` 去重后刷新代理、工作区、证书、Session 与规则查询；删除类动作清除详情缓存；除 `getStatus` 外显示动作成功/失败通知，确保自动拉起后的首个 Agent 动作也可见。
 15. `diagnose_ai_proxy_issue` 是只读诊断工具，不需要控制权限，也不触发 `agent-control-action` toast。它在桌面端不可达时返回明确的 `evidenceStatus=unavailable`；桌面端可达但日志不可读时返回 `statusOnly`，UI 文案不得把它描述成“已读取完整日志”。
 
 状态：

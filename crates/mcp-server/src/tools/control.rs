@@ -28,52 +28,70 @@ pub struct EmptyRequest {}
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConfigureWorkspaceRequest {
+    /// Workspace id to update. Omit to use the active workspace.
     pub workspace_id: Option<String>,
+    /// Proxy listening port, 1-65535.
+    #[schemars(range(min = 1, max = 65535))]
     pub proxy_port: Option<u16>,
+    /// Enable HTTPS interception after the root certificate is trusted.
     pub ssl_enabled: Option<bool>,
+    /// Enable HTTP/2 support for the proxy listener.
     pub http2_enabled: Option<bool>,
+    /// Hosts that should pass through without TLS interception.
     pub ssl_blind_hosts: Option<Vec<String>>,
+    /// Include/exclude SSL proxying policy by host pattern.
     pub ssl_proxying: Option<SslProxyingRequest>,
+    /// Restart a running proxy after saving. Defaults to true.
     pub apply_now: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SslProxyingRequest {
+    /// Whether the include list is enabled.
     pub include_enabled: bool,
+    /// Whether the exclude list is enabled.
     pub exclude_enabled: bool,
+    /// Host patterns to intercept when include mode is enabled.
     pub include: Vec<SslProxyEntryRequest>,
+    /// Host patterns to exclude from interception when exclude mode is enabled.
     pub exclude: Vec<SslProxyEntryRequest>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SslProxyEntryRequest {
+    /// Host pattern, at most 1024 characters.
     pub pattern: String,
+    /// Whether this entry participates in matching.
     pub enabled: bool,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureRequest {
+    /// Workspace id to start. Omit to use the active workspace.
     pub workspace_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SetSystemProxyRequest {
+    /// true enables the operating-system proxy; false restores the prior setting.
     pub enabled: bool,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GenerateCertificateRequest {
+    /// Replace the existing root certificate. Invalidates prior trust installs.
     pub force_regenerate: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DeleteSessionsRequest {
+    /// One to two hundred exact session ids to delete.
     pub session_ids: Vec<String>,
 }
 
@@ -268,7 +286,7 @@ pub async fn delete_sessions(
     Ok((value, ToolMeta::new(false, false, None)))
 }
 
-fn ensure_permission(
+pub(crate) fn ensure_permission(
     config: &AgentAccessConfig,
     operation: &ControlOperation,
 ) -> Result<(), ToolError> {
@@ -287,7 +305,7 @@ fn ensure_permission(
     ))
 }
 
-fn ensure_audit(state: &AppContext) -> Result<(), ToolError> {
+pub(crate) fn ensure_audit(state: &AppContext) -> Result<(), ToolError> {
     state.audit.check_writable().map_err(|error| {
         ToolError::new(
             "AUDIT_UNAVAILABLE",

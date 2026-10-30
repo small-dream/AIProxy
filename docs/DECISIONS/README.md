@@ -18,3 +18,4 @@
 - `ADR-006-local-mcp-agent-access.md`
 - `ADR-007-agent-control-ipc.md`
 - `ADR-008-bounded-diagnostic-log-access.md`
+- `ADR-009-agent-replay-and-temporary-rules.md`

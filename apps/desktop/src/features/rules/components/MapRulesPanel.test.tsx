@@ -14,6 +14,7 @@ const deleteMutateMock = vi.fn();
 // Module-level so the validation test can assert the save was never called.
 const saveMutateMock = vi.fn();
 const bulkMutateMock = vi.fn();
+const clearAgentMutateMock = vi.fn();
 const deleteRuleMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 
 vi.mock("@/services/commands", () => ({
@@ -25,6 +26,7 @@ vi.mock("@/features/rules/use-rule-center", () => ({
   useSaveMapRule: () => ({ mutate: saveMutateMock, isPending: false }),
   useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
   useBulkUpdateRules: () => ({ mutate: bulkMutateMock, isPending: false }),
+  useClearAgentRules: () => ({ mutate: clearAgentMutateMock, isPending: false }),
   // Read by handleReorder when it mirrors the new order into the query cache.
   MAP_RULES_QUERY_KEY: ["mapRules"],
 }));
@@ -431,5 +433,23 @@ describe("MapRulesPanel — priority hygiene", () => {
       { id: "rule-mike", priority: 20 },
       { id: "rule-zulu", priority: 10 },
     ]);
+  });
+
+  it("marks temporary Agent rules as read-only with their expiry", () => {
+    rulesState.current = [
+      makeRule({
+        id: "agent-map-1",
+        name: "Temporary map",
+        source: "agent",
+        expiresAt: "2026-10-30T12:34:56Z",
+      }),
+    ];
+
+    render(<MapRulesPanel mode="remote" />);
+
+    expect(screen.getByText("rulesPage.agentRule.badge")).toBeInTheDocument();
+    expect(screen.getByText(/rulesPage\.agentRule\.expires/)).toBeInTheDocument();
+    expect(screen.getByText(/rulesPage\.agentRule\.readOnlyDescription/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "rulesPage.editor.saveRule" })).toBeDisabled();
   });
 });

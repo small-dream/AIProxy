@@ -130,12 +130,15 @@ export const zhCNMessages: Messages = {
     appSubtitle: "桌面代理工作台",
     agentControlClearSessions: "清空全部 Session",
     agentControlConfigureWorkspace: "修改工作区配置",
+    agentControlCreateAgentRule: "创建临时 Agent 规则",
     agentControlDeleteSessions: "删除选定 Session",
     agentControlActionFailure: "Agent 操作失败：{{action}}（{{code}}）",
     agentControlActionSuccess: "Agent 已执行：{{action}}",
     agentControlGenerateCertificate: "生成根证书",
     agentControlOpenCertificateInstaller: "打开证书安装入口",
     agentControlRemoveCertificateTrust: "移除根证书",
+    agentControlRemoveAgentRules: "移除临时 Agent 规则",
+    agentControlReplaySession: "重放已捕获请求",
     agentControlSetSystemProxy: "修改系统代理",
     agentControlStartCapture: "启动抓包",
     agentControlStopCapture: "停止抓包",
@@ -334,10 +337,16 @@ export const zhCNMessages: Messages = {
       enableFullControl: "启用完整控制",
       fullControlBadge: "完整控制",
       fullControlWarning:
-        "完整控制允许 Agent 启动/停止抓包、接管系统代理、管理根证书并删除会话。请仅在信任当前 Agent 与任务时开启；删除与撤销证书信任仍必须由你在当前对话中明确请求。",
+        "完整控制允许 Agent 启动/停止抓包、接管系统代理、管理根证书、删除会话、向原始上游重放请求并创建临时规则。请仅在信任当前 Agent 与任务时开启；非幂等重放、删除与撤销证书信任仍必须由你在当前对话中明确请求。",
       manageCertificatesDescription:
         "允许 Agent 生成或轮换根证书、打开系统安装入口，以及撤销信任并清理证书。系统密码或安装确认仍由操作系统要求你完成。",
       manageCertificatesLabel: "管理根证书",
+      sendRequestsLabel: "重放已捕获请求",
+      sendRequestsDescription:
+        "允许 Agent 修改 Header、查询参数或 Body 后，把已捕获请求重新发送到原始主机。重放会直连上游，不执行 AIProxy 规则。",
+      manageRulesLabel: "创建临时规则",
+      manageRulesDescription:
+        "允许 Agent 为当前运行的 AIProxy 创建短期请求或响应规则。规则会自动过期，应用重启后消失，并会在规则页标记来源。",
       checkBodyAccess: "Body 读取权限",
       checkClients: "客户端连接",
       checkControlChannel: "Agent 控制通道",
@@ -759,6 +768,19 @@ export const zhCNMessages: Messages = {
     responseStageOption: "响应阶段（返回给客户端前）",
     title: "规则",
     untitledRule: "未命名规则",
+    agentRule: {
+      badge: "Agent",
+      cleared: "已移除 {{count}} 条临时 Agent 规则。",
+      clearAction: "清除 Agent 规则",
+      clearConfirmMessage:
+        "所有临时 Agent 规则会立即移除，匹配流量将不再被修改。用户自定义规则不会受到影响。",
+      clearConfirmTitle: "清除全部临时 Agent 规则？",
+      expires: "{{time}} 到期",
+      notice:
+        "{{count}} 条临时 Agent 规则正在影响匹配流量。它们仅存在于内存中，AIProxy 重启后会消失。",
+      readOnlyDescription:
+        "这是一条临时 Agent 规则，只读且将在 {{time}} 到期。你可以复制为持久化用户规则，或删除它以停止影响流量。",
+    },
     unsavedChangesIndicator: "有未保存的修改",
     unsavedChangesMessage: "规则编辑器中存在未保存的修改，离开后将丢失。",
     unsavedChangesTitle: "未保存的修改",
@@ -1708,6 +1730,7 @@ export const zhCNMessages: Messages = {
     pending: "等待中",
     resourceKinds: {
       cancelled: "已取消",
+      connectionFailed: "连接失败",
       css: "CSS",
       failed: "失败",
       file: "文件",
@@ -1766,6 +1789,7 @@ export const zhCNMessages: Messages = {
       overview: {
         cancelled: "已取消",
         complete: "完成",
+        failed: "失败",
         routeDirect: "直连",
         routeUpstreamProxy: "经上游代理",
         fields: {
@@ -1778,6 +1802,8 @@ export const zhCNMessages: Messages = {
           contentType: "Content-Type",
           cookies: "Cookies",
           dns: "DNS",
+          failure: "失败原因",
+          failureMessage: "失败详情",
           header: "Header",
           keptAlive: "保持连接",
           latency: "延迟",

@@ -1,6 +1,6 @@
 # ADR-007：Agent 控制通过受权限约束的本地 IPC 执行
 
-- 状态：`Accepted`
+- 状态：`Accepted`（控制权限与工具范围已由 ADR-009 扩展）
 - 日期：`2026-10-26`
 - 关联文档：`docs/PRD.md`、`docs/ARCHITECTURE.md`、`docs/API_SPEC.md`、`docs/DECISIONS/ADR-006-local-mcp-agent-access.md`
 
@@ -34,8 +34,8 @@ ADR-006 的 stdio sidecar 解决了 Agent 读取抓包的问题，但首次安�
 
 - 读取：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
 - 只读诊断：`get_app_status` 与 `diagnose_ai_proxy_issue`。后者通过 `readDiagnosticLogs` 获取受限日志摘要，不要求控制权限。
-- 控制：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`（共 9 个写工具）。
-- 本版不开放规则写入、上游代理配置、移动设备 ADB/HDC、导入导出、AI 模型设置或应用更新控制。
+- 控制：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`（本 ADR 落地时为 9 个写工具）。
+- v3.2 按 ADR-009 新增 `replay_session`、`create_agent_rule`、`remove_agent_rules`，并增加 `sendRequests`、`manageRules` 两个默认关闭的控制权限；任意持久化规则写入、上游代理配置、移动设备 ADB/HDC、导入导出、AI 模型设置与应用更新控制仍未开放。
 
 ## 后果
 
@@ -47,4 +47,4 @@ ADR-006 的 stdio sidecar 解决了 Agent 读取抓包的问题，但首次安�
 
 ## 回滚
 
-若控制通道出现阻塞性问题，可只关闭四个控制权限并停止启动控制服务，保留只读 MCP 工具；无需数据库迁移，也不改变已有 Session 数据格式。
+若控制通道出现阻塞性问题，可只关闭六个控制权限并停止启动控制服务，保留只读 MCP 工具；无需数据库迁移，也不改变已有 Session 数据格式。

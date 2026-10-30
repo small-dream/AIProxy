@@ -104,6 +104,9 @@ pub fn is_agent_control_tool(tool: &str) -> bool {
             | "remove_certificate_trust"
             | "clear_sessions"
             | "delete_sessions"
+            | "replay_session"
+            | "create_agent_rule"
+            | "remove_agent_rules"
     )
 }
 

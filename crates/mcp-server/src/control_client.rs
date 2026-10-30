@@ -46,6 +46,8 @@ pub fn operation_has_permission(config: &AgentAccessConfig, permission: ControlP
         ControlPermission::ControlSystemProxy => config.permissions.control_system_proxy,
         ControlPermission::ManageCertificates => config.permissions.manage_certificates,
         ControlPermission::DeleteSessions => config.permissions.delete_sessions,
+        ControlPermission::SendRequests => config.permissions.send_requests,
+        ControlPermission::ManageRules => config.permissions.manage_rules,
     }
 }
 
@@ -55,6 +57,8 @@ pub fn permission_label(permission: ControlPermission) -> &'static str {
         ControlPermission::ControlSystemProxy => "controlSystemProxy",
         ControlPermission::ManageCertificates => "manageCertificates",
         ControlPermission::DeleteSessions => "deleteSessions",
+        ControlPermission::SendRequests => "sendRequests",
+        ControlPermission::ManageRules => "manageRules",
     }
 }
 

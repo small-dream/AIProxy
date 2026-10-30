@@ -172,6 +172,20 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["delete", "clear", "sessions", "bodies", "删除", "清空", "会话", "响应体"],
   },
   {
+    id: "agent-send-requests",
+    sectionId: "agent",
+    labelKey: "settingsPage.agentAccess.sendRequestsLabel",
+    descriptionKeys: ["settingsPage.agentAccess.sendRequestsDescription"],
+    keywords: ["replay", "request", "upstream", "重放", "请求", "上游"],
+  },
+  {
+    id: "agent-manage-rules",
+    sectionId: "agent",
+    labelKey: "settingsPage.agentAccess.manageRulesLabel",
+    descriptionKeys: ["settingsPage.agentAccess.manageRulesDescription"],
+    keywords: ["rule", "rewrite", "map", "temporary", "规则", "改写", "映射", "临时"],
+  },
+  {
     id: "agent-audit",
     sectionId: "agent",
     labelKey: "settingsPage.agentAccess.auditTitle",

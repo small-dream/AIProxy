@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
@@ -57,6 +58,10 @@ pub enum ControlOperation {
     RemoveCertificateTrust,
     ClearSessions,
     DeleteSessions(DeleteSessionsParams),
+    ReplaySession(ReplaySessionParams),
+    CreateAgentRule(CreateAgentRuleParams),
+    ListAgentRules,
+    RemoveAgentRules(RemoveAgentRulesParams),
 }
 
 impl ControlOperation {
@@ -73,11 +78,18 @@ impl ControlOperation {
             Self::ClearSessions | Self::DeleteSessions(_) => {
                 Some(ControlPermission::DeleteSessions)
             }
+            Self::ReplaySession(_) => Some(ControlPermission::SendRequests),
+            Self::CreateAgentRule(_) | Self::ListAgentRules | Self::RemoveAgentRules(_) => {
+                Some(ControlPermission::ManageRules)
+            }
         }
     }
 
     pub fn is_write(&self) -> bool {
-        !matches!(self, Self::GetStatus | Self::ReadDiagnosticLogs(_))
+        !matches!(
+            self,
+            Self::GetStatus | Self::ReadDiagnosticLogs(_) | Self::ListAgentRules
+        )
     }
 
     pub fn method_name(&self) -> &'static str {
@@ -93,6 +105,10 @@ impl ControlOperation {
             Self::RemoveCertificateTrust => "removeCertificateTrust",
             Self::ClearSessions => "clearSessions",
             Self::DeleteSessions(_) => "deleteSessions",
+            Self::ReplaySession(_) => "replaySession",
+            Self::CreateAgentRule(_) => "createAgentRule",
+            Self::ListAgentRules => "listAgentRules",
+            Self::RemoveAgentRules(_) => "removeAgentRules",
         }
     }
 
@@ -112,6 +128,10 @@ impl ControlOperation {
             Self::RemoveCertificateTrust => "remove_certificate_trust",
             Self::ClearSessions => "clear_sessions",
             Self::DeleteSessions(_) => "delete_sessions",
+            Self::ReplaySession(_) => "replay_session",
+            Self::CreateAgentRule(_) => "create_agent_rule",
+            Self::ListAgentRules => "list_agent_rules",
+            Self::RemoveAgentRules(_) => "remove_agent_rules",
         }
     }
 
@@ -152,6 +172,27 @@ impl ControlOperation {
             Self::DeleteSessions(params) => {
                 format!("Delete {} sessions by id", params.session_ids.len())
             }
+            Self::ReplaySession(params) => {
+                let fields = replay_override_fields(params);
+                let field_summary = if fields.is_empty() {
+                    "none".to_string()
+                } else {
+                    fields.join(",")
+                };
+                format!(
+                    "Replay session {} directly to its original upstream (overrides={field_summary})",
+                    params.session_id
+                )
+            }
+            Self::CreateAgentRule(params) => format!(
+                "Create temporary {} rule {}",
+                params.action.kind(),
+                params.name.as_deref().unwrap_or("(unnamed)")
+            ),
+            Self::ListAgentRules => "List temporary Agent rules".to_string(),
+            Self::RemoveAgentRules(params) => {
+                format!("Remove {} temporary Agent rules", params.rule_ids.len())
+            }
         }
     }
 }
@@ -163,6 +204,8 @@ pub enum ControlPermission {
     ControlSystemProxy,
     ManageCertificates,
     DeleteSessions,
+    SendRequests,
+    ManageRules,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -238,6 +281,153 @@ pub enum DiagnosticLogLevel {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSessionsParams {
     pub session_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderOverride {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryParamOverride {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaySessionParams {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub set_headers: Vec<HeaderOverride>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remove_headers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub set_query_params: Vec<QueryParamOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub json_set: BTreeMap<String, Value>,
+}
+
+fn replay_override_fields(params: &ReplaySessionParams) -> Vec<&'static str> {
+    let mut fields = Vec::new();
+    if params.method.is_some() {
+        fields.push("method");
+    }
+    if !params.set_headers.is_empty() {
+        fields.push("setHeaders");
+    }
+    if !params.remove_headers.is_empty() {
+        fields.push("removeHeaders");
+    }
+    if !params.set_query_params.is_empty() {
+        fields.push("setQueryParams");
+    }
+    if params.body.is_some() {
+        fields.push("body");
+    }
+    if !params.json_set.is_empty() {
+        fields.push("jsonSet");
+    }
+    fields
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum AgentRuleAction {
+    SetRequestHeader {
+        name: String,
+        value: String,
+    },
+    RemoveRequestHeader {
+        name: String,
+    },
+    SetQueryParam {
+        name: String,
+        value: String,
+    },
+    RemoveQueryParam {
+        name: String,
+    },
+    SetResponseHeader {
+        name: String,
+        value: String,
+    },
+    RemoveResponseHeader {
+        name: String,
+    },
+    ReplaceResponseBody {
+        content_type: String,
+        body: String,
+    },
+    SetResponseJsonFields {
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        fields: BTreeMap<String, Value>,
+    },
+    MapRemote {
+        target_url: String,
+        #[serde(default)]
+        preserve_path: bool,
+        #[serde(default)]
+        preserve_query: bool,
+    },
+    MockResponseBody {
+        body: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_type: Option<String>,
+    },
+}
+
+impl AgentRuleAction {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::SetRequestHeader { .. } => "setRequestHeader",
+            Self::RemoveRequestHeader { .. } => "removeRequestHeader",
+            Self::SetQueryParam { .. } => "setQueryParam",
+            Self::RemoveQueryParam { .. } => "removeQueryParam",
+            Self::SetResponseHeader { .. } => "setResponseHeader",
+            Self::RemoveResponseHeader { .. } => "removeResponseHeader",
+            Self::ReplaceResponseBody { .. } => "replaceResponseBody",
+            Self::SetResponseJsonFields { .. } => "setResponseJsonFields",
+            Self::MapRemote { .. } => "mapRemote",
+            Self::MockResponseBody { .. } => "mockResponseBody",
+        }
+    }
+
+    pub fn requires_manage_rules(&self) -> bool {
+        matches!(self, Self::MapRemote { .. } | Self::MockResponseBody { .. })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAgentRuleParams {
+    pub url_pattern: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub methods: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<u64>,
+    pub action: AgentRuleAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveAgentRulesParams {
+    pub rule_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -636,6 +826,46 @@ mod tests {
             ControlOperation::ClearSessions.required_permission(),
             Some(ControlPermission::DeleteSessions)
         );
+        assert_eq!(
+            ControlOperation::ReplaySession(ReplaySessionParams {
+                session_id: "session-1".to_string(),
+                method: None,
+                set_headers: Vec::new(),
+                remove_headers: Vec::new(),
+                set_query_params: Vec::new(),
+                body: None,
+                json_set: BTreeMap::new(),
+            })
+            .required_permission(),
+            Some(ControlPermission::SendRequests)
+        );
+        assert_eq!(
+            ControlOperation::CreateAgentRule(CreateAgentRuleParams {
+                url_pattern: "https://api.example.com/*".to_string(),
+                methods: Vec::new(),
+                match_type: None,
+                name: None,
+                ttl_seconds: None,
+                action: AgentRuleAction::SetRequestHeader {
+                    name: "x-agent".to_string(),
+                    value: "1".to_string(),
+                },
+            })
+            .required_permission(),
+            Some(ControlPermission::ManageRules)
+        );
+        assert_eq!(
+            ControlOperation::ListAgentRules.required_permission(),
+            Some(ControlPermission::ManageRules)
+        );
+        assert!(!ControlOperation::ListAgentRules.is_write());
+        assert_eq!(
+            ControlOperation::RemoveAgentRules(RemoveAgentRulesParams {
+                rule_ids: vec!["rule-1".to_string()],
+            })
+            .required_permission(),
+            Some(ControlPermission::ManageRules)
+        );
         assert!(
             ControlOperation::SetSystemProxy(SetSystemProxyParams { enabled: true }).is_write()
         );
@@ -663,6 +893,30 @@ mod tests {
             ControlOperation::DeleteSessions(DeleteSessionsParams {
                 session_ids: vec!["session-1".to_string()],
             }),
+            ControlOperation::ReplaySession(ReplaySessionParams {
+                session_id: "session-1".to_string(),
+                method: None,
+                set_headers: Vec::new(),
+                remove_headers: Vec::new(),
+                set_query_params: Vec::new(),
+                body: None,
+                json_set: BTreeMap::new(),
+            }),
+            ControlOperation::CreateAgentRule(CreateAgentRuleParams {
+                url_pattern: "https://api.example.com/*".to_string(),
+                methods: Vec::new(),
+                match_type: None,
+                name: None,
+                ttl_seconds: None,
+                action: AgentRuleAction::SetRequestHeader {
+                    name: "x-agent".to_string(),
+                    value: "1".to_string(),
+                },
+            }),
+            ControlOperation::ListAgentRules,
+            ControlOperation::RemoveAgentRules(RemoveAgentRulesParams {
+                rule_ids: vec!["rule-1".to_string()],
+            }),
         ]
         .map(|operation| operation.audit_tool_name());
 
@@ -680,8 +934,55 @@ mod tests {
                 "remove_certificate_trust",
                 "clear_sessions",
                 "delete_sessions",
+                "replay_session",
+                "create_agent_rule",
+                "list_agent_rules",
+                "remove_agent_rules",
             ]
         );
+    }
+
+    #[test]
+    fn control_summaries_omit_replay_and_rule_values() {
+        let replay = ControlOperation::ReplaySession(ReplaySessionParams {
+            session_id: "session-1".to_string(),
+            method: Some("POST".to_string()),
+            set_headers: vec![HeaderOverride {
+                name: "Authorization".to_string(),
+                value: "Bearer TOP_SECRET".to_string(),
+            }],
+            remove_headers: vec!["Cookie".to_string()],
+            set_query_params: vec![QueryParamOverride {
+                name: "token".to_string(),
+                value: "QUERY_SECRET".to_string(),
+            }],
+            body: Some("BODY_SECRET".to_string()),
+            json_set: BTreeMap::from([(
+                "password".to_string(),
+                Value::String("JSON_SECRET".to_string()),
+            )]),
+        })
+        .action_summary();
+        assert!(replay.contains("method,setHeaders,removeHeaders,setQueryParams,body,jsonSet"));
+        assert!(!replay.contains("TOP_SECRET"));
+        assert!(!replay.contains("QUERY_SECRET"));
+        assert!(!replay.contains("BODY_SECRET"));
+        assert!(!replay.contains("JSON_SECRET"));
+
+        let rule = ControlOperation::CreateAgentRule(CreateAgentRuleParams {
+            url_pattern: "https://api.example.com/*".to_string(),
+            methods: Vec::new(),
+            match_type: None,
+            name: Some("temporary override".to_string()),
+            ttl_seconds: None,
+            action: AgentRuleAction::SetRequestHeader {
+                name: "Authorization".to_string(),
+                value: "Bearer RULE_SECRET".to_string(),
+            },
+        })
+        .action_summary();
+        assert!(rule.contains("setRequestHeader"));
+        assert!(!rule.contains("RULE_SECRET"));
     }
 
     #[test]

@@ -404,6 +404,7 @@ pub(crate) fn build_session_detail(
         // Set by the forwarding path once an upstream connection actually
         // happened; stays None for pending/synthesized sessions.
         via_upstream_proxy: None,
+        failure: None,
     }
 }
 
@@ -452,6 +453,7 @@ pub(crate) fn build_pending_session_detail(
             status_code: 0,
             url: request.url.to_string(),
             response_mime_type: None,
+            failure: None,
         },
         throttle_traces: Vec::new(),
         tls_cipher_suite: request.tls_cipher_suite.clone(),
@@ -473,6 +475,7 @@ pub(crate) fn build_pending_session_detail(
         // Set by the forwarding path once an upstream connection actually
         // happened; stays None for pending/synthesized sessions.
         via_upstream_proxy: None,
+        failure: None,
     }
 }
 
@@ -678,6 +681,7 @@ pub(crate) fn build_session_summary(input: SessionSummaryInput) -> ProxySessionS
         status_code,
         url,
         response_mime_type,
+        failure: None,
     }
 }
 

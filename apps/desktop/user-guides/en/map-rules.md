@@ -37,6 +37,17 @@ When multiple rules match, the **highest-priority** one wins.
 
 Tick row checkboxes for bulk **Enable / Disable / Delete**; drag the row handle to reorder (priorities renumber automatically so list order equals precedence). You can also right-click a request in [Sessions](./sessions.md) → **Map Local this request** to pre-fill a new draft with that host + path. Map Local / Map Remote rules are included in the Rules-page [import / export](./rewrite-rules.md#import--export-rules).
 
+### Temporary Agent map rules
+
+Same-host Map Remote or Mock Response rules created through [Agent Access](./agent-access.md) appear in this list with a warning-colored **Agent** chip and an expiry time:
+
+- Temporary rules live only in memory and disappear when the app restarts or the TTL expires.
+- These rows are read-only: you cannot edit, enable/disable, batch-select, or drag them.
+- You can still delete or duplicate them from the “...” menu. Duplicating creates a normal persistent rule and removes the temporary source and expiry metadata.
+- **Clear all Agent rules** above the list removes only temporary Agent rules; your saved Map Local / Map Remote rules are untouched.
+
+An Agent Map Remote must target the same host as its matched URL. Cross-host mapping must be created manually on the Rules page.
+
 ## Map Local: return a local file
 
 The **target** field takes a **local file or folder path** (use the "Choose File / Choose Folder" button to pick):

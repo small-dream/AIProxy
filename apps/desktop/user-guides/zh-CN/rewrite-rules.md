@@ -297,6 +297,17 @@ Upstream / Local Response -> Response Rewrite -> Script(onResponse) -> Breakpoin
 - **未保存草稿保护**：编辑器有未保存修改时，离开 Rules 页面、切换标签页、选择另一条规则、新建规则或套用模板，都会先弹「有未保存的更改……是否丢弃？」确认。
 - 字段级校验错误在首次尝试保存后显示在每个出错字段下方；Alert 仅用于保存失败和跨字段警告。
 
+### Agent 临时 Rewrite 规则
+
+通过 [Agent 接入](./agent-access.md) 创建的 Header、Query 或响应 Body 改写会以临时规则出现在列表中：
+
+- 行内显示 warning 色 **Agent** 标记与到期时间；默认 600 秒后失效，最长 3600 秒。
+- 规则只存在内存中，应用重启后消失，不会写入你的持久化规则。
+- Agent 规则是只读的：不能编辑、启停、批量选择或拖拽；但仍可删除、复制，或通过列表上方的 **清除全部 Agent 规则** 一次清理。
+- 复制会生成普通持久化规则，并去掉临时标记与到期时间；确认需要长期保留时才复制。
+
+Agent 的 `replay_session` **不会经过 Rewrite 规则**，因此不能用重放证明规则生效。正确验证方式是让真实客户端重新发起请求，再通过 Agent 的 `wait_for_sessions` 等待新会话，并查看该会话的 `ruleTraces` / Automation 记录。
+
 ## 无效组合保护
 
 当前版本直接拒绝保存以下容易误解的组合——在修正 Stage 或 Target 前 **Save** 按钮不会生效，同时会有警告说明原因：

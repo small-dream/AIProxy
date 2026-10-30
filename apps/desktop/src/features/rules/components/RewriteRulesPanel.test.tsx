@@ -14,6 +14,7 @@ const rulesState: { current: RewriteRule[] } = { current: [] };
 const sessionsState: { current: SessionSummary[] } = { current: [] };
 const saveMutateMock = vi.fn();
 const deleteMutateMock = vi.fn();
+const clearAgentMutateMock = vi.fn();
 const deleteRuleMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 
 vi.mock("@/features/rules/use-rule-center", () => ({
@@ -21,6 +22,7 @@ vi.mock("@/features/rules/use-rule-center", () => ({
   useSaveRewriteRule: () => ({ mutate: saveMutateMock, isPending: false }),
   useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
   useBulkUpdateRules: () => ({ mutate: vi.fn(), isPending: false }),
+  useClearAgentRules: () => ({ mutate: clearAgentMutateMock, isPending: false }),
 }));
 
 vi.mock("@/features/sessions/use-sessions", () => ({
@@ -100,6 +102,7 @@ beforeEach(() => {
   sessionsState.current = [];
   saveMutateMock.mockClear();
   deleteMutateMock.mockClear();
+  clearAgentMutateMock.mockClear();
   deleteRuleMock.mockClear();
   navigateMock.mockClear();
   routerState.current = null;
@@ -289,6 +292,51 @@ describe("RewriteRulesPanel — multi-action rules (R1)", () => {
         .length,
     ).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("rulesPage.rewrite.tester.reasons.matched")).not.toBeInTheDocument();
+  });
+});
+
+describe("RewriteRulesPanel — temporary Agent rules", () => {
+  it("marks Agent rules as read-only and exposes the expiry", () => {
+    rulesState.current = [
+      makeRule({
+        id: "agent-rule-1",
+        name: "Temporary mock",
+        source: "agent",
+        expiresAt: "2026-10-30T12:34:56Z",
+      }),
+    ];
+
+    render(<RewriteRulesPanel />);
+
+    expect(screen.getByText("rulesPage.agentRule.badge")).toBeInTheDocument();
+    expect(screen.getByText(/rulesPage\.agentRule\.expires/)).toBeInTheDocument();
+    expect(screen.getByText(/rulesPage\.agentRule\.readOnlyDescription/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "rulesPage.editor.saveRule" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "rulesPage.agentRule.clearAction" }),
+    ).toBeInTheDocument();
+  });
+
+  it("confirms before clearing every temporary Agent rule", () => {
+    rulesState.current = [
+      makeRule({
+        id: "agent-rule-1",
+        name: "Temporary mock",
+        source: "agent",
+        expiresAt: "2026-10-30T12:34:56Z",
+      }),
+    ];
+
+    render(<RewriteRulesPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.agentRule.clearAction" }));
+    expect(screen.getByText("rulesPage.agentRule.clearConfirmMessage")).toBeInTheDocument();
+    expect(clearAgentMutateMock).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "rulesPage.agentRule.clearAction" }).at(-1)!,
+    );
+    expect(clearAgentMutateMock).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -14,8 +14,10 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture — layers, module boundaries, responsibilities |
 | [API_SPEC.md](./API_SPEC.md) | Tauri commands, events, and data model contracts |
 | [NEXT_6_MONTH_ROADMAP.md](./NEXT_6_MONTH_ROADMAP.md) | Planned features and project direction |
+| [MCP_AGENT_LOOP_PLAN.md](./MCP_AGENT_LOOP_PLAN.md) | MCP v3.2 Agent loop implementation plan and acceptance criteria |
 | [MCP_AGENT_SKILL_PLAN.md](./MCP_AGENT_SKILL_PLAN.md) | MCP + Agent Skill product plan and implementation status |
 | [MCP_AGENT_SKILL_ARCHITECTURE.md](./MCP_AGENT_SKILL_ARCHITECTURE.md) | MCP transport, tools, permissions, and client integration architecture |
+| [MCP_LARGE_JSON_FIELD_EXTRACTION_PLAN.md](./MCP_LARGE_JSON_FIELD_EXTRACTION_PLAN.md) | Streaming JSON field extraction plan for large MCP responses and token-efficient Agent access |
 | [UI_UX_REVIEW_2026-08-16.md](./UI_UX_REVIEW_2026-08-16.md) | UI/UX review snapshot — P0 fixed, P1/P2 backlog pending |
 
 ### UI & Design
@@ -35,6 +37,8 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [RELEASE_GUIDE.md](./RELEASE_GUIDE.md) | Release process and publishing guide |
 | [DECISIONS/ADR-006-local-mcp-agent-access.md](./DECISIONS/ADR-006-local-mcp-agent-access.md) | Local MCP sidecar and read-only Agent Access decision |
 | [DECISIONS/ADR-007-agent-control-ipc.md](./DECISIONS/ADR-007-agent-control-ipc.md) | Permission-gated Agent control over owner-only local IPC |
+| [DECISIONS/ADR-008-bounded-diagnostic-log-access.md](./DECISIONS/ADR-008-bounded-diagnostic-log-access.md) | Bounded, redacted diagnostic log access |
+| [DECISIONS/ADR-009-agent-replay-and-temporary-rules.md](./DECISIONS/ADR-009-agent-replay-and-temporary-rules.md) | Direct request replay and in-memory temporary Agent rules |
 | [releases/](./releases/) | Versioned bilingual release summaries used by GitHub Releases and in-app updates |
 
 ### Architecture Decision Records (ADRs)
@@ -50,6 +54,8 @@ ADRs capture important architectural decisions and their rationale.
 | [ADR-005](./DECISIONS/ADR-005-mutex-poison-policy.md) | Mutex Poison Recovery Policy |
 | [ADR-006](./DECISIONS/ADR-006-local-mcp-agent-access.md) | Local MCP sidecar and read-only Agent Access decision |
 | [ADR-007](./DECISIONS/ADR-007-agent-control-ipc.md) | Permission-gated Agent control over owner-only local IPC |
+| [ADR-008](./DECISIONS/ADR-008-bounded-diagnostic-log-access.md) | Bounded, redacted diagnostic log access |
+| [ADR-009](./DECISIONS/ADR-009-agent-replay-and-temporary-rules.md) | Direct request replay and in-memory temporary Agent rules |
 
 ### Screenshots
 

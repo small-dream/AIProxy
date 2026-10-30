@@ -3,6 +3,7 @@ import type { DnsMappingRule, MapRule, RewriteRule, ScriptRule } from "@aiproxy/
 
 import {
   bulkUpdateRules,
+  clearAgentRules,
   deleteRule,
   listDnsMappings,
   listMapRules,
@@ -154,6 +155,18 @@ export function useDeleteManagedRule() {
         return;
       }
 
+      queryClient.invalidateQueries({ queryKey: MAP_RULES_KEY });
+    },
+  });
+}
+
+export function useClearAgentRules() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: clearAgentRules,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: REWRITE_RULES_KEY });
       queryClient.invalidateQueries({ queryKey: MAP_RULES_KEY });
     },
   });

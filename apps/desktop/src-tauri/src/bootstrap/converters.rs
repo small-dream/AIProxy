@@ -9,7 +9,8 @@ use aiproxy_proxy_core::{
     BreakpointRule, BreakpointStage, CompiledScriptRule, DnsMappingRule, MapRule,
     ProxyBodyReference, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
     ProxyTimingBreakdown, RewriteRule, RewriteRuleMatch, ScriptEntrypoints, ScriptRule,
-    ScriptRuleLanguage, ScriptRuleSourceType, ThrottleProfileData, ThrottleRuleData,
+    ScriptRuleLanguage, ScriptRuleSourceType, SessionFailure, ThrottleProfileData,
+    ThrottleRuleData,
 };
 
 use crate::workspace::WorkspaceData;
@@ -212,6 +213,14 @@ pub(crate) fn summary_row_to_proxy(row: SessionSummaryRow) -> ProxySessionSummar
         status_code: row.status_code,
         url: row.url,
         response_mime_type: row.response_mime_type,
+        failure: match (row.failure_origin, row.failure_kind) {
+            (Some(origin), Some(kind)) => Some(SessionFailure::new(
+                origin,
+                kind,
+                row.failure_message.unwrap_or_default(),
+            )),
+            _ => None,
+        },
     }
 }
 
@@ -306,6 +315,7 @@ pub(crate) fn detail_row_to_proxy(
         .trailers
         .as_ref()
         .and_then(|json| serde_json::from_str(json).ok());
+    let failure = summary.failure.clone();
 
     ProxySessionDetail {
         client_address: row.client_address.clone(),
@@ -331,6 +341,7 @@ pub(crate) fn detail_row_to_proxy(
         trailers,
         h2_stream_id: row.h2_stream_id,
         via_upstream_proxy: row.via_upstream_proxy,
+        failure,
     }
 }
 
@@ -382,6 +393,15 @@ pub(crate) fn proxy_summary_to_row(summary: &ProxySessionSummary) -> SessionSumm
         status_code: summary.status_code,
         url: summary.url.clone(),
         response_mime_type: summary.response_mime_type.clone(),
+        failure_origin: summary
+            .failure
+            .as_ref()
+            .map(|failure| failure.origin.clone()),
+        failure_kind: summary.failure.as_ref().map(|failure| failure.kind.clone()),
+        failure_message: summary
+            .failure
+            .as_ref()
+            .map(|failure| failure.message.clone()),
     }
 }
 
@@ -448,6 +468,10 @@ pub(crate) fn proxy_detail_to_row(
             .map(|t| serde_json::to_string(t).unwrap_or_else(|_| "[]".into())),
         h2_stream_id: detail.h2_stream_id,
         via_upstream_proxy: detail.via_upstream_proxy,
+        failure_message: detail
+            .failure
+            .as_ref()
+            .map(|failure| failure.message.clone()),
     }
 }
 

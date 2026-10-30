@@ -485,7 +485,7 @@ Sessions Page
 
 - 分组节点：Host、请求数量、展开状态
 - 请求节点：Method、Path、Status、Duration
-- 失败或异常请求：高优先级状态色提示
+- 失败或异常请求：高优先级状态色提示。连接阶段失败（`statusCode=0` 且存在 `failure`）使用 `CloudOff` 图标与错误色，文案为「连接失败」；不得显示为 Pending 转圈，也不得显示为普通 Pending。收到 HTTP 响应后的错误继续走状态码 / `warning` 样式。
 - 当前选中节点：明显高亮，但不应破坏整行可读性
 
 ### 详情面板标签
@@ -497,6 +497,7 @@ Sessions Page
 - 音频 / 视频预览使用原生 HTML5 `<audio>` / `<video>` 控件
 - SVG 同时拥有 Text Tab（原始 XML）和 Preview Tab（渲染后图形）
 - Preview Tab 的 base64 数据通过 `get_session_detail_content` 按需懒加载
+- Inspector Request Overview 的 General 分组在 `failure` 存在时追加「失败原因」与「失败详情」：前者格式为 `来源 · 类型`，后者展示后端已截断并按当前视图再次脱敏的消息。无失败时两行都不渲染；不得把失败消息塞进状态码、Content-Type 或 Timing 字段。
 
 ### 详情面板内容层级
 
@@ -748,6 +749,15 @@ Rules Page
   列表空态操作，保证空列表时仍可导入
 - 工作台模式至此覆盖全部四个一级 tab；Breakpoint 的迁移见下节
 
+### 2026-10 更新（Agent 临时规则可见性与只读约束）
+
+- Rewrite / Map 列表中的 Agent 规则必须同时展示 warning 色「Agent」chip 与「到期 HH:mm:ss」chip，让用户区分临时规则和普通规则，并能判断何时自动失效。
+- Agent 规则行不显示批量选择 Checkbox、拖拽手柄或启停 Switch；列表顺序仍按统一优先级排序，但 Agent 规则不参与拖拽/键盘重排。选中 Agent 规则时，编辑器内容整体降低不透明度并禁用编辑，顶部显示 info Alert 说明「临时 Agent 规则只读，将在指定时间自动移除」。
+- Agent 规则仍可通过“...”溢出菜单删除或复制。删除走统一确认并清理注册表、辅助规则与 mock Body；复制必须去掉 `source` / `expiresAt`，生成普通持久化规则，不能继续标为 Agent。
+- 规则列表上方出现 warning Alert 汇总临时规则数量与「清除全部 Agent 规则」入口。清除必须二次确认，明确“只删除临时 Agent 规则，不影响用户规则”；成功后显示移除数量，失败保留 Alert 并展示 mutation error。
+- Agent 规则只读是前后端双重约束：即使绕过 UI 调用保存/批量更新，也必须返回 `RULE_READ_ONLY`；错误文案说明“复制为普通规则后再保存”。
+- `agent-control-action` 事件刷新规则查询时不得清空用户当前草稿；仅刷新已保存规则列表与 Agent 通知计数。
+
 ### 2026-09 更新（Breakpoint 迁入内联工作台）
 
 - 断点规则管理从“快捷断点卡 + 规则列表 + Add Rule 模态对话框”改为与其他
@@ -974,7 +984,7 @@ Settings Page
 - 客户端列表顶部固定展示数据流向提示：AIProxy 不上传抓包，但 Agent 读取后内容会发送给模型服务商；读取默认保守，控制权限默认关闭。断开连接必须二次确认，说明配置路径、受管 Skill 路径与备份行为。
 - 「诊断信息」必须保留一条低噪音说明：Agent 可调用 `diagnose_ai_proxy_issue` 定位 AIProxy 自身故障；桌面端必须运行，日志仅来自白名单滚动文件与元数据审计，默认只返回 WARN/ERROR 且限行、限字节、脱敏。该说明不得暗示支持任意日志访问或完整日志导出。
 - 常规权限直接展示；未脱敏 Body、脱敏策略与查询上限放入默认折叠的“高级权限”。高风险权限（`readRawBodies`）使用 warning 色开关与风险说明；`readBodies` 关闭时 raw 开关必须禁用。脱敏策略包含“按格式识别敏感值”“标识符稳定哈希”和自定义敏感字段名；自定义正则只在 `agent-access.json` 维护。审计日志默认折叠为摘要，展开后保留表格、刷新与空状态。
-- 读取权限下方新增独立的“控制权限”分组，包含控制抓包与工作区、控制系统代理、管理根证书、删除会话四项，默认全部关闭。分组标题行提供“启用完整控制”快捷操作；四项分别使用 Switch，系统代理、证书与删除使用 warning 色。组内说明必须明确“开启后应用内不再二次确认”“删除不可恢复”“系统仍可能要求密码或安装确认”。
+- 读取权限下方新增独立的“控制权限”分组，包含 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules` 六项，默认全部关闭。分组标题行提供“启用完整控制”快捷操作；六项分别使用 Switch，系统代理、证书、删除、重放与规则使用 warning 色。组内说明必须明确“开启后应用内不再二次确认”“删除不可恢复”“重放会发出真实外部请求且不经过规则”“临时规则仍会影响经过代理的匹配流量”“系统仍可能要求密码或安装确认”。
 - 已授权控制执行后不弹应用内确认框，但前端必须通过 `agent-control-action` 事件刷新代理、工作区、证书和 Session 查询，并显示包含动作摘要的成功/失败通知；只读 `getStatus` 不产生 toast。自动拉起时前端尚未挂载事件监听器，因此必须读取最近动作回放并按 `eventId` 去重，不能丢失首个动作提示。
 - 顶部开关和权限都写入草稿。出现任何差异时，状态头显示 `未保存`，并同时在状态头与权限区提供 `保存更改` / `放弃`，避免开关被误认为即时生效。
 - 审计表新增“动作”列展示 `actionSummary`；`agentControl=true` 的写控制动作追加 warning 色“控制”Chip，用于区分读取与 Agent 控制；不展示凭据、请求参数或 Body。

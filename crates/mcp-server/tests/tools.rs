@@ -10,7 +10,12 @@ use aiproxy_mcp::config::{
     write_config, AgentAccessConfig, AgentAccessLimits, AgentAccessPermissions,
     AgentAccessRedaction, AppPaths,
 };
+use aiproxy_mcp::control_client::ControlCaller;
 use aiproxy_mcp::protocol::MCP_TOOL_SCHEMA_VERSION;
+use aiproxy_mcp::tools::agent::{
+    create_agent_rule, list_agent_rules, remove_agent_rules, replay_session,
+    AgentRuleActionRequest, CreateAgentRuleRequest, RemoveAgentRulesRequest, ReplaySessionRequest,
+};
 use aiproxy_mcp::tools::body::{
     get_session_body, get_session_fields, BodyPart, BodyRedactionMode, GetSessionBodyRequest,
     GetSessionFieldsRequest,
@@ -19,7 +24,8 @@ use aiproxy_mcp::tools::compare::{compare_sessions, CompareSessionsRequest, Diff
 use aiproxy_mcp::tools::diagnostics::{diagnose_issue, DiagnoseIssueRequest};
 use aiproxy_mcp::tools::insights::{get_insights, GetInsightsRequest, GroupBy};
 use aiproxy_mcp::tools::sessions::{
-    get_session, search, GetSessionRequest, RedactionMode, SearchSessionsRequest, SessionInclude,
+    get_session, search, wait_for_sessions, GetSessionRequest, RedactionMode,
+    SearchSessionsRequest, SessionInclude, WaitForSessionsRequest,
 };
 use aiproxy_mcp::tools::websocket::{get_messages, GetWebSocketMessagesRequest};
 use aiproxy_mcp::AppContext;
@@ -60,6 +66,9 @@ fn create_fixture(name: &str) -> (PathBuf, AppContext) {
             status_code: status,
             url: "https://api.example.com/v1/chat?token=secret".to_string(),
             response_mime_type: Some("application/json".to_string()),
+            failure_origin: None,
+            failure_kind: None,
+            failure_message: None,
         };
         let body = format!(
             "{{\"token\":\"secret-{id}\",\"message\":\"{message}\",\"ab\":{{\"ab_test\":\"{}\"}},\"payload\":\"{} filler\"}}",
@@ -102,6 +111,7 @@ fn create_fixture(name: &str) -> (PathBuf, AppContext) {
             trailers: None,
             h2_stream_id: Some(1),
             via_upstream_proxy: Some(false),
+            failure_message: None,
         };
         upsert_session(&connection, &summary, &detail).unwrap();
     }
@@ -183,6 +193,66 @@ fn create_fixture(name: &str) -> (PathBuf, AppContext) {
     (directory, context)
 }
 
+#[tokio::test]
+async fn agent_write_tools_fail_closed_when_permissions_are_disabled() {
+    let (directory, context) = create_fixture("agent_permissions");
+    let caller = ControlCaller {
+        name: "test-agent",
+        version: "1.0",
+    };
+
+    let replay_error = replay_session(
+        &context,
+        ReplaySessionRequest {
+            session_id: "left".to_string(),
+            method: None,
+            set_headers: Vec::new(),
+            remove_headers: Vec::new(),
+            set_query_params: Vec::new(),
+            body: None,
+            json_set: Default::default(),
+        },
+        caller,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(replay_error.code, "CONTROL_PERMISSION_DENIED");
+
+    let create_error = create_agent_rule(
+        &context,
+        CreateAgentRuleRequest {
+            url_pattern: "https://api.example.com/v1/*".to_string(),
+            methods: Vec::new(),
+            name: None,
+            ttl_seconds: Some(60),
+            match_type: None,
+            action: AgentRuleActionRequest::RemoveRequestHeader {
+                name: "x-test".to_string(),
+            },
+        },
+        caller,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(create_error.code, "CONTROL_PERMISSION_DENIED");
+
+    let list_error = list_agent_rules(&context, caller).await.unwrap_err();
+    assert_eq!(list_error.code, "CONTROL_PERMISSION_DENIED");
+
+    let remove_error = remove_agent_rules(
+        &context,
+        RemoveAgentRulesRequest {
+            rule_ids: vec!["agent-test".to_string()],
+        },
+        caller,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(remove_error.code, "CONTROL_PERMISSION_DENIED");
+
+    let _ = std::fs::remove_dir_all(directory);
+}
+
 fn insert_inline_body_session(directory: &Path, id: &str, body: &str, mime_type: &str) {
     let connection = aiproxy_db::rusqlite::Connection::open(directory.join("aiproxy.db")).unwrap();
     let summary = SessionSummaryRow {
@@ -202,6 +272,9 @@ fn insert_inline_body_session(directory: &Path, id: &str, body: &str, mime_type:
         status_code: 200,
         url: format!("https://api.example.com/{id}"),
         response_mime_type: Some(mime_type.to_string()),
+        failure_origin: None,
+        failure_kind: None,
+        failure_message: None,
     };
     let detail = SessionDetailRow {
         id: format!("{id}-detail"),
@@ -233,6 +306,7 @@ fn insert_inline_body_session(directory: &Path, id: &str, body: &str, mime_type:
         trailers: None,
         h2_stream_id: None,
         via_upstream_proxy: None,
+        failure_message: None,
     };
     upsert_session(&connection, &summary, &detail).unwrap();
 }
@@ -575,6 +649,42 @@ async fn session_prefixes_and_since_are_resolved_safely() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
+#[tokio::test]
+async fn wait_for_sessions_rejects_min_count_above_max_sessions() {
+    let (directory, context) = create_fixture("wait_limit");
+    write_config(
+        &context.paths.config_path,
+        &AgentAccessConfig {
+            enabled: true,
+            permissions: AgentAccessPermissions {
+                read_sessions: true,
+                ..AgentAccessPermissions::default()
+            },
+            limits: AgentAccessLimits {
+                max_sessions: 2,
+                ..AgentAccessLimits::default()
+            },
+            ..AgentAccessConfig::default()
+        },
+    )
+    .unwrap();
+
+    let error = wait_for_sessions(
+        &context,
+        WaitForSessionsRequest {
+            min_count: Some(3),
+            ..WaitForSessionsRequest::default()
+        },
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "INVALID_ARGUMENT");
+    assert!(error.message.contains("maxSessions limit (2)"));
+
+    let _ = std::fs::remove_dir_all(directory);
+}
+
 fn insert_form_request_session(directory: &Path, id: &str, body: &str, mime_type: &str) {
     let connection = aiproxy_db::rusqlite::Connection::open(directory.join("aiproxy.db")).unwrap();
     let summary = SessionSummaryRow {
@@ -594,6 +704,9 @@ fn insert_form_request_session(directory: &Path, id: &str, body: &str, mime_type
         status_code: 200,
         url: format!("https://api.example.com/{id}"),
         response_mime_type: None,
+        failure_origin: None,
+        failure_kind: None,
+        failure_message: None,
     };
     let detail = SessionDetailRow {
         id: format!("{id}-detail"),
@@ -625,6 +738,7 @@ fn insert_form_request_session(directory: &Path, id: &str, body: &str, mime_type
         trailers: None,
         h2_stream_id: None,
         via_upstream_proxy: None,
+        failure_message: None,
     };
     upsert_session(&connection, &summary, &detail).unwrap();
 }
@@ -1303,22 +1417,21 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     )
     .unwrap();
 
-    let mut tools = Vec::new();
+    let mut tool_values = Vec::new();
     for _ in 0..4 {
         let line = receiver
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("tools/list response timed out");
         let value: Value = serde_json::from_str(&line).unwrap();
         if value["id"] == 2 {
-            tools = value["result"]["tools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|tool| tool["name"].as_str().map(str::to_string))
-                .collect();
+            tool_values = value["result"]["tools"].as_array().unwrap().clone();
             break;
         }
     }
+    let tools = tool_values
+        .iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
     assert!(tools.contains(&"search_sessions".to_string()));
     assert!(tools.contains(&"get_session_body".to_string()));
     assert!(tools.contains(&"get_session_fields".to_string()));
@@ -1326,11 +1439,71 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     assert!(tools.contains(&"diagnose_ai_proxy_issue".to_string()));
     assert!(tools.contains(&"configure_workspace".to_string()));
     assert!(tools.contains(&"clear_sessions".to_string()));
+    assert!(tools.contains(&"replay_session".to_string()));
+    assert!(tools.contains(&"create_agent_rule".to_string()));
+    assert!(tools.contains(&"list_agent_rules".to_string()));
+    assert!(tools.contains(&"remove_agent_rules".to_string()));
     let mut expected_tools = aiproxy_mcp::context::available_tools();
     let mut actual_tools = tools.clone();
     expected_tools.sort_unstable();
     actual_tools.sort_unstable();
     assert_eq!(actual_tools, expected_tools);
+
+    for tool in &tool_values {
+        let name = tool["name"].as_str().unwrap();
+        assert!(tool["title"]
+            .as_str()
+            .is_some_and(|title| !title.is_empty()));
+        assert!(tool["description"]
+            .as_str()
+            .is_some_and(|description| !description.is_empty()));
+        let annotations = tool["annotations"]
+            .as_object()
+            .unwrap_or_else(|| panic!("{name} must declare annotations"));
+        assert!(annotations["readOnlyHint"].is_boolean());
+        assert!(annotations["openWorldHint"].is_boolean());
+        if let Some(properties) = tool["inputSchema"]["properties"].as_object() {
+            for (property, schema) in properties {
+                assert!(
+                    schema["description"]
+                        .as_str()
+                        .is_some_and(|description| !description.is_empty()),
+                    "{name}.{property} must have a schema description"
+                );
+            }
+        }
+    }
+
+    let replay = tool_values
+        .iter()
+        .find(|tool| tool["name"] == "replay_session")
+        .unwrap();
+    assert_eq!(replay["annotations"]["readOnlyHint"], false);
+    assert_eq!(replay["annotations"]["destructiveHint"], false);
+    assert_eq!(replay["annotations"]["idempotentHint"], false);
+    assert_eq!(replay["annotations"]["openWorldHint"], true);
+    let create = tool_values
+        .iter()
+        .find(|tool| tool["name"] == "create_agent_rule")
+        .unwrap();
+    assert_eq!(create["annotations"]["readOnlyHint"], false);
+    assert_eq!(create["annotations"]["destructiveHint"], false);
+    assert_eq!(create["annotations"]["idempotentHint"], false);
+    assert_eq!(create["annotations"]["openWorldHint"], false);
+    let list = tool_values
+        .iter()
+        .find(|tool| tool["name"] == "list_agent_rules")
+        .unwrap();
+    assert_eq!(list["annotations"]["readOnlyHint"], true);
+    assert_eq!(list["annotations"]["openWorldHint"], false);
+    let remove = tool_values
+        .iter()
+        .find(|tool| tool["name"] == "remove_agent_rules")
+        .unwrap();
+    assert_eq!(remove["annotations"]["readOnlyHint"], false);
+    assert_eq!(remove["annotations"]["destructiveHint"], true);
+    assert_eq!(remove["annotations"]["idempotentHint"], true);
+    assert_eq!(remove["annotations"]["openWorldHint"], false);
 
     writeln!(
         stdin,

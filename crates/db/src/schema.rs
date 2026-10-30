@@ -126,7 +126,9 @@ CREATE TABLE IF NOT EXISTS session_summaries (
     size_bytes        INTEGER NOT NULL DEFAULT 0,
     status_code       INTEGER NOT NULL DEFAULT 0,
     url               TEXT NOT NULL,
-    response_mime_type TEXT
+    response_mime_type TEXT,
+    failure_origin    TEXT,
+    failure_kind      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_session_summaries_started_at ON session_summaries(started_at);
 CREATE INDEX IF NOT EXISTS idx_session_summaries_host ON session_summaries(host);
@@ -155,6 +157,7 @@ CREATE TABLE IF NOT EXISTS session_details (
     trailers           TEXT DEFAULT NULL,
     h2_stream_id       INTEGER DEFAULT NULL,
     via_upstream_proxy INTEGER DEFAULT NULL,
+    failure_message    TEXT DEFAULT NULL,
     FOREIGN KEY (session_summary_id) REFERENCES session_summaries(id) ON DELETE CASCADE
 );
 -- M7: every sibling child table of session_summaries has an index on its FK
@@ -432,6 +435,30 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
         "via_upstream_proxy",
         "INTEGER DEFAULT NULL",
     )?;
+    migrate_add_column(
+        conn,
+        "session_summaries",
+        "failure_origin",
+        "TEXT DEFAULT NULL",
+    )?;
+    migrate_add_column(
+        conn,
+        "session_summaries",
+        "failure_kind",
+        "TEXT DEFAULT NULL",
+    )?;
+    migrate_add_column(
+        conn,
+        "session_details",
+        "failure_message",
+        "TEXT DEFAULT NULL",
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_session_summaries_failure_kind \
+         ON session_summaries(failure_kind)",
+        [],
+    )
+    .map_err(|e| DbError::MigrationFailed(format!("create session failure index: {e}")))?;
     migrate_add_column(
         conn,
         "workspaces",

@@ -1480,6 +1480,7 @@ mod tests {
             status_code: 200,
             url: url.to_string(),
             response_mime_type: mime.map(str::to_string),
+            failure: None,
         }
     }
 

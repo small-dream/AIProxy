@@ -1801,6 +1801,9 @@ mod tests {
                 status_code: 200,
                 url: "https://example.com/".into(),
                 response_mime_type: None,
+                failure_origin: None,
+                failure_kind: None,
+                failure_message: None,
             },
             &crate::sessions::SessionDetailRow {
                 id: "s1-detail".into(),
@@ -1821,6 +1824,7 @@ mod tests {
                 trailers: None,
                 h2_stream_id: None,
                 via_upstream_proxy: None,
+                failure_message: None,
             },
         )
         .unwrap();
@@ -1916,6 +1920,9 @@ mod tests {
                 status_code: 200,
                 url: "https://example.com/".into(),
                 response_mime_type: None,
+                failure_origin: None,
+                failure_kind: None,
+                failure_message: None,
             },
             &crate::sessions::SessionDetailRow {
                 id: "s2-detail".into(),
@@ -1936,6 +1943,7 @@ mod tests {
                 trailers: None,
                 h2_stream_id: None,
                 via_upstream_proxy: None,
+                failure_message: None,
             },
         )
         .unwrap();

@@ -128,12 +128,15 @@ export const enMessages = {
     appSubtitle: "Desktop proxy workbench",
     agentControlClearSessions: "deleted all sessions",
     agentControlConfigureWorkspace: "updated workspace settings",
+    agentControlCreateAgentRule: "created a temporary Agent rule",
     agentControlDeleteSessions: "deleted selected sessions",
     agentControlActionFailure: "Agent action failed: {{action}} ({{code}})",
     agentControlActionSuccess: "Agent action completed: {{action}}",
     agentControlGenerateCertificate: "generated the root certificate",
     agentControlOpenCertificateInstaller: "opened the certificate installer",
     agentControlRemoveCertificateTrust: "removed the root certificate",
+    agentControlRemoveAgentRules: "removed temporary Agent rules",
+    agentControlReplaySession: "replayed a captured request",
     agentControlSetSystemProxy: "changed the system proxy",
     agentControlStartCapture: "started capture",
     agentControlStopCapture: "stopped capture",
@@ -338,10 +341,16 @@ export const enMessages = {
       enableFullControl: "Enable full control",
       fullControlBadge: "full control",
       fullControlWarning:
-        "Full control lets the Agent start or stop capture, take over the system proxy, manage the root certificate, and delete sessions. Enable it only when you trust the Agent and task; deletion and certificate-trust removal still require an explicit request in the current conversation.",
+        "Full control lets the Agent start or stop capture, take over the system proxy, manage the root certificate, delete sessions, replay requests to their original upstream, and create temporary rules. Enable it only when you trust the Agent and task; non-idempotent replays, deletion, and certificate-trust removal still require an explicit request in the current conversation.",
       manageCertificatesDescription:
         "Let the Agent generate or rotate the root certificate, open the system installer, and revoke trust. The operating system still asks you for passwords or installation approval.",
       manageCertificatesLabel: "Manage the root certificate",
+      sendRequestsLabel: "Replay captured requests",
+      sendRequestsDescription:
+        "Let the Agent resend a captured request to its original host with edited headers, query parameters, or body. Replays go directly to the upstream and do not run AIProxy rules.",
+      manageRulesLabel: "Create temporary rules",
+      manageRulesDescription:
+        "Let the Agent create short-lived request or response rules for this running AIProxy instance. Rules expire automatically, disappear after restart, and are marked on the Rules page.",
       checkBodyAccess: "Body read permission",
       checkClients: "Client connections",
       checkControlChannel: "Agent control channel",
@@ -780,6 +789,19 @@ export const enMessages = {
       "Enable catch-all breakpoints to intercept every request or response.",
     quickBreakpointTitle: "Quick Breakpoint",
     untitledRule: "Untitled Rule",
+    agentRule: {
+      badge: "Agent",
+      cleared: "Removed {{count}} temporary Agent rules.",
+      clearAction: "Clear Agent rules",
+      clearConfirmMessage:
+        "All temporary Agent rules will be removed immediately and matching traffic will stop being modified. User-defined rules are not affected.",
+      clearConfirmTitle: "Clear all temporary Agent rules?",
+      expires: "Expires {{time}}",
+      notice:
+        "{{count}} temporary Agent rule(s) affect matching traffic. They exist only in memory and disappear when AIProxy restarts.",
+      readOnlyDescription:
+        "This is a temporary Agent rule. It is read-only and expires at {{time}}. Duplicate it to create a persistent user rule, or delete it to stop matching traffic.",
+    },
     unsavedChangesIndicator: "Unsaved changes",
     unsavedChangesMessage: "The rule editor has unsaved changes. Leaving now will discard them.",
     unsavedChangesTitle: "Unsaved changes",
@@ -1799,6 +1821,7 @@ export const enMessages = {
     pending: "Pending",
     resourceKinds: {
       cancelled: "Cancelled",
+      connectionFailed: "Connection failed",
       css: "CSS",
       failed: "Failed",
       file: "File",
@@ -1857,6 +1880,7 @@ export const enMessages = {
       overview: {
         cancelled: "Cancelled",
         complete: "Complete",
+        failed: "Failed",
         routeDirect: "Direct",
         routeUpstreamProxy: "Via upstream proxy",
         fields: {
@@ -1869,6 +1893,8 @@ export const enMessages = {
           contentType: "Content-Type",
           cookies: "Cookies",
           dns: "DNS",
+          failure: "Failure",
+          failureMessage: "Failure Message",
           header: "Header",
           keptAlive: "Kept Alive",
           latency: "Latency",

@@ -96,6 +96,10 @@ async fn send_ws_upstream_error_session(
     detail.rewrite_traces = rewrite_traces;
     detail.script_traces = script_traces;
     detail.throttle_traces = throttle_traces;
+    detail.set_failure(Some(crate::SessionFailure::upstream(
+        crate::connect::classify_upstream_failure(error),
+        error,
+    )));
 
     if ctx.session_sender.send(detail).await.is_err() {
         tracing::debug!(

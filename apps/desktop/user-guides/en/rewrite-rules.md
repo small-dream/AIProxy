@@ -297,6 +297,17 @@ Notes:
 - **Unsaved-draft guard**: leaving the Rules page, switching tabs, selecting another rule, creating a rule, or applying a template while the editor is dirty asks "Unsaved changes … discard?" before proceeding.
 - Field-level validation errors render under each offending field after the first save attempt; alerts are reserved for save errors and cross-field warnings.
 
+### Temporary Agent Rewrite rules
+
+Header, query, and response-body rewrites created through [Agent Access](./agent-access.md) appear as temporary rules in this list:
+
+- Each row shows a warning-colored **Agent** chip and its expiry time. The default TTL is 600 seconds, with a maximum of 3600 seconds.
+- Rules live only in memory, disappear when the app restarts, and are never written to your persistent rule database.
+- Agent rules are read-only: you cannot edit, enable/disable, batch-select, or drag them. You can still delete or duplicate them, or use **Clear all Agent rules** above the list.
+- Duplicating creates a normal persistent rule and removes the temporary source and expiry metadata. Do this only when you actually want to keep it.
+
+Agent `replay_session` **does not pass through Rewrite rules**, so replay cannot prove that a rule is active. To verify one, resend from the real client, use the Agent's `wait_for_sessions` to wait for the new session, then inspect `ruleTraces` / the Automation trace.
+
 ## Invalid-combination guards
 
 This version refuses to save these easily-misunderstood combinations — Save does nothing until you fix the Stage or Target, and a warning explains why:

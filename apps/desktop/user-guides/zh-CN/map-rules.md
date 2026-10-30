@@ -37,6 +37,17 @@ Map Local 和 Map Remote 共用同一组字段：
 
 勾选行前复选框可批量 **启用 / 禁用 / 删除**；拖动行首把手可排序（优先级自动重排，列表顺序即优先顺序）。也可以在 [Sessions](./sessions.md) 里右键某条请求 → **Map Local 此请求**，会基于该 Host + Path 预填一条新草稿。Map Local / Map Remote 规则包含在 Rules 页的[导入 / 导出](./rewrite-rules.md#规则导入--导出)中。
 
+### Agent 临时映射规则
+
+通过 [Agent 接入](./agent-access.md) 创建的同 host Map Remote 或 Mock Response 会出现在列表中，并带有 warning 色 **Agent** 标记和到期时间：
+
+- 临时规则只存在内存中，应用重启后失效；到期后自动移除。
+- 这些行是只读的：不能编辑、启用/停用、批量选择或拖拽排序。
+- 仍可通过“...”菜单删除或复制。复制会生成普通持久化规则，并去掉临时标记与到期时间。
+- 列表上方的 **清除全部 Agent 规则** 只删除临时 Agent 规则，不影响你保存的 Map Local / Map Remote 规则。
+
+Agent 的 Map Remote 只能指向与匹配 URL 相同的 host；跨 host 映射必须由你在规则页手动创建。
+
 ## Map Local：返回本地文件
 
 **目标**字段填**本地文件或目录路径**（可用「选择文件 / 选择目录」按钮拾取）：

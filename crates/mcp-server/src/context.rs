@@ -218,6 +218,8 @@ impl AppContext {
                 "controlSystemProxy": value.permissions.control_system_proxy,
                 "manageCertificates": value.permissions.manage_certificates,
                 "deleteSessions": value.permissions.delete_sessions,
+                "sendRequests": value.permissions.send_requests,
+                "manageRules": value.permissions.manage_rules,
             })
         });
         let mut issues: Vec<Value> = Vec::new();
@@ -304,7 +306,9 @@ pub fn available_tools() -> Vec<&'static str> {
     vec![
         "list_workspaces",
         "search_sessions",
+        "wait_for_sessions",
         "get_session",
+        "export_session_as_curl",
         "get_session_body",
         "get_session_fields",
         "get_websocket_messages",
@@ -321,6 +325,10 @@ pub fn available_tools() -> Vec<&'static str> {
         "remove_certificate_trust",
         "clear_sessions",
         "delete_sessions",
+        "replay_session",
+        "create_agent_rule",
+        "list_agent_rules",
+        "remove_agent_rules",
     ]
 }
 

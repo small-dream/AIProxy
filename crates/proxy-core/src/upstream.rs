@@ -1,4 +1,5 @@
 use super::*;
+use crate::error::UpstreamFailureKind;
 use crate::MAX_CAPTURED_BODY_BYTES;
 
 // Test-only instrumentation that tracks how many h1 conn-driver tasks are
@@ -297,7 +298,10 @@ pub(crate) async fn forward_request(
                             .boxed(),
                     )
                     .map_err(|e| {
-                        ProxyError::UpstreamError(format!("failed to build upstream request: {e}"))
+                        ProxyError::upstream(
+                            UpstreamFailureKind::Other,
+                            format!("failed to build upstream request: {e}"),
+                        )
                     })
             } else {
                 builder
@@ -307,9 +311,10 @@ pub(crate) async fn forward_request(
                             .boxed(),
                     )
                     .map_err(|e| {
-                        ProxyError::UpstreamError(format!(
-                            "failed to build upstream request body: {e}"
-                        ))
+                        ProxyError::upstream(
+                            UpstreamFailureKind::Other,
+                            format!("failed to build upstream request body: {e}"),
+                        )
                     })
             }
         };
@@ -345,9 +350,10 @@ pub(crate) async fn forward_request(
                         error = %error,
                         "upstream_request_send_failed"
                     );
-                    return Err(ProxyError::UpstreamError(format!(
-                        "failed to send upstream h2 request: {error}"
-                    )));
+                    return Err(ProxyError::upstream_from_hyper(
+                        "failed to send upstream h2 request",
+                        &error,
+                    ));
                 }
                 tracing::warn!(
                     event = "upstream_request_send_failed_retrying",
@@ -383,15 +389,16 @@ pub(crate) async fn forward_request(
                                 sender
                             }
                             Ok(Ok((crate::upstream_pool::UpstreamConnection::H1 { .. }, _))) => {
-                                return Err(ProxyError::UpstreamError(
-                                    "upstream protocol changed from h2 to h1 during retry"
-                                        .to_string(),
+                                return Err(ProxyError::upstream(
+                                    UpstreamFailureKind::Other,
+                                    "upstream protocol changed from h2 to h1 during retry",
                                 ));
                             }
                             Ok(Err(error)) => {
-                                return Err(ProxyError::UpstreamError(format!(
-                                    "failed to reconnect on retry: {error}"
-                                )));
+                                return Err(ProxyError::upstream(
+                                    UpstreamFailureKind::Other,
+                                    format!("failed to reconnect on retry: {error}"),
+                                ));
                             }
                             Err(timeout @ ProxyError::UpstreamTimeout { .. }) => {
                                 return Err(timeout)
@@ -400,8 +407,9 @@ pub(crate) async fn forward_request(
                         }
                     }
                     None => {
-                        return Err(ProxyError::UpstreamError(
-                            "h2 retry requested without an upstream pool".to_string(),
+                        return Err(ProxyError::upstream(
+                            UpstreamFailureKind::Other,
+                            "h2 retry requested without an upstream pool",
                         ));
                     }
                 };
@@ -412,9 +420,10 @@ pub(crate) async fn forward_request(
                         if let Some(ref p) = pool {
                             p.evict_key(&pool_key).await;
                         }
-                        return Err(ProxyError::UpstreamError(format!(
-                            "failed to send upstream h2 request after retry: {retry_error}"
-                        )));
+                        return Err(ProxyError::upstream_from_hyper(
+                            "failed to send upstream h2 request after retry",
+                            &retry_error,
+                        ));
                     }
                     // P1-5: same eviction discipline as above when
                     // the retried connection also fails to produce a
@@ -477,8 +486,9 @@ pub(crate) async fn forward_request(
             Some((lease, timing))
         }
         Some(crate::upstream_pool::UpstreamConnection::H2 { .. }) => {
-            return Err(ProxyError::UpstreamError(
-                "upstream h2 connection was not handled".to_string(),
+            return Err(ProxyError::upstream(
+                UpstreamFailureKind::Other,
+                "upstream h2 connection was not handled",
             ));
         }
         None => None,
@@ -647,10 +657,10 @@ async fn forward_h1_request(
             upstream_proxy.clone(),
         );
         let uri: http::Uri = request.url.to_string().parse().map_err(|e| {
-            ProxyError::UpstreamError(format!(
-                "failed to parse upstream URL '{}' as URI: {e}",
-                request.url
-            ))
+            ProxyError::upstream(
+                UpstreamFailureKind::Other,
+                format!("failed to parse upstream URL '{}' as URI: {e}", request.url),
+            )
         })?;
         let (timing_stream, connection_timing) =
             bound_head_phase(tower_service::Service::call(&mut connector, uri))
@@ -664,7 +674,10 @@ async fn forward_h1_request(
                         error = %error,
                         "upstream_connect_failed"
                     );
-                    ProxyError::UpstreamError(format!("failed to connect to upstream: {error}"))
+                    ProxyError::upstream(
+                        UpstreamFailureKind::Other,
+                        format!("failed to connect to upstream: {error}"),
+                    )
                 })?;
         let (sender, conn) = bound_head_phase(hyper::client::conn::http1::handshake(timing_stream))
             .await?
@@ -676,7 +689,7 @@ async fn forward_h1_request(
                     error = %error,
                     "upstream_http_handshake_failed"
                 );
-                ProxyError::UpstreamError(format!("upstream HTTP handshake failed: {error}"))
+                ProxyError::upstream_from_hyper("upstream HTTP handshake failed", &error)
             })?;
         let conn_handle = tokio::spawn(async move {
             let _ = conn.await;
@@ -718,9 +731,10 @@ async fn forward_h1_request(
                     guard.evict().await;
                 }
             }
-            return Err(ProxyError::UpstreamError(format!(
-                "failed to send upstream request: {error}"
-            )));
+            return Err(ProxyError::upstream_from_hyper(
+                "failed to send upstream request",
+                &error,
+            ));
         }
         Err(error @ ProxyError::UpstreamTimeout { .. }) => {
             if was_pooled {
@@ -836,7 +850,10 @@ async fn build_upstream_response_from_hyper(
                     error = %error,
                     "upstream_response_read_failed"
                 );
-                ProxyError::UpstreamError(format!("failed to read upstream response body: {error}"))
+                ProxyError::upstream(
+                    UpstreamFailureKind::UpstreamReset,
+                    "failed to read upstream response body",
+                )
             })?;
     let response_read_ms = response_read_started_at.elapsed().as_millis();
 

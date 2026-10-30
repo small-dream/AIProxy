@@ -61,6 +61,7 @@ import {
   reorderShortcutLabel,
   useClearMutationErrorOnRuleChange,
 } from "@/features/rules/components/RulesSharedUi";
+import { AgentRuleReadOnlyNotice, AgentRulesNotice } from "@/features/rules/components/AgentRuleUi";
 import {
   applyOrderedIdsWithinList,
   computeReorderedPriorities,
@@ -131,6 +132,8 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
           return `${r.name} ${r.sourcePattern} ${r.targetValue}`.toLowerCase().includes(q);
         });
     }, [rules, searchValue]);
+    const agentRuleCount = rules.filter((rule) => rule.source === "agent").length;
+    const isAgentRule = draft.source === "agent";
 
     useEffect(() => {
       if (draft.mode !== mode) {
@@ -174,9 +177,10 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
       [rules, selectedRuleId],
     );
     const isDirty = useMemo(() => {
+      if (isAgentRule) return false;
       const baseline = selectedSavedRule ?? createEmptyMapRule(mode);
       return !isMapRuleEqual(draft, baseline);
-    }, [draft, mode, selectedSavedRule]);
+    }, [draft, isAgentRule, mode, selectedSavedRule]);
 
     // Guards route navigation away AND in-component transitions that would
     // replace the in-flight draft; both share one confirmation dialog.
@@ -260,6 +264,8 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
         name: `${draft.name.trim() || t("rulesPage.untitledRule")}${t("rulesPage.copySuffix")}`,
         priority,
       };
+      delete copy.source;
+      delete copy.expiresAt;
       autoPriorityRef.current = priority;
       lastSyncedRuleIdRef.current = copy.id;
       setSelectedRuleId(copy.id);
@@ -268,7 +274,7 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
     }
 
     function handleSave() {
-      if (isRulesError) return;
+      if (isRulesError || isAgentRule) return;
       setValidationAttempted(true);
       if (hasRuleFieldErrors(errors)) return;
       const priority = resolveNewRulePriority(draft, rules, autoPriorityRef.current);
@@ -405,7 +411,9 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
       // keep their slots and the priorities stay a complete, collision-free set.
       const fullOrder = applyOrderedIdsWithinList(rules, orderedIds).map((rule) => rule.id);
       const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
-      const updates = computeReorderedPriorities(fullOrder, currentPriorities);
+      const updates = computeReorderedPriorities(fullOrder, currentPriorities).filter(
+        (update) => rules.find((rule) => rule.id === update.id)?.source !== "agent",
+      );
       if (updates.length === 0) return;
 
       const previous = rules;
@@ -454,6 +462,7 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
         if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
           const { selectedRuleId: selected, filteredRules: list } = shortcutStateRef.current;
           if (!selected) return;
+          if (list.find((rule) => rule.id === selected)?.source === "agent") return;
           const next = moveRuleInOrder(
             list.map((rule) => rule.id),
             selected,
@@ -508,40 +517,49 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
             </Button>
           }
           list={
-            <ManagedRuleList
-              emptyActions={
-                <Button
-                  size="small"
-                  variant="contained"
-                  disabled={isRulesError}
-                  startIcon={<AddRoundedIcon />}
-                  onClick={handleCreateRule}
-                >
-                  {isLocal
-                    ? t("rulesPage.mapLocal.createRule")
-                    : t("rulesPage.mapRemote.createRule")}
-                </Button>
-              }
-              emptyDescription={
-                isLocal
-                  ? t("rulesPage.mapLocal.emptyDescription")
-                  : t("rulesPage.mapRemote.emptyDescription")
-              }
-              onReorder={handleReorder}
-              selectedIds={selectedRuleIds}
-              items={filteredRules.map((rule) => ({
-                id: rule.id,
-                active: rule.id === selectedRuleId,
-                enabled: rule.enabled,
-                name: rule.name || t("rulesPage.untitledRule"),
-                subtitle: `${rule.sourcePattern || "*"} → ${rule.targetValue || t("rulesPage.notConfigured")}`,
-                onClick: () => selectRule(rule),
-                onSelectToggle: () => toggleSelect(rule.id),
-                // Persist the SAVED rule (not the in-flight draft) so the toggle
-                // takes effect immediately (review §4.1).
-                onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),
-              }))}
-            />
+            <Stack spacing={1}>
+              <AgentRulesNotice count={agentRuleCount} />
+              <ManagedRuleList
+                emptyActions={
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disabled={isRulesError}
+                    startIcon={<AddRoundedIcon />}
+                    onClick={handleCreateRule}
+                  >
+                    {isLocal
+                      ? t("rulesPage.mapLocal.createRule")
+                      : t("rulesPage.mapRemote.createRule")}
+                  </Button>
+                }
+                emptyDescription={
+                  isLocal
+                    ? t("rulesPage.mapLocal.emptyDescription")
+                    : t("rulesPage.mapRemote.emptyDescription")
+                }
+                onReorder={handleReorder}
+                selectedIds={selectedRuleIds}
+                items={filteredRules.map((rule) => ({
+                  id: rule.id,
+                  active: rule.id === selectedRuleId,
+                  enabled: rule.enabled,
+                  expiresAt: rule.expiresAt,
+                  name: rule.name || t("rulesPage.untitledRule"),
+                  subtitle: `${rule.sourcePattern || "*"} → ${rule.targetValue || t("rulesPage.notConfigured")}`,
+                  source: rule.source,
+                  onClick: () => selectRule(rule),
+                  onSelectToggle: rule.source === "agent" ? undefined : () => toggleSelect(rule.id),
+                  reorderable: rule.source !== "agent",
+                  // Persist the SAVED rule (not the in-flight draft) so the toggle
+                  // takes effect immediately (review §4.1).
+                  onToggleEnabled:
+                    rule.source === "agent"
+                      ? undefined
+                      : (enabled) => saveMutation.mutate({ ...rule, enabled }),
+                }))}
+              />
+            </Stack>
           }
           listFooter={
             rules.length > 0 ? (
@@ -563,7 +581,7 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
                     variant="contained"
                     startIcon={<SaveRoundedIcon />}
                     onClick={handleSave}
-                    disabled={saveMutation.isPending || isRulesError}
+                    disabled={saveMutation.isPending || isRulesError || isAgentRule}
                   >
                     {t("rulesPage.editor.saveRule")}
                   </Button>
@@ -581,7 +599,14 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
             </EditorActionBar>
           }
           editor={
-            <Stack spacing={2}>
+            <Stack
+              spacing={2}
+              sx={{
+                opacity: isAgentRule ? 0.78 : 1,
+                pointerEvents: isAgentRule ? "none" : undefined,
+              }}
+            >
+              {isAgentRule && <AgentRuleReadOnlyNotice expiresAt={draft.expiresAt} />}
               <RuleEditorIdentity
                 advanced={
                   <AdvancedPriorityField

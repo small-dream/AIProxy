@@ -36,7 +36,7 @@ Each row shows:
 - **HTTP method** (GET / POST / …)
 - **Path** (with the query suffix)
 - **Resource-type icon**: auto-detected from the response, e.g. JSON, JavaScript, CSS, HTML, image, text, WebSocket, file — color-coded
-- **Status**: "Pending" while in flight, the status code once complete; failed / cancelled requests have their own indicators
+- **Status**: "Pending" while in flight, the status code once complete; cancelled requests, HTTP errors, and connection failures use distinct indicators. DNS failures, refused connections, and TLS handshake failures that never produced an HTTP response remain visible as **Connection failed** instead of spinning forever.
 
 ### Multi-select & keyboard navigation
 
@@ -45,6 +45,7 @@ Each row shows:
 ### Filter & search
 
 - **Search box** (below the tree): matches any field — URL / host, path, method, status code, MIME type, protocol
+- **Failure lookup**: use status codes and keywords in this page for a quick search. Through [Agent Access](./agent-access.md), the Agent can additionally filter with `failedOnly`, `failureKind`, and `failureOrigin` for connection, TLS, timeout, and upstream failures
 - **Focus / Ignore chips**: focused and ignored hosts render as removable chips above the list (an active throttle as a warning chip); a category with many hosts collapses into one summary chip whose popover lists each host individually
 - **Throttled / All Sessions**: toggle at the top to show only requests affected by [throttling](./throttling.md)
 - **Clear Session**: clears all sessions in the current container; tick "clear without asking again" in the confirm dialog to skip it from then on (re-enable the confirmation in Settings → Notifications & confirmations)
@@ -76,7 +77,7 @@ Tabs appear dynamically based on the response type:
 
 | Tab | Content |
 |---|---|
-| Overview | Status code, Content-Type, client address, timing, size, connection info, a timing waterfall |
+| Overview | Status code, failure origin and details, Content-Type, client address, timing, size, connection info, a timing waterfall |
 | Headers | Response headers |
 | JSON | Tree viewer (collapsible, searchable) |
 | JSON Text | Pretty-printed JSON text, searchable |
@@ -88,6 +89,8 @@ Tabs appear dynamically based on the response type:
 | Trailers | HTTP trailers (when present) |
 
 Timing expands into phases such as connection-pool wait, DNS, connection setup, TLS, send, wait, and download. When an established connection is reused, DNS / connect / TLS may show **Connection reused**. If another request is still dialing the same host, a separate **Connection wait** row accounts for the queue time instead of folding it into DNS or TCP.
+
+For a failed request, the General group in Overview adds two rows: **Failure** shows `origin · kind` (for example `upstream · connect_timeout`), and **Failure Message** shows a length-limited, redacted explanation. The proxy records the origin and kind when the failure occurs; historical sessions do not receive invented reasons. If both rows are absent, the session was not marked as failed.
 
 ### Body size limit
 
@@ -128,6 +131,10 @@ The session list uses virtual scrolling (only visible rows render), so even thou
 ### Q: Why do some sessions show only "Pending"?
 
 The request has been sent but the response hasn't come back yet (or the connection hung), so the status is "Pending". After about two minutes without a response, a pending row flips to status 504 (Gateway Timeout) so it doesn't stay pending forever. A cancelled request shows "Cancelled".
+
+### Q: What is the difference between "Connection failed" and a normal 4xx / 5xx?
+
+"Connection failed" means no HTTP response was received, for example because DNS failed, the connection was refused, the connect timeout expired, or the TLS handshake failed. The status code is 0 and Overview shows the structured failure reason. A 4xx / 5xx means an upstream response did arrive, so it is an HTTP error rather than a connection-stage failure.
 
 ### Q: Can I look at just one endpoint?
 

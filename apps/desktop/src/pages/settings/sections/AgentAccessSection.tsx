@@ -919,6 +919,8 @@ export function AgentAccessSection() {
                           controlSystemProxy: true,
                           manageCertificates: true,
                           deleteSessions: true,
+                          sendRequests: true,
+                          manageRules: true,
                         },
                       }
                     : current,
@@ -990,6 +992,36 @@ export function AgentAccessSection() {
                 onChange={(event) => updatePermission("deleteSessions", event.target.checked)}
                 slotProps={{
                   input: { "aria-label": t("settingsPage.agentAccess.deleteSessionsLabel") },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-send-requests"
+              label={t("settingsPage.agentAccess.sendRequestsLabel")}
+              description={t("settingsPage.agentAccess.sendRequestsDescription")}
+            >
+              <Switch
+                size="small"
+                color="warning"
+                checked={draft.permissions.sendRequests}
+                onChange={(event) => updatePermission("sendRequests", event.target.checked)}
+                slotProps={{
+                  input: { "aria-label": t("settingsPage.agentAccess.sendRequestsLabel") },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-manage-rules"
+              label={t("settingsPage.agentAccess.manageRulesLabel")}
+              description={t("settingsPage.agentAccess.manageRulesDescription")}
+            >
+              <Switch
+                size="small"
+                color="warning"
+                checked={draft.permissions.manageRules}
+                onChange={(event) => updatePermission("manageRules", event.target.checked)}
+                slotProps={{
+                  input: { "aria-label": t("settingsPage.agentAccess.manageRulesLabel") },
                 }}
               />
             </SettingsRow>
@@ -1489,6 +1521,8 @@ function draftsEqual(current: AgentAccessDraft, saved: AgentAccessDraft) {
     "controlSystemProxy",
     "manageCertificates",
     "deleteSessions",
+    "sendRequests",
+    "manageRules",
   ];
   const limitKeys: Array<keyof AgentAccessLimits> = [
     "maxSessions",

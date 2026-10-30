@@ -211,6 +211,86 @@ pub struct ProxySessionSummary {
     pub status_code: u16,
     pub url: String,
     pub response_mime_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<SessionFailure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionFailure {
+    pub origin: String,
+    pub kind: String,
+    pub message: String,
+}
+
+pub const FAILURE_ORIGIN_CLIENT: &str = "client";
+pub const FAILURE_ORIGIN_PROXY: &str = "proxy";
+pub const FAILURE_ORIGIN_UPSTREAM: &str = "upstream";
+
+impl SessionFailure {
+    pub fn new(
+        origin: impl Into<String>,
+        kind: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        let message = message.into();
+        let mut end = message.len().min(512);
+        while !message.is_char_boundary(end) {
+            end -= 1;
+        }
+        Self {
+            origin: origin.into(),
+            kind: kind.into(),
+            message: message[..end].to_string(),
+        }
+    }
+
+    pub fn client(kind: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(FAILURE_ORIGIN_CLIENT, kind, message)
+    }
+
+    pub fn proxy(kind: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(FAILURE_ORIGIN_PROXY, kind, message)
+    }
+
+    pub fn upstream(kind: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(FAILURE_ORIGIN_UPSTREAM, kind, message)
+    }
+
+    pub fn from_proxy_error(error: &crate::ProxyError) -> Self {
+        match error {
+            crate::ProxyError::UpstreamError { kind, message } => {
+                Self::upstream(kind.as_str(), message)
+            }
+            crate::ProxyError::UpstreamTimeout { timeout_secs } => Self::upstream(
+                "upstream_timeout",
+                format!("The upstream did not respond within {timeout_secs}s."),
+            ),
+            crate::ProxyError::TlsError(message) => Self::upstream("upstream_tls", message),
+            crate::ProxyError::RuleError(message) => Self::proxy("rewrite_failed", message),
+            crate::ProxyError::BreakpointCancelled
+            | crate::ProxyError::RequestDropped
+            | crate::ProxyError::ScriptTimeout => Self::proxy("proxy_internal", error.to_string()),
+            crate::ProxyError::IoError(error) => Self::upstream_from_io(error),
+            crate::ProxyError::ResponseBuildError(_) | crate::ProxyError::Other(_) => {
+                Self::proxy("proxy_internal", error.to_string())
+            }
+        }
+    }
+
+    fn upstream_from_io(error: &std::io::Error) -> Self {
+        let (kind, message) = match error.kind() {
+            std::io::ErrorKind::NotFound => ("dns", error.to_string()),
+            std::io::ErrorKind::ConnectionRefused => ("connect_refused", error.to_string()),
+            std::io::ErrorKind::TimedOut => ("connect_timeout", error.to_string()),
+            std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::UnexpectedEof => ("upstream_reset", error.to_string()),
+            std::io::ErrorKind::InvalidData => ("upstream_tls", error.to_string()),
+            _ => ("other", error.to_string()),
+        };
+        Self::upstream(kind, message)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -478,9 +558,15 @@ pub struct ProxySessionDetail {
     /// unknown for this session — a mocked/breakpoint response, a replayed
     /// session, or a blind CONNECT tunnel that produced no forwarded request.
     pub via_upstream_proxy: Option<bool>,
+    pub failure: Option<SessionFailure>,
 }
 
 impl ProxySessionDetail {
+    pub fn set_failure(&mut self, failure: Option<SessionFailure>) {
+        self.summary.failure = failure.clone();
+        self.failure = failure;
+    }
+
     pub fn raw_request_text(&self) -> Option<String> {
         render_raw_http_message(self.raw_request_head.as_deref(), self.request_body.as_ref())
     }
@@ -522,6 +608,12 @@ impl ProxySessionDetail {
                 .map_or(0, |_| size_of::<ProxyTimingBreakdown>())
             + self.script_traces.capacity() * size_of::<ScriptTrace>()
             + self.throttle_traces.capacity() * size_of::<ThrottleTrace>()
+            + self.failure.as_ref().map_or(0, |failure| {
+                size_of::<SessionFailure>()
+                    + failure.origin.capacity()
+                    + failure.kind.capacity()
+                    + failure.message.capacity()
+            })
     }
 }
 
@@ -550,7 +642,8 @@ impl Serialize for ProxySessionDetail {
             + usize::from(self.timing_source.is_some())
             + usize::from(self.trailers.is_some())
             + usize::from(self.h2_stream_id.is_some())
-            + usize::from(self.via_upstream_proxy.is_some());
+            + usize::from(self.via_upstream_proxy.is_some())
+            + usize::from(self.failure.is_some());
         let mut state = serializer.serialize_struct("ProxySessionDetail", field_count)?;
         if let Some(client_address) = &self.client_address {
             state.serialize_field("clientAddress", client_address)?;
@@ -600,6 +693,9 @@ impl Serialize for ProxySessionDetail {
         }
         if let Some(via_upstream_proxy) = &self.via_upstream_proxy {
             state.serialize_field("viaUpstreamProxy", via_upstream_proxy)?;
+        }
+        if let Some(failure) = &self.failure {
+            state.serialize_field("failure", failure)?;
         }
         state.end()
     }
@@ -835,6 +931,7 @@ mod types_tests {
             status_code: 200,
             url: "http://example.com/".to_string(),
             response_mime_type: None,
+            failure: None,
         }
     }
 
@@ -846,6 +943,7 @@ mod types_tests {
         let detail = ProxySessionDetail {
             client_address: None,
             cookies: Vec::new(),
+            failure: None,
             id: "sess-1".to_string(),
             query_params: Vec::new(),
             raw_request_head: None,

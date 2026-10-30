@@ -7,6 +7,7 @@ import { isWebSocketSessionProtocol } from "./session-protocol.helpers";
 export type SessionExplorerResourceKind =
   | "api"
   | "cancelled"
+  | "connectionFailed"
   | "css"
   | "file"
   | "html"
@@ -216,6 +217,10 @@ export function getSessionQuerySuffix(session: SessionSummary): string {
 }
 
 export function getSessionResourceKind(session: SessionSummary): SessionExplorerResourceKind {
+  if (session.failure && session.statusCode <= 0) {
+    return "connectionFailed";
+  }
+
   if (session.statusCode <= 0) {
     return "pending";
   }

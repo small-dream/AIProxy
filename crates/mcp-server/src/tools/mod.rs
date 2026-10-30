@@ -1,6 +1,8 @@
+pub mod agent;
 pub mod body;
 pub mod compare;
 pub mod control;
+pub mod curl;
 pub mod diagnostics;
 pub mod insights;
 pub mod sessions;

@@ -525,9 +525,12 @@ function buildOverviewSections({
   const responseUncompressedBytes = estimateDecodedBodyBytes(detail?.responseBody);
   const statusLabel = isClientCancelledStatus(session.statusCode)
     ? t("inspector.request.overview.cancelled")
-    : session.statusCode > 0
-      ? t("inspector.request.overview.complete")
-      : t("common.states.pending");
+    : (detail?.failure ?? session.failure)
+      ? t("inspector.request.overview.failed")
+      : session.statusCode > 0
+        ? t("inspector.request.overview.complete")
+        : t("common.states.pending");
+  const failure = detail?.failure ?? session.failure;
   const timingItems: OverviewItem[] = [
     [t("inspector.request.overview.fields.requestStartTime"), startedAt],
     ...conditionalRows(hasRequestSendTiming, [
@@ -629,6 +632,15 @@ function buildOverviewSections({
             t("inspector.request.overview.fields.responseCode"),
             session.statusCode > 0 ? String(session.statusCode) : fallback,
           ],
+          ...conditionalRows(Boolean(failure), [
+            [
+              t("inspector.request.overview.fields.failure"),
+              failure ? `${failure.origin} · ${failure.kind}` : fallback,
+            ],
+          ]),
+          ...conditionalRows(Boolean(failure?.message), [
+            [t("inspector.request.overview.fields.failureMessage"), failure?.message ?? fallback],
+          ]),
           [t("inspector.request.overview.fields.contentType"), responseContentType],
           [t("inspector.request.overview.fields.clientAddress"), detail?.clientAddress ?? fallback],
           [

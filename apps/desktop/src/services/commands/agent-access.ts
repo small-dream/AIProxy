@@ -29,6 +29,8 @@ const defaultPermissions = {
   controlSystemProxy: false,
   manageCertificates: false,
   deleteSessions: false,
+  sendRequests: false,
+  manageRules: false,
 };
 
 const fallbackClients: AgentAccessSettings["clients"] = [
@@ -41,7 +43,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "3.1",
+    bundledSkillVersion: "3.2",
     configFormat: "toml",
     configSnippet:
       '[mcp_servers.aiproxy]\ncommand = "<path-to-aiproxy-mcp>"\nargs = ["--data-dir", "<path-to-aiproxy-data>"]\n',
@@ -55,7 +57,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "3.1",
+    bundledSkillVersion: "3.2",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {
@@ -80,7 +82,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "3.1",
+    bundledSkillVersion: "3.2",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {

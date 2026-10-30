@@ -10,6 +10,8 @@ export type AgentAccessPermissions = {
   controlSystemProxy: boolean;
   manageCertificates: boolean;
   deleteSessions: boolean;
+  sendRequests: boolean;
+  manageRules: boolean;
 };
 
 export type AgentAccessLimits = {

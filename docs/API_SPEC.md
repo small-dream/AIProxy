@@ -208,6 +208,13 @@ type SessionSummary = {
   statusCode: number;
   url: string;
   responseMimeType?: string;
+  failure?: SessionFailure; // 无失败时省略；历史会话也不会伪造该字段
+};
+
+type SessionFailure = {
+  origin: "client" | "proxy" | "upstream";
+  kind: string;   // dns / connect_refused / connect_timeout / upstream_tls / ...
+  message: string; // 最多 512 字节，按当前脱敏模式再次脱敏
 };
 ```
 
@@ -748,6 +755,7 @@ type SessionSummary = {
   statusCode: number;
   url: string;
   responseMimeType?: string;
+  failure?: SessionFailure;
 };
 
 type ListSessionsOutput = SessionSummary[];
@@ -1362,6 +1370,8 @@ type ListRewriteRulesInput = {
 type ListRewriteRulesOutput = RewriteRule[];
 ```
 
+临时 Agent 规则会附带 `source: "agent"` 与 `expiresAt`；内部用于补充 Content-Type 的辅助规则不会出现在列表中。普通规则不带 `source`。
+
 ### `save_rewrite_rule`
 
 状态：`已实现`
@@ -1379,6 +1389,24 @@ type SaveRewriteRuleInput = Omit<RewriteRule, "id"> & {
 ```ts
 type SaveRewriteRuleOutput = RewriteRule;
 ```
+
+保存时若 `id` 属于临时 Agent 规则，返回 `RULE_READ_ONLY`，不得把 Agent 规则转成用户规则。用户要持久化时应先复制，复制结果不带 `source` / `expiresAt`。
+
+### `clear_agent_rules`
+
+状态：`已实现`
+
+请求：无参数。
+
+响应：
+
+```ts
+type ClearAgentRulesOutput = {
+  removedCount: number;
+};
+```
+
+说明：清除全部临时 Agent 规则，并删除其辅助规则与 mock Body 文件。普通用户规则不受影响；过期规则在清理前会先被移除。
 
 ### `list_rewrite_session_trace`
 
@@ -1420,6 +1448,8 @@ type ListMapRulesInput = {
 ```ts
 type ListMapRulesOutput = MapRule[];
 ```
+
+返回项与 Rewrite 一样，Agent 规则附带 `source: "agent"` 与 `expiresAt`；内部辅助规则不可见。`save_map_rule` 对 Agent 规则返回 `RULE_READ_ONLY`。
 
 ### `save_map_rule`
 
@@ -2270,7 +2300,7 @@ type ShowLogFileOutput = string; // 日志文件的绝对路径
 - 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
 - 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
 
-## 6.14 Agent Access / MCP Commands — `已实现（读取 + 受控操作 + 受控诊断，工具契约 3.1）`
+## 6.14 Agent Access / MCP Commands — `已实现（读取 + 受控操作 + 受控诊断，工具契约 3.2）`
 
 Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量，并按权限分组执行桌面控制。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
 
@@ -2301,6 +2331,8 @@ type AgentAccessSettings = {
     controlSystemProxy: boolean;
     manageCertificates: boolean;
     deleteSessions: boolean;
+    sendRequests: boolean;
+    manageRules: boolean;
   };
   limits: { maxSessions: number; maxBodyBytes: number; maxResponseBytes: number };
   redaction: {
@@ -2339,9 +2371,9 @@ type AgentClientInfo = {
 
 说明：
 
-- 配置缺失时返回默认值（关闭、读取会话开启、Body/WebSocket/raw 与四个控制权限关闭），不视为命令失败。
+- 配置缺失时返回默认值（关闭、读取会话开启、Body/WebSocket/raw 与六个控制权限关闭），不视为命令失败。
 - 内存配置契约版本为 `3`。为兼容旧只读 sidecar，磁盘文件仍使用 v2 信封；新增控制权限为 additive 字段，旧 sidecar 会忽略，新 desktop / sidecar 读取后在内存归一化为 v3。
-- 读取 v2 配置时会补齐四个控制权限为 `false`，不产生隐式提权。`get_agent_access_settings.version` 返回归一化后的 `3`。
+- 读取旧配置时会补齐缺失的控制权限为 `false`，不产生隐式提权；`sendRequests` 与 `manageRules` 同样默认关闭。`get_agent_access_settings.version` 返回归一化后的 `3`。
 - `clients` 生成可复制片段；实际写入由 `install_agent_client_config` 完成。
 - Cursor 目标为 `~/.cursor/mcp.json`，使用标准 `mcpServers` 结构且不写 `type` 字段。
 - Codex 目标为 `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）。
@@ -2426,6 +2458,8 @@ type DoctorResult = {
       controlSystemProxy: boolean;
       manageCertificates: boolean;
       deleteSessions: boolean;
+      sendRequests: boolean;
+      manageRules: boolean;
     } | null;
     availableTools: string[];
   };
@@ -2559,11 +2593,14 @@ type AgentAuditLog = {
 
 ### MCP stdio tool contract
 
-`aiproxy-mcp` 当前工具契约版本为 `3.1`，共 19 个工具：
+`aiproxy-mcp` 当前工具契约版本为 `3.2`，共 25 个工具：
 
-- 8 个读取工具：`list_workspaces`、`search_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`。
+- 10 个读取工具：`list_workspaces`、`search_sessions`、`wait_for_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`、`export_session_as_curl`。
 - 2 个只读诊断工具：`get_app_status`、`diagnose_ai_proxy_issue`。
-- 9 个写控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`。
+- 1 个受 `manageRules` 保护的只读工具：`list_agent_rules`。
+- 12 个受权限保护的写工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`replay_session`、`create_agent_rule`、`remove_agent_rules`。
+
+所有工具都声明 `title`、`description` 与 MCP annotations。读取工具为只读；配置、抓包、系统代理和证书操作关闭 `openWorldHint`；`generate_certificate`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`remove_agent_rules` 标记为破坏性；`replay_session` 标记为 `openWorldHint=true` 且非幂等，客户端应据此提示用户确认。
 
 所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。`meta` 包含 `schemaVersion`、`dataFreshness`、`latestSessionAt`、`captureStatus`、`captureUpdatedAt`、`truncated`、`redacted`、`nextCursor`、`tookMs`、`readAt`、`auditDegraded`；会话是全局的，不再返回恒为 `null` 的 `workspaceId`。稳定排序：
 
@@ -2575,6 +2612,15 @@ type AgentAuditLog = {
 
 - `search_sessions`：支持 `sortBy=startedAt|durationMs|sizeBytes|statusCode` 与 `sortOrder=asc|desc`；同值按 `started_at`、`id` 确定性排序。cursor v2 绑定排序字段、方向和当前排序值，不匹配时返回 `CURSOR_INVALID`。
 - `get_websocket_messages`：`timestamp ASC, id ASC`，不透明 cursor。
+- `wait_for_sessions`：只轮询已完成的持久化会话，最长 30 秒，间隔 300ms；不是实时流。`afterWatermark` 省略时以调用时刻最新完成会话为起点。超时返回 `satisfied=false`、`timedOut=true`，不是工具错误；抓包未运行时 `notes` 会明确提示。分页结果与下一轮 `meta.watermark` 一起使用。
+- `export_session_as_curl`：只生成命令，不发送请求。支持 `posix` / `powershell` 转义；敏感 Header、Query 与 JSON 字段在脱敏模式下替换为环境变量占位符，二进制或超过 64 KiB 的文本 Body 直接省略并说明原因；raw 模式需要 `readRawBodies`。每次导出使用独立标记，只有本次导出生成的占位符才会渲染为环境变量；抓包文本中的相似前缀按字面量转义，环境变量名仅允许 `[A-Z0-9_]`。
+
+失败原因：
+
+- `SessionSummary.failure` 与 `SessionDetail.failure` 包含 `origin`、`kind`、`message`；`message` 最多 512 字节并按当前脱敏模式再次脱敏。无失败或迁移前历史会话省略该字段。
+- `search_sessions`、`wait_for_sessions` 支持 `failedOnly`、`failureKind`、`failureOrigin`；`get_insights` 的 `byFailureKind` 给出按失败类别聚合的计数。
+- 首版稳定 `kind`：`dns`、`connect_refused`、`connect_timeout`、`upstream_tls`、`client_tls_rejected`、`client_tls_untrusted_root`、`upstream_reset`、`upstream_timeout`、`client_closed`、`throttled`、`rewrite_failed`、`proxy_internal`、`other`。来源分别为 `client`、`proxy`、`upstream`。
+- 客户端 TLS 握手失败和盲转发 CONNECT 失败会生成状态码为 `0` 的连接失败会话；同一 host 10 秒内最多记录一条，避免证书绑定应用重试时刷屏。
 
 #### `diagnose_ai_proxy_issue`
 
@@ -2698,6 +2744,19 @@ Body 与字段提取：
 | `remove_certificate_trust` | `manageCertificates` | 撤销信任、删除证书、关闭 SSL、交还系统代理并重启为 HTTP-only |
 | `clear_sessions` | `deleteSessions` | 删除全部 Session 与 Body，返回删除数量 |
 | `delete_sessions` | `deleteSessions` | 按 session ID 批量删除，单次最多 200 个，返回 `deletedCount` 与 `missingSessionIds` |
+| `replay_session` | `sendRequests` | 从已持久化 HTTP 会话构造真实请求，直连原始上游 host 发送并把结果持久化为新会话；返回 `newSessionId`、`statusCode`、`durationMs`、可选 `failure`。不经过 AIProxy 监听端口，不执行任何用户或 Agent 规则 |
+| `create_agent_rule` | `manageRules` | 创建一条内存临时 Agent 规则；白名单动作、精确 host、匹配方式默认 `wildcard` 或显式 `exact`、TTL 默认 600 秒/最大 3600 秒、最多 20 条；返回 `ruleId`、动作、创建/过期时间 |
+| `list_agent_rules` | `manageRules` | 只列 Agent 注册表中的临时规则及到期时间，不返回用户规则 |
+| `remove_agent_rules` | `manageRules` | 按 1-20 个 `ruleId` 删除临时 Agent 规则，返回 `removedCount` 与 `missingRuleIds`；未知 ID 不算错误，不影响用户规则 |
+
+重放与临时规则边界：
+
+- 重放的 session 必须包含完整 HTTP 请求；CONNECT / 状态码 0 的连接失败会话不可重放。请求 Body 在捕获时已截断时必须提供完整 `body` 覆盖，否则返回 `INVALID_ARGUMENT`，不会静默发送不完整内容。
+- `setHeaders` 不能设置 Host、HTTP/2 pseudo-header 或 CR/LF；URL 由原始 host 与 `setQueryParams` 组成，最终 host 必须与原会话一致。`jsonSet` 使用规则引擎同一路径语法，要求覆盖后 Body 是合法 JSON。单次 Body 覆盖上限 1 MiB，Header/Query 覆盖列表各最多 100 项。
+- 重放串行执行，同一时刻只允许一个请求，窗口内最多 10 次；超限返回 `RATE_LIMITED`（`retryable=true`）。重放失败不创建新会话，返回 `REPLAY_FAILED` 与原始 session/host 详情。
+- Agent 规则动作白名单：`setRequestHeader`、`removeRequestHeader`、`setQueryParam`、`removeQueryParam`、`setResponseHeader`、`removeResponseHeader`、`replaceResponseBody`、`setResponseJsonFields`、`mapRemote`、`mockResponseBody`。`matchType` 默认 `wildcard`，也可显式使用 `exact`；不允许 `contains`、regex、wildcard host 或跨 host `mapRemote`。匹配时除 URL pattern 外还会再次比较请求 host 与规则锁定的 host。Mock Body 最大 256 KiB，写入 `<data-dir>/agent-rules/<ruleId>.body`（Unix `0600`）。
+- Agent 规则只存在于桌面进程内存与规则管理器快照中，不写入用户规则表；应用重启即消失。规则页显示 `source="agent"` 与 `expiresAt`，且禁止编辑、启停、选择、拖拽与批量更新；删除和复制仍可用，复制后生成普通持久化规则。规则页提供“清除全部 Agent 规则”入口。
+- 桌面端每 15 秒清理过期规则并删除对应 mock 文件；直接删除主规则、过期或一键清理都会同步移除辅助 Content-Type 规则和 Body 文件。
 
 状态响应边界：
 
@@ -2713,7 +2772,7 @@ Body 与字段提取：
 - 写操作超时 60 秒并返回 `CONTROL_TIMEOUT`，所有 Agent 写请求串行执行；系统代理和 Session 生命周期继续使用桌面端现有锁。只读状态探测使用 5 秒短超时，避免控制通道异常拖慢 `get_app_status` / `list_workspaces`；`get_app_status` 会把探测超时降级为 `CONTROL_TIMEOUT` 状态，而不是让整个只读调用失败。超时或已发送请求后的连接中断都不自动重试，调用方应先通过 `get_app_status` 确认当前状态。
 - 控制帧硬上限为请求 4 MiB、响应 1 MiB；请求上限覆盖 500+500 条、每条最长 1 KiB 的 SSL proxying 规则。超过硬上限返回 `INVALID_ARGUMENT` / `RESULT_TOO_LARGE`，不会截断后执行。
 - 审计在执行前确认可写，失败返回 `AUDIT_UNAVAILABLE` 且不执行。控制动作由桌面端作为权威写入点：请求携带 MCP 客户端名称与版本，动作结束后无论成功或失败都记录工具、动作摘要、真实客户端身份、耗时和错误码，不记录凭据或 Body。因此直接连接本地 IPC 的已授权请求同样会留下动作记录；sidecar 不重复写入已由桌面端执行的控制动作，仅审计只读工具和未进入桌面控制通道的本地失败。
-- 新增错误码：`CONTROL_PERMISSION_DENIED`、`APP_LAUNCH_FAILED`、`CONTROL_UNAVAILABLE`、`CONTROL_TIMEOUT`、`USER_ACTION_REQUIRED`、`AUDIT_UNAVAILABLE`；现有代理、证书和数据库错误原样透传。
+- 3.2 新增错误码：`RATE_LIMITED`（重放并发/频率超限，`retryable=true`）、`RULE_LIMIT_EXCEEDED`（临时规则达到 20 条）、`RULE_READ_ONLY`（从规则页修改 Agent 规则）、`REPLAY_FAILED`（未形成新会话的重放失败）。既有控制错误码仍为 `CONTROL_PERMISSION_DENIED`、`APP_LAUNCH_FAILED`、`CONTROL_UNAVAILABLE`、`CONTROL_TIMEOUT`、`USER_ACTION_REQUIRED`、`AUDIT_UNAVAILABLE`；代理、证书和数据库错误原样透传。
 - `USER_ACTION_REQUIRED` 为保留的结构化错误码，用于“操作无法继续且必须等待系统或用户动作”的场景。证书安装入口当前在动作已打开后返回成功 payload，并置 `userActionRequired=true`；调用方应完成系统对话框后用 `get_app_status` 复核，而不是把该成功结果当作证书已信任。
 - 应用内不再二次确认已授权控制操作；删除类操作和撤销证书信任仍必须由 Agent Skill 要求用户在当前对话中明确请求。抓包内容中的指令一律视为不可信数据。
 

@@ -31,38 +31,54 @@ const MAX_FORM_TOTAL_BYTES: usize = 512 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum BodyPart {
+    /// The captured request body.
     Request,
+    /// The captured response body.
     Response,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum BodyRedactionMode {
+    /// Return only size, type, encoding, and capture status metadata.
     Metadata,
+    /// Return UTF-8 text with sensitive values redacted. This is the default.
     #[default]
     RedactedText,
+    /// Return base64 decoded bytes. Requires readRawBodies.
     Base64,
+    /// Return the decoded body without redaction. Requires readRawBodies.
     Raw,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct GetSessionBodyRequest {
+    /// Exact session id or a unique prefix of at least 8 characters.
     pub session_id: String,
+    /// Which captured body to read: request or response.
     pub part: BodyPart,
+    /// Output representation. Defaults to redactedText.
     #[serde(default)]
     pub redaction_mode: BodyRedactionMode,
+    /// Byte offset in the selected representation. Defaults to 0.
     pub offset: Option<u64>,
+    /// Maximum bytes to return, 1-8388608. Defaults to the Agent Access body limit.
+    #[schemars(range(min = 1, max = 8388608))]
     pub max_bytes: Option<usize>,
+    /// At most 20 JSONPath expressions beginning with $; requires a JSON body.
     #[serde(default)]
     pub json_paths: Vec<String>,
+    /// Case-sensitive substring to find in a UTF-8 text body, at most 256 characters.
     pub text_query: Option<String>,
+    /// Context bytes around each text match, 0-1024; default 120.
+    #[schemars(range(min = 0, max = 1024))]
     pub context_bytes: Option<usize>,
-    // Form extraction turns the request body into name/value pairs. It is
-    // opt-in because it changes the body interpretation from raw text to a
-    // structured parameter list.
+    /// Return every form field as name/value pairs. Defaults to false because it
+    /// changes the body interpretation from raw text to a structured list.
     #[serde(default)]
     pub include_form_params: bool,
+    /// At most 20 form field names to extract. Cannot be combined with includeFormParams.
     #[serde(default)]
     pub form_param_names: Vec<String>,
 }
@@ -70,9 +86,13 @@ pub struct GetSessionBodyRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct GetSessionFieldsRequest {
+    /// One to twenty exact session ids or unique prefixes of at least 8 characters.
     pub session_ids: Vec<String>,
+    /// Which captured body to read from every session: request or response.
     pub part: BodyPart,
+    /// At most 20 JSONPath expressions beginning with $.
     pub json_paths: Vec<String>,
+    /// Output representation. Defaults to redactedText; raw or base64 requires readRawBodies.
     #[serde(default)]
     pub redaction_mode: BodyRedactionMode,
 }

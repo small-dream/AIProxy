@@ -26,6 +26,13 @@ export type SessionSummary = {
   statusCode: number;
   url: string;
   responseMimeType?: string;
+  failure?: SessionFailure;
+};
+
+export type SessionFailure = {
+  origin: "client" | "proxy" | "upstream";
+  kind: string;
+  message: string;
 };
 
 export type HeaderEntry = {
@@ -87,7 +94,7 @@ export type SessionDetail = {
   tlsCipherSuite?: string;
   tlsProtocol?: string;
   timing?: TimingBreakdown;
-  timingSource?: "proxy" | "compose" | "har-import" | undefined;
+  timingSource?: "proxy" | "compose" | "har-import" | "agentReplay" | undefined;
   trailers?: HeaderEntry[]; // HTTP/2 response trailers
   h2StreamId?: number; // HTTP/2 stream ID for debugging
   /**
@@ -97,6 +104,7 @@ export type SessionDetail = {
    * a session captured before this field existed.
    */
   viaUpstreamProxy?: boolean;
+  failure?: SessionFailure;
 };
 
 export type SessionDetailContentRequest = {
@@ -208,7 +216,23 @@ export function isSessionSummary(value: unknown): value is SessionSummary {
     typeof candidate.sizeBytes === "number" &&
     typeof candidate.statusCode === "number" &&
     typeof candidate.url === "string" &&
-    isNullableString(candidate.responseMimeType)
+    isNullableString(candidate.responseMimeType) &&
+    (candidate.failure === undefined || isSessionFailure(candidate.failure))
+  );
+}
+
+export function isSessionFailure(value: unknown): value is SessionFailure {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Partial<SessionFailure>;
+  return (
+    (candidate.origin === "client" ||
+      candidate.origin === "proxy" ||
+      candidate.origin === "upstream") &&
+    typeof candidate.kind === "string" &&
+    candidate.kind.length > 0 &&
+    typeof candidate.message === "string"
   );
 }
 
@@ -368,6 +392,7 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
     trailers?: HeaderEntry[] | null;
     h2StreamId?: number | null;
     viaUpstreamProxy?: boolean | null;
+    failure?: SessionFailure | null;
   };
 
   return (
@@ -411,6 +436,9 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
       (Array.isArray(candidate.trailers) && candidate.trailers.every(isHeaderEntry))) &&
     isNullableNumber(candidate.h2StreamId) &&
     isNullableBoolean(candidate.viaUpstreamProxy) &&
+    (candidate.failure === undefined ||
+      candidate.failure === null ||
+      isSessionFailure(candidate.failure)) &&
     isNullableString(candidate.rawRequestHead) &&
     isNullableString(candidate.rawRequest) &&
     isNullableBoolean(candidate.rawRequestDeferred) &&
@@ -427,7 +455,8 @@ export function isSessionDetail(value: unknown): value is SessionDetail {
       candidate.timingSource === null ||
       candidate.timingSource === "proxy" ||
       candidate.timingSource === "compose" ||
-      candidate.timingSource === "har-import")
+      candidate.timingSource === "har-import" ||
+      candidate.timingSource === "agentReplay")
   );
 }
 
@@ -454,6 +483,7 @@ export function parseSessionDetail(value: unknown): SessionDetail {
       trailers?: HeaderEntry[] | null;
       h2StreamId?: number | null;
       viaUpstreamProxy?: boolean | null;
+      failure?: SessionFailure | null;
     };
 
     return {
@@ -525,6 +555,9 @@ export function parseSessionDetail(value: unknown): SessionDetail {
         : {}),
       ...(candidate.viaUpstreamProxy !== null && candidate.viaUpstreamProxy !== undefined
         ? { viaUpstreamProxy: candidate.viaUpstreamProxy }
+        : {}),
+      ...(candidate.failure !== null && candidate.failure !== undefined
+        ? { failure: candidate.failure }
         : {}),
     };
   }

@@ -87,9 +87,9 @@ pub use breakpoints::{
 pub use context::{ProxyConfig, ProxyManagers};
 pub use error::ProxyError;
 pub use rules::{
-    DnsManager, DnsMappingRule, MapManager, MapRule, MapTrace, RewriteManager, RewriteRule,
-    RewriteRuleMatch, RewriteTrace, RewriteTraceEntry, ThrottleManager, ThrottleProfileData,
-    ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
+    set_json_path_from_str, DnsManager, DnsMappingRule, MapManager, MapRule, MapTrace,
+    RewriteManager, RewriteRule, RewriteRuleMatch, RewriteTrace, RewriteTraceEntry,
+    ThrottleManager, ThrottleProfileData, ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use server::{send_direct_request, send_direct_request_bytes, start_proxy_server};
 pub use ssl_proxying::{SslProxyEntry, SslProxyingConfig, SslProxyingSettings};
@@ -98,7 +98,7 @@ pub use timing_connector::{ConnectionTiming, TimingConnector};
 pub use types::{
     get_local_ip_addresses, infer_protocol_metadata, ProxyBodyReference, ProxyHeaderEntry,
     ProxyProtocolMetadata, ProxyRuntimeConfig, ProxyServerHandle, ProxySessionDetail,
-    ProxySessionSummary, ProxyTimingBreakdown, StartedProxyServer, TlsManager,
+    ProxySessionSummary, ProxyTimingBreakdown, SessionFailure, StartedProxyServer, TlsManager,
 };
 pub use upstream_proxy::{
     bypass_matches, default_bypass_patterns, probe_upstream_proxy, UpstreamProxyConfig,

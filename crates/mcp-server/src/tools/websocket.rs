@@ -12,10 +12,16 @@ use super::sessions::require_session_id;
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct GetWebSocketMessagesRequest {
+    /// Exact session id or a unique prefix of at least 8 characters.
     pub session_id: String,
+    /// Exact direction filter: client or server, case-insensitive.
     pub direction: Option<String>,
+    /// Case-insensitive substring matched against text payloads.
     pub keyword: Option<String>,
+    /// Page size, 1-100; default 50.
+    #[schemars(range(min = 1, max = 100))]
     pub limit: Option<usize>,
+    /// Opaque nextCursor returned by a previous WebSocket message call.
     pub cursor: Option<String>,
 }
 

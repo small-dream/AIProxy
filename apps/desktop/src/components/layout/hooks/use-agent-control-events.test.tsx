@@ -103,6 +103,33 @@ describe("useAgentControlEvents", () => {
     });
   });
 
+  it("refreshes both rule lists after an Agent rule mutation", async () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    const wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    renderHook(() => useAgentControlEvents(), { wrapper });
+    await waitFor(() => expect(eventMocks.handler).toBeTypeOf("function"));
+
+    act(() => {
+      eventMocks.handler?.({
+        eventId: "event-agent-rule",
+        timestamp: "2026-10-30T00:00:00Z",
+        actionSummary: "Create temporary Agent rule",
+        durationMs: 9,
+        errorCode: null,
+        method: "createAgentRule",
+        ok: true,
+      });
+    });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(6));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rewrite-rules"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["map-rules"] });
+  });
+
   it("replays an action that completed before the renderer mounted", async () => {
     const queryClient = new QueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();

@@ -324,6 +324,7 @@ fn serializes_raw_messages_from_heads_and_body_references() {
     let detail = ProxySessionDetail {
         client_address: Some("127.0.0.1:54321".to_string()),
         cookies: Vec::new(),
+        failure: None,
         id: "session-1".to_string(),
         query_params: Vec::new(),
         raw_request_head: Some(build_raw_http_head(
@@ -386,6 +387,7 @@ fn serializes_raw_messages_from_heads_and_body_references() {
             status_code: 200,
             url: "http://example.com/hello".to_string(),
             response_mime_type: Some("application/json".to_string()),
+            failure: None,
         },
         script_traces: Vec::new(),
         throttle_traces: Vec::new(),
@@ -521,6 +523,93 @@ fn applies_request_rewrite_rules_to_the_runtime_request() {
         .any(|header| header.name.eq_ignore_ascii_case("x-debug-mode") && header.value == "true"));
     assert_eq!(traces.len(), 3);
     assert!(traces.iter().any(|trace| trace.rewrite_type == "redirect"));
+}
+
+#[test]
+fn host_locked_agent_rules_cannot_match_another_host() {
+    let rewrite_manager = Arc::new(RewriteManager::new());
+    rewrite_manager.save_rule_with_host_lock(
+        RewriteRule {
+            id: "agent-rewrite".to_string(),
+            enabled: true,
+            name: "Agent rewrite".to_string(),
+            note: Some("Temporary Agent rule".to_string()),
+            priority: 10,
+            r#match: RewriteRuleMatch {
+                methods: Vec::new(),
+                stage: "request".to_string(),
+                url_pattern: "*".to_string(),
+                match_type: Some("wildcard".to_string()),
+            },
+            rewrite_type: "header".to_string(),
+            actions: None,
+            workspace_id: "default".to_string(),
+            payload: json!({
+                "headerName": "x-agent",
+                "operation": "set",
+                "target": "request",
+                "value": "matched"
+            }),
+        },
+        "api.example.com",
+    );
+
+    let mut matching = build_test_request("https://api.example.com/v1/users");
+    let traces = apply_request_rewrite_rules(
+        &Some(Arc::clone(&rewrite_manager)),
+        "default",
+        &mut matching,
+        false,
+    )
+    .unwrap();
+    assert_eq!(traces.len(), 1);
+    assert_eq!(
+        header_entry(&matching.request_headers, "x-agent"),
+        Some("matched")
+    );
+
+    let mut other_host = build_test_request("https://api.example.com.attacker.net/v1/users");
+    let traces =
+        apply_request_rewrite_rules(&Some(rewrite_manager), "default", &mut other_host, false)
+            .unwrap();
+    assert!(traces.is_empty());
+    assert!(header_entry(&other_host.request_headers, "x-agent").is_none());
+
+    let map_manager = Arc::new(MapManager::new());
+    map_manager.save_rule_with_host_lock(
+        MapRule {
+            id: "agent-map".to_string(),
+            enabled: true,
+            mode: "remote".to_string(),
+            name: "Agent map".to_string(),
+            note: Some("Temporary Agent rule".to_string()),
+            preserve_path: true,
+            preserve_query: true,
+            priority: 10,
+            source_pattern: "*".to_string(),
+            target_value: "https://api.example.com/mapped".to_string(),
+            match_type: Some("wildcard".to_string()),
+            workspace_id: "default".to_string(),
+        },
+        "api.example.com",
+    );
+
+    let mut matching = build_test_request("https://api.example.com/v1/users");
+    let (_, traces) =
+        apply_map_rules(&Some(Arc::clone(&map_manager)), "default", &mut matching).unwrap();
+    assert_eq!(traces.len(), 1);
+    assert_eq!(
+        matching.url.as_str(),
+        "https://api.example.com/mapped/v1/users"
+    );
+
+    let mut other_host = build_test_request("https://api.example.com.attacker.net/v1/users");
+    let (_, traces) = apply_map_rules(&Some(map_manager), "default", &mut other_host).unwrap();
+    assert!(traces.is_empty());
+    assert_eq!(
+        other_host.url.as_str(),
+        "https://api.example.com.attacker.net/v1/users"
+    );
 }
 
 #[test]
@@ -3588,6 +3677,7 @@ fn build_test_session_detail() -> ProxySessionDetail {
     ProxySessionDetail {
         client_address: Some("127.0.0.1:54321".to_string()),
         cookies: Vec::new(),
+        failure: None,
         id: "session-1".to_string(),
         query_params: Vec::new(),
         raw_request_head: Some(build_raw_http_head(
@@ -3638,6 +3728,7 @@ fn build_test_session_detail() -> ProxySessionDetail {
             status_code: 200,
             url: "http://example.com/hello".to_string(),
             response_mime_type: None,
+            failure: None,
         },
         script_traces: Vec::new(),
         throttle_traces: Vec::new(),

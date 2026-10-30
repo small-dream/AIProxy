@@ -28,6 +28,9 @@ pub struct SessionSummaryRow {
     pub status_code: u16,
     pub url: String,
     pub response_mime_type: Option<String>,
+    pub failure_origin: Option<String>,
+    pub failure_kind: Option<String>,
+    pub failure_message: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +58,7 @@ pub struct SessionDetailRow {
     /// Whether the upstream connection for this session was tunneled through
     /// the configured upstream proxy. NULL when unknown/not applicable.
     pub via_upstream_proxy: Option<bool>,
+    pub failure_message: Option<String>,
 }
 
 fn u128_to_i64_saturating(value: u128) -> i64 {
@@ -96,7 +100,7 @@ pub fn upsert_session(
                 SET method=?2, host=?3, path=?4, protocol=?5, scheme=?6, http_version=?7,
                     transport_protocol=?8, application_protocol=?9, started_at=?10,
                     finished_at=?11, duration_ms=?12, size_bytes=?13, status_code=?14,
-                    url=?15, response_mime_type=?16
+                    url=?15, response_mime_type=?16, failure_origin=?17, failure_kind=?18
              WHERE id=?1",
             params![
                 summary.id,
@@ -115,6 +119,8 @@ pub fn upsert_session(
                 summary.status_code as i32,
                 summary.url,
                 summary.response_mime_type,
+                summary.failure_origin,
+                summary.failure_kind,
             ],
         )
         .map_err(|e| DbError::query("update session summary", e))?;
@@ -124,8 +130,8 @@ pub fn upsert_session(
             "INSERT INTO session_summaries
                 (id, method, host, path, protocol, scheme, http_version, transport_protocol,
                  application_protocol, started_at, finished_at, duration_ms, size_bytes,
-                 status_code, url, response_mime_type)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                 status_code, url, response_mime_type, failure_origin, failure_kind)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 summary.id,
                 summary.method,
@@ -143,6 +149,8 @@ pub fn upsert_session(
                 summary.status_code as i32,
                 summary.url,
                 summary.response_mime_type,
+                summary.failure_origin,
+                summary.failure_kind,
             ],
         )
         .map_err(|e| DbError::query("insert session summary", e))?;
@@ -157,7 +165,8 @@ pub fn upsert_session(
                     request_headers=?5, response_headers=?6, raw_request=?7, raw_response=?8,
                     client_address=?9, server_ip=?10, tls_cipher_suite=?11, tls_protocol=?12,
                     request_body_ref=?13, response_body_ref=?14, timing=?15,
-                    trailers=?16, h2_stream_id=?17, via_upstream_proxy=?18
+                    trailers=?16, h2_stream_id=?17, via_upstream_proxy=?18,
+                    failure_message=?19
              WHERE id=?1",
             params![
                 detail.id,
@@ -178,6 +187,7 @@ pub fn upsert_session(
                 detail.trailers,
                 detail.h2_stream_id,
                 detail.via_upstream_proxy,
+                detail.failure_message,
             ],
         )
         .map_err(|e| DbError::query("update session detail", e))?;
@@ -189,8 +199,8 @@ pub fn upsert_session(
                  request_headers, response_headers, raw_request, raw_response,
                  client_address, server_ip, tls_cipher_suite, tls_protocol,
                  request_body_ref, response_body_ref, timing,
-                 trailers, h2_stream_id, via_upstream_proxy)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                 trailers, h2_stream_id, via_upstream_proxy, failure_message)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 detail.id,
                 detail.session_summary_id,
@@ -210,6 +220,7 @@ pub fn upsert_session(
                 detail.trailers,
                 detail.h2_stream_id,
                 detail.via_upstream_proxy,
+                detail.failure_message,
             ],
         )
         .map_err(|e| DbError::query("insert session detail", e))?;
@@ -226,15 +237,30 @@ pub fn load_recent_summaries(
     conn: &Connection,
     limit: usize,
 ) -> Result<Vec<SessionSummaryRow>, DbError> {
+    let failure_fields =
+        crate::connection::table_has_columns(
+            conn,
+            "session_summaries",
+            &["failure_origin", "failure_kind"],
+        )? && crate::connection::table_has_columns(conn, "session_details", &["failure_message"])?;
+    let failure_columns = if failure_fields {
+        "failure_origin, failure_kind,
+         (SELECT d.failure_message FROM session_details d
+          WHERE d.session_summary_id = session_summaries.id) AS failure_message"
+    } else {
+        "NULL AS failure_origin, NULL AS failure_kind, NULL AS failure_message"
+    };
+    let query = format!(
+        "SELECT id, method, host, path, protocol, scheme, http_version,
+                transport_protocol, application_protocol, started_at, finished_at,
+                duration_ms, size_bytes, status_code, url, response_mime_type,
+                {failure_columns}
+         FROM session_summaries
+         ORDER BY started_at DESC, id DESC
+         LIMIT ?1"
+    );
     let mut stmt = conn
-        .prepare(
-            "SELECT id, method, host, path, protocol, scheme, http_version,
-                    transport_protocol, application_protocol, started_at, finished_at,
-                    duration_ms, size_bytes, status_code, url, response_mime_type
-             FROM session_summaries
-             ORDER BY started_at DESC, id DESC
-             LIMIT ?1",
-        )
+        .prepare(&query)
         .map_err(|e| DbError::query("prepare load summaries", e))?;
 
     let rows: Result<Vec<SessionSummaryRow>, DbError> = stmt
@@ -251,15 +277,28 @@ pub fn load_session_summary(
     conn: &Connection,
     id: &str,
 ) -> Result<Option<SessionSummaryRow>, DbError> {
-    let result = conn.query_row(
+    let failure_fields =
+        crate::connection::table_has_columns(
+            conn,
+            "session_summaries",
+            &["failure_origin", "failure_kind"],
+        )? && crate::connection::table_has_columns(conn, "session_details", &["failure_message"])?;
+    let failure_columns = if failure_fields {
+        "failure_origin, failure_kind,
+         (SELECT d.failure_message FROM session_details d
+          WHERE d.session_summary_id = session_summaries.id) AS failure_message"
+    } else {
+        "NULL AS failure_origin, NULL AS failure_kind, NULL AS failure_message"
+    };
+    let query = format!(
         "SELECT id, method, host, path, protocol, scheme, http_version,
                 transport_protocol, application_protocol, started_at, finished_at,
-                duration_ms, size_bytes, status_code, url, response_mime_type
+                duration_ms, size_bytes, status_code, url, response_mime_type,
+                {failure_columns}
          FROM session_summaries
-         WHERE id = ?1",
-        params![id],
-        row_to_summary,
+         WHERE id = ?1"
     );
+    let result = conn.query_row(&query, params![id], row_to_summary);
 
     match result {
         Ok(summary) => Ok(Some(summary)),
@@ -273,37 +312,44 @@ pub fn load_session_detail(
     conn: &Connection,
     id: &str,
 ) -> Result<Option<SessionDetailRow>, DbError> {
-    let result = conn.query_row(
+    let failure_available =
+        crate::connection::table_has_columns(conn, "session_details", &["failure_message"])?;
+    let failure_column = if failure_available {
+        "failure_message"
+    } else {
+        "NULL AS failure_message"
+    };
+    let query = format!(
         "SELECT id, session_summary_id, query_params, cookies,
                 request_headers, response_headers, raw_request, raw_response,
                 client_address, server_ip, tls_cipher_suite, tls_protocol,
                 request_body_ref, response_body_ref, timing,
-                trailers, h2_stream_id, via_upstream_proxy
-         FROM session_details WHERE session_summary_id=?1",
-        params![id],
-        |row| {
-            Ok(SessionDetailRow {
-                id: row.get(0)?,
-                session_summary_id: row.get(1)?,
-                query_params: row.get(2)?,
-                cookies: row.get(3)?,
-                request_headers: row.get(4)?,
-                response_headers: row.get(5)?,
-                raw_request: row.get(6)?,
-                raw_response: row.get(7)?,
-                client_address: row.get(8)?,
-                server_ip: row.get(9)?,
-                tls_cipher_suite: row.get(10)?,
-                tls_protocol: row.get(11)?,
-                request_body_ref: row.get(12)?,
-                response_body_ref: row.get(13)?,
-                timing: row.get(14)?,
-                trailers: row.get(15)?,
-                h2_stream_id: row.get::<_, Option<i64>>(16)?.map(|v| v as u32),
-                via_upstream_proxy: row.get::<_, Option<i64>>(17)?.map(|v| v != 0),
-            })
-        },
+                trailers, h2_stream_id, via_upstream_proxy, {failure_column}
+         FROM session_details WHERE session_summary_id=?1"
     );
+    let result = conn.query_row(&query, params![id], |row| {
+        Ok(SessionDetailRow {
+            id: row.get(0)?,
+            session_summary_id: row.get(1)?,
+            query_params: row.get(2)?,
+            cookies: row.get(3)?,
+            request_headers: row.get(4)?,
+            response_headers: row.get(5)?,
+            raw_request: row.get(6)?,
+            raw_response: row.get(7)?,
+            client_address: row.get(8)?,
+            server_ip: row.get(9)?,
+            tls_cipher_suite: row.get(10)?,
+            tls_protocol: row.get(11)?,
+            request_body_ref: row.get(12)?,
+            response_body_ref: row.get(13)?,
+            timing: row.get(14)?,
+            trailers: row.get(15)?,
+            h2_stream_id: row.get::<_, Option<i64>>(16)?.map(|v| v as u32),
+            via_upstream_proxy: row.get::<_, Option<i64>>(17)?.map(|v| v != 0),
+            failure_message: row.get(18)?,
+        })
+    });
 
     match result {
         Ok(detail) => Ok(Some(detail)),
@@ -671,6 +717,9 @@ fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummaryRow
         status_code: row.get::<_, i32>("status_code")?.clamp(0, 65535) as u16,
         url: row.get("url")?,
         response_mime_type: row.get("response_mime_type")?,
+        failure_origin: row.get("failure_origin")?,
+        failure_kind: row.get("failure_kind")?,
+        failure_message: row.get("failure_message")?,
     })
 }
 
@@ -702,6 +751,9 @@ mod tests {
             status_code: 200,
             url: format!("https://{host}/"),
             response_mime_type: Some("application/json".into()),
+            failure_origin: None,
+            failure_kind: None,
+            failure_message: None,
         }
     }
 
@@ -725,6 +777,7 @@ mod tests {
             trailers: None,
             h2_stream_id: None,
             via_upstream_proxy: None,
+            failure_message: None,
         }
     }
 

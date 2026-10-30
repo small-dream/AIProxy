@@ -280,6 +280,7 @@ mod tests {
             status_code: 200,
             url: format!("https://{host}/"),
             response_mime_type: Some("application/json".to_string()),
+            failure: None,
         }
     }
 
@@ -293,6 +294,7 @@ mod tests {
     ) -> ProxySessionDetail {
         ProxySessionDetail {
             client_address: Some("127.0.0.1:54321".to_string()),
+            failure: None,
             id: summary.id.clone(),
             query_params: Vec::new(),
             cookies: Vec::new(),

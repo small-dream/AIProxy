@@ -22,6 +22,9 @@ pub(crate) struct CompiledRewriteRule {
     // hot-path filters a copy out of the snapshot) never recompiles or deep-
     // copies the regex.
     pub compiled_match: Option<Arc<Regex>>,
+    /// Exact request host this rule may match. Agent rules set this as a
+    /// defense-in-depth boundary independent of URL pattern syntax.
+    pub host_lock: Option<String>,
 }
 
 impl std::fmt::Debug for RewriteManager {
@@ -55,6 +58,7 @@ impl RewriteManager {
                 )
                 .map(Arc::new),
                 rule,
+                host_lock: None,
             })
             .collect();
         let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
@@ -71,6 +75,30 @@ impl RewriteManager {
     }
 
     pub fn save_rule(&self, rule: RewriteRule) -> RewriteRule {
+        self.store_rule(rule, HostLockUpdate::Preserve)
+    }
+
+    /// Save an Agent rule together with its exact-host boundary. The host lock
+    /// is evaluated before the URL pattern on every request.
+    pub fn save_rule_with_host_lock(
+        &self,
+        rule: RewriteRule,
+        host_lock: impl Into<String>,
+    ) -> RewriteRule {
+        self.store_rule(rule, HostLockUpdate::Set(host_lock.into()))
+    }
+
+    fn store_rule(&self, rule: RewriteRule, host_lock_update: HostLockUpdate) -> RewriteRule {
+        // Resolve whether to preserve an existing host lock under the same lock
+        // used for the write, so concurrent updates cannot briefly fail open.
+        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
+        let host_lock = match host_lock_update {
+            HostLockUpdate::Set(host_lock) => Some(host_lock),
+            HostLockUpdate::Preserve => guard
+                .iter()
+                .find(|entry| entry.rule.id == rule.id)
+                .and_then(|entry| entry.host_lock.clone()),
+        };
         let compiled = CompiledRewriteRule {
             compiled_match: compile_match_regex(
                 &rule.r#match.match_type,
@@ -78,12 +106,12 @@ impl RewriteManager {
             )
             .map(Arc::new),
             rule: rule.clone(),
+            host_lock,
         };
         // M10: rebuild the snapshot under the lock so concurrent readers
         // hand-pulling `compiled_rules()` never observe a half-mutated vec.
         // Preserve the rule's existing position (in-place replace) so UI lists
         // keyed on `list_rules()` order do not visibly reorder on edit.
-        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
         let mut next: Vec<CompiledRewriteRule> = (**guard).clone();
         if let Some(existing) = next.iter_mut().find(|r| r.rule.id == compiled.rule.id) {
             *existing = compiled;
@@ -116,9 +144,20 @@ impl RewriteManager {
     }
 }
 
+enum HostLockUpdate {
+    Preserve,
+    Set(String),
+}
+
 /// Manages map rules (local + remote) in memory.
 pub struct MapManager {
-    rules: Mutex<Vec<MapRule>>,
+    rules: Mutex<Vec<CompiledMapRule>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct CompiledMapRule {
+    pub rule: MapRule,
+    pub host_lock: Option<String>,
 }
 
 impl std::fmt::Debug for MapManager {
@@ -144,26 +183,64 @@ impl MapManager {
 
     pub fn set_rules(&self, rules: Vec<MapRule>) {
         let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = rules;
+        *guard = rules
+            .into_iter()
+            .map(|rule| CompiledMapRule {
+                rule,
+                host_lock: None,
+            })
+            .collect();
     }
 
     pub fn list_rules(&self) -> Vec<MapRule> {
-        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.rules
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|entry| entry.rule.clone())
+            .collect()
     }
 
     pub fn save_rule(&self, rule: MapRule) -> MapRule {
         let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(existing) = rules.iter_mut().find(|r| r.id == rule.id) {
-            *existing = rule.clone();
+        let host_lock = rules
+            .iter()
+            .find(|entry| entry.rule.id == rule.id)
+            .and_then(|entry| entry.host_lock.clone());
+        let compiled = CompiledMapRule {
+            rule: rule.clone(),
+            host_lock,
+        };
+        if let Some(existing) = rules.iter_mut().find(|entry| entry.rule.id == rule.id) {
+            *existing = compiled;
         } else {
-            rules.push(rule.clone());
+            rules.push(compiled);
+        }
+        rule
+    }
+
+    /// Save an Agent map rule together with its exact-host boundary.
+    pub fn save_rule_with_host_lock(&self, rule: MapRule, host_lock: impl Into<String>) -> MapRule {
+        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        let compiled = CompiledMapRule {
+            rule: rule.clone(),
+            host_lock: Some(host_lock.into()),
+        };
+        if let Some(existing) = rules.iter_mut().find(|entry| entry.rule.id == rule.id) {
+            *existing = compiled;
+        } else {
+            rules.push(compiled);
         }
         rule
     }
 
     pub fn delete_rule(&self, rule_id: &str) {
         let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        rules.retain(|r| r.id != rule_id);
+        rules.retain(|entry| entry.rule.id != rule_id);
+    }
+
+    pub(crate) fn compiled_rules(&self) -> Vec<CompiledMapRule> {
+        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 

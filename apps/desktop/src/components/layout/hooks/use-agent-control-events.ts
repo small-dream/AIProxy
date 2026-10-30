@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { CERTIFICATE_STATUS_QUERY_KEY } from "@/features/certificate-center/use-certificate-status";
 import { PROXY_STATUS_QUERY_KEY } from "@/features/proxy-status/use-proxy-status";
+import { MAP_RULES_QUERY_KEY, REWRITE_RULES_QUERY_KEY } from "@/features/rules/use-rule-center";
 import { SESSION_DETAIL_QUERY_KEY } from "@/features/sessions/use-session-detail";
 import { SESSIONS_QUERY_KEY } from "@/features/sessions/use-sessions";
 import { WORKSPACES_KEY } from "@/features/workspace-manager/use-workspaces";
@@ -18,10 +19,13 @@ const MAX_SEEN_EVENTS = 200;
 const ACTION_LABEL_KEYS: Record<string, TranslationKey> = {
   clearSessions: "appShell.agentControlClearSessions",
   configureWorkspace: "appShell.agentControlConfigureWorkspace",
+  createAgentRule: "appShell.agentControlCreateAgentRule",
   deleteSessions: "appShell.agentControlDeleteSessions",
   generateCertificate: "appShell.agentControlGenerateCertificate",
   openCertificateInstaller: "appShell.agentControlOpenCertificateInstaller",
+  removeAgentRules: "appShell.agentControlRemoveAgentRules",
   removeCertificateTrust: "appShell.agentControlRemoveCertificateTrust",
+  replaySession: "appShell.agentControlReplaySession",
   setSystemProxy: "appShell.agentControlSetSystemProxy",
   startCapture: "appShell.agentControlStartCapture",
   stopCapture: "appShell.agentControlStopCapture",
@@ -85,6 +89,14 @@ export function useAgentControlEvents() {
       });
       if (event.method === "deleteSessions" || event.method === "clearSessions") {
         queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY] });
+      }
+      if (event.method === "createAgentRule" || event.method === "removeAgentRules") {
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: REWRITE_RULES_QUERY_KEY }),
+          queryClient.invalidateQueries({ queryKey: MAP_RULES_QUERY_KEY }),
+        ]).catch((error) => {
+          logDevWarn("events", "agent_control_rule_refresh_failed", { error });
+        });
       }
 
       const labelKey = ACTION_LABEL_KEYS[event.method];

@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 
 const SKILL_MARKER: &str = "<!-- aiproxy-managed-skill: v1 -->";
-const AGENT_SKILL_VERSION: &str = "3.1";
+const AGENT_SKILL_VERSION: &str = "3.2";
 const SKILL_CONTENT: &str = include_str!("../../resources/agent-skill/aiproxy/SKILL.md");
 const MAX_AUDIT_ENTRIES: usize = 200;
 

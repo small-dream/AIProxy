@@ -100,6 +100,7 @@ import {
   reorderShortcutLabel,
   useClearMutationErrorOnRuleChange,
 } from "@/features/rules/components/RulesSharedUi";
+import { AgentRuleReadOnlyNotice, AgentRulesNotice } from "@/features/rules/components/AgentRuleUi";
 import { MatchTypeSelect } from "@/features/rules/components/MatchTypeSelect";
 import {
   applyOrderedIdsWithinList,
@@ -513,6 +514,8 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
           return `${r.name} ${r.match.urlPattern} ${r.rewriteType}`.toLowerCase().includes(q);
         });
     }, [rules, searchValue]);
+    const agentRuleCount = rules.filter((rule) => rule.source === "agent").length;
+    const isAgentRule = draft.source === "agent";
 
     useEffect(() => {
       // M22: only sync the draft when the selection actually changes — NOT on
@@ -546,9 +549,10 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
       [rules, selectedRuleId],
     );
     const isDirty = useMemo(() => {
+      if (isAgentRule) return false;
       const baseline = selectedSavedRule ?? createEmptyRewriteRule(draft.rewriteType);
       return !isRewriteRuleEqual(draft, baseline);
-    }, [draft, selectedSavedRule]);
+    }, [draft, isAgentRule, selectedSavedRule]);
 
     // Guards route navigation away AND in-component transitions that would
     // replace the in-flight draft; both share one confirmation dialog.
@@ -638,6 +642,8 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
         match: { ...draft.match, methods: [...draft.match.methods] },
         actions: structuredClone(draft.actions),
       };
+      delete copy.source;
+      delete copy.expiresAt;
       autoPriorityRef.current = priority;
       lastSyncedRuleIdRef.current = copy.id;
       setSelectedRuleId(copy.id);
@@ -658,7 +664,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
     }
 
     function handleSave() {
-      if (isRulesError) return;
+      if (isRulesError || isAgentRule) return;
       setValidationAttempted(true);
       if (hasRuleFieldErrors(errors)) return;
       // UI_GUIDELINES §9.4: a combination that can never fire must not be
@@ -790,7 +796,9 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
       // keep their slots and the priorities stay a complete, collision-free set.
       const fullOrder = applyOrderedIdsWithinList(rules, orderedIds).map((rule) => rule.id);
       const currentPriorities = new Map(rules.map((rule) => [rule.id, rule.priority]));
-      const updates = computeReorderedPriorities(fullOrder, currentPriorities);
+      const updates = computeReorderedPriorities(fullOrder, currentPriorities).filter(
+        (update) => rules.find((rule) => rule.id === update.id)?.source !== "agent",
+      );
       if (updates.length === 0) return;
 
       const previous = rules;
@@ -848,6 +856,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
         if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
           const { selectedRuleId: selected, filteredRules: list } = shortcutStateRef.current;
           if (!selected) return;
+          if (list.find((rule) => rule.id === selected)?.source === "agent") return;
           const next = moveRuleInOrder(
             list.map((rule) => rule.id),
             selected,
@@ -918,44 +927,53 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
             </>
           }
           list={
-            <ManagedRuleList
-              emptyActions={
-                <Stack direction="row" spacing={1} sx={{ justifyContent: "center" }}>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    disabled={isRulesError}
-                    startIcon={<AddRoundedIcon />}
-                    onClick={() => handleCreateRule()}
-                  >
-                    {t("rulesPage.rewrite.newRule")}
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    disabled={isRulesError}
-                    onClick={() => setTemplateDialogOpen(true)}
-                  >
-                    {t("rulesPage.rewrite.browseTemplates")}
-                  </Button>
-                </Stack>
-              }
-              emptyDescription={t("rulesPage.rewrite.emptyDescription")}
-              onReorder={handleReorder}
-              selectedIds={selectedRuleIds}
-              items={filteredRules.map((rule) => ({
-                id: rule.id,
-                active: rule.id === selectedRuleId,
-                enabled: rule.enabled,
-                name: rule.name || t("rulesPage.untitledRule"),
-                subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule, t)}`,
-                onClick: () => selectRule(rule),
-                onSelectToggle: () => toggleSelect(rule.id),
-                // Persist the SAVED rule (not the in-flight draft) so the toggle
-                // takes effect immediately (review §4.1).
-                onToggleEnabled: (enabled) => saveMutation.mutate({ ...rule, enabled }),
-              }))}
-            />
+            <Stack spacing={1}>
+              <AgentRulesNotice count={agentRuleCount} />
+              <ManagedRuleList
+                emptyActions={
+                  <Stack direction="row" spacing={1} sx={{ justifyContent: "center" }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      disabled={isRulesError}
+                      startIcon={<AddRoundedIcon />}
+                      onClick={() => handleCreateRule()}
+                    >
+                      {t("rulesPage.rewrite.newRule")}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={isRulesError}
+                      onClick={() => setTemplateDialogOpen(true)}
+                    >
+                      {t("rulesPage.rewrite.browseTemplates")}
+                    </Button>
+                  </Stack>
+                }
+                emptyDescription={t("rulesPage.rewrite.emptyDescription")}
+                onReorder={handleReorder}
+                selectedIds={selectedRuleIds}
+                items={filteredRules.map((rule) => ({
+                  id: rule.id,
+                  active: rule.id === selectedRuleId,
+                  enabled: rule.enabled,
+                  expiresAt: rule.expiresAt,
+                  name: rule.name || t("rulesPage.untitledRule"),
+                  subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule, t)}`,
+                  source: rule.source,
+                  onClick: () => selectRule(rule),
+                  onSelectToggle: rule.source === "agent" ? undefined : () => toggleSelect(rule.id),
+                  reorderable: rule.source !== "agent",
+                  // Persist the SAVED rule (not the in-flight draft) so the toggle
+                  // takes effect immediately (review §4.1).
+                  onToggleEnabled:
+                    rule.source === "agent"
+                      ? undefined
+                      : (enabled) => saveMutation.mutate({ ...rule, enabled }),
+                }))}
+              />
+            </Stack>
           }
           listFooter={
             rules.length > 0 ? (
@@ -977,7 +995,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
                     variant="contained"
                     startIcon={<SaveRoundedIcon />}
                     onClick={handleSave}
-                    disabled={saveMutation.isPending || isRulesError}
+                    disabled={saveMutation.isPending || isRulesError || isAgentRule}
                   >
                     {t("rulesPage.editor.saveRule")}
                   </Button>
@@ -995,7 +1013,14 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
             </EditorActionBar>
           }
           editor={
-            <Stack spacing={2}>
+            <Stack
+              spacing={2}
+              sx={{
+                opacity: isAgentRule ? 0.78 : 1,
+                pointerEvents: isAgentRule ? "none" : undefined,
+              }}
+            >
+              {isAgentRule && <AgentRuleReadOnlyNotice expiresAt={draft.expiresAt} />}
               <RewriteEditorIdentity
                 advancedOpen={advancedOpen}
                 draft={draft}

@@ -53,6 +53,7 @@ pub struct SchemaCapabilities {
     pub websocket_messages: bool,
     pub rule_traces: bool,
     pub workspaces: bool,
+    pub session_failures: bool,
 }
 
 /// Inspect the database schema without mutating it.
@@ -151,6 +152,12 @@ pub fn inspect_schema(conn: &Connection) -> Result<SchemaCapabilities, DbError> 
         ],
     )?;
 
+    let session_failures = table_has_columns(
+        conn,
+        "session_summaries",
+        &["failure_origin", "failure_kind"],
+    )? && table_has_columns(conn, "session_details", &["failure_message"])?;
+
     Ok(SchemaCapabilities {
         core_sessions,
         session_details,
@@ -158,6 +165,7 @@ pub fn inspect_schema(conn: &Connection) -> Result<SchemaCapabilities, DbError> 
         websocket_messages,
         rule_traces,
         workspaces,
+        session_failures,
     })
 }
 
@@ -171,7 +179,7 @@ fn table_exists(conn: &Connection, table: &str) -> Result<bool, DbError> {
     .map_err(|error| DbError::query("inspect database table", error))
 }
 
-fn table_has_columns(
+pub(crate) fn table_has_columns(
     conn: &Connection,
     table: &str,
     required_columns: &[&str],

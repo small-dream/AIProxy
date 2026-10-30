@@ -38,6 +38,7 @@ use std::{
 };
 use tauri::async_runtime::JoinHandle;
 
+use crate::agent_rules::AgentRuleRegistry;
 use crate::system_proxy::SystemProxySnapshot;
 use crate::workspace::WorkspaceManager;
 
@@ -126,6 +127,7 @@ pub struct AppState {
     breakpoint_manager: Arc<BreakpointManager>,
     rewrite_manager: Arc<RewriteManager>,
     map_manager: Arc<MapManager>,
+    agent_rule_registry: Arc<AgentRuleRegistry>,
     script_manager: Arc<ScriptManager>,
     throttle_manager: Arc<ThrottleManager>,
     dns_manager: Arc<DnsManager>,
@@ -144,6 +146,18 @@ impl AppState {
         db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
         body_store: Arc<aiproxy_db::body_store::BodyStore>,
     ) -> Self {
+        let rewrite_manager = Arc::new(RewriteManager::new());
+        let map_manager = Arc::new(MapManager::new());
+        let agent_data_dir = body_store
+            .base_dir()
+            .parent()
+            .unwrap_or_else(|| body_store.base_dir())
+            .to_path_buf();
+        let agent_rule_registry = Arc::new(AgentRuleRegistry::new(
+            Arc::clone(&rewrite_manager),
+            Arc::clone(&map_manager),
+            agent_data_dir,
+        ));
         let state = Self {
             runtime: Mutex::new(None),
             cache: SessionCache::new(),
@@ -153,8 +167,9 @@ impl AppState {
             tls_manager: Mutex::new(None),
             cert_status_cache: Mutex::new(None),
             breakpoint_manager: Arc::new(BreakpointManager::new()),
-            rewrite_manager: Arc::new(RewriteManager::new()),
-            map_manager: Arc::new(MapManager::new()),
+            rewrite_manager,
+            map_manager,
+            agent_rule_registry,
             script_manager: Arc::new(ScriptManager::new()),
             throttle_manager: Arc::new(ThrottleManager::new()),
             dns_manager: Arc::new(DnsManager::new()),
@@ -717,6 +732,9 @@ impl AppState {
     pub fn read_map_manager(&self) -> Arc<MapManager> {
         Arc::clone(&self.map_manager)
     }
+    pub fn read_agent_rule_registry(&self) -> Arc<AgentRuleRegistry> {
+        Arc::clone(&self.agent_rule_registry)
+    }
     pub fn read_throttle_manager(&self) -> Arc<ThrottleManager> {
         Arc::clone(&self.throttle_manager)
     }
@@ -1133,12 +1151,14 @@ mod tests {
             status_code: 200,
             url: format!("https://{host}/"),
             response_mime_type: Some("application/json".to_string()),
+            failure: None,
         }
     }
 
     fn build_detail(summary: &ProxySessionSummary) -> ProxySessionDetail {
         ProxySessionDetail {
             client_address: Some("127.0.0.1:54321".to_string()),
+            failure: None,
             id: summary.id.clone(),
             query_params: Vec::new(),
             cookies: Vec::new(),

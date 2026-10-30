@@ -19,6 +19,8 @@ describe("Agent permission presets", () => {
       controlSystemProxy: false,
       manageCertificates: false,
       deleteSessions: false,
+      sendRequests: false,
+      manageRules: false,
     });
     expect(permissionsForPreset("bodies")).toEqual({
       readSessions: true,
@@ -30,6 +32,8 @@ describe("Agent permission presets", () => {
       controlSystemProxy: false,
       manageCertificates: false,
       deleteSessions: false,
+      sendRequests: false,
+      manageRules: false,
     });
     expect(permissionsForPreset("raw")).toEqual({
       readSessions: true,
@@ -41,6 +45,8 @@ describe("Agent permission presets", () => {
       controlSystemProxy: false,
       manageCertificates: false,
       deleteSessions: false,
+      sendRequests: false,
+      manageRules: false,
     });
     expect(permissionsForPreset("full")).toEqual({
       readSessions: true,
@@ -52,6 +58,8 @@ describe("Agent permission presets", () => {
       controlSystemProxy: true,
       manageCertificates: true,
       deleteSessions: true,
+      sendRequests: true,
+      manageRules: true,
     });
   });
 
@@ -94,5 +102,7 @@ describe("Agent permission presets", () => {
     expect(permissionsEqual(base, { ...base, exportSnapshots: true })).toBe(false);
     expect(permissionsEqual(base, { ...base, controlCapture: true })).toBe(false);
     expect(permissionsEqual(base, { ...base, deleteSessions: true })).toBe(false);
+    expect(permissionsEqual(base, { ...base, sendRequests: true })).toBe(false);
+    expect(permissionsEqual(base, { ...base, manageRules: true })).toBe(false);
   });
 });

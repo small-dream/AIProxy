@@ -13,7 +13,7 @@ use super::body::{
     extract_json_path, load_body_reference, parse_json_paths, read_body_bytes, sha256_hex,
     BodyPart, JsonPathSegment, StoredBodyReference,
 };
-use super::sessions::{require_session_id, RedactionMode};
+use super::sessions::{parse_timing_json, require_session_id, RedactionMode};
 
 const COMPARE_BODY_SCAN_BYTES: usize = 8 * 1024 * 1024;
 const MAX_DIFF_CHANGES: usize = 200;
@@ -22,24 +22,34 @@ const MAX_DIFF_VALUE_BYTES: usize = 2 * 1024;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum DiffMode {
+    /// Use JSON diff when both bodies parse as JSON, otherwise text diff.
     #[default]
     Auto,
+    /// Require JSON bodies and compare by JSON paths.
     Json,
+    /// Compare body text directly.
     Text,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CompareSessionsRequest {
+    /// Exact left session id or a unique prefix of at least 8 characters.
     pub left_session_id: String,
+    /// Exact right session id or a unique prefix of at least 8 characters.
     pub right_session_id: String,
+    /// Include one request or response body in the diff. Requires readBodies.
     #[serde(default)]
     pub include_body: bool,
+    /// Body to compare when includeBody=true; defaults to response.
     pub body_part: Option<BodyPart>,
+    /// redactedText redacts sensitive values; raw requires readRawBodies.
     #[serde(default)]
     pub redaction_mode: RedactionMode,
+    /// At most 20 JSONPath expressions beginning with $; requires includeBody=true.
     #[serde(default)]
     pub json_paths: Vec<String>,
+    /// Diff strategy. Defaults to auto.
     #[serde(default)]
     pub diff_mode: DiffMode,
 }
@@ -193,7 +203,8 @@ fn load_snapshot(
         let timing = detail
             .timing
             .as_deref()
-            .and_then(|value| serde_json::from_str::<BTreeMap<String, Value>>(value).ok())
+            .and_then(parse_timing_json)
+            .and_then(|value| serde_json::from_value::<BTreeMap<String, Value>>(value).ok())
             .unwrap_or_default();
         (request_headers, response_headers, query, cookies, timing)
     } else {

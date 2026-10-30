@@ -34,6 +34,8 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         controlSystemProxy: false,
         manageCertificates: false,
         deleteSessions: false,
+        sendRequests: false,
+        manageRules: false,
       };
     case "bodies":
       return {
@@ -46,6 +48,8 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         controlSystemProxy: false,
         manageCertificates: false,
         deleteSessions: false,
+        sendRequests: false,
+        manageRules: false,
       };
     case "raw":
       return {
@@ -58,6 +62,8 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         controlSystemProxy: false,
         manageCertificates: false,
         deleteSessions: false,
+        sendRequests: false,
+        manageRules: false,
       };
     case "full":
       return {
@@ -70,6 +76,8 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         controlSystemProxy: true,
         manageCertificates: true,
         deleteSessions: true,
+        sendRequests: true,
+        manageRules: true,
       };
   }
 }
@@ -106,6 +114,8 @@ export function permissionsEqual(
     current.controlCapture === next.controlCapture &&
     current.controlSystemProxy === next.controlSystemProxy &&
     current.manageCertificates === next.manageCertificates &&
-    current.deleteSessions === next.deleteSessions
+    current.deleteSessions === next.deleteSessions &&
+    current.sendRequests === next.sendRequests &&
+    current.manageRules === next.manageRules
   );
 }

@@ -24,6 +24,13 @@ impl BodyStore {
         Self { base_dir }
     }
 
+    /// Directory that owns all session body files. Callers that need to place
+    /// adjacent AIProxy-managed data (for example temporary Agent rule files)
+    /// should derive it from here instead of resolving the data directory again.
+    pub fn base_dir(&self) -> &std::path::Path {
+        &self.base_dir
+    }
+
     /// Ensure the bodies directory exists.
     pub fn ensure_dir(&self) -> Result<(), DbError> {
         fs::create_dir_all(&self.base_dir).map_err(DbError::Io)?;

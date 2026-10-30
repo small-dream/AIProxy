@@ -98,6 +98,16 @@ pub struct SessionSearchFilter {
     pub search_in: Vec<SessionSearchField>,
     pub sort_by: SessionSortField,
     pub sort_order: SortOrder,
+    /// Match summaries inserted after this opaque SQLite rowid watermark.
+    pub after_rowid: Option<i64>,
+    /// Wait-for-traffic only counts rows whose capture has finished.
+    pub completed_only: bool,
+    /// Restrict results to sessions with a recorded failure.
+    pub failed_only: bool,
+    /// Exact failure category, for example connect_refused.
+    pub failure_kind: Option<String>,
+    /// Exact failure origin: client, proxy, or upstream.
+    pub failure_origin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -147,6 +157,26 @@ pub fn search_sessions(
     let mut values: Vec<Value> = Vec::new();
     let mut index = 1usize;
     let mut needs_details_join = false;
+    let failures_available =
+        crate::connection::table_has_columns(
+            conn,
+            "session_summaries",
+            &["failure_origin", "failure_kind"],
+        )? && crate::connection::table_has_columns(conn, "session_details", &["failure_message"])?;
+
+    if let Some(after_rowid) = filter.after_rowid {
+        conditions.push(format!("s.rowid > ?{index}"));
+        values.push(Value::Integer(after_rowid));
+        index += 1;
+    }
+
+    if filter.completed_only {
+        conditions.push(if failures_available {
+            "s.finished_at <> '' AND (s.status_code <> 0 OR s.failure_kind IS NOT NULL)".to_string()
+        } else {
+            "s.finished_at <> '' AND s.status_code <> 0".to_string()
+        });
+    }
 
     if let Some(host) = filter
         .host
@@ -292,6 +322,45 @@ pub fn search_sessions(
         index += 1;
     }
 
+    let wants_failure = filter.failed_only
+        || filter
+            .failure_kind
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        || filter
+            .failure_origin
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+    if wants_failure && !failures_available {
+        conditions.push("0".to_string());
+    } else {
+        if filter.failed_only {
+            conditions.push("s.failure_kind IS NOT NULL".to_string());
+        }
+
+        if let Some(failure_kind) = filter
+            .failure_kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            conditions.push(format!("s.failure_kind = ?{index}"));
+            values.push(Value::Text(failure_kind.to_string()));
+            index += 1;
+        }
+
+        if let Some(failure_origin) = filter
+            .failure_origin
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            conditions.push(format!("s.failure_origin = ?{index}"));
+            values.push(Value::Text(failure_origin.to_string()));
+            index += 1;
+        }
+    }
+
     if let Some(keyword) = filter
         .keyword
         .as_deref()
@@ -392,10 +461,18 @@ pub fn search_sessions(
             filter.sort_order.sql()
         ),
     };
+    let failure_columns = if failures_available {
+        "s.failure_origin, s.failure_kind,
+         (SELECT d.failure_message FROM session_details d
+          WHERE d.session_summary_id = s.id) AS failure_message"
+    } else {
+        "NULL AS failure_origin, NULL AS failure_kind, NULL AS failure_message"
+    };
     let sql = format!(
         "SELECT s.id, s.method, s.host, s.path, s.protocol, s.scheme, s.http_version,
                 s.transport_protocol, s.application_protocol, s.started_at, s.finished_at,
-                s.duration_ms, s.size_bytes, s.status_code, s.url, s.response_mime_type
+                s.duration_ms, s.size_bytes, s.status_code, s.url, s.response_mime_type,
+                {failure_columns}
          FROM session_summaries s{join_clause}{where_clause}
          ORDER BY {order_clause}
          LIMIT ?{index}"
@@ -429,6 +506,27 @@ pub fn search_sessions(
         next_cursor,
         truncated,
     })
+}
+
+/// Return the newest rowid for a completed session. `session_summaries` has
+/// TEXT PRIMARY KEY without `WITHOUT ROWID`, and updates preserve rowid, so
+/// this is a stable insertion-order watermark.
+pub fn latest_completed_session_rowid(conn: &Connection) -> Result<i64, DbError> {
+    let failure_columns =
+        crate::connection::table_has_columns(
+            conn,
+            "session_summaries",
+            &["failure_origin", "failure_kind"],
+        )? && crate::connection::table_has_columns(conn, "session_details", &["failure_message"])?;
+    let sql = if failure_columns {
+        "SELECT COALESCE(MAX(rowid), 0) FROM session_summaries
+         WHERE finished_at <> '' AND (status_code <> 0 OR failure_kind IS NOT NULL)"
+    } else {
+        "SELECT COALESCE(MAX(rowid), 0) FROM session_summaries
+         WHERE finished_at <> '' AND status_code <> 0"
+    };
+    conn.query_row(sql, [], |row| row.get::<_, i64>(0))
+        .map_err(|error| DbError::query("read session watermark", error))
 }
 
 fn encode_cursor(
@@ -500,6 +598,9 @@ fn row_to_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummaryRow
         status_code: row.get::<_, i32>("status_code")?.clamp(0, 65535) as u16,
         url: row.get("url")?,
         response_mime_type: row.get("response_mime_type")?,
+        failure_origin: row.get("failure_origin")?,
+        failure_kind: row.get("failure_kind")?,
+        failure_message: row.get("failure_message")?,
     })
 }
 

@@ -435,13 +435,10 @@ fn parse_control_request(bytes: &[u8]) -> Result<ControlRequest, ControlError> {
 }
 
 fn control_request_parse_error(error: serde_json::Error) -> ControlError {
-    if error
-        .to_string()
-        .contains("unknown variant `readDiagnosticLogs`")
-    {
+    if error.to_string().contains("unknown variant `") {
         ControlError::new(
             "CONTROL_UNAVAILABLE",
-            "This AIProxy build does not support the diagnostic log request. Update AIProxy and the MCP sidecar together, then retry.",
+            "This AIProxy build does not support the requested Agent control operation. Update AIProxy and the MCP sidecar together, restart the app, then retry.",
         )
     } else {
         ControlError::new(
@@ -466,6 +463,7 @@ fn execute_request(
     }
 
     let result = if request.operation.is_write() {
+        let created_by = audit_identity(request.client_name.as_deref());
         let guard = tauri::async_runtime::block_on(write_lock.lock());
         // A request can wait behind another long write. Re-read the live
         // permissions and audit availability after acquiring the lock so a
@@ -477,6 +475,7 @@ fn execute_request(
                     state,
                     data_dir.to_path_buf(),
                     request.operation,
+                    &created_by,
                 ))
             }
             Err(error) => Err(error),
@@ -484,8 +483,14 @@ fn execute_request(
         drop(guard);
         result
     } else {
+        let created_by = audit_identity(request.client_name.as_deref());
         let state = Arc::clone(app.state::<Arc<AppState>>().inner());
-        tauri::async_runtime::block_on(dispatch(state, data_dir.to_path_buf(), request.operation))
+        tauri::async_runtime::block_on(dispatch(
+            state,
+            data_dir.to_path_buf(),
+            request.operation,
+            &created_by,
+        ))
     };
     ControlExecution {
         result,
@@ -557,6 +562,7 @@ async fn dispatch(
     state: Arc<AppState>,
     data_dir: PathBuf,
     operation: ControlOperation,
+    created_by: &str,
 ) -> Result<Value, ControlError> {
     match operation {
         ControlOperation::GetStatus => get_status(state).await,
@@ -646,7 +652,54 @@ async fn dispatch(
                 )
             })?)
         }
+        ControlOperation::ReplaySession(params) => {
+            let result = crate::agent_replay::replay_session(Arc::clone(&state), params).await?;
+            serde_json::to_value(result).map_err(|error| {
+                ControlError::new(
+                    "INTERNAL_ERROR",
+                    format!("serialize replay result: {error}"),
+                )
+            })
+        }
+        ControlOperation::CreateAgentRule(params) => {
+            let workspace_id = state
+                .read_status()
+                .active_workspace_id
+                .unwrap_or_else(|| "default".to_string());
+            let info = state
+                .read_agent_rule_registry()
+                .create(params, &workspace_id, created_by)
+                .map_err(agent_rule_control_error)?;
+            serde_json::to_value(info).map_err(|error| {
+                ControlError::new("INTERNAL_ERROR", format!("serialize Agent rule: {error}"))
+            })
+        }
+        ControlOperation::ListAgentRules => {
+            let rules = state.read_agent_rule_registry().list();
+            serde_json::to_value(rules).map_err(|error| {
+                ControlError::new("INTERNAL_ERROR", format!("serialize Agent rules: {error}"))
+            })
+        }
+        ControlOperation::RemoveAgentRules(params) => {
+            let result = state.read_agent_rule_registry().remove(params.rule_ids);
+            serde_json::to_value(result).map_err(|error| {
+                ControlError::new(
+                    "INTERNAL_ERROR",
+                    format!("serialize Agent rule removal: {error}"),
+                )
+            })
+        }
     }
+}
+
+fn agent_rule_control_error(error: crate::agent_rules::AgentRuleError) -> ControlError {
+    ControlError::new(error.code, error.message)
+}
+
+#[tauri::command]
+pub fn clear_agent_rules(state: tauri::State<'_, Arc<AppState>>) -> Result<Value, String> {
+    let result = state.read_agent_rule_registry().clear();
+    serde_json::to_value(result).map_err(|error| format!("serialize Agent rule cleanup: {error}"))
 }
 
 fn read_diagnostic_logs(
@@ -1168,6 +1221,8 @@ fn ensure_permission(
         ControlPermission::ControlSystemProxy => config.permissions.control_system_proxy,
         ControlPermission::ManageCertificates => config.permissions.manage_certificates,
         ControlPermission::DeleteSessions => config.permissions.delete_sessions,
+        ControlPermission::SendRequests => config.permissions.send_requests,
+        ControlPermission::ManageRules => config.permissions.manage_rules,
     };
     if enabled {
         Ok(())
@@ -1188,6 +1243,8 @@ fn permission_name(permission: ControlPermission) -> &'static str {
         ControlPermission::ControlSystemProxy => "controlSystemProxy",
         ControlPermission::ManageCertificates => "manageCertificates",
         ControlPermission::DeleteSessions => "deleteSessions",
+        ControlPermission::SendRequests => "sendRequests",
+        ControlPermission::ManageRules => "manageRules",
     }
 }
 

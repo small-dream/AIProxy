@@ -403,11 +403,15 @@ async fn handle_connection(
 
                 return crate::connect::tunnel_blind_relay(
                     prefixed,
-                    &host,
-                    port,
                     &dns_manager,
                     &active_workspace_id,
                     upstream_proxy,
+                    crate::connect::TunnelConnectContext {
+                        host: &host,
+                        port,
+                        session_sender: &session_sender,
+                        client_addr,
+                    },
                 )
                 .await
                 .map_err(ProxyError::from);
@@ -836,6 +840,7 @@ pub async fn send_direct_request_bytes(
         // `send_direct_request` is the Compose/API-client path: it dials the
         // target itself and never consults the workspace's upstream proxy.
         via_upstream_proxy: None,
+        failure: None,
     })
 }
 

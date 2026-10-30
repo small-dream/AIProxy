@@ -1,11 +1,40 @@
+use std::sync::Arc;
+
 use aiproxy_db::DbError;
 use chrono::Utc;
-use rmcp::model::CallToolResult;
+use rmcp::model::{CallToolResult, JsonObject};
 use serde_json::{json, Value};
 
 use crate::context::Freshness;
 
-pub const MCP_TOOL_SCHEMA_VERSION: &str = "3.1";
+pub const MCP_TOOL_SCHEMA_VERSION: &str = "3.2";
+
+/// Stable envelope shared by every AIProxy MCP tool. Tool-specific payloads
+/// live under `data`; this schema only promises the top-level result shape.
+pub fn envelope_output_schema() -> Arc<JsonObject> {
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "ok": { "type": "boolean" },
+            "data": { "type": "object" },
+            "meta": { "type": "object" },
+            "error": {
+                "type": "object",
+                "properties": {
+                    "code": { "type": "string" },
+                    "message": { "type": "string" },
+                    "retryable": { "type": "boolean" },
+                    "details": { "type": "object" }
+                },
+                "required": ["code", "message", "retryable"],
+                "additionalProperties": true
+            }
+        },
+        "required": ["ok"],
+        "additionalProperties": true
+    });
+    Arc::new(schema.as_object().cloned().unwrap_or_default())
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct ToolMeta {
@@ -17,6 +46,7 @@ pub struct ToolMeta {
     pub latest_session_at: Option<String>,
     pub capture_status: Option<&'static str>,
     pub capture_updated_at: Option<String>,
+    pub watermark: Option<String>,
 }
 
 impl ToolMeta {
@@ -47,6 +77,11 @@ impl ToolMeta {
         self
     }
 
+    pub fn with_watermark(mut self, watermark: impl Into<String>) -> Self {
+        self.watermark = Some(watermark.into());
+        self
+    }
+
     fn to_json(&self, started: std::time::Instant) -> Value {
         json!({
             "schemaVersion": MCP_TOOL_SCHEMA_VERSION,
@@ -58,6 +93,7 @@ impl ToolMeta {
             "truncatedReason": self.truncated_reason,
             "redacted": self.redacted,
             "nextCursor": self.next_cursor,
+            "watermark": self.watermark,
             "tookMs": started.elapsed().as_millis() as u64,
             "readAt": Utc::now().to_rfc3339(),
             "auditDegraded": self.audit_degraded,

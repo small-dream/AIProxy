@@ -133,7 +133,7 @@ async fn build_upstream_error_response_and_session(
 > {
     let response_message = "The proxy could not reach the upstream server.";
 
-    let detail = build_session_detail(
+    let mut detail = build_session_detail(
         request,
         StatusCode::BAD_GATEWAY.as_u16(),
         &HeaderMap::new(),
@@ -155,6 +155,7 @@ async fn build_upstream_error_response_and_session(
         false,
         false, // M2 skip_bodies
     );
+    detail.set_failure(Some(crate::SessionFailure::from_proxy_error(error)));
     if ctx.session_sender.send(detail).await.is_err() {
         tracing::debug!(
             event = "session_send_dropped",
@@ -571,6 +572,10 @@ async fn stage_intercept_request_breakpoint(
                         drop_detail.rewrite_traces = rewrite_traces;
                         drop_detail.script_traces = script_traces;
                         drop_detail.throttle_traces = throttle_traces;
+                        drop_detail.set_failure(Some(crate::SessionFailure::proxy(
+                            "throttled",
+                            failure.error.clone(),
+                        )));
                         if ctx.session_sender.send(drop_detail).await.is_err() {
                             tracing::debug!(
                                 event = "session_send_dropped",
@@ -819,7 +824,7 @@ async fn stage_forward_upstream(
                         timeout_secs = timeout_secs,
                         "upstream_request_timed_out"
                     );
-                    let detail = build_session_detail(
+                    let mut detail = build_session_detail(
                         request,
                         StatusCode::GATEWAY_TIMEOUT.as_u16(),
                         &HeaderMap::new(),
@@ -841,6 +846,10 @@ async fn stage_forward_upstream(
                         false,
                         false, // M2 skip_bodies
                     );
+                    detail.set_failure(Some(crate::SessionFailure::upstream(
+                        "upstream_timeout",
+                        format!("The upstream did not respond within {timeout_secs}s."),
+                    )));
                     let _ = ctx.session_sender.send(detail).await;
                     cancellation_guard.disarm();
                     let response =
@@ -906,7 +915,7 @@ async fn stage_process_upstream_response(
             Ok(traces) => traces,
             Err(error) => {
                 let response_message = "The proxy could not process the upstream response.";
-                let detail = build_session_detail(
+                let mut detail = build_session_detail(
                     request,
                     StatusCode::BAD_GATEWAY.as_u16(),
                     &HeaderMap::new(),
@@ -928,6 +937,10 @@ async fn stage_process_upstream_response(
                     false,
                     false, // M2 skip_bodies
                 );
+                detail.set_failure(Some(crate::SessionFailure::proxy(
+                    "rewrite_failed",
+                    error.to_string(),
+                )));
                 let _ = ctx.session_sender.send(detail).await;
                 tracing::error!(
                     event = "response_processing_failed",
@@ -1103,6 +1116,10 @@ async fn stage_process_upstream_response(
                 session_detail.rewrite_traces = rewrite_traces;
                 session_detail.script_traces = script_traces;
                 session_detail.map_traces = map_traces;
+                session_detail.set_failure(Some(crate::SessionFailure::proxy(
+                    "throttled",
+                    failure.error.clone(),
+                )));
                 if ctx.session_sender.send(session_detail).await.is_err() {
                     tracing::debug!(
                         event = "session_send_dropped",
@@ -1391,6 +1408,7 @@ pub(crate) async fn handle_http_request(
                     // handled inside the WS handler and return Ok(502). If we
                     // reach here, it's an unexpected internal error; the guard
                     // will send a 499 session as a last resort.
+                    cancellation_guard.mark_proxy_internal(e.to_string());
                     return Err(e.into());
                 }
             }
@@ -1892,6 +1910,7 @@ async fn build_throttle_failure_response(
     );
     detail.map_traces = map_traces;
     detail.throttle_traces = throttle_traces;
+    detail.set_failure(Some(crate::SessionFailure::proxy("throttled", error)));
     if ctx.session_sender.send(detail).await.is_err() {
         tracing::debug!(
             event = "session_send_dropped",
@@ -1952,6 +1971,7 @@ async fn send_session(
 
 struct PendingRequestCancellationGuard {
     disarmed: bool,
+    failure: crate::SessionFailure,
     map_traces: Vec<crate::MapTrace>,
     request: ParsedProxyRequest,
     sender: mpsc::Sender<ProxySessionDetail>,
@@ -1969,6 +1989,10 @@ impl PendingRequestCancellationGuard {
     ) -> Self {
         Self {
             disarmed: false,
+            failure: crate::SessionFailure::client(
+                "client_closed",
+                "The client disconnected or the request was cancelled before a response completed.",
+            ),
             map_traces,
             request,
             sender,
@@ -1979,6 +2003,10 @@ impl PendingRequestCancellationGuard {
 
     fn disarm(&mut self) {
         self.disarmed = true;
+    }
+
+    fn mark_proxy_internal(&mut self, message: impl Into<String>) {
+        self.failure = crate::SessionFailure::proxy("proxy_internal", message);
     }
 }
 
@@ -2013,6 +2041,7 @@ impl Drop for PendingRequestCancellationGuard {
         );
         detail.map_traces = self.map_traces.clone();
         detail.timing_source = Some("proxy".to_string());
+        detail.set_failure(Some(self.failure.clone()));
 
         let request_id = self.request.request_id.clone();
         let host = self.request.host.clone();

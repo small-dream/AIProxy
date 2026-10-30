@@ -241,6 +241,18 @@ pub(crate) fn set_json_path_value(
     }
 }
 
+/// Apply a supported JSON path expression (`data.items[0].id`) to a JSON value.
+/// Replay uses the same path grammar as response-body rewrite fields so Agents
+/// do not need to learn a second addressing syntax.
+pub fn set_json_path_from_str(
+    root: &mut serde_json::Value,
+    path: &str,
+    value: serde_json::Value,
+) -> Result<(), String> {
+    let segments = parse_json_field_path(path)?;
+    set_json_path_value(root, &segments, value)
+}
+
 pub(crate) fn remove_json_path_value(
     root: &mut serde_json::Value,
     segments: &[JsonPathSegment],

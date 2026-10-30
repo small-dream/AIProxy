@@ -116,6 +116,28 @@ export async function listRewriteRules(workspaceId = DEFAULT_WORKSPACE_ID): Prom
   );
 }
 
+/** Remove every temporary in-memory Agent rule and its mock body file. */
+export async function clearAgentRules(): Promise<number> {
+  if (!isTauriRuntime()) {
+    return 0;
+  }
+
+  try {
+    const payload = await invoke<unknown>("clear_agent_rules");
+    const removedCount =
+      typeof payload === "object" && payload !== null
+        ? (payload as { removedCount?: unknown }).removedCount
+        : undefined;
+    if (typeof removedCount !== "number" || !Number.isInteger(removedCount) || removedCount < 0) {
+      throw coerceAppError("Invalid response from clear_agent_rules");
+    }
+    return removedCount;
+  } catch (error) {
+    reportCommandFailure("clear_agent_rules", error);
+    throw coerceAppError(error);
+  }
+}
+
 export async function saveRewriteRule(
   input: Omit<RewriteRule, "id"> & { id?: string },
 ): Promise<RewriteRule> {

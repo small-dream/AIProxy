@@ -1,6 +1,123 @@
 use super::*;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+static CONNECT_FAILURE_THROTTLE: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+const CONNECT_FAILURE_THROTTLE_WINDOW: Duration = Duration::from_secs(10);
+
+fn should_emit_connect_failure(host: &str) -> bool {
+    let hosts = CONNECT_FAILURE_THROTTLE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut hosts = hosts
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let key = host.trim().to_ascii_lowercase();
+    let now = Instant::now();
+    hosts.retain(|_, last| now.duration_since(*last) < CONNECT_FAILURE_THROTTLE_WINDOW);
+    if hosts.contains_key(&key) {
+        return false;
+    }
+    hosts.insert(key, now);
+    true
+}
+
+pub(crate) fn classify_upstream_failure(message: &str) -> &'static str {
+    let message = message.to_ascii_lowercase();
+    if message.contains("dns") || message.contains("resolve") {
+        "dns"
+    } else if message.contains("refused") {
+        "connect_refused"
+    } else if message.contains("timed out") || message.contains("timeout") {
+        "connect_timeout"
+    } else if message.contains("certificate") || message.contains("tls") {
+        "upstream_tls"
+    } else if message.contains("reset")
+        || message.contains("closed before")
+        || message.contains("unexpected eof")
+    {
+        "upstream_reset"
+    } else {
+        "other"
+    }
+}
+
+async fn send_connect_failure_session(
+    sender: &mpsc::Sender<ProxySessionDetail>,
+    host: &str,
+    port: u16,
+    client_addr: SocketAddr,
+    failure: crate::SessionFailure,
+) {
+    if !should_emit_connect_failure(host) {
+        return;
+    }
+    let now = Utc::now();
+    let id = Uuid::new_v4().to_string();
+    let target = format!("{host}:{port}");
+    let mut detail = ProxySessionDetail {
+        client_address: Some(client_addr.to_string()),
+        cookies: Vec::new(),
+        id: id.clone(),
+        query_params: Vec::new(),
+        raw_request_head: Some(format!(
+            "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n"
+        )),
+        raw_response_head: None,
+        request_body: None,
+        request_headers: Vec::new(),
+        response_body: None,
+        response_headers: Vec::new(),
+        map_traces: Vec::new(),
+        rewrite_traces: Vec::new(),
+        server_ip: None,
+        tls_cipher_suite: None,
+        tls_protocol: None,
+        summary: ProxySessionSummary {
+            id,
+            method: "CONNECT".to_string(),
+            host: host.to_string(),
+            path: target.clone(),
+            protocol: "http".to_string(),
+            scheme: "https".to_string(),
+            http_version: "1.1".to_string(),
+            transport_protocol: "tcp".to_string(),
+            application_protocol: "http".to_string(),
+            started_at: now.to_rfc3339(),
+            finished_at: now.to_rfc3339(),
+            duration_ms: 0,
+            size_bytes: 0,
+            status_code: 0,
+            url: format!("https://{target}"),
+            response_mime_type: None,
+            failure: None,
+        },
+        script_traces: Vec::new(),
+        throttle_traces: Vec::new(),
+        timing: Some(ProxyTimingBreakdown {
+            connect_ms: None,
+            connection_reused: None,
+            connection_wait_ms: None,
+            dns_ms: None,
+            request_send_ms: None,
+            response_read_ms: None,
+            tls_ms: None,
+            total_ms: Some(0),
+            waiting_ms: None,
+        }),
+        timing_source: Some("proxy".to_string()),
+        trailers: None,
+        h2_stream_id: None,
+        via_upstream_proxy: None,
+        failure: None,
+    };
+    detail.set_failure(Some(failure));
+    if sender.send(detail).await.is_err() {
+        tracing::debug!(
+            event = "session_send_dropped",
+            reason = "receiver_disconnected",
+            "session_send_dropped"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CONNECT tunnel handling: blind relay, MITM, HTTPS WebSocket upgrade
 // ---------------------------------------------------------------------------
@@ -65,15 +182,29 @@ pub(crate) fn classify_client_handshake_error(error: &std::io::Error) -> ClientH
     }
 }
 
+/// Connection metadata used to report blind-relay failures as sessions.
+#[derive(Clone, Copy)]
+pub(crate) struct TunnelConnectContext<'a> {
+    pub(crate) host: &'a str,
+    pub(crate) port: u16,
+    pub(crate) session_sender: &'a mpsc::Sender<ProxySessionDetail>,
+    pub(crate) client_addr: SocketAddr,
+}
+
 /// Blind TCP relay for CONNECT when SSL interception is disabled.
 pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
     mut client_stream: S,
-    host: &str,
-    port: u16,
     dns_manager: &Option<Arc<DnsManager>>,
     workspace_id: &str,
     upstream_proxy: Option<Arc<crate::upstream_proxy::UpstreamProxyConfig>>,
+    connect: TunnelConnectContext<'_>,
 ) -> Result<(), String> {
+    let TunnelConnectContext {
+        host,
+        port,
+        session_sender,
+        client_addr,
+    } = connect;
     // Resolve DNS override FIRST (must happen before connecting upstream),
     // then connect the upstream BEFORE telling the client the tunnel is up.
     // If the upstream is unreachable we reply 502 Bad Gateway so the client
@@ -120,6 +251,14 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
                 "connect_tunnel_upstream_failed"
             );
             let message = format!("failed to connect to upstream {host}:{port}: {e}");
+            send_connect_failure_session(
+                session_sender,
+                host,
+                port,
+                client_addr,
+                crate::SessionFailure::upstream(classify_upstream_failure(&message), &message),
+            )
+            .await;
             write_plain_text_response(&mut client_stream, StatusCode::BAD_GATEWAY, &message)
                 .await
                 .ok();
@@ -137,6 +276,14 @@ pub(crate) async fn tunnel_blind_relay<S: AsyncRead + AsyncWrite + Unpin>(
                 "timed out connecting to upstream {host}:{port} after {}s",
                 crate::timeout_for(crate::TimeoutKind::ConnectTunnelConnect).as_secs()
             );
+            send_connect_failure_session(
+                session_sender,
+                host,
+                port,
+                client_addr,
+                crate::SessionFailure::upstream("connect_timeout", &message),
+            )
+            .await;
             write_plain_text_response(&mut client_stream, StatusCode::GATEWAY_TIMEOUT, &message)
                 .await
                 .ok();
@@ -479,6 +626,22 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
                     );
                 }
             }
+            let kind = match classify_client_handshake_error(&error) {
+                ClientHandshakeRejection::CertificateRejected => "client_tls_rejected",
+                ClientHandshakeRejection::UntrustedRoot => "client_tls_untrusted_root",
+                ClientHandshakeRejection::Other => "other",
+            };
+            send_connect_failure_session(
+                &session_sender,
+                &host,
+                port,
+                client_addr,
+                crate::SessionFailure::client(
+                    kind,
+                    format!("TLS handshake failed for {host}:{port}: {error}"),
+                ),
+            )
+            .await;
             return Err(ProxyError::TlsError(format!(
                 "TLS handshake failed for {host}:{port}: {error}"
             )));
@@ -495,6 +658,20 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
                 timeout_secs = crate::timeout_for(crate::TimeoutKind::ClientHeaderRead).as_secs(),
                 "client did not complete the TLS handshake in time"
             );
+            send_connect_failure_session(
+                &session_sender,
+                &host,
+                port,
+                client_addr,
+                crate::SessionFailure::client(
+                    "other",
+                    format!(
+                        "TLS handshake timed out after {}s for {host}:{port}",
+                        crate::timeout_for(crate::TimeoutKind::ClientHeaderRead).as_secs()
+                    ),
+                ),
+            )
+            .await;
             return Err(ProxyError::TlsError(format!(
                 "TLS handshake timed out after {}s for {host}:{port}",
                 crate::timeout_for(crate::TimeoutKind::ClientHeaderRead).as_secs()

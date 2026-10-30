@@ -61,6 +61,12 @@ pub struct AgentAccessPermissions {
     pub manage_certificates: bool,
     #[serde(default)]
     pub delete_sessions: bool,
+    /// Allow replaying captured requests against their original upstream host.
+    #[serde(default)]
+    pub send_requests: bool,
+    /// Allow creating and removing temporary in-memory Agent rules.
+    #[serde(default)]
+    pub manage_rules: bool,
 }
 
 impl Default for AgentAccessPermissions {
@@ -75,6 +81,8 @@ impl Default for AgentAccessPermissions {
             control_system_proxy: false,
             manage_certificates: false,
             delete_sessions: false,
+            send_requests: false,
+            manage_rules: false,
         }
     }
 }

@@ -43,6 +43,7 @@ import { alpha } from "@mui/material/styles";
 
 import { isMacPlatform } from "@/components/layout/hooks/helpers";
 import { useI18n } from "@/i18n";
+import { formatAgentRuleExpiry } from "@/features/rules/components/AgentRuleUi";
 import type { TranslationFn } from "@/features/rules/rules.helpers";
 import { PriorityField } from "@/features/rules/components/PriorityField";
 import { moveRuleInOrder } from "@/features/rules/rules-priority.helpers";
@@ -544,14 +545,18 @@ export type ManagedRuleListItem = {
    *  IS the priority omit it so the number does not compete with drag order. */
   chipLabel?: string;
   enabled: boolean;
+  expiresAt?: string | undefined;
   id: string;
   name: string;
   onClick: () => void;
+  /** Agent rules stay visible but cannot be dragged or renumbered. */
+  reorderable?: boolean;
   /** When provided, renders a row-leading checkbox (multi-select, R5). */
-  onSelectToggle?: () => void;
+  onSelectToggle?: (() => void) | undefined;
   /** When provided, renders an inline switch that persists immediately
    *  (via the caller's save mutation) instead of the static OFF chip. */
-  onToggleEnabled?: (enabled: boolean) => void;
+  onToggleEnabled?: ((enabled: boolean) => void) | undefined;
+  source?: "agent" | undefined;
   subtitle: string;
 };
 
@@ -594,7 +599,12 @@ export function ManagedRuleList(props: {
     );
   }
 
-  const orderedIds = items.map((item) => item.id);
+  const movableIds = items.filter((item) => item.reorderable !== false).map((item) => item.id);
+
+  const mergeMovableOrder = (nextMovableIds: string[]) => {
+    let cursor = 0;
+    return items.map((item) => (item.reorderable === false ? item.id : nextMovableIds[cursor++]!));
+  };
 
   const content = (
     <List disablePadding dense sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
@@ -603,10 +613,10 @@ export function ManagedRuleList(props: {
           key={item.id}
           item={item}
           onKeyboardMove={
-            onReorder
+            onReorder && item.reorderable !== false
               ? (direction) => {
-                  const next = moveRuleInOrder(orderedIds, item.id, direction);
-                  if (next) onReorder(next);
+                  const next = moveRuleInOrder(movableIds, item.id, direction);
+                  if (next) onReorder(mergeMovableOrder(next));
                 }
               : undefined
           }
@@ -617,7 +627,7 @@ export function ManagedRuleList(props: {
     </List>
   );
 
-  if (!onReorder) {
+  if (!onReorder || movableIds.length < 2) {
     return content;
   }
 
@@ -628,19 +638,13 @@ export function ManagedRuleList(props: {
       onDragEnd={(event: DragEndEvent) => {
         const { active, over } = event;
         if (!over || active.id === over.id) return;
-        const oldIndex = items.findIndex((item) => item.id === active.id);
-        const newIndex = items.findIndex((item) => item.id === over.id);
+        const oldIndex = movableIds.indexOf(String(active.id));
+        const newIndex = movableIds.indexOf(String(over.id));
         if (oldIndex < 0 || newIndex < 0) return;
-        onReorder(
-          arrayMove(
-            items.map((item) => item.id),
-            oldIndex,
-            newIndex,
-          ),
-        );
+        onReorder(mergeMovableOrder(arrayMove(movableIds, oldIndex, newIndex)));
       }}
     >
-      <SortableContext items={items.map((item) => item.id)} strategy={verticalListSortingStrategy}>
+      <SortableContext items={movableIds} strategy={verticalListSortingStrategy}>
         {content}
       </SortableContext>
     </DndContext>
@@ -659,8 +663,11 @@ function ManagedRuleListRow({
   onReorder?: ((orderedIds: string[]) => void) | undefined;
   selected: boolean;
 }) {
-  const { t } = useI18n();
-  const sortable = useSortable({ id: item.id, disabled: !onReorder });
+  const { locale, t } = useI18n();
+  const sortable = useSortable({
+    id: item.id,
+    disabled: !onReorder || item.reorderable === false,
+  });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = sortable;
 
   // Keyboard access to the two pointer-only interactions on this row:
@@ -728,7 +735,7 @@ function ManagedRuleListRow({
           sx={{ ml: -0.5, mr: 0.25 }}
         />
       )}
-      {onReorder && (
+      {onReorder && item.reorderable !== false && (
         <Box
           {...attributes}
           {...listeners}
@@ -767,6 +774,25 @@ function ManagedRuleListRow({
                 flexShrink: 0,
               }}
             >
+              {item.source === "agent" && (
+                <Chip
+                  color="warning"
+                  label={t("rulesPage.agentRule.badge")}
+                  size="small"
+                  sx={{ fontSize: 11, height: 20 }}
+                  variant="outlined"
+                />
+              )}
+              {item.expiresAt && (
+                <Chip
+                  label={t("rulesPage.agentRule.expires", {
+                    time: formatAgentRuleExpiry(item.expiresAt, locale),
+                  })}
+                  size="small"
+                  sx={{ fontSize: 11, height: 20 }}
+                  variant="outlined"
+                />
+              )}
               {item.onToggleEnabled ? (
                 <Switch
                   size="small"

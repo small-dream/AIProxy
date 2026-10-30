@@ -278,6 +278,7 @@ mod tests {
         ProxySessionDetail {
             client_address: None,
             cookies: Vec::new(),
+            failure: None,
             id: "session-1".to_string(),
             query_params: Vec::new(),
             raw_request_head: None,
@@ -308,6 +309,7 @@ mod tests {
                 status_code: 200,
                 url: "http://example.com/".to_string(),
                 response_mime_type: None,
+                failure: None,
             },
             script_traces: Vec::new(),
             throttle_traces: Vec::new(),
