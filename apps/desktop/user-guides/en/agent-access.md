@@ -86,6 +86,15 @@ Expand **Advanced permissions** to:
 - Add **Custom sensitive field names** for headers, query parameters, or JSON fields that need redaction; press Enter after each entry.
 - Tune **Maximum sessions per page** and **Body chunk limit** to reduce the data returned by one call.
 
+### Read large JSON on demand
+
+When the Agent already knows the target field, use `get_session_body` with `jsonPaths` (for example `$.preferences.local_premade_wizard_config_rc`) instead of paging the full body. JSON extraction is streamed: one body may be scanned up to 64 MiB and a batch field request has a 256 MiB scan budget, while only the requested fields are returned.
+
+- A single target value is limited to 64 KiB. When an object or array is larger, the result has `truncated=true` and a one-level `valueSummary` with at most 32 direct keys or 16 array items.
+- To drill down, append a child key from `valueSummary.keys[].name` to `jsonPaths`; do not page the full body to discover or retrieve a known field.
+- `textQuery` still scans the complete text view and is limited to 8 MiB. Split text search from field extraction for large bodies.
+- A path returns at most 256 matches. Additional matches are withheld and reported as `resultLimit`. The extracted field payload is also capped at 960 KiB; paths that are not stored have `omittedByResultLimit=true`, so split them into smaller `jsonPaths` calls. `decodedSizeBytes` is the complete body size, while `returnedBytes` and `viewSizeBytes` describe only the extracted result.
+
 ## Control permissions
 
 Control permissions appear below read permissions and start disabled:

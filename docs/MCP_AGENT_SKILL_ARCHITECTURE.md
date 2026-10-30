@@ -6,7 +6,7 @@
 - 文档状态：`Current v3.2（读取 + 受控操作 + 复现闭环；v1 只读基线保留为历史背景）`
 
 > 历史说明：本文最初记录 v1 只读架构。v3.0 通过 ADR-007 引入受权限约束的本地 IPC 控制，v3.1 通过 ADR-008 引入受限诊断，v3.2 通过 ADR-009 引入直连重放、结构化失败原因与内存临时 Agent 规则。当前工具契约、权限与错误码以 `docs/API_SPEC.md`、`docs/DECISIONS/ADR-007-agent-control-ipc.md`、`docs/DECISIONS/ADR-008-bounded-diagnostic-log-access.md` 与 `docs/DECISIONS/ADR-009-agent-replay-and-temporary-rules.md` 为准；下文的“只读”“写操作后置”等描述仅保留为历史基线。
-> 实现说明：2026-10-18 已落地 schema 2.1、字段提取、批量字段读取、结构化比较与可配置脱敏；2026-10-29 已落地 schema 3.1、受控诊断工具与白名单日志读取；2026-10-30 已落地 schema 3.2、`wait_for_sessions`、cURL 导出、失败原因、请求重放与临时 Agent 规则。实际模块、命令、客户端路径与验证结果见文末「实现状态」。
+> 实现说明：2026-10-18 已落地 schema 2.1、字段提取、批量字段读取、结构化比较与可配置脱敏；2026-10-29 已落地 schema 3.1、受控诊断工具与白名单日志读取；2026-10-30 已落地 schema 3.2、`wait_for_sessions`、cURL 导出、失败原因、请求重放、临时 Agent 规则，以及 Skill 3.3 的大 JSON 流式按需提取。实际模块、命令、客户端路径与验证结果见文末「实现状态」。
 - 更新日期：`2026-10-30`
 - 适用范围：AIProxy Desktop、Rust 核心、`aiproxy-mcp` sidecar、Codex / Claude Code / Cursor 等 Agent 客户端
 - 配套产品规划：`docs/MCP_AGENT_SKILL_PLAN.md`
@@ -266,7 +266,7 @@ crates/mcp-server/
 - MCP 主循环使用 `tokio`；SQLite 和文件读取通过 `spawn_blocking` 执行。
 - MVP 使用一个只读 `DbReader`，内部以 `Mutex<Connection>` 串行化查询，避免 `rusqlite::Connection` 的线程限制。
 - 每个工具调用有超时；超时返回 `TOOL_TIMEOUT`，不无限占用 Agent 上下文。
-- 大 Body 读取走分块 API，不把整个文件加载进内存。
+- 分页读取走范围 API；JSON 字段提取走流式 reader，不把完整 Body 或超限目标子树加载进内存。
 - 并发上限先设为 4；Phase 4 压测后再决定是否增加只读连接池。
 
 ### 6.7 错误模型
@@ -400,20 +400,23 @@ SQL 必须留在 `aiproxy-db`，MCP 只负责把工具参数映射为查询对�
 
 - 解析 `session_details.request_body_ref` / `response_body_ref` 的 JSON，兼容两种存储形态：
   - 小 Body：`inline_text` 或 `base64_text` 直接存在 DB JSON 中。
-  - 大 Body：`file_path` 指向 Body Store，必须通过只读范围 API 读取。
+- 大 Body：`file_path` 指向 Body Store，分页/文本读取使用只读范围 API，JSON 字段提取使用安全流式 reader。
 - Body Store 根目录固定为 `resolve_db_dir()/bodies`；inline Body 同样经过脱敏和预算控制。
-- 需要新增只读范围 API，例如 `read_body_range(relative_path, offset, max_bytes)`；不要调用会把整文件读入内存的接口。inline Body 超过预算时按解码后的字节截断。
+- `BodyStore::read_body_range` 提供有界分页；`BodyStore::open_body_reader` 复用相同的路径、普通文件和符号链接校验，供 JSON token 流式解析使用。inline Body 使用 `Cursor<&[u8]>` 走同一解析接口。
 - 单次默认上限 `256 KiB`，最大上限由 Agent Access `maxBodyBytes` 控制。
 - 返回 `wireSizeBytes`（网络传输/压缩后大小）、`decodedSizeBytes`（解压后完整大小）和 `viewSizeBytes`（当前脱敏或解析视图大小），不再使用含义模糊的 `originalSizeBytes`。
 - 返回 `offsetUnit`、`offset`、`returnedBytes`、`nextOffset`、`hasMore`、`captureTruncated`、`scanTruncated`、`truncatedReasons`。`truncatedReasons` 取值为 `captureLimit`、`scanLimit`、`pageLimit`、`resultLimit`。
 - `redacted-text` 的 offset 基于完整脱敏文本视图（`decodedViewBytes`）；`raw` / `base64` 基于解码 Body（`decodedBodyBytes`）；`metadata` 没有 offset。
-- `jsonPaths` 支持安全子集：`$`、点号 key、方括号 key、数组索引和单层通配符，例如 `$.ab.ab_test`、`$['ab']['ab_test']`、`$[0]`、`$[*]`；不支持过滤表达式、递归下降或脚本。
-- JSON 字段提取会先读取完整可扫描 Body、完整解析、整体脱敏，再按 path 提取，避免分块导致跨块敏感值漏脱敏。扫描上限为 8 MiB，超限返回 `BODY_TOO_LARGE`。
+- `jsonPaths` 支持安全子集：`$`、点号 key、方括号 key、数组索引和单层通配符，例如 `$.preferences.local_premade_wizard_config_rc`、`$['ab']['ab_test']`、`$[0]`、`$[*]`；不支持过滤表达式、递归下降或脚本。
+- 所有 `jsonPaths` 请求统一走流式提取：serde token 遍历完整文档，只在命中路径时构建有界结果；完整消费并校验后缀后才返回，绝不返回“已命中但文档尾部损坏”的部分成功。单 Body 扫描上限 64 MiB，`$` 根路径上限 8 MiB。file-backed Body 先做一次有界 UTF-8/SHA-256 预扫描，再流式解析；inline Body 走同一解析接口。
+- 单目标值最多保留 64 KiB；对象/数组超限时返回 `value=null` + 一层 `valueSummary`（最多 32 个 key / 16 个数组项 / 4 KiB），Agent 可据此请求更深路径。标量超限时保留有界前缀。单路径最多 256 个匹配；单次字段载荷最多 960 KiB，超预算路径带 `omittedByResultLimit=true`，最终仍受默认 1 MiB 工具响应上限约束。
+- 解析在 `spawn_blocking` 中执行；`get_session_fields` 逐项处理并累计 256 MiB 总扫描预算，超出的单项返回 `BODY_TOO_LARGE`，`details.reason="batchScanLimit"`。
+- 同一文档的重复 key 取最后一个值；对象 `[*]` 按源文件顺序。`viewSizeBytes` 对全部 `jsonPaths` 响应统一表示提取结果数组的序列化大小，`hash.scope="decodedBody"`。
 - `textQuery` 在完整脱敏文本视图中搜索，最多返回 20 个命中及上下文；`offsetBytes` 基于该脱敏视图。
 - 表单参数提取：`includeFormParams=true` 返回全部参数，`formParamNames`（最多 20 个，去重后保持给定顺序）只返回指定参数；两者互斥，且不能与 `jsonPaths` / `textQuery` 同时使用。仅支持 `application/x-www-form-urlencoded` 和带 `boundary` 的 `multipart/form-data`，否则返回 `BODY_NOT_FORM`。
 - 表单输出：`encoding="form"`、`formFormat=urlencoded|multipart`、`formParamCount`（Body 中的参数总数）、`formParams`、`formParamsTruncated`。每项包含 `name`、`found`、`value`、`valueType=text|file|binary|missing`、`sizeBytes`、`truncated`；文件项只返回 `fileName`、`contentType`、`sizeBytes`，不返回内容。
 - 表单预算：最多 200 个参数，单值 64 KiB，单次表单负载 512 KiB；超限置 `formParamsTruncated=true` 并在 `truncatedReasons` 标记 `resultLimit`。值按参数名和格式脱敏，`redactedFields` 汇总命中规则。
-- `get_session_fields` 一次接受最多 20 个 session 和 20 个 JSON paths，对每个 session 独立返回成功或错误，适合批量比较同一实验字段。
+- `get_session_fields` 一次接受最多 20 个 session 和 20 个 JSON paths，流式处理并用 256 MiB 批量预算限制总扫描量；每个 session 独立返回成功或错误，适合批量比较同一实验字段。
 - 二进制、压缩格式或不支持的 MIME 只返回大小、哈希和摘要，不返回原始字节。
 
 Body 路径安全：
@@ -537,8 +540,8 @@ MCP `tools/call` 的结果映射：
 | `search_sessions` | `readSessions` | `session_summaries` + 可选 `session_details` | 20 条，最大 100 | 只返回摘要；支持 path、query、since、失败筛选、排序、compact（含 host）与 fields |
 | `wait_for_sessions` | `readSessions` | `session_summaries` | 最长 30 秒；默认 15 秒 | 等待新完成的匹配会话；返回 `satisfied`、`timedOut`、`items`、`watermark` 与抓包未运行提示；不是实时流 |
 | `get_session` | `readSessions` | `session_summaries` + `session_details` | Header 限量；默认不含 Body | 返回 Timing、TLS、HTTP/2、规则 trace 与结构化 `failure`；`redactionMode` 控制 Cookie |
-| `get_session_body` | `readBodies` | Body Store | 256 KiB/次；完整扫描上限 8 MiB | `part` 必填（request/response）；支持 metadata、jsonPaths、textQuery、表单参数（`includeFormParams` / `formParamNames`）、分页和明确截断原因 |
-| `get_session_fields` | `readBodies` | Body Store | 20 个 session × 20 个 path | `part` 必填；批量提取同一字段，单项失败不拖垮整批 |
+| `get_session_body` | `readBodies` | Body Store | 分页 256 KiB/次；textQuery 8 MiB；jsonPaths 单 Body 64 MiB | `part` 必填（request/response）；支持 metadata、流式 jsonPaths、textQuery、表单参数（`includeFormParams` / `formParamNames`）、分页和明确截断原因 |
+| `get_session_fields` | `readBodies` | Body Store | 20 个 session × 20 个 path；单 Body 64 MiB；批量 256 MiB | `part` 必填；流式批量提取同一字段，单项失败不拖垮整批 |
 | `export_session_as_curl` | `readSessions`；raw 另需 `readRawBodies` | 会话详情 + Body Store | 文本 Body 最多 64 KiB | 生成 POSIX / PowerShell cURL；仅本次导出生成的独立标记会转为环境变量占位符，抓包文本中的相似前缀保持字面量；省略项与原因写入 `omitted` |
 | `get_websocket_messages` | `readWebSocket` | `ws_messages` | 50 条，最大 100 | 二进制只返回摘要 |
 | `get_insights` | `readSessions` | Insights | byHost 50，groups 50，ranking 20 | 复用现有聚合；支持 host/path/queryParam 分组与 `byFailureKind` |
@@ -780,7 +783,7 @@ stdio 模式消除了网络监听面，但不能阻止同一系统用户下的�
 1. Header 名称匹配：`authorization`、`proxy-authorization`、`cookie`、`set-cookie`、`x-api-key`、`api-key`、`x-auth-token`、`x-csrf-token` 等。
 2. Query / form / JSON key 匹配：`token`、`access_token`、`refresh_token`、`id_token`、`password`、`passwd`、`secret`、`client_secret`、`api_key`、`apikey`、`session`、`csrf`、`private_key`、设备 ID 和用户配置的自定义字段。
 3. 值格式识别：JWT、Bearer、邮箱、中国手机号、设备 ID、收货地址等即使 key 不常见也会命中；可在 UI 关闭格式识别。
-4. JSON 递归脱敏：完整解析后递归处理，保留结构与类型。secret 替换为 `[REDACTED]`；标识符与 PII 使用本地稳定 HMAC 伪名，例如 `[ID:xxxxxxxx]`、`[EMAIL:xxxxxxxx]`、`[PHONE:xxxxxxxx]`。
+4. JSON 脱敏：普通 JSON 视图递归处理；`jsonPaths` 在流式扫描中只对命中节点及其子节点按真实路径处理，保留允许返回的结构与类型。secret 替换为 `[REDACTED]`；标识符与 PII 使用本地稳定 HMAC 伪名，例如 `[ID:xxxxxxxx]`、`[EMAIL:xxxxxxxx]`、`[PHONE:xxxxxxxx]`。
 5. 文本模式：对无法解析的文本做保守模式匹配，避免把已知 secret 原样返回。
 6. 二进制 / 压缩内容：只返回 size、MIME、哈希和摘要，不返回原始字节。
 7. 生成 `redactedFields` 与 `records`：只记录字段名、规则和动作，不记录原值。
@@ -798,7 +801,7 @@ stdio 模式消除了网络监听面，但不能阻止同一系统用户下的�
 
 `offset` / `maxBytes` 是 UTF-8 字节偏移，不是字符数；返回 `isUtf8`，避免 Agent 误判多字节字符边界。`redacted-text` 的 offset 基于脱敏后的完整文本视图，`raw` / `base64` 基于解码 Body。
 
-为了避免分块导致跨块敏感值漏脱敏，`redacted-text` 会先扫描完整 Body（上限 8 MiB）再建立脱敏视图。超限返回 `BODY_TOO_LARGE`，建议改用 `metadata`、更窄的 `jsonPaths` / `formParamNames` 或 `get_session_fields`。分页或片段结果不声明为完整结构，`structureParsed=false`；`jsonPaths` 仅在完整解析成功后返回结构化值。
+为了避免分块导致跨块敏感值漏脱敏，普通 `redacted-text` 分页仍会先扫描完整 Body（上限 8 MiB）再建立脱敏视图；超限时 Agent 必须改用具体 `jsonPaths`，不得继续分页完整 Body。`jsonPaths` 自身走 64 MiB 流式路径，并使用目标节点的真实路径递归脱敏；敏感祖先字段不能被路径绕过。分页或片段结果不声明为完整结构，`structureParsed=false`；`jsonPaths` 仅在完整解析成功后返回结构化值。
 
 ### 9.5 Agent Access 配置
 
@@ -924,7 +927,7 @@ Skill 不存放用户数据、API key 或抓包样本；示例只使用合成的
 ---
 name: aiproxy
 description: Analyze captured HTTP/WebSocket traffic and diagnose AIProxy failures through MCP. Use when the user mentions AIProxy, packet capture, proxy traffic, failing requests, latency regressions, header/body differences, Timing, WebSocket, AB experiment cohorts, setup/certificate/control-channel failures, or asks for evidence by sessionId. 当用户提到 AIProxy、抓包、网络请求、接口调试、Timing、WebSocket、AB 实验分组，或需要以 sessionId 为证据分析流量、排查 AIProxy 设置与连接故障时使用。
-version: 3.2
+version: 3.3
 mcpSchemaMin: 3.2
 ---
 
@@ -1530,6 +1533,9 @@ MVP 预计修改：
 - 3.2 复现闭环：`replay_session` 通过桌面端现有直连发送器复用二进制 Body，严格锁定原 host、单并发、10 次/分钟，并持久化 `timingSource=agentReplay` 新会话；请求不经过抓包端口或任何规则。
 - 3.2 临时规则：`create_agent_rule` / `list_agent_rules` / `remove_agent_rules` 复用 `RewriteManager` / `MapManager`，规则只存在内存、TTL 默认 600 秒/最大 3600 秒、最多 20 条；规则页标记、到期时间、只读、删除、复制与一键清理已落地。
 - 3.2 验证：`cargo check --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test -p aiproxy-agent-control --no-fail-fast`、桌面端 `lint` / `typecheck` / 前端 107 个测试文件 823 个测试均通过；新增重放限流、审计脱敏、注册表重建清理与规则只读 UI 回归。
+- Skill 3.3 大 JSON 按需读取：`body_stream` 使用 serde token 流只物化目标节点；`BodyStore::open_body_reader` 提供安全流式 reader；新增 64 MiB 单 Body、256 MiB 批量、64 KiB 单值、256 匹配、960 KiB 字段载荷和 4 KiB 摘要预算。`get_session_body` / `get_session_fields`、内置 Skill、中英文 Agent Access 帮助文档和 `docs/API_SPEC.md` 已同步。
+- 真实 `pb.photoaffections.com` `app.launch` 会话 `43ffa42e-3525-49a7-8463-51c7a1fb8bc2` 验证通过：`decodedSizeBytes=9084082`，目标为 `$.preferences.local_premade_wizard_config_rc`，返回对象 `7` 个 key、`viewSizeBytes=2448`，未返回其余约 9 MB Body。方案中的示例路径缺少 `preferences` 层级，实际路径以会话验证为准。
+- Skill 3.3 验证：`cargo test -p aiproxy-mcp -p aiproxy-db`（MCP 89 + 17、DB 133 通过）、`cargo clippy -p aiproxy-mcp -p aiproxy-db --tests -- -D warnings`、`pnpm --filter @aiproxy/desktop typecheck`、`pnpm --filter @aiproxy/desktop test`（107 个文件 / 823 个测试）、文档导航测试与真实 MCP stdio 调用均通过；桌面端 lint 仅有仓库既有 2 条 React Hook warning 和既有 dependency-cruiser warning，无新增错误。
 - macOS `.app` 已生成，`Contents/MacOS/aiproxy-mcp` 与 `Contents/Resources/resources/agent-skill/aiproxy/SKILL.md` 均存在；当前 headless 环境下 DMG 的 `bundle_dmg.sh` 失败，需在原生桌面会话复验。
 
 未完成：

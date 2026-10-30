@@ -3,7 +3,7 @@
 ## 1. 文档信息
 
 - 文档类型：技术方案与实施计划
-- 文档状态：`Proposed（已按代码核实修订，待实现）`
+- 文档状态：`Implemented（2026-10-30 已落地并通过真实 app.launch 会话验证）`
 - 更新日期：`2026-10-30`
 - 适用范围：`crates/mcp-server`、`crates/db` 的只读 Body 访问、Agent Access、内置 AIProxy Skill、MCP 帮助文档
 - 关联文档：
@@ -24,7 +24,7 @@
 - `decodedSizeBytes: 9084082`
 - sessionId：`43ffa42e-3525-49a7-8463-51c7a1fb8bc2`
 
-响应解压后约 `8.66 MiB`，超过完整扫描上限。结果是即使只想读取 `$.local_premade_wizard_config_rc`，`redacted-text` 和 `jsonPaths` 都会返回 `BODY_TOO_LARGE`。
+响应解压后约 `8.66 MiB`，超过完整扫描上限。结果是即使只想读取 `local_premade_wizard_config_rc`，`redacted-text` 和旧 `jsonPaths` 都会返回 `BODY_TOO_LARGE`。实现验证时确认该字段的实际路径为 `$.preferences.local_premade_wizard_config_rc`。
 
 这不仅限制能力，也违背 Agent 接入的成本目标：Agent 往往只需要一个业务字段，却被迫面对完整响应或无法读取。需要把策略从“完整读取后提取”改成“流式定位目标节点，只返回所需数据”。
 
@@ -111,7 +111,7 @@
   "sessionId": "43ffa42e-3525-49a7-8463-51c7a1fb8bc2",
   "part": "response",
   "redactionMode": "redacted-text",
-  "jsonPaths": ["$.local_premade_wizard_config_rc"]
+  "jsonPaths": ["$.preferences.local_premade_wizard_config_rc"]
 }
 ```
 
@@ -174,7 +174,7 @@
 路径语法保持不变：
 
 - `$`
-- `$.local_premade_wizard_config_rc`
+- `$.preferences.local_premade_wizard_config_rc`
 - `$['local_premade_wizard_config_rc']`
 - `$.items[0].name`
 - `$.items[*].name`
@@ -219,22 +219,23 @@
   "base64": null,
   "jsonPaths": [
     {
-      "path": "$.local_premade_wizard_config_rc",
+      "path": "$.preferences.local_premade_wizard_config_rc",
       "found": true,
       "value": {},
       "valueType": "object",
       "matchCount": 1,
       "truncated": false,
-      "valueSummary": null
+      "valueSummary": null,
+      "omittedByResultLimit": false
     }
   ],
   "textMatches": [],
   "wireSizeBytes": 298107,
   "decodedSizeBytes": 9084082,
-  "viewSizeBytes": 812,
+  "viewSizeBytes": 2448,
   "offsetUnit": "none",
   "offset": 0,
-  "returnedBytes": 812,
+  "returnedBytes": 2448,
   "nextOffset": null,
   "hasMore": false,
   "captureTruncated": false,
@@ -287,7 +288,7 @@
 - 只返回目标节点的一层摘要，不递归展开。
 - 最多返回 `32` 个 key，摘要总大小最多 `4 KiB`。
 - 数组返回 `arrayLength`；对象返回 `keyCount` / `returnedKeys` / `keys`。
-- 标量大小可准确计算时返回 `sizeBytes`；复杂子节点可返回 `null`，避免为了测量大小再次整棵物化。
+- 标量大小可准确计算时返回 `sizeBytes`；复杂子节点和被截断的聚合节点返回 `null`，避免为了测量大小再次整棵物化。
 - 目标标量超限时可继续返回有界前缀，并同时提供 `valueSummary`。
 - `truncatedReasons` 增加 `resultLimit`。
 
@@ -334,14 +335,14 @@
 
 - 单目标值最多物化 `64 KiB`；超限后切换为结构摘要。
 - 单路径最多返回 `256` 个匹配；超限后继续消费文档但不再保存匹配值，并标记 `resultLimit`。
-- 单次工具结果最多 `1 MiB`；达到预算后停止新增字段结果。
+- 单次工具结果最多 `1 MiB`。扫描期 `jsonPaths` 字段载荷预算为 `960 KiB`，为响应 envelope 和 `textMatches` 留出空间；达到预算后停止新增字段结果，并为被省略路径设置 `omittedByResultLimit=true`。
 - `valueSummary` 最多 `4 KiB`、`32` 个 key。
 
 错误映射：
 
 - 单 Body 扫描超过 `64 MiB`：`BODY_TOO_LARGE`，details 包含 `reason="scanLimit"` 与 `scanLimitBytes`。
 - 批量累计扫描超过 `256 MiB`：当前会话项返回 `BODY_TOO_LARGE`，details 包含 `reason="batchScanLimit"` 与 `batchScanLimitBytes`。
-- 单值、匹配数或结果预算截断：保留成功结果并设置 `truncatedReasons` 包含 `resultLimit`。
+- 单值、匹配数或结果预算截断：保留已存结果并设置 `truncatedReasons` 包含 `resultLimit`；因总载荷预算未保存的路径标记 `omittedByResultLimit=true`。
 - 单次工具总响应仍超过 `1 MiB`：返回 `RESULT_TOO_LARGE`。
 
 ## 9. 预算与限制
@@ -354,7 +355,8 @@
 | 单路径匹配数 | `256` | 防止 `[*]` 无界收集 |
 | 结构摘要 | `4 KiB` / `32` keys | 让 Agent 能继续下钻，同时控制 token |
 | 单次路径数量 | `20` | 保持现有契约 |
-| 单次工具总响应 | `1 MiB` | 沿用 Agent Access 响应上限 |
+| 单次字段载荷 | `960 KiB` | 在扫描期给 1 MiB 响应 envelope 留出空间 |
+| 单次工具总响应 | `1 MiB` | 沿用 Agent Access 默认响应上限；配置更小时以配置为准 |
 | 普通分页请求上限 | `256 KiB` | 不因本功能改变普通分页语义 |
 | JSON 深度 | `128` | 防止深度攻击和递归栈风险 |
 
@@ -483,7 +485,7 @@
 
 ## 16. 验收标准
 
-1. 对 `decodedSizeBytes=9084082` 的 `app.launch` 响应，调用 `jsonPaths=["$.local_premade_wizard_config_rc"]` 成功返回目标节点或其 `valueSummary`。
+1. 对 `decodedSizeBytes=9084082` 的 `app.launch` 响应，调用 `jsonPaths=["$.preferences.local_premade_wizard_config_rc"]` 成功返回目标节点或其 `valueSummary`。
 2. 响应 `returnedBytes` 显著小于 `decodedSizeBytes`，且不包含其他大字段内容。
 3. 目标节点内敏感字段按现有 Secret / Identifier / PII 规则脱敏。
 4. 敏感祖先不能被路径绕过。
@@ -495,3 +497,32 @@
 10. 未提供 `jsonPaths` 的大 JSON 仍不会返回完整 Body，并给出准确的下钻提示。
 11. MCP 工具说明和内置 Skill 明确要求 Agent 按需提取，禁止为已知字段分页读取完整 Body。
 12. 所有现有测试与新增边界测试通过。
+
+## 17. 实现结果
+
+实现文件：
+
+- `crates/mcp-server/src/tools/body_stream.rs`：流式路径树、目标节点有界构建、结构摘要、匹配/结果预算、重复 key 与对象通配符顺序。
+- `crates/mcp-server/src/tools/body.rs`：`get_session_body` / `get_session_fields` 接入、批量预算、阻塞线程执行与统一响应元数据。
+- `crates/mcp-server/src/redaction.rs`：抽出 `redact_json_field`，流式路径复用现有 Secret / Identifier / PII 判断。
+- `crates/db/src/body_store.rs`：新增 `open_body_reader`，复用路径穿越、普通文件和符号链接检查。
+- `crates/mcp-server/src/server.rs`、内置 Skill、中英文 Agent Access 帮助文档与 `docs/API_SPEC.md`：同步 Agent 按需取数契约。
+
+最终实现与方案的主要对应关系：
+
+- 所有 `jsonPaths` 统一走流式提取；`textQuery` 和 `compare_sessions` 仍保持 `8 MiB` 完整扫描上限。
+- file-backed Body 先做一次有界 UTF-8 与 SHA-256 预扫描，再流式解析，因此内存有界但会读取文件两次；inline Body 先校验字节再走同一解析器。
+- 单路径最多 `256` 个匹配，单目标值最多 `64 KiB`，结构摘要最多 `32` 个 key / `16` 个数组项 / `4 KiB`。
+- 单次 `jsonPaths` 字段载荷在扫描期限制为 `960 KiB`，为默认 `1 MiB` 工具响应 envelope 留出空间；超预算的路径返回 `omittedByResultLimit=true`，整体标记 `resultLimit`。
+- 截断对象/数组的摘要 `sizeBytes=null`，因为在不继续物化完整子树的前提下无法保证精确；标量大小仍按可计算的序列化大小返回。
+- 工作区依赖可能启用 serde_json `unbounded_depth`，实现不依赖库默认值，而是用独立深度计数覆盖目标与跳过子树；超过 `128` 层统一返回 `JSON_TOO_DEEP`。
+- `BODY_TOO_LARGE` details 使用 `scanLimit`、`rootPathTooLarge`、`batchScanLimit`；JSON 深度超限返回 `JSON_TOO_DEEP`。
+
+真实会话验证：
+
+- sessionId：`43ffa42e-3525-49a7-8463-51c7a1fb8bc2`
+- `wireSizeBytes=298107`、`decodedSizeBytes=9084082`
+- 实际路径：`$.preferences.local_premade_wizard_config_rc`（方案背景中的示例少了 `preferences` 层级）
+- MCP stdio 实测返回：`found=true`、`valueType=object`、`matchCount=1`、`viewSizeBytes=2448`、`structureParsed=true`，目标对象包含 7 个 key，未返回其余约 9 MB Body。
+
+验证命令与结果见 `docs/MCP_AGENT_SKILL_ARCHITECTURE.md` 的实现状态；不提交本方案之外的历史工作区改动。

@@ -186,6 +186,41 @@ impl Redactor {
         self.redact_json_value_inner(value, path, records);
     }
 
+    /// Apply the same classification used for an object's named field.
+    /// Returns true when the field name matched a sensitive rule and the value
+    /// was rewritten.
+    pub fn redact_json_field(
+        &self,
+        key: &str,
+        value: &mut Value,
+        path: &str,
+        records: &mut Vec<RedactionRecord>,
+    ) -> bool {
+        let Some(classification) = self.classify(key) else {
+            return false;
+        };
+        let rendered = match value {
+            Value::String(text) => self.redact_scalar(text, path, &classification, records),
+            Value::Number(number) => {
+                self.redact_scalar(&number.to_string(), path, &classification, records)
+            }
+            Value::Bool(boolean) => {
+                self.redact_scalar(&boolean.to_string(), path, &classification, records)
+            }
+            Value::Null => REDACTED_VALUE.to_string(),
+            _ => {
+                records.push(RedactionRecord {
+                    path: path.to_string(),
+                    rule: classification.rule.clone(),
+                    action: "redact".to_string(),
+                });
+                REDACTED_VALUE.to_string()
+            }
+        };
+        *value = Value::String(rendered);
+        true
+    }
+
     pub fn redact_url(&self, url: &str) -> String {
         let Some((base, query)) = url.split_once('?') else {
             return url.to_string();
@@ -254,29 +289,7 @@ impl Redactor {
     ) {
         for (key, value) in object.iter_mut() {
             let next = format!("{path}.{key}");
-            if let Some(classification) = self.classify(key) {
-                let rendered = match value {
-                    Value::String(text) => {
-                        self.redact_scalar(text, &next, &classification, records)
-                    }
-                    Value::Number(number) => {
-                        self.redact_scalar(&number.to_string(), &next, &classification, records)
-                    }
-                    Value::Bool(boolean) => {
-                        self.redact_scalar(&boolean.to_string(), &next, &classification, records)
-                    }
-                    Value::Null => REDACTED_VALUE.to_string(),
-                    _ => {
-                        records.push(RedactionRecord {
-                            path: next.clone(),
-                            rule: classification.rule.clone(),
-                            action: "redact".to_string(),
-                        });
-                        REDACTED_VALUE.to_string()
-                    }
-                };
-                *value = Value::String(rendered);
-            } else {
+            if !self.redact_json_field(key, value, &next, records) {
                 self.redact_json_value_inner(value, &next, records);
             }
         }

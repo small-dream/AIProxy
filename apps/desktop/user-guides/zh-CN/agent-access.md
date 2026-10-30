@@ -86,6 +86,15 @@ Agent 可以在应用关闭时自动拉起并聚焦 AIProxy。应用内不再二
 - 添加 **自定义敏感字段名**，补充需要脱敏的 Header、Query 或 JSON 字段；输入后按 Enter。
 - 调整 **单页最大会话数** 与 **Body 分块上限**，限制单次返回的数据量。
 
+### 按需读取大 JSON
+
+当 Agent 已经知道目标字段时，应使用 `get_session_body` 的 `jsonPaths`（例如 `$.preferences.local_premade_wizard_config_rc`），而不是分页读取完整 Body。JSON 字段提取采用流式扫描：单个 Body 最多扫描 64 MiB，批量字段读取总预算为 256 MiB，但默认只返回目标字段。
+
+- 单个目标值最多返回 64 KiB；对象或数组超限时返回 `truncated=true` 和一层 `valueSummary`，其中最多列出 32 个直接 key 或 16 个数组项。
+- 需要继续下钻时，根据 `valueSummary.keys[].name` 拼接更具体的 `jsonPaths`，不要为了发现或读取已知字段而分页完整 Body。
+- `textQuery` 仍需扫描完整文本，上限为 8 MiB；大 Body 的文本搜索应与字段提取拆成不同调用。
+- 单路径最多返回 256 个匹配；超限时保留已有结果并标记 `resultLimit`。单次字段载荷超过 960 KiB 时，未保存的路径带 `omittedByResultLimit=true`，应拆成更小的 `jsonPaths` 调用。`decodedSizeBytes` 是完整 Body 大小，`returnedBytes` 与 `viewSizeBytes` 只描述本次提取结果。
+
 ## 控制权限
 
 控制权限位于读取权限下方，默认全部关闭：

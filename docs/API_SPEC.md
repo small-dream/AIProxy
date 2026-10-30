@@ -2713,19 +2713,27 @@ Body 与字段提取：
 
 - `get_session_body` 与 `get_session_fields` 必须提供 `part`（`request` | `response`）；缺少时 MCP 客户端会收到参数反序列化错误。
 - `get_session_body` 支持 `metadata`、`redacted-text`、`base64`、`raw`；`jsonPaths` 支持 `$`、点号 key、方括号 key、数组索引和 `*` 通配符，不支持过滤表达式、递归下降或脚本。
-- JSON 模式会读取不超过 8 MiB 的完整 Body、完整解析、整体脱敏，再提取字段。扫描超限返回 `BODY_TOO_LARGE`；非 JSON 返回 `BODY_NOT_JSON`；非法 path 返回 `JSON_PATH_INVALID`。
+- 所有 `jsonPaths` 请求统一使用流式提取：完整遍历并校验文档，只构建命中的目标节点或有界结构摘要，不把 8 MiB 以上的完整 Body 反序列化为 `Value`。单 Body 扫描上限为 `64 MiB`；路径 `$` 的完整根值上限仍为 `8 MiB`，超过时返回 `BODY_TOO_LARGE` 且 `details.reason="rootPathTooLarge"`。
+- 流式提取必须完整消费文档并成功调用结尾校验后才返回。非 JSON 返回 `BODY_NOT_JSON`；非 UTF-8 的 `details.reason="invalidUtf8"`；JSON 嵌套超过 `128` 层返回 `JSON_TOO_DEEP` 且 `details.maxDepth=128`；非法 path 返回 `JSON_PATH_INVALID`。`$local_x` 不会被自动修正，错误提示给出 `$.local_x` 或 `$['local_x']` 示例。
+- `jsonPaths` 的对象 `[*]` 按源文件中的 key 顺序返回；同一对象内重复 key 以最后一个值为准。所有 `jsonPaths` 请求共享这一语义，不按 Body 大小切换实现。
+- 单个目标值最多返回 `64 KiB`。标量超限时返回有界前缀、`truncated=true` 和 `valueSummary`；对象或数组超限时返回 `value=null`、`truncated=true` 和一层 `valueSummary`。摘要最多 `32` 个对象 key、`16` 个数组项和 `4 KiB`；对象包含 `kind`、`keyCount`、`returnedKeys`、`keys[]`，数组包含 `kind`、`arrayLength`、`items[]`。复杂子节点的 `sizeBytes` 为 `null`，不得为计算精确大小再次整棵物化。
+- 单路径最多保存 `256` 个匹配，超限继续消费文档但标记 `truncated=true`。单次 `jsonPaths` 字段载荷在扫描期限制为 `960 KiB`，为响应 envelope 和可能的 `textMatches` 留出空间；达到预算后不再保存新字段，对应结果带 `omittedByResultLimit=true`，整体 `truncatedReasons` 含 `resultLimit`。最终工具响应仍受 Agent Access `maxResponseBytes`（默认 `1 MiB`）检查，超限返回 `RESULT_TOO_LARGE`。
+- `jsonPaths` 的 `viewSizeBytes` 统一表示提取结果数组的序列化大小；`returnedBytes` 统计 `jsonPaths` 与 `textMatches` 载荷，不包含被跳过的 Body。`hash` 仍为整个 decoded Body 的 SHA-256，`scope="decodedBody"`。`structureParsed=true` 表示完整文档已成功解析；不会返回“已命中字段但尾部损坏”的部分成功。
+- `captureTruncated=true` 表示抓包阶段已截断。若截断字节仍构成完整 JSON，则返回字段并保留 `truncatedReasons` 中的 `captureLimit`；若 JSON 不完整，则返回 `BODY_NOT_JSON` 和 `details.captureTruncated=true`，不返回部分字段。
 - `textQuery` 在脱敏文本视图中搜索，最多 20 个命中，`contextBytes` 默认 120、最大 1024。
+- `textQuery` 仍需要完整脱敏文本视图，扫描上限为 `8 MiB`；超过时返回 `BODY_TOO_LARGE` 且 `details.reason="scanLimit"`。`jsonPaths` 与 `textQuery` 混用时也受该上限约束，超限提示拆分为 `jsonPaths` 和 `textQuery` 两次调用。
 - 表单参数提取：`includeFormParams=true` 返回全部参数，`formParamNames`（最多 20 个，去重后保持给定顺序）只返回指定参数；两者互斥，且不能与 `jsonPaths` / `textQuery` 同时使用。仅支持 `application/x-www-form-urlencoded` 与带 `boundary` 的 `multipart/form-data`，否则返回 `BODY_NOT_FORM`（`details.reason` 为 `notForm` / `invalidBoundary` / `malformedMultipart`）。
 - 表单结果：`encoding="form"`、`formFormat=urlencoded|multipart`、`formParamCount`（Body 中的参数总数）、`formParams`、`formParamsTruncated`。每项包含 `name`、`found`、`value`、`valueType=text|file|binary|missing`、`sizeBytes`、`truncated`；文件项只返回 `fileName`、`contentType`、`sizeBytes`，`value=null`；请求的 `formParamNames` 不存在时 `found=false`。
 - 表单预算：最多 200 个参数、单值 64 KiB、单次表单负载 512 KiB；超限置 `formParamsTruncated=true` 且 `truncatedReasons` 含 `resultLimit`。值按参数名与格式脱敏，`redactedFields` 汇总命中规则；`raw` 模式需 `readRawBodies`。
-- `get_session_fields` 接受最多 20 个 `sessionIds` 和 20 个 `jsonPaths`，逐项返回成功或错误。
+- `get_session_fields` 接受最多 20 个 `sessionIds` 和 20 个 `jsonPaths`，逐项返回成功或错误。每项 Body 仍受 `64 MiB` 单 Body 上限；整个批次累计 JSON 扫描预算为 `256 MiB`，超出预算的单项返回 `BODY_TOO_LARGE` 且 `details.reason="batchScanLimit"`，不影响已完成项或后续更小批次。
+- JSON 解析、脱敏、摘要构建和 hash 在阻塞工作线程执行，不占用 tokio 异步运行时线程。单 Body 超过 `64 MiB` 返回 `BODY_TOO_LARGE` 且 `details.reason="scanLimit"`。
 - Body 大小字段固定为 `wireSizeBytes`（网络传输/压缩后）、`decodedSizeBytes`（解码后完整）、`viewSizeBytes`（脱敏/解析视图）。完整性使用 `hasMore`、`captureTruncated`、`scanTruncated`、`truncatedReasons`，不得根据 `returnedBytes` 推断。
 - `offsetUnit=decodedViewBytes` 表示 `redacted-text` offset 基于脱敏视图；`decodedBodyBytes` 表示 `raw` / `base64`；`metadata` 无 offset。
 
 聚合与比较：
 
 - `get_insights` 支持 `since`（相对时长，例如 `2h`）或 `startedAfter` / `startedBefore`；两者互斥。另支持 `pathContains`、`queryParams` 和 `groupBy=host|path|queryParam`；`queryParam` 需提供 `groupQueryParam`。每组返回 `key`、`requestCount`、`errorCount`、`errorRate`、`avgDurationMs`、`p50DurationMs`、`p95DurationMs`、`totalBytes`。
-- `compare_sessions` 支持 `jsonPaths` 与 `diffMode=auto|json|text`。`diffMode=json` 对非 JSON 返回 `BODY_NOT_JSON`；任一侧 Body 扫描超过 8 MiB 返回 `BODY_TOO_LARGE`，不比较不完整内容。
+- `compare_sessions` 支持 `jsonPaths` 与 `diffMode=auto|json|text`。`diffMode=json` 对非 JSON 返回 `BODY_NOT_JSON`；任一侧 Body 扫描超过 8 MiB 返回 `BODY_TOO_LARGE`，不比较不完整内容。比较路径仍沿用 8 MiB 完整解析上限，错误提示不得建议改用 `jsonPaths` 绕过该上限。
 - `list_workspaces` 是可选工具，不是检索入口：会话全局存储、不能按 workspace 过滤。它额外返回全局 `sessionCount`、`latestSessionAt`、`latestSessionId`、`sessionScope="global"`；控制通道可用时，当前激活工作区返回真实 `runtimeStatus`，否则为 `unknown`。数据库缺少工作区列时返回 `SCHEMA_INCOMPATIBLE`。
 - 数据库 schema 滞后（更新 AIProxy 后尚未启动应用）时，`get_session`、`get_session_fields`、`get_session_body`、`compare_sessions`、`get_websocket_messages`、`list_workspaces` 返回 `SCHEMA_INCOMPATIBLE`，`message` 明确要求先打开一次 AIProxy 完成迁移；`search_sessions`、`get_insights`、`get_session(summary)` 仍可用。
 

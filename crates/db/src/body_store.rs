@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 use crate::DbError;
 use std::path::{Component, Path, PathBuf};
@@ -83,15 +83,7 @@ impl BodyStore {
         offset: u64,
         max_bytes: usize,
     ) -> Result<BodyRange, DbError> {
-        let full_path = self.checked_existing_body_path(relative_path)?;
-        let metadata = fs::symlink_metadata(&full_path).map_err(DbError::Io)?;
-        if metadata.file_type().is_symlink() || is_reparse_point(&metadata) || !metadata.is_file() {
-            return Err(DbError::Validation(format!(
-                "body path is not a regular file: {relative_path}"
-            )));
-        }
-
-        let original_size_bytes = metadata.len();
+        let (full_path, original_size_bytes) = self.checked_regular_body_file(relative_path)?;
         if offset > original_size_bytes {
             return Err(DbError::Validation(
                 "body offset exceeds file size".to_string(),
@@ -113,6 +105,15 @@ impl BodyStore {
             returned_bytes,
             truncated: offset + (returned_bytes as u64) < original_size_bytes,
         })
+    }
+
+    /// Open a body file for streaming reads after applying the same path and
+    /// symlink protections as range reads. Callers must still enforce their own
+    /// byte budgets while consuming the reader.
+    pub fn open_body_reader(&self, relative_path: &str) -> Result<BufReader<fs::File>, DbError> {
+        let (full_path, _) = self.checked_regular_body_file(relative_path)?;
+        let file = open_body_file(&full_path)?;
+        Ok(BufReader::new(file))
     }
 
     /// Remove all body files for a session.
@@ -232,6 +233,17 @@ impl BodyStore {
             )));
         }
         Ok(parent.join(file_name))
+    }
+
+    fn checked_regular_body_file(&self, relative_path: &str) -> Result<(PathBuf, u64), DbError> {
+        let full_path = self.checked_existing_body_path(relative_path)?;
+        let metadata = fs::symlink_metadata(&full_path).map_err(DbError::Io)?;
+        if metadata.file_type().is_symlink() || is_reparse_point(&metadata) || !metadata.is_file() {
+            return Err(DbError::Validation(format!(
+                "body path is not a regular file: {relative_path}"
+            )));
+        }
+        Ok((full_path, metadata.len()))
     }
 }
 
@@ -545,6 +557,23 @@ mod tests {
         let tail = store.read_body_range(&relative, 8, 100).unwrap();
         assert_eq!(tail.bytes, b"89");
         assert!(!tail.truncated);
+    }
+
+    #[test]
+    fn open_body_reader_streams_validated_body_files() {
+        let dir = test_dir("reader");
+        let store = BodyStore::new(dir.join("bodies"));
+        store.ensure_dir().unwrap();
+        let relative = store
+            .write_body("reader-session", "response", b"{\"target\":true}")
+            .unwrap();
+
+        let mut reader = store.open_body_reader(&relative).unwrap();
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"{\"target\":true}");
+
+        assert!(store.open_body_reader("../outside.body").is_err());
     }
 
     #[test]

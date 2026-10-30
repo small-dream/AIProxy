@@ -13,10 +13,11 @@ use crate::context::AppContext;
 use crate::protocol::{ToolError, ToolMeta};
 use crate::redaction::Redactor;
 
+use super::body_stream::{extract_json_paths, MAX_JSON_PATH_SCAN_BYTES};
 use super::sessions::{lookup_session_id, require_session_id, SessionIdLookup};
 
 const MAX_BODY_SCAN_BYTES: usize = 8 * 1024 * 1024;
-const MAX_EXTRACTED_VALUE_BYTES: usize = 64 * 1024;
+const MAX_BATCH_JSON_SCAN_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_TEXT_QUERY_HITS: usize = 20;
 const DEFAULT_CONTEXT_BYTES: usize = 120;
 const MAX_CONTEXT_BYTES: usize = 1024;
@@ -27,6 +28,7 @@ const MAX_FORM_PARAM_NAMES: usize = 20;
 const MAX_FORM_PARAM_NAME_CHARS: usize = 256;
 const MAX_FORM_VALUE_BYTES: usize = 64 * 1024;
 const MAX_FORM_TOTAL_BYTES: usize = 512 * 1024;
+const MAX_JSON_PATH_VALUE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -51,7 +53,7 @@ pub enum BodyRedactionMode {
     Raw,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct GetSessionBodyRequest {
     /// Exact session id or a unique prefix of at least 8 characters.
@@ -126,7 +128,7 @@ pub(crate) enum JsonPathSegment {
     Wildcard,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct BodySizes {
     wire_size_bytes: u64,
     decoded_size_bytes: u64,
@@ -245,42 +247,69 @@ pub async fn get_session_body(
     }
 
     if form_requested {
-        return extract_form_body(
-            state,
-            &request,
-            &session_id,
-            part,
-            &reference,
-            &sizes,
-            &form_param_names,
-            &redactor,
-        );
+        let store = state.body_store.clone();
+        let task_request = request.clone();
+        let task_session_id = session_id.clone();
+        let task_reference = reference.clone();
+        let task_names = form_param_names.clone();
+        let task_redactor = redactor.clone();
+        return run_blocking(move || {
+            extract_form_body(
+                &store,
+                &task_request,
+                &task_session_id,
+                part,
+                &task_reference,
+                &sizes,
+                &task_names,
+                &task_redactor,
+            )
+        })
+        .await;
     }
 
     if !json_paths.is_empty() || text_query.is_some() {
-        return extract_body(
-            state,
-            request,
-            &session_id,
-            part,
-            &reference,
-            &sizes,
-            &json_paths,
-            text_query.as_deref(),
-            &redactor,
-        );
+        let store = state.body_store.clone();
+        let task_request = request;
+        let task_session_id = session_id.clone();
+        let task_reference = reference.clone();
+        let task_paths = json_paths.clone();
+        let task_query = text_query.clone();
+        let task_redactor = redactor.clone();
+        return run_blocking(move || {
+            extract_body(
+                &store,
+                &task_request,
+                &task_session_id,
+                part,
+                &task_reference,
+                &sizes,
+                &task_paths,
+                task_query.as_deref(),
+                &task_redactor,
+            )
+        })
+        .await;
     }
 
-    read_body_page(
-        state,
-        request,
-        &session_id,
-        part,
-        &reference,
-        &sizes,
-        &redactor,
-        config.limits.max_body_bytes,
-    )
+    let store = state.body_store.clone();
+    let task_session_id = session_id.clone();
+    let task_reference = reference.clone();
+    let task_redactor = redactor.clone();
+    let configured_max_bytes = config.limits.max_body_bytes;
+    run_blocking(move || {
+        read_body_page(
+            &store,
+            request,
+            &task_session_id,
+            part,
+            &task_reference,
+            &sizes,
+            &task_redactor,
+            configured_max_bytes,
+        )
+    })
+    .await
 }
 
 pub async fn get_session_fields(
@@ -359,6 +388,7 @@ pub async fn get_session_fields(
     let mut items = Vec::with_capacity(lookups.len());
     let mut any_truncated = false;
     let raw = request.redaction_mode == BodyRedactionMode::Raw;
+    let mut batch_scanned_bytes = 0u64;
     for (requested, lookup) in lookups {
         match lookup {
             SessionIdLookup::NotFound => items.push(field_item_error(
@@ -366,6 +396,7 @@ pub async fn get_session_fields(
                 None,
                 "SESSION_NOT_FOUND",
                 "Session not found.",
+                None,
             )),
             SessionIdLookup::Ambiguous(candidates) => items.push(json!({
                 "requestedSessionId": requested,
@@ -382,17 +413,57 @@ pub async fn get_session_fields(
                         Some(&id),
                         "BODY_NOT_FOUND",
                         "The requested body is not captured.",
+                        None,
                     ));
                     continue;
                 };
-                match extract_fields_from_reference(
-                    &state.body_store,
-                    &id,
-                    reference,
-                    &json_paths,
-                    raw,
-                    &redactor,
-                ) {
+                let sizes = match body_sizes(&state.body_store, reference) {
+                    Ok(sizes) => sizes,
+                    Err(error) => {
+                        items.push(field_item_error(
+                            &requested,
+                            Some(&id),
+                            &error.code,
+                            &error.message,
+                            error.details,
+                        ));
+                        continue;
+                    }
+                };
+                batch_scanned_bytes =
+                    match charge_batch_scan_budget(batch_scanned_bytes, sizes.decoded_size_bytes) {
+                        Ok(next_scanned) => next_scanned,
+                        Err(error) => {
+                            items.push(field_item_error(
+                                &requested,
+                                Some(&id),
+                                &error.code,
+                                &error.message,
+                                error.details,
+                            ));
+                            continue;
+                        }
+                    };
+
+                let store = state.body_store.clone();
+                let task_session_id = id.clone();
+                let task_reference = reference.clone();
+                let task_paths = json_paths.clone();
+                let task_redactor = redactor.clone();
+                let decoded_size_bytes = sizes.decoded_size_bytes;
+                match run_blocking(move || {
+                    extract_fields_from_reference(
+                        &store,
+                        &task_session_id,
+                        &task_reference,
+                        decoded_size_bytes,
+                        &task_paths,
+                        raw,
+                        &task_redactor,
+                    )
+                })
+                .await
+                {
                     Ok((values, truncated)) => {
                         any_truncated |= truncated;
                         items.push(json!({
@@ -407,6 +478,7 @@ pub async fn get_session_fields(
                         Some(&id),
                         &error.code,
                         &error.message,
+                        error.details,
                     )),
                 }
             }
@@ -421,7 +493,7 @@ pub async fn get_session_fields(
 
 #[allow(clippy::too_many_arguments)]
 fn read_body_page(
-    state: &AppContext,
+    store: &BodyStore,
     request: GetSessionBodyRequest,
     session_id: &str,
     part: BodyPart,
@@ -438,12 +510,12 @@ fn read_body_page(
     let mode = request.redaction_mode;
 
     if matches!(mode, BodyRedactionMode::RedactedText) {
-        let body = read_full_body(&state.body_store, reference, MAX_BODY_SCAN_BYTES)?;
+        let body = read_full_body(store, reference, MAX_BODY_SCAN_BYTES)?;
         if body.scan_truncated {
             return Err(ToolError::new(
                 "BODY_TOO_LARGE",
                 format!(
-                    "Redacted body pagination requires scanning the complete body, but it exceeds {} bytes. Use metadata mode or jsonPaths for a narrower result.",
+                    "Redacted body pagination requires scanning the complete body, but it exceeds {} bytes. Provide target jsonPaths to extract only the needed fields instead of paging the full body.",
                     MAX_BODY_SCAN_BYTES
                 ),
             )
@@ -523,7 +595,7 @@ fn read_body_page(
         return Ok((data, ToolMeta::new(truncated, true, None)));
     }
 
-    let body = read_body_bytes(&state.body_store, reference, offset, max_bytes)?;
+    let body = read_body_bytes(store, reference, offset, max_bytes)?;
     if matches!(mode, BodyRedactionMode::Raw)
         && body.bytes.is_empty()
         && offset >= body.decoded_size_bytes
@@ -587,8 +659,8 @@ fn read_body_page(
 
 #[allow(clippy::too_many_arguments)]
 fn extract_body(
-    state: &AppContext,
-    request: GetSessionBodyRequest,
+    store: &BodyStore,
+    request: &GetSessionBodyRequest,
     session_id: &str,
     part: BodyPart,
     reference: &StoredBodyReference,
@@ -597,98 +669,104 @@ fn extract_body(
     text_query: Option<&str>,
     redactor: &Redactor,
 ) -> Result<(Value, ToolMeta), ToolError> {
-    let body = read_full_body(&state.body_store, reference, MAX_BODY_SCAN_BYTES)?;
-    if body.scan_truncated {
+    let raw = request.redaction_mode == BodyRedactionMode::Raw;
+    if text_query.is_some() && sizes.decoded_size_bytes > MAX_BODY_SCAN_BYTES as u64 {
         return Err(ToolError::new(
             "BODY_TOO_LARGE",
             format!(
-                "Field extraction requires scanning the complete body, but it exceeds {} bytes.",
+                "textQuery requires scanning the complete body, but it exceeds {} bytes. Use jsonPaths alone for a narrower field result, or split the request.",
                 MAX_BODY_SCAN_BYTES
             ),
         )
         .with_details(json!({
+            "reason": "scanLimit",
             "decodedSizeBytes": sizes.decoded_size_bytes,
             "scanLimitBytes": MAX_BODY_SCAN_BYTES,
+            "textQuery": true,
         })));
     }
-    let raw_text = std::str::from_utf8(&body.bytes).map_err(|_| {
-        body_error(
-            if json_paths.is_empty() {
-                "BODY_NOT_TEXT"
-            } else {
-                "BODY_NOT_JSON"
-            },
-            if json_paths.is_empty() {
-                "textQuery requires a UTF-8 text body."
-            } else {
-                "jsonPaths requires a UTF-8 JSON body."
-            },
-            "notText",
-            part,
+
+    let extraction = if json_paths.is_empty() {
+        None
+    } else {
+        Some(
+            extract_json_paths(
+                store,
+                reference,
+                sizes.decoded_size_bytes,
+                json_paths,
+                raw,
+                redactor,
+            )
+            .map_err(|error| add_body_error_context(error, part))?,
         )
-    })?;
-    let raw = request.redaction_mode == BodyRedactionMode::Raw;
-    let mut redacted_fields = Vec::new();
-    let mut json_values = Vec::new();
+    };
+    let mut json_values = extraction
+        .as_ref()
+        .map(|result| result.values.clone())
+        .unwrap_or_default();
+    let mut redacted_fields = extraction
+        .as_ref()
+        .map(|result| result.redacted_fields.clone())
+        .unwrap_or_default();
+    let mut hash = extraction.as_ref().map(|result| result.hash.clone());
+    let view_size_bytes = extraction
+        .as_ref()
+        .map(|result| json!(result.view_size_bytes))
+        .unwrap_or(Value::Null);
+    let value_limited = extraction.as_ref().is_some_and(|result| result.truncated);
+
     let mut text_match_results = Vec::new();
     let mut result_limited = false;
-    let mut value_limited = false;
-
-    let mut parsed_json = None;
-    if !json_paths.is_empty() {
-        let mut value = serde_json::from_str::<Value>(raw_text).map_err(|_| {
+    let mut structure_parsed = extraction.is_some();
+    if let Some(query) = text_query {
+        let body = read_full_body(store, reference, MAX_BODY_SCAN_BYTES)?;
+        if body.scan_truncated {
+            return Err(ToolError::new(
+                "BODY_TOO_LARGE",
+                format!(
+                    "textQuery requires scanning the complete body, but it exceeds {} bytes. Use jsonPaths alone for a narrower field result.",
+                    MAX_BODY_SCAN_BYTES
+                ),
+            )
+            .with_details(json!({
+                "reason": "scanLimit",
+                "decodedSizeBytes": sizes.decoded_size_bytes,
+                "scanLimitBytes": MAX_BODY_SCAN_BYTES,
+                "textQuery": true,
+            })));
+        }
+        let raw_text = std::str::from_utf8(&body.bytes).map_err(|_| {
             body_error(
-                "BODY_NOT_JSON",
-                "jsonPaths requires a JSON body.",
-                "notJson",
+                "BODY_NOT_TEXT",
+                "textQuery requires a UTF-8 text body.",
+                "notText",
                 part,
             )
         })?;
-        if !raw {
-            let mut records = Vec::new();
-            redactor.redact_json_value(&mut value, "$", &mut records);
-            redacted_fields = records.into_iter().map(|record| record.rule).collect();
-        }
-        parsed_json = Some(value);
-    }
-
-    if let Some(value) = &parsed_json {
-        for (index, segments) in json_paths.iter().enumerate() {
-            let result = extract_json_path(value, &request.json_paths[index], segments);
-            if result
-                .get("truncated")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-            {
-                value_limited = true;
-            }
-            json_values.push(result);
-        }
-    }
-
-    if let Some(query) = text_query {
-        let (search_text, fields) = if raw {
+        let (search_text, text_redaction_fields) = if raw {
             (raw_text.to_string(), Vec::new())
-        } else if let Some(value) = &parsed_json {
-            let rendered = serde_json::to_string(value).unwrap_or_else(|_| raw_text.to_string());
-            (rendered, redacted_fields.clone())
         } else {
             let redacted = redactor.redact_text(raw_text);
-            let value = redacted.value;
-            let fields = redacted.fields;
-            redacted_fields.extend(fields.iter().cloned());
-            (value, fields)
+            (redacted.value, redacted.fields)
         };
-        redacted_fields.extend(fields);
+        redacted_fields.extend(text_redaction_fields);
+        if extraction.is_none() {
+            hash = Some(sha256_hex(raw_text.as_bytes()));
+            structure_parsed = serde_json::from_str::<Value>(raw_text).is_ok();
+        }
         let context_bytes = request
             .context_bytes
             .unwrap_or(DEFAULT_CONTEXT_BYTES)
             .min(MAX_CONTEXT_BYTES);
-        let result = text_matches(&search_text, query, context_bytes);
-        result_limited = result.1;
-        text_match_results = result.0;
+        let matches = text_matches(&search_text, query, context_bytes);
+        result_limited = matches.1;
+        text_match_results = matches.0;
     }
 
+    if json_values.is_empty() {
+        json_values = Vec::new();
+    }
     let json_payload_size = if json_values.is_empty() {
         0
     } else {
@@ -722,10 +800,7 @@ fn extract_body(
         "textMatches": text_match_results,
         "wireSizeBytes": sizes.wire_size_bytes,
         "decodedSizeBytes": sizes.decoded_size_bytes,
-        "viewSizeBytes": parsed_json
-            .as_ref()
-            .and_then(|value| serde_json::to_vec(value).ok())
-            .map(|value| value.len()),
+        "viewSizeBytes": view_size_bytes,
         "offsetUnit": "none",
         "offset": 0,
         "returnedBytes": returned_bytes,
@@ -735,8 +810,12 @@ fn extract_body(
         "scanTruncated": false,
         "truncatedReasons": reasons,
         "redactedFields": redacted_fields,
-        "structureParsed": parsed_json.is_some(),
-        "hash": { "algorithm": "sha256", "value": sha256_hex(raw_text.as_bytes()), "scope": "decodedBody" },
+        "structureParsed": structure_parsed,
+        "hash": hash.map(|value| json!({
+            "algorithm": "sha256",
+            "value": value,
+            "scope": "decodedBody",
+        })),
     });
     Ok((data, ToolMeta::new(truncated, !raw, None)))
 }
@@ -746,7 +825,7 @@ fn extract_body(
 /// detected value formats, exactly like query parameters and JSON fields.
 #[allow(clippy::too_many_arguments)]
 fn extract_form_body(
-    state: &AppContext,
+    store: &BodyStore,
     request: &GetSessionBodyRequest,
     session_id: &str,
     part: BodyPart,
@@ -755,7 +834,7 @@ fn extract_form_body(
     form_param_names: &[String],
     redactor: &Redactor,
 ) -> Result<(Value, ToolMeta), ToolError> {
-    let body = read_full_body(&state.body_store, reference, MAX_BODY_SCAN_BYTES)?;
+    let body = read_full_body(store, reference, MAX_BODY_SCAN_BYTES)?;
     if body.scan_truncated {
         return Err(ToolError::new(
             "BODY_TOO_LARGE",
@@ -1241,38 +1320,21 @@ fn extract_fields_from_reference(
     store: &BodyStore,
     session_id: &str,
     reference: &StoredBodyReference,
+    decoded_size_bytes: u64,
     json_paths: &[Vec<JsonPathSegment>],
     raw: bool,
     redactor: &Redactor,
 ) -> Result<(Vec<Value>, bool), ToolError> {
     let _ = session_id;
-    let body = read_full_body(store, reference, MAX_BODY_SCAN_BYTES)?;
-    if body.scan_truncated {
-        return Err(ToolError::new(
-            "BODY_TOO_LARGE",
-            "The body exceeds the field extraction scan limit.",
-        ));
-    }
-    let text = std::str::from_utf8(&body.bytes)
-        .map_err(|_| ToolError::new("BODY_NOT_JSON", "The body is not UTF-8 JSON."))?;
-    let mut value = serde_json::from_str::<Value>(text)
-        .map_err(|_| ToolError::new("BODY_NOT_JSON", "The body is not valid JSON."))?;
-    if !raw {
-        let mut records = Vec::new();
-        redactor.redact_json_value(&mut value, "$", &mut records);
-    }
-    let mut truncated = false;
-    let mut values = Vec::with_capacity(json_paths.len());
-    for segments in json_paths {
-        let path = render_json_path(segments);
-        let result = extract_json_path(&value, &path, segments);
-        truncated |= result
-            .get("truncated")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        values.push(result);
-    }
-    Ok((values, truncated))
+    let extraction = extract_json_paths(
+        store,
+        reference,
+        decoded_size_bytes,
+        json_paths,
+        raw,
+        redactor,
+    )?;
+    Ok((extraction.values, extraction.truncated))
 }
 
 fn load_required_body_reference<'a>(
@@ -1413,7 +1475,9 @@ fn wire_size(reference: &StoredBodyReference, decoded_size_bytes: u64) -> u64 {
     }
 }
 
-fn decode_inline_reference(reference: &StoredBodyReference) -> Result<Vec<u8>, ToolError> {
+pub(crate) fn decode_inline_reference(
+    reference: &StoredBodyReference,
+) -> Result<Vec<u8>, ToolError> {
     if let Some(base64_text) = &reference.base64_text {
         STANDARD.decode(base64_text).map_err(|error| {
             ToolError::new(
@@ -1561,7 +1625,10 @@ fn parse_json_path(path: &str) -> Result<Vec<JsonPathSegment>, String> {
                 position = next_position;
             }
             _ => {
-                return Err("JSON path must use dot or bracket notation.".to_string());
+                return Err(
+                    "JSON path must use dot or bracket notation, for example $.key or $['key']."
+                        .to_string(),
+                );
             }
         }
     }
@@ -1700,17 +1767,17 @@ fn extract_matches<'a>(value: &'a Value, segments: &[JsonPathSegment]) -> Vec<&'
 
 fn bounded_json_value(value: &Value) -> (Value, bool) {
     let serialized = serde_json::to_vec(value).unwrap_or_default();
-    if serialized.len() <= MAX_EXTRACTED_VALUE_BYTES {
+    if serialized.len() <= MAX_JSON_PATH_VALUE_BYTES {
         return (value.clone(), false);
     }
     if let Value::String(text) = value {
-        let mut end = MAX_EXTRACTED_VALUE_BYTES.min(text.len());
+        let mut end = MAX_JSON_PATH_VALUE_BYTES.min(text.len());
         while end > 0 && !text.is_char_boundary(end) {
             end -= 1;
         }
         return (Value::String(format!("{}…[truncated]", &text[..end])), true);
     }
-    let mut end = MAX_EXTRACTED_VALUE_BYTES.min(serialized.len());
+    let mut end = MAX_JSON_PATH_VALUE_BYTES.min(serialized.len());
     while end > 0 && std::str::from_utf8(&serialized[..end]).is_err() {
         end -= 1;
     }
@@ -1735,7 +1802,7 @@ fn json_type_name(value: &Value) -> &'static str {
     }
 }
 
-fn render_json_path(segments: &[JsonPathSegment]) -> String {
+pub(crate) fn render_json_path(segments: &[JsonPathSegment]) -> String {
     let mut path = "$".to_string();
     for segment in segments {
         match segment {
@@ -1836,12 +1903,95 @@ fn body_error(code: &'static str, message: &str, reason: &str, part: BodyPart) -
     }))
 }
 
-fn field_item_error(requested: &str, session_id: Option<&str>, code: &str, message: &str) -> Value {
-    json!({
+fn add_body_error_context(mut error: ToolError, part: BodyPart) -> ToolError {
+    match error.details.as_mut().and_then(Value::as_object_mut) {
+        Some(details) => {
+            details
+                .entry("part".to_string())
+                .or_insert_with(|| json!(part_label(part)));
+        }
+        None => {
+            error.details = Some(json!({ "part": part_label(part) }));
+        }
+    }
+    error
+}
+
+fn field_item_error(
+    requested: &str,
+    session_id: Option<&str>,
+    code: &str,
+    message: &str,
+    details: Option<Value>,
+) -> Value {
+    let mut output = json!({
         "requestedSessionId": requested,
         "sessionId": session_id,
         "error": { "code": code, "message": message },
-    })
+    });
+    if let Some(details) = details {
+        output["error"]["details"] = details;
+    }
+    output
+}
+
+async fn run_blocking<T, F>(operation: F) -> Result<T, ToolError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, ToolError> + Send + 'static,
+{
+    match tokio::time::timeout(
+        crate::context::TOOL_TIMEOUT,
+        tokio::task::spawn_blocking(operation),
+    )
+    .await
+    {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => Err(ToolError::new(
+            "INTERNAL_ERROR",
+            format!("body worker failed: {error}"),
+        )),
+        Err(_) => Err(ToolError::new(
+            "TOOL_TIMEOUT",
+            "Body processing timed out. Request fewer fields or use a narrower path.",
+        )
+        .retryable(true)),
+    }
+}
+
+fn charge_batch_scan_budget(scanned_bytes: u64, decoded_size_bytes: u64) -> Result<u64, ToolError> {
+    if decoded_size_bytes > MAX_JSON_PATH_SCAN_BYTES as u64 {
+        return Err(ToolError::new(
+            "BODY_TOO_LARGE",
+            format!(
+                "JSON field extraction requires scanning the complete body, but it exceeds {} bytes.",
+                MAX_JSON_PATH_SCAN_BYTES
+            ),
+        )
+        .with_details(json!({
+            "reason": "scanLimit",
+            "decodedSizeBytes": decoded_size_bytes,
+            "scanLimitBytes": MAX_JSON_PATH_SCAN_BYTES,
+        })));
+    }
+
+    let next_scanned = scanned_bytes.saturating_add(decoded_size_bytes);
+    if next_scanned > MAX_BATCH_JSON_SCAN_BYTES {
+        return Err(ToolError::new(
+            "BODY_TOO_LARGE",
+            format!(
+                "The batch exceeds the {} byte JSON scan budget. Split sessionIds into smaller batches.",
+                MAX_BATCH_JSON_SCAN_BYTES
+            ),
+        )
+        .with_details(json!({
+            "reason": "batchScanLimit",
+            "batchScanLimitBytes": MAX_BATCH_JSON_SCAN_BYTES,
+            "batchScannedBytes": scanned_bytes,
+            "decodedSizeBytes": decoded_size_bytes,
+        })));
+    }
+    Ok(next_scanned)
 }
 
 fn part_label(part: BodyPart) -> &'static str {
@@ -2068,5 +2218,19 @@ mod tests {
         assert_eq!(range.wire_size_bytes, 5);
         assert_eq!(range.decoded_size_bytes, 10);
         assert!(range.has_more);
+    }
+
+    #[test]
+    fn batch_scan_budget_reports_single_and_batch_limits() {
+        let single = charge_batch_scan_budget(0, MAX_JSON_PATH_SCAN_BYTES as u64 + 1).unwrap_err();
+        assert_eq!(single.code, "BODY_TOO_LARGE");
+        assert_eq!(single.details.unwrap()["reason"], "scanLimit");
+
+        let used = MAX_BATCH_JSON_SCAN_BYTES - 1024;
+        let batch = charge_batch_scan_budget(used, 2048).unwrap_err();
+        assert_eq!(batch.code, "BODY_TOO_LARGE");
+        let details = batch.details.unwrap();
+        assert_eq!(details["reason"], "batchScanLimit");
+        assert_eq!(details["batchScanLimitBytes"], MAX_BATCH_JSON_SCAN_BYTES);
     }
 }

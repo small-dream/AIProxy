@@ -174,7 +174,7 @@ impl AiProxyMcpServer {
         title = "Get session body",
         annotations(read_only_hint = true, open_world_hint = false),
         output_schema = crate::protocol::envelope_output_schema(),
-        description = "Read a request or response body. `part` is required: request | response. Prefer jsonPaths (for example $.ab.ab_test) with part=response to return only target JSON fields; use formParamNames or includeFormParams with part=request to extract POST form fields from application/x-www-form-urlencoded or multipart/form-data bodies (file parts return metadata only). textQuery searches redacted text without downloading the whole body. Default mode redacts known secrets before extraction or pagination. Modes: metadata, redacted-text, base64, raw. compare wireSizeBytes, decodedSizeBytes, and viewSizeBytes; use hasMore and truncatedReasons rather than inferring truncation from returnedBytes. Raw and base64 require an explicit high-risk permission."
+        description = "Read a request or response body. `part` is required: request | response. When a field is known, you MUST use jsonPaths (for example $.preferences.local_premade_wizard_config_rc) with part=response instead of paging the full body. jsonPaths uses streaming JSON extraction so a target field can be read from bodies up to 64 MiB. If a large target returns truncated=true with valueSummary, inspect its direct keys and request a deeper jsonPath; do not download the full body to discover keys. If a path returns omittedByResultLimit=true, split the paths into smaller calls. Use formParamNames or includeFormParams with part=request for POST form fields (file parts return metadata only). textQuery searches redacted text and is limited to 8 MiB. Default mode redacts known secrets before extraction or pagination. Modes: metadata, redacted-text, base64, raw. compare wireSizeBytes, decodedSizeBytes, and viewSizeBytes; use hasMore and truncatedReasons rather than inferring truncation from returnedBytes. Raw and base64 require an explicit high-risk permission."
     )]
     async fn get_session_body_tool(
         &self,
@@ -201,7 +201,7 @@ impl AiProxyMcpServer {
         title = "Extract session fields",
         annotations(read_only_hint = true, open_world_hint = false),
         output_schema = crate::protocol::envelope_output_schema(),
-        description = "Extract the same JSON paths from up to 20 sessions in one call. `part` is required: request | response. Use this to compare experiment groups, flags, or status fields across multiple requests without reading each full body. Values are redacted by default."
+        description = "Extract the same streaming JSON paths from up to 20 sessions in one call. `part` is required: request | response. Use this to compare experiment groups, flags, or status fields without reading each full body. Each JSON body may be up to 64 MiB and the batch JSON scan budget is 256 MiB; a session that exceeds either budget returns its own BODY_TOO_LARGE error. Values are redacted by default."
     )]
     async fn get_session_fields_tool(
         &self,

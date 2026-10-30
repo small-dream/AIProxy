@@ -220,8 +220,8 @@ AIProxy 不需要在应用内再造一个聊天界面。人类继续使用 Sessi
 | `list_workspaces` | 获取可用工作区 | 无 | 工作区配置、全局 `sessionCount`、`latestSessionAt`、`runtimeStatus=unknown` | 纯 stdio MVP 不读取实时运行状态 |
 | `search_sessions` | 检索会话 | host、pathContains、queryParams、method、status、时间、since、关键词、排序、compact、fields、cursor | 会话摘要列表 | 默认 20 条，最大 100 条；只返回摘要 |
 | `get_session` | 获取单个会话详情 | `sessionId`、include 列表、`redactionMode` | summary、headers、query、cookies、timing、TLS、HTTP/2、规则 trace | 默认不返回 Body；cookies 默认脱敏；`raw` 需要单独权限 |
-| `get_session_body` | 按需读取 Body | `sessionId`、request/response、`redactionMode`、`jsonPaths`、`textQuery`、offset、maxBytes | 目标字段、文本命中、wire/decoded/view size、截断原因 | 默认 `redacted-text`；完整扫描上限 8 MiB；`raw` 需要单独权限 |
-| `get_session_fields` | 批量字段提取 | 最多 20 个 `sessionIds`、request/response、最多 20 个 `jsonPaths` | 每项独立结果或错误 | 只支持 `redacted-text` / `raw`；单项失败不拖垮整批 |
+| `get_session_body` | 按需读取 Body | `sessionId`、request/response、`redactionMode`、`jsonPaths`、`textQuery`、offset、maxBytes | 目标字段、文本命中、wire/decoded/view size、截断原因 | 默认 `redacted-text`；`jsonPaths` 流式上限 64 MiB，`textQuery` 上限 8 MiB；`raw` 需要单独权限 |
+| `get_session_fields` | 批量字段提取 | 最多 20 个 `sessionIds`、request/response、最多 20 个 `jsonPaths` | 每项独立结果或错误 | 只支持 `redacted-text` / `raw`；单 Body 64 MiB、批量 256 MiB；单项失败不拖垮整批 |
 | `get_websocket_messages` | 读取 WebSocket 消息 | `sessionId`、direction、keyword、limit、cursor | 消息列表、payload 类型、截断状态 | 二进制只返回摘要 |
 | `get_insights` | 聚合分析 | host、path、query、status、method、时间（至少一个范围条件）、groupBy | 概览、host/path/queryParam 分组、慢请求、大响应 | 复用 `aiproxy_db::insights`；禁止无界全库聚合 |
 | `compare_sessions` | 比较两个会话 | 左右 `sessionId`、是否包含 Body、jsonPaths、diffMode | 状态、Header、结构化 Body、Timing 差异 | 单请求比较；任一侧超过 8 MiB 扫描上限返回 `BODY_TOO_LARGE` |
@@ -413,7 +413,7 @@ Skill 应要求 Agent 用固定结构回答，降低“看起来很懂但没有�
 - **统一脱敏**：Authorization、Cookie、Set-Cookie、token、password、secret、apiKey、JWT、邮箱、手机号、设备 ID 和地址默认处理。
 - **稳定关联**：session/user/device 等标识符使用本地稳定 HMAC 伪名，可在同一数据目录内跨请求关联，不暴露原值。
 - **可配置规则**：设置页支持格式识别、稳定哈希和自定义敏感字段；配置文件支持自定义正则与 `redact|hash` 动作。
-- **Body 分层脱敏**：Header 默认全量遮蔽；JSON 完整解析后整体脱敏，再按 path 提取；无法解析的二进制只返回摘要；`raw` 模式必须显式授权并在审计中记录。
+- **Body 分层脱敏**：Header 默认全量遮蔽；普通文本先建立完整脱敏视图，`jsonPaths` 在流式扫描中按真实路径脱敏目标节点；无法解析的二进制只返回摘要；`raw` 模式必须显式授权并在审计中记录。
 - **Body 限制**：默认不返回 Body；文本单次上限建议 256KB；超出返回截断元信息。
 - **路径限制**：body store 必须做 canonicalize + 允许根目录校验；未来导出目录单独授权并做同样校验。
 - **审计日志**：记录时间、客户端、工具、过滤条件摘要、返回条数、耗时、是否脱敏；不记录完整敏感 Body。

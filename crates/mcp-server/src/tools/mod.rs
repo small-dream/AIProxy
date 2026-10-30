@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod body;
+pub(crate) mod body_stream;
 pub mod compare;
 pub mod control;
 pub mod curl;
