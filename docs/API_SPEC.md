@@ -659,6 +659,12 @@ type StartProxyOutput = ProxyStatus;
 - 代理预设不存在（底层错误仍可能表现为 workspace 不存在）
 - 代理启动失败
 
+失败时状态约定（P1-2）：
+
+- 若失败发生在**旧监听器已关闭之后**（重启/换端口场景），命令返回 `Err`，同时把状态复位的效果写入 `get_bootstrap_status`：`running = false`、`startedAt = null`，并刷新 `agent-status.json`。
+- `systemProxyEnabled` 保持原值（用户重试启动时会重新 apply）；此时响应中的 `systemProxyRecoveryWarning` 会带一条提示，说明系统代理可能仍指向已停止的代理，需要重试启动或在设置里关闭系统代理。
+- 若失败发生在关闭旧监听器之前（如端口参数非法），旧代理保持运行，状态不变。
+
 ### `stop_proxy`
 
 请求：
@@ -1397,6 +1403,12 @@ type SaveRewriteRuleOutput = RewriteRule;
 ```
 
 保存时若 `id` 属于临时 Agent 规则，返回 `RULE_READ_ONLY`，不得把 Agent 规则转成用户规则。用户要持久化时应先复制，复制结果不带 `source` / `expiresAt`。
+
+载荷兼容性说明（P1-1）：
+
+- 动作以 `actions`（有序数组）为唯一事实源写入 DB 的 payload 列；`rewriteType` 由 `actions[0]` 派生。
+- `payload` 是 D2 之前的**旧版单动作形状**遗留字段，仅用于读取历史数据；新形状的请求可以完全省略该字段（后端按 `null` 处理），不得因缺字段而拒绝保存。
+- 转换规则：`actions` 非空时忽略顶层 `payload`；`actions` 缺省或为空时才回退到 `rewriteType` + `payload` 的单动作语义。
 
 ### `clear_agent_rules`
 

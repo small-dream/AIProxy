@@ -688,6 +688,34 @@ impl AppState {
         status.clone()
     }
 
+    /// P1-2: undo the teardown when a start/restart fails after the previous
+    /// listener was already shut down.
+    ///
+    /// `start_proxy_impl` stops the old runtime before it can know whether the
+    /// new one binds (port in use, missing root CA, invalid upstream proxy
+    /// config). Every early `?` after that point used to return with
+    /// `running = true` and no listener: the renderer kept polling "running",
+    /// `agent_status.json` still told the sidecar capture was live, and an
+    /// enabled system proxy stayed pointed at a dead port.
+    ///
+    /// The OS proxy is intentionally NOT restored here (the user may retry the
+    /// start, which reapplies it). When it is still enabled we surface the same
+    /// recovery warning a failed restore uses, so the UI can tell the user the
+    /// setting may now be stale.
+    pub(crate) fn rollback_failed_start(&self, workspace_id: String) -> BootstrapStatus {
+        let status = self.stop_proxy(workspace_id);
+        if !status.system_proxy_enabled {
+            return status;
+        }
+
+        self.set_system_proxy_recovery_warning(Some(
+            "Proxy start failed after the previous listener was stopped. If the system proxy is \
+             enabled it may still point at AIProxy, which can break network access — start the \
+             proxy again or turn the system proxy off in Settings."
+                .to_string(),
+        ))
+    }
+
     pub fn set_system_proxy_enabled(&self, enabled: bool) -> BootstrapStatus {
         let mut status = self.status.lock().unwrap_or_else(|e| e.into_inner());
         status.system_proxy_enabled = enabled;
@@ -1196,5 +1224,62 @@ mod tests {
             h2_stream_id: None,
             via_upstream_proxy: None,
         }
+    }
+
+    /// Minimal state for proxy-lifecycle tests: an empty in-memory DB plus a
+    /// throwaway body directory (the status fields under test never touch them).
+    fn empty_state() -> (AppState, std::path::PathBuf) {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+        (
+            AppState::new(Arc::new(Mutex::new(conn)), body_store),
+            body_store_dir,
+        )
+    }
+
+    // P1-2: a failed start/restart must not keep reporting `running = true`
+    // after the previous listener was torn down — the renderer polled "running",
+    // the Agent status file claimed capture was live, and the OS proxy could stay
+    // pointed at a dead port.
+    #[test]
+    fn failed_start_rollback_clears_running_status() {
+        let (state, body_store_dir) = empty_state();
+        state.start_proxy(8080, true, true, "default".to_string());
+        assert!(state.read_status().running);
+
+        let status = state.rollback_failed_start("default".to_string());
+
+        assert!(!status.running, "a failed start must not stay 'running'");
+        assert!(!state.read_status().running);
+        assert!(status.started_at.is_none());
+        let _ = std::fs::remove_dir_all(body_store_dir);
+    }
+
+    // P1-2: when the OS proxy is still applied we keep the flag (the user may
+    // retry, which reapplies it) but surface the recovery warning so the UI can
+    // explain that the setting may now point at a stopped proxy.
+    #[test]
+    fn failed_start_rollback_warns_when_system_proxy_is_enabled() {
+        let (state, body_store_dir) = empty_state();
+        state.start_proxy(8080, true, true, "default".to_string());
+        state.set_system_proxy_enabled(true);
+
+        let status = state.rollback_failed_start("default".to_string());
+
+        assert!(!status.running);
+        assert!(status.system_proxy_enabled);
+        assert!(
+            status
+                .system_proxy_recovery_warning
+                .as_deref()
+                .is_some_and(|warning| warning.contains("system proxy")),
+            "expected a recovery warning, got {:?}",
+            status.system_proxy_recovery_warning
+        );
+        let _ = std::fs::remove_dir_all(body_store_dir);
     }
 }

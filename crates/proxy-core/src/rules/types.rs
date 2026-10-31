@@ -31,6 +31,13 @@ pub struct RewriteRule {
     pub r#match: RewriteRuleMatch,
     pub rewrite_type: String,
     pub workspace_id: String,
+    /// Legacy single-action payload. New-shape rules carry `actions` and the
+    /// renderer never sends this field, so it must default to `Null` instead of
+    /// making `save_rewrite_rule` reject an otherwise valid rule with
+    /// "missing field `payload`". `rewrite_actions()` only reads it when
+    /// `actions` is absent or empty, and the DB layer stores `actions` in the
+    /// payload column (see `commands::save_rewrite_rule`).
+    #[serde(default)]
     pub payload: serde_json::Value,
 }
 
@@ -225,4 +232,68 @@ pub(crate) struct RequestRuntimeOutcome {
 pub(crate) struct RequestScriptOutcome {
     pub(crate) local_response: Option<UpstreamResponse>,
     pub(crate) traces: Vec<ScriptTrace>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn actions_payload() -> serde_json::Value {
+        serde_json::json!({
+            "actions": [{
+                "rewriteType": "header",
+                "payload": {
+                    "headerName": "x-debug",
+                    "operation": "set",
+                    "target": "request",
+                    "value": "1"
+                }
+            }],
+            "enabled": true,
+            "id": "rule-1",
+            "match": { "methods": [], "stage": "request", "urlPattern": "example.com" },
+            "name": "Rule",
+            "note": "",
+            "priority": 10,
+            "rewriteType": "header",
+            "workspaceId": "default"
+        })
+    }
+
+    // P1-1: the renderer only ever sends the new `actions` shape, which has no
+    // top-level `payload`. `payload` is a legacy read-compat field, so its
+    // absence must not make `save_rewrite_rule` reject the rule (the invoke used
+    // to fail with "missing field `payload`" and the rule could never be
+    // created).
+    #[test]
+    fn rewrite_rule_deserializes_actions_shape_without_legacy_payload() {
+        let rule: RewriteRule =
+            serde_json::from_value(actions_payload()).expect("new-shape rule must deserialize");
+        assert_eq!(rule.id, "rule-1");
+        assert_eq!(rule.payload, serde_json::Value::Null);
+        assert_eq!(rule.actions.as_ref().map(Vec::len), Some(1));
+    }
+
+    // Legacy rows persisted before D2 carry `rewriteType` + `payload` and no
+    // `actions`; they must keep deserializing (and keep feeding
+    // `rewrite_actions`).
+    #[test]
+    fn rewrite_rule_deserializes_legacy_single_action_shape() {
+        let mut legacy = actions_payload();
+        let object = legacy.as_object_mut().unwrap();
+        object.remove("actions");
+        object.insert(
+            "payload".to_string(),
+            serde_json::json!({
+                "headerName": "x-legacy",
+                "operation": "remove",
+                "target": "request"
+            }),
+        );
+
+        let rule: RewriteRule =
+            serde_json::from_value(legacy).expect("legacy rule must deserialize");
+        assert!(rule.actions.is_none());
+        assert_eq!(rule.payload["headerName"], "x-legacy");
+    }
 }

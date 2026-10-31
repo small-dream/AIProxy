@@ -228,13 +228,27 @@ pub(crate) async fn start_proxy_impl(
         "start_proxy_requested"
     );
 
-    if shutdown_proxy_runtime(Arc::clone(&state)).await {
+    // P1-2: remember whether anything was actually running before the teardown
+    // so a failed start can restore the reported state (see the guard below).
+    let was_running = state.read_status().running;
+    let previous_runtime_replaced = shutdown_proxy_runtime(Arc::clone(&state)).await;
+    if previous_runtime_replaced {
         tracing::debug!(
             component = "desktop.commands",
             event = "previous_proxy_runtime_found",
             workspace_id = %input.workspace_id,
             "previous_proxy_runtime_found"
         );
+    }
+
+    // P1-2: from here on the previous listener is gone. If any step below fails
+    // (missing root CA, port in use, invalid upstream proxy config, …) the guard
+    // resets the reported state instead of leaving the UI, the Agent status file
+    // and the system proxy pointing at a listener that no longer exists.
+    let mut start_rollback =
+        StartFailureRollback::new(Arc::clone(&state), input.workspace_id.clone());
+    if was_running || previous_runtime_replaced {
+        start_rollback.arm();
     }
 
     // Resolve TLS manager for SSL interception
@@ -574,7 +588,61 @@ pub(crate) async fn start_proxy_impl(
     );
 
     crate::agent_status::write_from_state(&state);
+    // The runtime is installed and the status reports "running": nothing to roll
+    // back on the way out (P1-2).
+    start_rollback.disarm();
     Ok(status)
+}
+
+/// P1-2: resets the reported proxy state when a start/restart fails after the
+/// previous listener was already stopped.
+///
+/// `start_proxy_impl` tears the old runtime down before it can know whether the
+/// new one binds, and its failure points are spread across TLS-manager
+/// resolution, upstream-proxy validation, port binding and runtime installation.
+/// A plain `?` cannot express "undo the teardown", so the guard performs it on
+/// drop for every early return; `disarm()` runs once a start installed its
+/// runtime.
+struct StartFailureRollback {
+    state: Arc<AppState>,
+    workspace_id: String,
+    armed: bool,
+}
+
+impl StartFailureRollback {
+    fn new(state: Arc<AppState>, workspace_id: String) -> Self {
+        Self {
+            state,
+            workspace_id,
+            armed: false,
+        }
+    }
+
+    fn arm(&mut self) {
+        self.armed = true;
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for StartFailureRollback {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+
+        let status = self.state.rollback_failed_start(self.workspace_id.clone());
+        tracing::warn!(
+            component = "desktop.commands",
+            event = "start_proxy_failed_after_shutdown",
+            workspace_id = %self.workspace_id,
+            system_proxy_enabled = status.system_proxy_enabled,
+            "start failed after the previous listener was stopped; reported state rolled back to stopped"
+        );
+        crate::agent_status::write_from_state(&self.state);
+    }
 }
 
 pub(crate) async fn stop_proxy_impl(

@@ -47,6 +47,11 @@ export function useStartProxy() {
           .getState()
           .setPortInUse({ port: readPortFromError(error, input.port ?? DEFAULT_PROXY_PORT) });
       }
+      // P1-2: a failed start/restart may have torn the previous listener down
+      // and rolled the backend status back to "stopped". Refresh immediately
+      // instead of waiting for the 2 s poll, so the UI never keeps showing a
+      // running proxy (and an enabled system proxy) that no longer exists.
+      queryClient.invalidateQueries({ queryKey: PROXY_STATUS_QUERY_KEY });
     },
     onSuccess: (status: ProxyStatus) => {
       logDevInfo("ui.proxy_status", "start_proxy_mutation_succeeded", status);
