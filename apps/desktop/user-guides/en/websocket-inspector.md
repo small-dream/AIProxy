@@ -126,6 +126,7 @@ Notes:
 This means:
 
 - The proxy does not modify WebSocket message content — it only passes through and records
+- The relay implements no WebSocket extensions (such as `permessage-deflate`), so it never advertises them to the upstream: every session stays on uncompressed frames, which is what lets each frame be parsed and recorded
 - Binary frames store only their size, not their actual content (to save storage)
 - Injected messages are transparent to the server/client and indistinguishable from normal messages
 - If no frame arrives for 5 minutes, the proxy closes the connection; a frame that stops mid-delivery must finish within 30 seconds or the connection is closed too. These timeouts keep dead connections from lingering forever.

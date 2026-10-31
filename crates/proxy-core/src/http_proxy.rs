@@ -2265,7 +2265,8 @@ mod tests {
 
         // Throttle selection with 100% packet loss and a response-stage rule.
         // `evaluate_response_throttle` rolls the loss BEFORE sleeping latency, so
-        // the response is dropped on the first call.
+        // the response is dropped on the first call. The configured unit is
+        // percent, so 100.0 (not 1.0) is a guaranteed drop.
         let throttle_selection = Some(ThrottleRuntimeSelection {
             profile: ThrottleProfileData {
                 id: "p1".to_string(),
@@ -2274,7 +2275,7 @@ mod tests {
                 latency_ms: 0,
                 name: "lossy".to_string(),
                 note: None,
-                packet_loss_ratio: 1.0,
+                packet_loss_ratio: 100.0,
                 preset: false,
                 upload_kbps: 0,
                 workspace_id: "test".to_string(),

@@ -34,14 +34,21 @@ const MAX_THROTTLE_TRANSFER_DELAY_MS: u64 = 60_000;
 /// granularity, so the client observes a steady drip of bytes.
 const THROTTLE_CHUNK_BYTES: usize = 16 * 1024;
 
+/// Convert the configured packet-loss **percentage** into the `0.0..=1.0`
+/// probability consumed by [`should_drop_for_packet_loss`].
+///
+/// The throttling UI has exactly one loss field, labelled `%` with a `0..=100`
+/// range, and the shipped presets (`0.2`, `1.2`, `3.5`) are percentages; the
+/// user guide documents `Packet Loss | ... (0–100%)`. This function used to
+/// read values `<= 1.0` as an already-normalized ratio and only larger values as
+/// percentages, which made `1` mean 100% loss, `0.5` mean 50%, and `1.5` mean
+/// 1.5% — a silent discontinuity that dropped every request as soon as a user
+/// typed "1" for one percent.
 fn normalize_packet_loss_ratio(packet_loss_ratio: f32) -> f32 {
-    if packet_loss_ratio <= 1.0 {
-        // Treat values in [0, 1] as a ratio (e.g. 0.05 = 5% loss).
-        // To express a percentage, use values > 1.0 (e.g. 5 = 5% loss).
-        packet_loss_ratio.max(0.0)
-    } else {
-        (packet_loss_ratio / 100.0).clamp(0.0, 1.0)
+    if !packet_loss_ratio.is_finite() || packet_loss_ratio <= 0.0 {
+        return 0.0;
     }
+    (packet_loss_ratio / 100.0).clamp(0.0, 1.0)
 }
 
 fn should_drop_for_packet_loss(profile: &ThrottleProfileData) -> bool {
@@ -450,12 +457,26 @@ mod tests {
     }
 
     #[test]
-    fn normalize_packet_loss_clamps_and_divides() {
+    fn normalize_packet_loss_reads_percentages() {
+        // The UI unit is percent: 1 means 1% (this used to mean 100%).
+        assert_eq!(normalize_packet_loss_ratio(1.0), 0.01);
+        assert_eq!(normalize_packet_loss_ratio(0.2), 0.002);
+        assert_eq!(normalize_packet_loss_ratio(1.2), 0.012);
+        assert_eq!(normalize_packet_loss_ratio(3.5), 0.035);
+        assert_eq!(normalize_packet_loss_ratio(50.0), 0.5);
+        assert_eq!(normalize_packet_loss_ratio(100.0), 1.0);
+    }
+
+    #[test]
+    fn normalize_packet_loss_clamps_non_positive_and_oversized_values() {
         assert_eq!(normalize_packet_loss_ratio(0.0), 0.0);
-        assert_eq!(normalize_packet_loss_ratio(0.05), 0.05);
-        assert_eq!(normalize_packet_loss_ratio(5.0), 0.05);
-        assert_eq!(normalize_packet_loss_ratio(150.0), 1.0);
         assert_eq!(normalize_packet_loss_ratio(-1.0), 0.0);
+        assert_eq!(normalize_packet_loss_ratio(150.0), 1.0);
+        // A non-finite value must read as "no loss" instead of propagating NaN
+        // into the comparison (`rand < NaN` is always false, which happened to
+        // behave the same, but relies on accident rather than intent).
+        assert_eq!(normalize_packet_loss_ratio(f32::NAN), 0.0);
+        assert_eq!(normalize_packet_loss_ratio(f32::INFINITY), 0.0);
     }
 
     // --- M9: response throttle latency + drop symmetry ----------------------
@@ -503,10 +524,11 @@ mod tests {
     }
 
     // M9-2: 100% packet loss drops the response (returns Err), symmetric with
-    // the request stage. The drop trace carries outcome == "dropped".
+    // the request stage. The drop trace carries outcome == "dropped". The
+    // configured unit is percent, so 100.0 (not 1.0) means 100% loss.
     #[tokio::test]
     async fn response_throttle_drops_on_full_packet_loss() {
-        let selection = test_selection(test_profile(0, 1.0));
+        let selection = test_selection(test_profile(0, 100.0));
         let failure = evaluate_response_throttle(&selection, 1024)
             .await
             .expect_err("100% loss must drop the response");

@@ -146,4 +146,31 @@ describe("useProxyLifecycle auto-start", () => {
     expect(startMutateAsync).not.toHaveBeenCalled();
     expect(enableSystemProxyMutateAsync).not.toHaveBeenCalled();
   });
+
+  // Regression: a re-render while `startProxy` is still in flight must not
+  // cancel the restore. React Query's `useMutation` returns a fresh object on
+  // every render, so the auto-start effect re-runs (and re-creates these mock
+  // objects) — the previous implementation flipped a per-run `cancelled` flag
+  // in the effect cleanup, which the continuation then read after the IPC
+  // resolved and silently skipped `enableSystemProxy`.
+  it("restores the system proxy when a re-render lands while start is in flight", async () => {
+    workspacesState.current = [createWorkspace({ systemProxyEnabled: true })];
+
+    let resolveStart: (status: ProxyStatus) => void = () => {};
+    const started = new Promise<ProxyStatus>((resolve) => {
+      resolveStart = resolve;
+    });
+    startMutateAsync.mockImplementationOnce(() => started);
+
+    const { rerender } = renderHook(() => useProxyLifecycle({ onSnackbarMessage: vi.fn() }));
+
+    await waitFor(() => expect(startMutateAsync).toHaveBeenCalledTimes(1));
+
+    // Re-render while the start promise is still pending.
+    rerender();
+
+    resolveStart(createDefaultProxyStatus());
+
+    await waitFor(() => expect(enableSystemProxyMutateAsync).toHaveBeenCalledTimes(1));
+  });
 });

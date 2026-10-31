@@ -58,6 +58,19 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
   const [portDraft, setPortDraft] = useState(String(port));
   const [portDialogError, setPortDialogError] = useState<string | null>(null);
   const autoStartAttemptedRef = useRef(false);
+  // Tracks a real unmount for the auto-start flow. It deliberately is NOT the
+  // effect's own cleanup flag: `useMutation` returns a fresh object on every
+  // render (including the mutation's own `isPending` flip), so any re-render
+  // re-runs the auto-start effect — a per-run `cancelled` flag would then be
+  // set while the start IPC is still in flight and the system-proxy restore
+  // would be skipped every launch.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Port-in-use recovery: the occupying process and the kill-and-restart flow.
   const [occupant, setOccupant] = useState<PortOccupant | null>(null);
@@ -124,13 +137,11 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
     // restore) finishes. captureReady is transiently false during this window.
     setAutoStartInProgress(true);
 
-    let cancelled = false;
-
     void (async () => {
       try {
         const startedStatus = await startProxyMutation.mutateAsync(initialStartProxyInput);
 
-        if (cancelled || startedStatus.systemProxyEnabled || !shouldRestoreSystemProxy) {
+        if (!mountedRef.current || startedStatus.systemProxyEnabled || !shouldRestoreSystemProxy) {
           return;
         }
 
@@ -153,9 +164,9 @@ export function useProxyLifecycle({ onSnackbarMessage }: UseProxyLifecycleParams
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    // No cleanup: an effect re-run must not cancel the in-flight start (the
+    // autostart guard already makes re-runs no-ops). Only a real unmount stops
+    // the restore, which `mountedRef` handles.
   }, [
     certificateStatus,
     currentWorkspace,

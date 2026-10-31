@@ -531,7 +531,8 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
             if malformed_101
                 && (name.eq_ignore_ascii_case("connection")
                     || name.eq_ignore_ascii_case("upgrade")
-                    || name.eq_ignore_ascii_case("sec-websocket-accept"))
+                    || name.eq_ignore_ascii_case("sec-websocket-accept")
+                    || name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS))
             {
                 continue;
             }
@@ -630,24 +631,10 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
 
     // Build the 101 Switching Protocols response FIRST (before registering
     // or sending session). If construction fails, no state has been mutated.
-    let mut response_builder = hyper::Response::builder()
-        .status(StatusCode::SWITCHING_PROTOCOLS)
-        .header("connection", "upgrade");
-    for (name, value) in &upstream_headers {
-        if name.eq_ignore_ascii_case("connection") || name.eq_ignore_ascii_case("transfer-encoding")
-        {
-            continue;
-        }
-        response_builder = response_builder.header(name.as_str(), value.as_str());
-    }
-    let ws_response = match response_builder.body(
-        http_body_util::Empty::<bytes::Bytes>::new()
-            .map_err(|_: std::convert::Infallible| unreachable!())
-            .boxed(),
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            let error = format!("failed to build 101 response: {e}");
+    let ws_response = match build_ws_upgrade_response(&upstream_headers) {
+        Ok(response) => response,
+        Err(error) => {
+            let error = format!("failed to build 101 response: {error}");
             return Ok(send_ws_upstream_error_session(
                 &request,
                 ctx,
@@ -1107,6 +1094,52 @@ pub(crate) fn ws_headers_to_header_map(headers: &[(String, String)]) -> HeaderMa
     map
 }
 
+/// The header that advertises WebSocket extensions (`permessage-deflate`, …).
+///
+/// The relay parses every frame itself and implements no extension: any RSV bit
+/// is a protocol violation (see `crate::ws::try_parse_ws_frame`, RFC 6455 §5.2).
+/// If this header reached the upstream in the upgrade request, the server could
+/// negotiate an extension and then send compressed frames, and the relay would
+/// kill the connection with Close(1002) on the first such message. Dropping the
+/// header on both legs keeps the session on the uncompressed baseline the relay
+/// can actually decode.
+const SEC_WEBSOCKET_EXTENSIONS: &str = "sec-websocket-extensions";
+
+/// Whether an upstream 101 header may be forwarded to the client.
+///
+/// `Connection`/`Transfer-Encoding` are framing metadata the proxy owns, and
+/// extensions are dropped because the relay cannot decode them (see
+/// [`SEC_WEBSOCKET_EXTENSIONS`]).
+fn should_forward_ws_upgrade_response_header(name: &str) -> bool {
+    !name.eq_ignore_ascii_case("connection")
+        && !name.eq_ignore_ascii_case("transfer-encoding")
+        && !name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS)
+}
+
+/// Build the `101 Switching Protocols` response sent back to the client from the
+/// upstream's 101 head. `Connection: upgrade` is emitted by the proxy itself
+/// rather than copied from the upstream.
+fn build_ws_upgrade_response(
+    upstream_headers: &[(String, String)],
+) -> Result<ProxyResponse, String> {
+    let mut builder = hyper::Response::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header("connection", "upgrade");
+    for (name, value) in upstream_headers {
+        if !should_forward_ws_upgrade_response_header(name) {
+            continue;
+        }
+        builder = builder.header(name.as_str(), value.as_str());
+    }
+    builder
+        .body(
+            http_body_util::Empty::<bytes::Bytes>::new()
+                .map_err(|_: std::convert::Infallible| unreachable!())
+                .boxed(),
+        )
+        .map_err(|error| error.to_string())
+}
+
 /// Build a raw HTTP upgrade request string for WebSocket relay.
 fn build_ws_upgrade_request(request: &ParsedProxyRequest) -> Result<String, String> {
     let path = build_request_path(&request.url);
@@ -1121,6 +1154,11 @@ fn build_ws_upgrade_request(request: &ParsedProxyRequest) -> Result<String, Stri
 
     for (name, value) in &request.headers {
         if name.as_str().eq_ignore_ascii_case("host") {
+            continue;
+        }
+        // Never advertise an extension the relay cannot decode; see
+        // SEC_WEBSOCKET_EXTENSIONS.
+        if name.as_str().eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS) {
             continue;
         }
         // M6: HTTP header field values are opaque octets; obs-text / Latin-1
@@ -1626,6 +1664,105 @@ mod tests {
             !raw.contains("x-origin: \r\n"),
             "non-ASCII header value must NOT be erased to empty, got: {raw}"
         );
+    }
+
+    // A relay that cannot decode extension frames must not advertise any: the
+    // upstream would negotiate permessage-deflate (the browser default offer)
+    // and every compressed message would then be rejected as an RSV-bit
+    // protocol violation, killing the session on its first frame.
+    #[test]
+    fn ws_upgrade_request_omits_websocket_extensions() {
+        let mut request = make_ws_request();
+        request.headers.insert(
+            "sec-websocket-extensions",
+            HeaderValue::from_static("permessage-deflate; client_max_window_bits"),
+        );
+        request
+            .headers
+            .insert("sec-websocket-protocol", HeaderValue::from_static("chat"));
+
+        let raw = build_ws_upgrade_request(&request).unwrap();
+        let lowered = raw.to_ascii_lowercase();
+
+        assert!(
+            !lowered.contains("sec-websocket-extensions"),
+            "extension advertisement must not reach the upstream, got: {raw}"
+        );
+        // Other WS handshake headers must still be forwarded.
+        assert!(
+            lowered.contains("sec-websocket-protocol: chat"),
+            "non-extension WS headers must still be forwarded, got: {raw}"
+        );
+    }
+
+    #[test]
+    fn ws_upgrade_response_drops_extensions_and_keeps_handshake_headers() {
+        let upstream = vec![
+            ("Upgrade".to_string(), "websocket".to_string()),
+            ("Connection".to_string(), "Upgrade".to_string()),
+            (
+                "Sec-WebSocket-Accept".to_string(),
+                "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=".to_string(),
+            ),
+            ("Sec-WebSocket-Protocol".to_string(), "chat".to_string()),
+            (
+                "Sec-WebSocket-Extensions".to_string(),
+                "permessage-deflate".to_string(),
+            ),
+            ("Set-Cookie".to_string(), "a=1".to_string()),
+        ];
+
+        let response = build_ws_upgrade_response(&upstream).unwrap();
+        let headers = response.headers();
+
+        assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+        // The proxy owns the Connection value it emits, not the upstream's copy.
+        assert_eq!(
+            headers.get("connection").unwrap().to_str().unwrap(),
+            "upgrade"
+        );
+        assert_eq!(
+            headers
+                .get("sec-websocket-accept")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+        );
+        assert_eq!(
+            headers
+                .get("sec-websocket-protocol")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "chat"
+        );
+        assert_eq!(headers.get("set-cookie").unwrap().to_str().unwrap(), "a=1");
+        assert!(
+            headers.get("sec-websocket-extensions").is_none(),
+            "extension negotiation must not be echoed to the client"
+        );
+    }
+
+    #[test]
+    fn ws_upgrade_response_header_filter_is_case_insensitive() {
+        for name in [
+            "Connection",
+            "TRANSFER-ENCODING",
+            "Sec-WebSocket-Extensions",
+            "sec-websocket-extensions",
+        ] {
+            assert!(
+                !should_forward_ws_upgrade_response_header(name),
+                "{name} must be filtered"
+            );
+        }
+        for name in ["Upgrade", "Sec-WebSocket-Accept", "Sec-WebSocket-Protocol"] {
+            assert!(
+                should_forward_ws_upgrade_response_header(name),
+                "{name} must be forwarded"
+            );
+        }
     }
 
     // -----------------------------------------------------------------------

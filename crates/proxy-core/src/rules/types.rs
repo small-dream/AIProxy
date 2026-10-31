@@ -105,6 +105,9 @@ pub struct ThrottleProfileData {
     pub latency_ms: u32,
     pub name: String,
     pub note: Option<String>,
+    /// Packet-loss *percentage* in `0.0..=100.0` (the unit the throttling UI and
+    /// the shipped presets use). `0.0` disables loss simulation; `100.0` drops
+    /// every request/response matched by the profile.
     pub packet_loss_ratio: f32,
     pub preset: bool,
     pub upload_kbps: u32,
