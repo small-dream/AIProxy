@@ -2,6 +2,13 @@
 // debug builds the console subsystem is kept so logs printed to stdout/stderr
 // remain visible during development.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// `ControlError` / the command-level `AppError` carry a structured JSON `details`
+// value for the UI and the Agent. `serde_json` is built with `preserve_order`
+// (so rewritten request/response bodies keep their key order), which grows
+// `Value` past clippy's 128-byte `result_large_err` threshold. Boxing those
+// fields would ripple through every command signature to save nothing at runtime:
+// these are cold, one-per-failure results, not hot-loop values.
+#![allow(clippy::result_large_err)]
 
 // Pull the `t!` translation macro into crate-wide scope so any module (e.g.
 // `menu`) can invoke it directly via bare `t!(...)`, and load compiled-in menu

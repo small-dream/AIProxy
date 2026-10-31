@@ -451,6 +451,10 @@ fn tokens_match(descriptor: &ControlDescriptor, provided: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Only the unix control round-trip writes raw JSON lines; importing it
+    // unconditionally made `-D warnings` fail on Windows, where that test is
+    // compiled out.
+    #[cfg(unix)]
     use aiproxy_agent_control::write_json_line;
 
     #[cfg(unix)]

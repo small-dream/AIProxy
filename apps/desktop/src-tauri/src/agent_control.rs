@@ -36,6 +36,11 @@ const MAX_CONCURRENT_CONTROL_CONNECTIONS: usize = 16;
 #[derive(Debug)]
 struct ControlServerState {
     data_dir: PathBuf,
+    /// Unix-domain socket path, removed on shutdown by the `#[cfg(unix)]` branch
+    /// in `shutdown`. Windows uses a named pipe, so the field is deliberately
+    /// unread there — silence the platform-specific dead-code warning so
+    /// `clippy -D warnings` is clean on every host, matching CI.
+    #[cfg_attr(windows, allow(dead_code))]
     socket_path: Option<PathBuf>,
 }
 
