@@ -4741,10 +4741,12 @@ async fn ws_upgrade_malformed_101_returns_502_and_does_not_register_relay() {
             )
             .await
             .unwrap();
-        // Hold the socket briefly; the proxy reads the head then (since the
-        // handshake is malformed) treats it as a refused upgrade and returns
-        // 502 without entering the relay.
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // Hold the socket open, as a peer that switched protocols would: after a
+        // 101 it keeps sending WebSocket frames and never closes. The proxy must
+        // answer 502 from the already-buffered head instead of reading a body
+        // until close (which used to stall for the 10s body-idle ceiling and then
+        // splice frames into the error page).
+        tokio::time::sleep(Duration::from_secs(30)).await;
     });
 
     let proxy_port = allocate_unused_port();
@@ -4776,8 +4778,18 @@ async fn ws_upgrade_malformed_101_returns_502_and_does_not_register_relay() {
     .await
     .unwrap();
 
+    let upgrade_started = std::time::Instant::now();
     let (response_text, completed_session) =
         send_ws_upgrade_via_proxy(proxy_port, upstream_port, &mut started_proxy).await;
+    let upgrade_elapsed = upgrade_started.elapsed();
+
+    // P2-14: the 502 must not wait for the upstream to close (or for the 10s
+    // body-idle ceiling). The upstream holds its socket for 30s here, so anything
+    // near that means the body was read with read-until-close framing.
+    assert!(
+        upgrade_elapsed < Duration::from_secs(5),
+        "malformed 101 must be answered immediately, took {upgrade_elapsed:?}"
+    );
 
     // The proxy response must be 502 Bad Gateway, NOT the upstream's 101.
     assert!(

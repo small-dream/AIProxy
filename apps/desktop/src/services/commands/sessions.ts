@@ -284,9 +284,10 @@ export async function deleteSessions(sessionIds: string[]): Promise<void> {
 }
 
 export async function deleteSessionsExcept(keepSessionId: string): Promise<void> {
-  keepOnlyImportedSession(keepSessionId);
-
   if (!isTauriRuntime()) {
+    // Imported (HAR) sessions live only in the renderer; the backend never saw
+    // them, so the web fallback drops them directly.
+    keepOnlyImportedSession(keepSessionId);
     logDevDebug("ui.commands", "delete_sessions_except_bypassed_non_tauri_runtime", {
       keepSessionId,
     });
@@ -296,6 +297,10 @@ export async function deleteSessionsExcept(keepSessionId: string): Promise<void>
   try {
     logDevInfo("ui.commands", "delete_sessions_except_requested", { keepSessionId });
     await invoke("delete_sessions_except", { input: { keepSessionId } });
+    // Only prune renderer-only imports once the backend delete committed: a
+    // failed invoke must not destroy imported sessions the backend never knew
+    // about (mirrors deleteSessions / clearSessions).
+    keepOnlyImportedSession(keepSessionId);
     logDevInfo("ui.commands", "delete_sessions_except_succeeded", { keepSessionId });
   } catch (error) {
     reportCommandFailure("delete_sessions_except", error);

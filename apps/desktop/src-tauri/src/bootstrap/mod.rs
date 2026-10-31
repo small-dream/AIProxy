@@ -122,6 +122,14 @@ pub struct AppState {
     // and desynchronize the captured snapshot from the actually-applied state.
     // Held for the whole operation; the platform calls are blocking either way.
     system_proxy_op_lock: tokio::sync::Mutex<()>,
+    // P2-17: serializes the whole proxy start/stop lifecycle, not just the
+    // system-proxy epilogue. Without it a stop that lands between "take the old
+    // runtime" and "install the new one" during a start was silently dropped:
+    // `stop_proxy_impl` saw no runtime, returned success, and the start then set
+    // `running = true` — leaving the UI reporting a live proxy with no listener
+    // (or, in the other interleaving, a listener with `running = false`).
+    // Lock order is always `proxy_op_lock` → `system_proxy_op_lock`.
+    proxy_op_lock: tokio::sync::Mutex<()>,
     tls_manager: Mutex<Option<Arc<TlsManager>>>,
     cert_status_cache: Mutex<Option<CertificateStateSnapshot>>,
     breakpoint_manager: Arc<BreakpointManager>,
@@ -164,6 +172,7 @@ impl AppState {
             status: Mutex::new(BootstrapStatus::default()),
             system_proxy_snapshot: Mutex::new(None),
             system_proxy_op_lock: tokio::sync::Mutex::new(()),
+            proxy_op_lock: tokio::sync::Mutex::new(()),
             tls_manager: Mutex::new(None),
             cert_status_cache: Mutex::new(None),
             breakpoint_manager: Arc::new(BreakpointManager::new()),
@@ -605,6 +614,11 @@ impl AppState {
     /// M17: returns the lock that serializes system-proxy enable/disable/restart.
     pub fn system_proxy_op_lock(&self) -> &tokio::sync::Mutex<()> {
         &self.system_proxy_op_lock
+    }
+
+    /// P2-17: returns the lock that serializes the proxy start/stop lifecycle.
+    pub fn proxy_op_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.proxy_op_lock
     }
 
     // ── runtime handles ─────────────────────────────────────────────

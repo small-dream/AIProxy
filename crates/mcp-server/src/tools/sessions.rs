@@ -870,6 +870,12 @@ fn failure_to_json(summary: &SessionSummaryRow, redactor: &Redactor, raw: bool) 
     }))
 }
 
+/// Longest relative window `since` accepts. Anything longer is a caller mistake,
+/// and `chrono` panics (rather than returning an error) when the duration or the
+/// resulting `Utc::now() - duration` leaves its representable range — so bound the
+/// input instead of letting an Agent crash the tool.
+const MAX_SINCE_DAYS: i64 = 3_650;
+
 pub(crate) fn parse_since(value: &str) -> Result<String, ToolError> {
     let value = value.trim();
     if value.len() < 2 {
@@ -887,18 +893,32 @@ pub(crate) fn parse_since(value: &str) -> Result<String, ToolError> {
         return Err(ToolError::invalid("since must be greater than zero."));
     }
     let unit = &value[split..];
+    // `try_*` returns None on overflow instead of panicking.
     let duration = match unit {
-        "s" => Duration::seconds(amount),
-        "m" => Duration::minutes(amount),
-        "h" => Duration::hours(amount),
-        "d" => Duration::days(amount),
+        "s" => Duration::try_seconds(amount),
+        "m" => Duration::try_minutes(amount),
+        "h" => Duration::try_hours(amount),
+        "d" => Duration::try_days(amount),
         _ => {
             return Err(ToolError::invalid(
                 "since unit must be one of s, m, h, or d.",
             ))
         }
-    };
-    Ok((Utc::now() - duration).to_rfc3339_opts(SecondsFormat::Secs, true))
+    }
+    .ok_or_else(|| ToolError::invalid("since duration is out of range."))?;
+
+    let max = Duration::try_days(MAX_SINCE_DAYS)
+        .ok_or_else(|| ToolError::invalid("since duration is out of range."))?;
+    if duration > max {
+        return Err(ToolError::invalid(format!(
+            "since must not exceed {MAX_SINCE_DAYS} days."
+        )));
+    }
+
+    Utc::now()
+        .checked_sub_signed(duration)
+        .map(|since| since.to_rfc3339_opts(SecondsFormat::Secs, true))
+        .ok_or_else(|| ToolError::invalid("since points outside the supported time range."))
 }
 
 fn escape_like_pattern(value: &str) -> String {
@@ -1146,11 +1166,31 @@ mod tests {
 
     #[test]
     fn since_accepts_relative_durations() {
-        for value in ["5s", "30m", "2h", "7d"] {
+        for value in ["5s", "30m", "2h", "7d", "3650d"] {
             assert!(parse_since(value).is_ok(), "{value}");
         }
-        for value in ["", "10", "0m", "1w", "-5m"] {
+        for value in ["", "10", "0m", "1w", "-5m", "3651d"] {
             assert!(parse_since(value).is_err(), "{value}");
+        }
+    }
+
+    // P2-16: an out-of-range duration used to reach `Duration::days` /
+    // `Utc::now() - duration`, both of which panic on overflow, so a malformed
+    // `since` argument crashed the tool instead of returning a validation error.
+    #[test]
+    fn since_rejects_durations_that_would_overflow_chrono() {
+        for value in [
+            "100000000d",
+            "9223372036854775807d",
+            "9223372036854775807s",
+            "999999999999999999999d",
+        ] {
+            let error = parse_since(value).expect_err(value);
+            let message = format!("{error:?}");
+            assert!(
+                message.to_lowercase().contains("since"),
+                "unexpected error for {value}: {message}"
+            );
         }
     }
 

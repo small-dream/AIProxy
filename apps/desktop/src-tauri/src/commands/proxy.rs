@@ -188,6 +188,12 @@ pub(crate) async fn start_proxy_impl(
     input: StartProxyInput,
     state: Arc<AppState>,
 ) -> Result<BootstrapStatus, String> {
+    // P2-17: serialize the whole lifecycle (see the field doc on
+    // AppState::proxy_op_lock). This is acquired before any state is observed so
+    // a concurrent stop cannot interleave with the shutdown/bind/install
+    // sequence below and get lost.
+    let _proxy_op_guard = state.proxy_op_lock().lock().await;
+
     // NOTE: do NOT snapshot `system_proxy_enabled` here. start/restart does
     // substantial async work (shutdown prior runtime, bind, start collectors)
     // before the system-proxy reapply decision; a concurrent enable/disable can
@@ -575,6 +581,11 @@ pub(crate) async fn stop_proxy_impl(
     input: StopProxyInput,
     state: Arc<AppState>,
 ) -> Result<BootstrapStatus, String> {
+    // P2-17: serialize with start_proxy_impl. A stop that observed the proxy
+    // mid-start used to take no runtime, report success, and then be overwritten
+    // by the start's `running = true`, leaving the UI and the listener disagreeing.
+    let _proxy_op_guard = state.proxy_op_lock().lock().await;
+
     tracing::info!(
         component = "desktop.commands",
         event = "stop_proxy_requested",

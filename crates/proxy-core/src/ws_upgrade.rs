@@ -499,25 +499,38 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         // single read returned are still on the upstream. Forward the FULL
         // body: leftover as the prefix, then continue reading from upstream
         // until Content-Length is satisfied (or EOF if no Content-Length).
-        let framing = parse_response_body_framing(&upstream_headers);
-
-        let body_bytes = match read_full_response_body(&mut upstream, leftover_bytes, framing).await
-        {
-            Ok(b) => b,
-            Err(e) => {
-                let error = format!("failed to read upstream non-101 body: {e}");
-                return Ok(send_ws_upstream_error_session(
-                    &request,
-                    ctx,
-                    &error,
-                    started_at,
-                    started_at_instant,
-                    map_traces,
-                    rewrite_traces,
-                    script_traces,
-                    throttle_traces,
-                )
-                .await);
+        let body_bytes = if malformed_101 {
+            // A 101 carries no message body (RFC 9110 §15.2.2): the bytes after
+            // the head are WebSocket frames the peer already started sending, not
+            // an error page. Read-until-close framing would stall for the whole
+            // body-idle ceiling (10s) and then splice those frames into the 502
+            // body, so answer with the already-read prefix and drop the rest.
+            tracing::debug!(
+                event = "ws_hyper_malformed_101_body_skipped",
+                request_id = %request_id,
+                leftover_bytes = leftover_bytes.len(),
+                "not reading a 101 body; answering 502 with the buffered prefix"
+            );
+            leftover_bytes.into()
+        } else {
+            let framing = parse_response_body_framing(&upstream_headers);
+            match read_full_response_body(&mut upstream, leftover_bytes, framing).await {
+                Ok(b) => b,
+                Err(e) => {
+                    let error = format!("failed to read upstream non-101 body: {e}");
+                    return Ok(send_ws_upstream_error_session(
+                        &request,
+                        ctx,
+                        &error,
+                        started_at,
+                        started_at_instant,
+                        map_traces,
+                        rewrite_traces,
+                        script_traces,
+                        throttle_traces,
+                    )
+                    .await);
+                }
             }
         };
         let mut builder = hyper::Response::builder()

@@ -221,4 +221,23 @@ describe("deleteSessionsExcept", () => {
 
     expect(listImportedSessionSummaries().map((s) => s.id)).toEqual(["keep-1"]);
   });
+
+  // P2-22: imports are renderer-only, so they must survive a failed backend
+  // delete — pruning before the invoke lost them for good (the backend never
+  // knew about them and cannot restore them).
+  it("keeps imported sessions when the backend delete fails", async () => {
+    upsertImportedSessions([
+      detail({ id: "keep-1", summary: summary({ id: "keep-1" }) }),
+      detail({ id: "imported-2", summary: summary({ id: "imported-2" }) }),
+    ]);
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("database is locked"));
+
+    await expect(deleteSessionsExcept("keep-1")).rejects.toBeTruthy();
+
+    expect(
+      listImportedSessionSummaries()
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual(["imported-2", "keep-1"]);
+  });
 });
