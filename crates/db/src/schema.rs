@@ -565,6 +565,56 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
     )
     .map_err(|e| DbError::MigrationFailed(format!("create global vars unique index: {e}")))?;
 
+    // D1: `session_details` is a strict 1:1 child of `session_summaries`, but the
+    // lookup column only carried a non-unique index. A second detail row for one
+    // summary (a caller using a different detail id, an import path, a race
+    // between two upserts) made `load_session_detail` return an arbitrary row and
+    // turned the `session_search` LEFT JOIN into an N-row fan-out that consumed
+    // the page LIMIT and silently hid sessions. Collapse any pre-existing
+    // duplicates (keep the earliest row — it is the one the session was first
+    // recorded with) before building the unique index. The old non-unique index
+    // is intentionally left in place: this migration stays purely additive on
+    // user databases, and an extra index on a one-row-per-session table costs
+    // little compared with a DROP that could leave the table unindexed.
+    //
+    // Both steps are gated on the unique index being absent, so the collapse (a
+    // full scan of every session detail) runs at most once per database instead
+    // of on every launch.
+    let session_detail_index_present: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master \
+             WHERE type='index' AND name='idx_session_details_summary_unique')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| DbError::MigrationFailed(format!("check session detail unique index: {e}")))?;
+    if !session_detail_index_present {
+        collapse_duplicate_session_details(conn)?;
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_session_details_summary_unique \
+             ON session_details(session_summary_id)",
+            [],
+        )
+        .map_err(|e| {
+            DbError::MigrationFailed(format!("create session detail unique index: {e}"))
+        })?;
+    }
+
+    Ok(())
+}
+
+/// D1: collapse pre-existing duplicate `session_details.session_summary_id`
+/// rows, keeping the earliest-inserted row per summary. Idempotent: a no-op once
+/// the 1:1 invariant holds.
+fn collapse_duplicate_session_details(conn: &Connection) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM session_details \
+         WHERE rowid NOT IN ( \
+             SELECT MIN(rowid) FROM session_details GROUP BY session_summary_id \
+         )",
+        [],
+    )
+    .map_err(|e| DbError::MigrationFailed(format!("collapse duplicate session details: {e}")))?;
     Ok(())
 }
 
@@ -902,5 +952,108 @@ mod tests {
             .map(|r| r.unwrap())
             .collect();
         assert_eq!(enabled_ws2, vec!["d".to_string()]);
+    }
+
+    // D1: `session_details` is 1:1 with `session_summaries`; the unique index
+    // must reject a second detail row for the same summary. Duplicates made
+    // `load_session_detail` return an arbitrary row and fanned the search
+    // LEFT JOIN out into rows that consumed the page LIMIT.
+    #[test]
+    fn d1_session_details_rejects_second_row_for_one_summary() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO session_summaries (id, method, host, path, protocol, started_at, \
+             finished_at, url) \
+             VALUES ('s1', 'GET', 'a.com', '/', 'HTTP/1.1', '2026-01-01T00:00:00Z', \
+                     '2026-01-01T00:00:00Z', 'https://a.com/')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_details (id, session_summary_id) VALUES ('s1-detail', 's1')",
+            [],
+        )
+        .unwrap();
+
+        let error = conn
+            .execute(
+                "INSERT INTO session_details (id, session_summary_id) \
+                 VALUES ('s1-detail-dup', 's1')",
+                [],
+            )
+            .expect_err("a second detail row for one summary must be rejected");
+        let message = format!("{error}").to_lowercase();
+        assert!(
+            message.contains("unique"),
+            "expected a UNIQUE constraint failure, got: {message}"
+        );
+    }
+
+    // D1: an older database may already hold duplicate detail rows (a caller
+    // using a different detail id, an import path, a race between two upserts).
+    // The migration must collapse them — keeping the earliest row, which is the
+    // one the session was first recorded with — before the unique index is built,
+    // otherwise the index creation would fail and the database would not open.
+    #[test]
+    fn d1_migration_collapses_duplicate_session_details() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(CREATE_TABLES).unwrap();
+        conn.execute(
+            "INSERT INTO session_summaries (id, method, host, path, protocol, started_at, \
+             finished_at, url) \
+             VALUES ('s1', 'GET', 'a.com', '/', 'HTTP/1.1', '2026-01-01T00:00:00Z', \
+                     '2026-01-01T00:00:00Z', 'https://a.com/'), \
+                    ('s2', 'GET', 'b.com', '/', 'HTTP/1.1', '2026-01-01T00:00:00Z', \
+                     '2026-01-01T00:00:00Z', 'https://b.com/')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session_details (id, session_summary_id) \
+             VALUES ('first', 's1'), ('second', 's1'), ('other', 's2')",
+            [],
+        )
+        .unwrap();
+
+        // Must succeed: the collapse runs before the UNIQUE index is created.
+        run_migrations(&conn).expect("migration must tolerate pre-existing duplicates");
+
+        let survivors: Vec<(String, String)> = conn
+            .prepare("SELECT id, session_summary_id FROM session_details ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect();
+        assert_eq!(
+            survivors,
+            vec![
+                ("first".to_string(), "s1".to_string()),
+                ("other".to_string(), "s2".to_string()),
+            ],
+            "the earliest detail row per summary must survive"
+        );
+
+        let index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' \
+                 AND name='idx_session_details_summary_unique'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            index_count, 1,
+            "the unique index must exist after migration"
+        );
+
+        // Idempotent: the gated collapse must be skipped (index present) and a
+        // second migration pass must neither fail nor change the survivors.
+        run_migrations(&conn).expect("migration must be idempotent");
+        let survivors_again: i64 = conn
+            .query_row("SELECT COUNT(*) FROM session_details", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(survivors_again, 2, "a second pass must not delete rows");
     }
 }

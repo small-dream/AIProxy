@@ -55,7 +55,7 @@ impl BodyStore {
 
         // First attempt: ensure the parent dir exists, then write.
         fs::create_dir_all(&dir).map_err(DbError::Io)?;
-        let write_result = fs::write(&file_path, data);
+        let write_result = write_body_file_atomic(&file_path, data);
         match write_result {
             Ok(()) => Ok(format!("{session_id}/{kind}.body")),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -63,7 +63,7 @@ impl BodyStore {
                 // (concurrent clear_all). Recreate and retry once. This is a
                 // silent auto-recovery — the caller observes a normal success.
                 fs::create_dir_all(&dir).map_err(DbError::Io)?;
-                fs::write(&file_path, data).map_err(DbError::Io)?;
+                write_body_file_atomic(&file_path, data).map_err(DbError::Io)?;
                 Ok(format!("{session_id}/{kind}.body"))
             }
             Err(error) => Err(DbError::Io(error)),
@@ -308,6 +308,52 @@ fn validate_safe_segment(value: &str, label: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Disambiguates concurrent temp files (the process id alone is not unique when
+/// the same body is written twice in quick succession).
+static BODY_TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Write `data` to `file_path` atomically: a sibling temp file, then a rename
+/// over the destination.
+///
+/// The same body path is written twice per session (the pending capture and the
+/// completed one). The previous implementation truncated the destination in
+/// place, so a reader — the inspector, MCP body tools — that landed inside the
+/// write window saw an empty or partial body, and `read_body_range` derived
+/// `truncated = false` from that short file, presenting a half body as complete.
+/// Renaming keeps every reader on either the previous complete file or the new
+/// complete file. A crash mid-write leaves the old body intact plus at most one
+/// `.tmp` sibling, instead of a permanently truncated body.
+///
+/// No fsync: captured bodies are best-effort diagnostics, and forcing a disk
+/// flush per captured body would slow the capture hot path; the invariant that
+/// matters here is that no partial file is ever visible under the final name.
+fn write_body_file_atomic(file_path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+
+    let file_name = file_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "body".to_string());
+    let sequence = BODY_TEMP_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temp_path =
+        file_path.with_file_name(format!("{file_name}.tmp-{}-{sequence}", std::process::id()));
+
+    let write_result = (|| -> std::io::Result<()> {
+        {
+            let mut file = fs::File::create(&temp_path)?;
+            file.write_all(data)?;
+        }
+        // The handle is dropped (closed) before the rename so Windows can replace
+        // the destination even when another reader has it open for reading.
+        fs::rename(&temp_path, file_path)
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    write_result
+}
+
 /// Minimum body size (bytes) to store on disk instead of inline in the DB.
 pub const BODY_FILE_THRESHOLD: usize = 256 * 1024;
 
@@ -386,6 +432,102 @@ mod tests {
 
         let data = store.read_body(&path).unwrap();
         assert_eq!(data, b"hello");
+    }
+
+    // D3: the same body path is written twice per session (pending capture, then
+    // the completed one). Rewriting must replace the file atomically — a reader
+    // must never see a truncated body presented as complete — and leave no temp
+    // files behind.
+    #[test]
+    fn rewrite_body_atomically_replaces_content_without_temp_files() {
+        let dir = test_dir("atomic_rewrite");
+        let store = BodyStore::new(dir.clone());
+        store.ensure_dir().unwrap();
+
+        store.write_body("sess-1", "response", b"first").unwrap();
+        store
+            .write_body("sess-1", "response", b"second-and-longer")
+            .unwrap();
+
+        assert_eq!(
+            store.read_body("sess-1/response.body").unwrap(),
+            b"second-and-longer"
+        );
+
+        let range = store
+            .read_body_range("sess-1/response.body", 0, 64)
+            .unwrap();
+        assert_eq!(range.bytes, b"second-and-longer");
+        assert_eq!(
+            range.original_size_bytes,
+            b"second-and-longer".len() as u64,
+            "the reported size must be the complete new body"
+        );
+        assert!(!range.truncated);
+
+        let entries: Vec<String> = fs::read_dir(dir.join("sess-1"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            entries,
+            vec!["response.body".to_string()],
+            "no temp file may survive an atomic rewrite"
+        );
+    }
+
+    // D3 guard: while a body is being rewritten, a concurrent reader must always
+    // observe one of the two complete versions. The pre-fix implementation
+    // truncated the destination in place, so a read landing inside the write
+    // window could return a partial body (with `truncated = false`, presenting it
+    // as complete). This test is one-sided on purpose: an atomic rename can never
+    // fail it, so it carries no flake risk, while the in-place variant can.
+    #[test]
+    fn concurrent_reader_never_observes_a_partial_body() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let dir = test_dir("atomic_concurrent");
+        let store = BodyStore::new(dir);
+        store.ensure_dir().unwrap();
+
+        let body_a = vec![b'a'; 1024 * 1024];
+        let body_b = vec![b'b'; 1024 * 1024];
+        store.write_body("sess", "response", &body_a).unwrap();
+
+        let reader_store = store.clone();
+        let expected_a = body_a.clone();
+        let expected_b = body_b.clone();
+        let stop = Arc::new(AtomicBool::new(false));
+        let partial_reads = Arc::new(AtomicUsize::new(0));
+        let reader = {
+            let stop = Arc::clone(&stop);
+            let partial_reads = Arc::clone(&partial_reads);
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    if let Ok(range) =
+                        reader_store.read_body_range("sess/response.body", 0, 4 * 1024 * 1024)
+                    {
+                        if range.bytes != expected_a && range.bytes != expected_b {
+                            partial_reads.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                }
+            })
+        };
+
+        for _ in 0..10 {
+            store.write_body("sess", "response", &body_b).unwrap();
+            store.write_body("sess", "response", &body_a).unwrap();
+        }
+        stop.store(true, Ordering::Relaxed);
+        reader.join().unwrap();
+
+        assert_eq!(
+            partial_reads.load(Ordering::Relaxed),
+            0,
+            "a concurrent reader must never observe a partial body"
+        );
     }
 
     #[test]

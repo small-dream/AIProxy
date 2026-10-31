@@ -424,7 +424,7 @@ for entry in headers {
 |---|---|---|---|---|
 | 第 1 批 | P0-1、P0-2、P0-3 | ✅ 已修复 | `fix(proxy-core,desktop): stop advertising WS extensions, fix packet-loss unit and autostart restore` | P0-1 抽出 `build_ws_upgrade_response` 便于断言；P0-2 同步 `API_SPEC.md` 单位约定；P0-3 新增「启动中重渲染仍恢复系统代理」回归测试（已确认在旧实现上为红） |
 | 第 2 批 | P1-4、P1-9、P1-10 | ✅ 已修复 | `fix(proxy-core,desktop): script bodies, response headers, linux rollback` | P1-4 采用「base64 精确字节 + lossy 文本比对」而非简单 base64 优先，保留直接赋值 `bodyText` 的编辑语义；P1-9 本地无法编译 `linux.rs`（`cfg(target_os = "linux")`），仅经人工核对与 rustfmt 校验，需由 Linux CI 验证 |
-| 第 3 批 | D1、D3 | ⏳ 待处理 | — | — |
+| 第 3 批 | D1、D3 | ✅ 已修复 | `fix(db): enforce 1:1 session details and atomic body writes` | D1 迁移先收敛重复行（保留最早写入的一行）再建唯一索引，且以「唯一索引是否存在」做一次性门控，避免每次启动全表扫描；detail 写入改为 `ON CONFLICT(session_summary_id)` 单语句 upsert 以消除并发重复；D3 改为临时文件 + `rename` 原子替换（不 fsync，避免拖慢抓包热路径），并发读测试在旧实现上可稳定复现部分读取 |
 | 第 4 批 | P1-5、P1-6、P1-7、P1-8 | ⏳ 待处理 | — | — |
 | 第 5 批 | P2-14、P2-16、P2-17、P2-22 | ⏳ 待处理 | — | — |
 | 后续 | 其余 P2/P3/D | ⏳ 待处理 | — | — |

@@ -156,75 +156,62 @@ pub fn upsert_session(
         .map_err(|e| DbError::query("insert session summary", e))?;
     }
 
-    // session_details has no child tables, so INSERT OR REPLACE is safe here;
-    // but use UPDATE-or-INSERT for consistency and to keep the same id.
-    let detail_affected = tx
-        .execute(
-            "UPDATE session_details
-                SET session_summary_id=?2, query_params=?3, cookies=?4,
-                    request_headers=?5, response_headers=?6, raw_request=?7, raw_response=?8,
-                    client_address=?9, server_ip=?10, tls_cipher_suite=?11, tls_protocol=?12,
-                    request_body_ref=?13, response_body_ref=?14, timing=?15,
-                    trailers=?16, h2_stream_id=?17, via_upstream_proxy=?18,
-                    failure_message=?19
-             WHERE id=?1",
-            params![
-                detail.id,
-                detail.session_summary_id,
-                detail.query_params,
-                detail.cookies,
-                detail.request_headers,
-                detail.response_headers,
-                detail.raw_request,
-                detail.raw_response,
-                detail.client_address,
-                detail.server_ip,
-                detail.tls_cipher_suite,
-                detail.tls_protocol,
-                detail.request_body_ref,
-                detail.response_body_ref,
-                detail.timing,
-                detail.trailers,
-                detail.h2_stream_id,
-                detail.via_upstream_proxy,
-                detail.failure_message,
-            ],
-        )
-        .map_err(|e| DbError::query("update session detail", e))?;
-
-    if detail_affected == 0 {
-        tx.execute(
-            "INSERT INTO session_details
-                (id, session_summary_id, query_params, cookies,
-                 request_headers, response_headers, raw_request, raw_response,
-                 client_address, server_ip, tls_cipher_suite, tls_protocol,
-                 request_body_ref, response_body_ref, timing,
-                 trailers, h2_stream_id, via_upstream_proxy, failure_message)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
-            params![
-                detail.id,
-                detail.session_summary_id,
-                detail.query_params,
-                detail.cookies,
-                detail.request_headers,
-                detail.response_headers,
-                detail.raw_request,
-                detail.raw_response,
-                detail.client_address,
-                detail.server_ip,
-                detail.tls_cipher_suite,
-                detail.tls_protocol,
-                detail.request_body_ref,
-                detail.response_body_ref,
-                detail.timing,
-                detail.trailers,
-                detail.h2_stream_id,
-                detail.via_upstream_proxy,
-                detail.failure_message,
-            ],
-        )
-        .map_err(|e| DbError::query("insert session detail", e))?;
-    }
+    // D1: session_details is a strict 1:1 child of session_summaries, enforced by
+    // `idx_session_details_summary_unique` (see run_migrations). Upsert on that
+    // natural key in a single statement: two concurrent upserts of one session now
+    // converge on the existing row instead of inserting a duplicate, and the
+    // row's own `id` is left untouched so the documented "{summary_id}-detail"
+    // convention stays stable. (session_details has no child tables, so a plain
+    // upsert cannot cascade-delete anything.)
+    tx.execute(
+        "INSERT INTO session_details
+            (id, session_summary_id, query_params, cookies,
+             request_headers, response_headers, raw_request, raw_response,
+             client_address, server_ip, tls_cipher_suite, tls_protocol,
+             request_body_ref, response_body_ref, timing,
+             trailers, h2_stream_id, via_upstream_proxy, failure_message)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+         ON CONFLICT(session_summary_id) DO UPDATE SET
+             query_params=excluded.query_params,
+             cookies=excluded.cookies,
+             request_headers=excluded.request_headers,
+             response_headers=excluded.response_headers,
+             raw_request=excluded.raw_request,
+             raw_response=excluded.raw_response,
+             client_address=excluded.client_address,
+             server_ip=excluded.server_ip,
+             tls_cipher_suite=excluded.tls_cipher_suite,
+             tls_protocol=excluded.tls_protocol,
+             request_body_ref=excluded.request_body_ref,
+             response_body_ref=excluded.response_body_ref,
+             timing=excluded.timing,
+             trailers=excluded.trailers,
+             h2_stream_id=excluded.h2_stream_id,
+             via_upstream_proxy=excluded.via_upstream_proxy,
+             failure_message=excluded.failure_message",
+        params![
+            detail.id,
+            detail.session_summary_id,
+            detail.query_params,
+            detail.cookies,
+            detail.request_headers,
+            detail.response_headers,
+            detail.raw_request,
+            detail.raw_response,
+            detail.client_address,
+            detail.server_ip,
+            detail.tls_cipher_suite,
+            detail.tls_protocol,
+            detail.request_body_ref,
+            detail.response_body_ref,
+            detail.timing,
+            detail.trailers,
+            detail.h2_stream_id,
+            detail.via_upstream_proxy,
+            detail.failure_message,
+        ],
+    )
+    .map_err(|e| DbError::query("upsert session detail", e))?;
 
     tx.commit()
         .map_err(|e| DbError::query("commit upsert session transaction", e))?;
@@ -1041,6 +1028,41 @@ mod tests {
         );
         assert_eq!(summaries[0].status_code, 404);
         assert_eq!(summaries[0].finished_at, "2026-04-19T00:00:09Z");
+    }
+
+    // D1: a second upsert carrying a different detail id must update the existing
+    // row instead of inserting a duplicate. Two detail rows for one summary made
+    // `load_session_detail` return an arbitrary row and fanned the search
+    // LEFT JOIN out into rows that consumed the page LIMIT.
+    #[test]
+    fn d1_upsert_session_keeps_one_detail_row_per_session() {
+        let conn = test_conn();
+        let summary = test_summary("d1-dup", "d1.example.com");
+        upsert_session(&conn, &summary, &test_detail("d1-dup")).unwrap();
+
+        let mut rewritten = test_detail("d1-dup");
+        rewritten.id = "d1-dup-detail-again".to_string();
+        rewritten.query_params = "{\"k\":\"v\"}".to_string();
+        upsert_session(&conn, &summary, &rewritten).unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM session_details WHERE session_summary_id='d1-dup'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "exactly one detail row per session");
+
+        let loaded = load_session_detail(&conn, "d1-dup").unwrap().unwrap();
+        assert_eq!(
+            loaded.query_params, "{\"k\":\"v\"}",
+            "the latest detail content must win"
+        );
+        assert_eq!(
+            loaded.id, "d1-dup-detail",
+            "the existing row keeps its own id (upsert on session_summary_id)"
+        );
     }
 
     // H5: delete_sessions_by_ids must cascade to all child tables via
