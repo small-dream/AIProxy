@@ -87,17 +87,31 @@ fn bytes_from_script_body(
     body_text: Option<String>,
     body_base64: Option<String>,
 ) -> Result<Vec<u8>, String> {
-    if let Some(text) = body_text {
-        return Ok(text.into_bytes());
-    }
-
-    if let Some(base64_text) = body_base64 {
-        return BASE64_STANDARD
+    // When the bridge hands back both fields, `bodyText` is the lossy UTF-8
+    // rendering of `bodyBase64`'s bytes. A script that only read the body (or
+    // edited headers) leaves them in exactly that state, and the base64 image is
+    // the byte-exact body — re-encoding the lossy text would corrupt any
+    // non-UTF-8 payload (a GBK `text/html` page, a Latin-1 response), silently,
+    // as soon as an unrelated header was changed. A script that assigned
+    // `bodyText` directly makes it diverge from that rendering, so the edit
+    // still wins.
+    match (body_text, body_base64) {
+        (Some(text), Some(base64_text)) => {
+            Ok(match BASE64_STANDARD.decode(&base64_text) {
+                Ok(decoded) if String::from_utf8_lossy(&decoded).as_ref() == text.as_str() => {
+                    decoded
+                }
+                // The text diverged (script edit) or the base64 is unusable:
+                // keep the script's text.
+                _ => text.into_bytes(),
+            })
+        }
+        (Some(text), None) => Ok(text.into_bytes()),
+        (None, Some(base64_text)) => BASE64_STANDARD
             .decode(base64_text)
-            .map_err(|error| format!("decode script body base64: {error}"));
+            .map_err(|error| format!("decode script body base64: {error}")),
+        (None, None) => Ok(Vec::new()),
     }
-
-    Ok(Vec::new())
 }
 
 fn header_map_from_script_headers(headers: &[ScriptHeader]) -> HeaderMap {
@@ -540,5 +554,90 @@ mod tests {
             request.request_headers
         );
         assert_eq!(request.body, br#"{"ok":true}"#);
+    }
+
+    // -----------------------------------------------------------------------
+    // bytes_from_script_body — lossy text vs byte-exact base64
+    // -----------------------------------------------------------------------
+
+    /// GBK-encoded `中文` wrapped in a tiny HTML document: not valid UTF-8, so
+    /// `inline_text()` renders it with U+FFFD replacement characters.
+    fn gbk_html_body() -> Vec<u8> {
+        let mut body = b"<title>".to_vec();
+        body.extend_from_slice(&[0xD6, 0xD0, 0xCE, 0xC4]); // GBK "中文"
+        body.extend_from_slice(b"</title>");
+        body
+    }
+
+    // A script that only touches headers must not rewrite a non-UTF-8 body: the
+    // bridge leaves both fields intact, and the base64 image is authoritative.
+    #[test]
+    fn script_body_keeps_exact_bytes_when_text_is_the_lossy_rendering() {
+        let raw = gbk_html_body();
+        let text = String::from_utf8_lossy(&raw).to_string();
+        assert!(
+            text.contains('\u{FFFD}'),
+            "fixture must be lossy under UTF-8, got: {text}"
+        );
+
+        let bytes = bytes_from_script_body(Some(text), Some(BASE64_STANDARD.encode(&raw)))
+            .expect("base64 decodes");
+
+        assert_eq!(bytes, raw, "untouched body must stay byte-exact");
+    }
+
+    // A script that assigns `bodyText` directly (without the helper) produces a
+    // value that no longer matches the lossy rendering, so the edit wins.
+    #[test]
+    fn script_body_text_edit_wins_over_untouched_base64() {
+        let raw = b"{\"ok\":true}";
+        let bytes = bytes_from_script_body(
+            Some("{\"ok\":false}".to_string()),
+            Some(BASE64_STANDARD.encode(raw)),
+        )
+        .expect("base64 decodes even when the text edit wins");
+
+        assert_eq!(bytes, br#"{"ok":false}"#);
+    }
+
+    #[test]
+    fn script_body_uses_whichever_representation_is_present() {
+        // Helper-driven edits null the other field (setText → bodyBase64=None).
+        assert_eq!(
+            bytes_from_script_body(Some("edited".to_string()), None).unwrap(),
+            b"edited"
+        );
+        // setBase64 → bodyText=None.
+        assert_eq!(
+            bytes_from_script_body(None, Some(BASE64_STANDARD.encode("from-base64"))).unwrap(),
+            b"from-base64"
+        );
+        // Empty body from either side.
+        assert!(bytes_from_script_body(None, None).unwrap().is_empty());
+        assert!(
+            bytes_from_script_body(Some(String::new()), Some(String::new()))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    // An unusable base64 payload must not turn a text-carrying script into a
+    // hard failure: the text path is what the pre-existing implementation used.
+    #[test]
+    fn script_body_ignores_malformed_base64_when_text_is_present() {
+        let bytes = bytes_from_script_body(
+            Some("{\"ok\":true}".to_string()),
+            Some("not-base64!!".to_string()),
+        )
+        .expect("text still applies");
+
+        assert_eq!(bytes, br#"{"ok":true}"#);
+    }
+
+    #[test]
+    fn script_body_errors_when_only_base64_is_present_and_malformed() {
+        let error = bytes_from_script_body(None, Some("not-base64!!".to_string()))
+            .expect_err("malformed base64 with no text cannot be decoded");
+        assert!(error.contains("base64"), "unexpected error: {error}");
     }
 }

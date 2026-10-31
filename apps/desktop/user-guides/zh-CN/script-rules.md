@@ -180,6 +180,8 @@ export function onResponse(ctx) {}
 - `ctx.response.setHeader(name, value)`
 - `ctx.response.removeHeader(name)`
 
+> Body 的字节语义：如果脚本只读取 body 或只修改 header、没有改 body，代理会按原始字节透传 body（包括 GBK、Latin-1 等非 UTF-8 编码的页面），不会把 `bodyText` 的 UTF-8 文本重新编码写回。只有当脚本通过 `setText()` / `setBase64()`（或直接赋值 `bodyText` / `bodyBase64`）真正改动 body 时，才会用改动后的内容替换。
+
 ### `ctx.session`
 
 当前会话基础信息：

@@ -37,6 +37,7 @@
 - GNOME：通过 `gsettings` 操作 `org.gnome.system.proxy` schema
 - KDE Plasma：通过 `kwriteconfig6` / `kreadconfig6` 操作 `kioslaverc`
 - 已实现原始系统代理快照保存与恢复
+- 应用失败时自动回滚到快照（与 Windows / macOS 一致）
 - 非 GNOME/KDE 桌面环境返回不支持的错误提示
 
 ## 4. 架构位置

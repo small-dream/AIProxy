@@ -132,13 +132,31 @@ pub fn apply_system_proxy_settings(settings: &SystemProxySettings) -> Result<(),
     apply_system_proxy_settings_with_pre_snapshot(settings, snapshot)
 }
 
+/// Apply `settings`, rolling back to `snapshot` when any step fails.
+///
+/// Both desktop backends write the proxy in several independent calls (GNOME:
+/// mode + per-protocol host/port + ignore-hosts; KDE: ProxyType + per-protocol
+/// keys). A failure in the middle therefore leaves a mix of old and new values,
+/// and the caller does not register the in-memory snapshot when this returns
+/// `Err` — so without an explicit rollback the rest of the session has no way to
+/// restore the user's original configuration and the machine keeps pointing at
+/// a proxy that is not fully configured. Windows and macOS already roll back in
+/// this situation; mirror them and surface both errors.
 pub fn apply_system_proxy_settings_with_pre_snapshot(
     settings: &SystemProxySettings,
     snapshot: LinuxSystemProxySnapshot,
 ) -> Result<(), String> {
-    match snapshot.desktop {
+    let apply_result = match snapshot.desktop {
         LinuxDesktopEnvironment::Gnome => apply_gnome_proxy(settings, snapshot.gnome.as_ref()),
         LinuxDesktopEnvironment::Kde => apply_kde_proxy(settings, snapshot.kde.as_ref()),
+    };
+
+    match apply_result {
+        Ok(()) => Ok(()),
+        Err(error) => Err(match restore_system_proxy(&snapshot) {
+            Ok(()) => error,
+            Err(rollback) => format!("{error}; rollback also failed: {rollback}"),
+        }),
     }
 }
 

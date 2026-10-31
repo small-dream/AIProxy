@@ -180,6 +180,8 @@ Common fields and methods:
 - `ctx.response.setHeader(name, value)`
 - `ctx.response.removeHeader(name)`
 
+> Body byte semantics: if a script only reads the body or edits headers without touching the body, the proxy passes the original bytes through — including non-UTF-8 payloads such as GBK or Latin-1 pages — instead of re-encoding the UTF-8 `bodyText`. The body is replaced only when the script actually changes it via `setText()` / `setBase64()` (or by assigning `bodyText` / `bodyBase64` directly).
+
 ### `ctx.session`
 
 Current session basics:

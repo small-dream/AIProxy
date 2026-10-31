@@ -834,7 +834,12 @@ pub(crate) fn apply_response_resolution(
                 HeaderName::from_bytes(entry.name.as_bytes()),
                 HeaderValue::from_str(&entry.value),
             ) {
-                new_headers.insert(name, value);
+                // append (not insert): the editor round-trips every header, and
+                // repeated names (multiple Set-Cookie, Link, WWW-Authenticate)
+                // must survive an edit of an unrelated header — otherwise only
+                // the last value reaches the client. Mirrors the request-side
+                // handling in `apply_request_resolution`.
+                new_headers.append(name, value);
             }
         }
         upstream_response.response_headers = new_headers;
@@ -1545,5 +1550,73 @@ mod tests {
             .filter_map(|value| value.to_str().ok().map(str::to_string))
             .collect();
         assert_eq!(values, vec!["one", "two"]);
+    }
+
+    // Mirror of the request-side case: the breakpoint editor round-trips every
+    // response header, so repeated names (multiple Set-Cookie lines) must
+    // survive an edit of the response header tab instead of collapsing to the
+    // last value — which silently dropped cookies.
+    #[test]
+    fn response_header_edit_preserves_duplicate_header_names() {
+        let mut response = UpstreamResponse {
+            body_truncated: false,
+            connect_ms: 0,
+            connection_reused: None,
+            connection_wait_ms: None,
+            dns_ms: 0,
+            request_send_ms: None,
+            response_body: b"ok".to_vec(),
+            response_body_size_bytes: 2,
+            response_headers: HeaderMap::new(),
+            response_read_ms: 0,
+            spooled_response_path: None,
+            status_code: StatusCode::OK,
+            tls_ms: None,
+            waiting_ms: 0,
+            via_upstream_proxy: None,
+        };
+
+        let resolution = BreakpointResolution {
+            session_id: "sess-dup-response".to_string(),
+            action: BreakpointActionKind::Forward,
+            mock: None,
+            modified_request_headers: None,
+            modified_request_query_params: None,
+            modified_request_body_base64: None,
+            modified_response_status_code: None,
+            modified_response_headers: Some(vec![
+                ProxyHeaderEntry {
+                    name: "Set-Cookie".to_string(),
+                    value: "a=1".to_string(),
+                    is_pseudo: None,
+                },
+                ProxyHeaderEntry {
+                    name: "Set-Cookie".to_string(),
+                    value: "b=2".to_string(),
+                    is_pseudo: None,
+                },
+                ProxyHeaderEntry {
+                    name: "X-Edited".to_string(),
+                    value: "yes".to_string(),
+                    is_pseudo: None,
+                },
+            ]),
+            modified_response_body_base64: None,
+        };
+
+        apply_response_resolution(&resolution, &mut response);
+
+        let cookies: Vec<String> = response
+            .response_headers
+            .get_all("set-cookie")
+            .iter()
+            .filter_map(|value| value.to_str().ok().map(str::to_string))
+            .collect();
+        assert_eq!(
+            cookies,
+            vec!["a=1", "b=2"],
+            "duplicate Set-Cookie values must all survive the edit"
+        );
+        assert_eq!(response.response_headers.get("x-edited").unwrap(), "yes");
     }
 }
