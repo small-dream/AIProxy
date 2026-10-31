@@ -90,18 +90,21 @@ Match Type 控制 URL Pattern 如何与请求 URL 进行比对。可选四种方
 | Match Type | 行为 | Pattern 示例 | 匹配 `https://api.example.com/v1/users` |
 |---|---|---|---|
 | **Contains** (默认) | URL 包含 Pattern 即命中（子串匹配） | `api.example.com` | ✓ |
-| **Wildcard** | `*` 作为通配符，匹配零个或多个字符 | `api.example.com/v1/*` | ✓ |
+| **Wildcard** | `*` 作为通配符，匹配零个或多个字符；未以 `*` 开头的片段必须从 URL 起始处开始匹配 | `*api.example.com/v1/*` | ✓ |
 | **Exact** | URL 必须与 Pattern 完全相等 | `https://api.example.com/v1/users` | ✓ |
 | **Regex** | Pattern 作为正则表达式匹配 | `api\.example\.com/v1/.*` | ✓ |
 
 Contains 模式下，空值或 `*` 表示匹配所有 URL。Wildcard 模式下，空值或 `*` 同样匹配所有 URL。
+
+> Wildcard 的锚定规则：Pattern 的**首段**若不以 `*` 开头，它必须出现在 URL 的起始位置；**末段**若不以 `*` 结尾，它必须出现在 URL 的末尾。因此要匹配 URL 中任意位置的主机名，需要显式写成 `*api.example.com/v1/*`；写成 `api.example.com/v1/*` 只会匹配以 `api.example.com/v1/` 开头的 URL（实际是 `https://…` 开头，所以不会命中）。
 
 示例：
 
 | Match Type | Pattern | 匹配示例 |
 |---|---|---|
 | Contains | `api.example.com` | `https://api.example.com/v1/users` |
-| Wildcard | `api.example.com/v1/*` | `https://api.example.com/v1/users?id=1` |
+| Wildcard（不锚定前缀） | `*api.example.com/v1/*` | `https://api.example.com/v1/users?id=1` |
+| Wildcard（锚定 URL 开头） | `https://api.example.com/*` | 仅以 `https://api.example.com/` 开头的 URL |
 | Wildcard | `*login*` | 任意包含 `login` 的 URL |
 | Exact | `https://api.example.com/v1/users` | 仅完全相同的 URL |
 | Regex | `api\..*\.com/v[12]/` | `api.example.com/v1/users`、`api.staging.com/v2/items` |

@@ -199,9 +199,19 @@ pub(crate) fn rebuild_request_runtime_state(
 
 fn apply_body_field_rewrite(
     body: &[u8],
+    content_encoding: Option<&HeaderValue>,
     fields: &[RewriteBodyFieldPayload],
 ) -> Result<(Vec<u8>, Vec<RewriteTraceEntry>), String> {
-    let body_text = std::str::from_utf8(body)
+    // Upstream bodies keep their wire encoding, so parse the decoded form: a
+    // gzip/br JSON response is otherwise unparseable and a Fields rule would fail
+    // permanently on exactly the interfaces that compress (the script path
+    // already decodes before handing the body over). The caller strips
+    // content-encoding because what it writes back is the decoded bytes.
+    let decoded = content_encoding
+        .and_then(|value| value.to_str().ok())
+        .and_then(|encoding| crate::http_io::decode_body_bytes(body, Some(encoding)))
+        .unwrap_or_else(|| body.to_vec());
+    let body_text = std::str::from_utf8(&decoded)
         .map_err(|error| format!("body field rewrite requires UTF-8 JSON body: {error}"))?;
     let mut json_body: serde_json::Value = serde_json::from_str(body_text)
         .map_err(|error| format!("body field rewrite requires valid JSON body: {error}"))?;
@@ -487,8 +497,11 @@ fn apply_request_action(
             let before = body_preview(&request.body);
             if mode.eq_ignore_ascii_case("fields") {
                 let fields = payload.fields.unwrap_or_default();
-                let (rewritten_body, field_entries) =
-                    apply_body_field_rewrite(&request.body, &fields)?;
+                let (rewritten_body, field_entries) = apply_body_field_rewrite(
+                    &request.body,
+                    request.headers.get(CONTENT_ENCODING),
+                    &fields,
+                )?;
                 request.body = rewritten_body;
                 entries.extend(field_entries);
             } else {
@@ -735,8 +748,11 @@ fn apply_response_action(
             let body_before = response.response_body.clone();
             if mode.eq_ignore_ascii_case("fields") {
                 let fields = payload.fields.unwrap_or_default();
-                let (rewritten_body, field_entries) =
-                    apply_body_field_rewrite(&response.response_body, &fields)?;
+                let (rewritten_body, field_entries) = apply_body_field_rewrite(
+                    &response.response_body,
+                    response.response_headers.get(CONTENT_ENCODING),
+                    &fields,
+                )?;
                 response.replace_response_body(rewritten_body);
                 entries.extend(field_entries);
             } else {
@@ -891,6 +907,99 @@ mod tests {
                 .get("x-debug")
                 .and_then(|value| value.to_str().ok()),
             Some("rewritten")
+        );
+    }
+
+    fn response_body_field_rule() -> RewriteRule {
+        RewriteRule {
+            actions: None,
+            enabled: true,
+            id: "rewrite-body-field".to_string(),
+            r#match: RewriteRuleMatch {
+                match_type: None,
+                methods: Vec::new(),
+                stage: "response".to_string(),
+                url_pattern: "example.com".to_string(),
+            },
+            name: "Rewrite response body field".to_string(),
+            note: None,
+            payload: serde_json::json!({
+                "contentType": "application/json",
+                "fields": [{
+                    "operation": "set",
+                    "path": "$.user.name",
+                    "value": "ada",
+                    "valueType": "string",
+                }],
+                "mode": "fields",
+                "target": "response",
+            }),
+            priority: 10,
+            rewrite_type: "body".to_string(),
+            workspace_id: "default".to_string(),
+        }
+    }
+
+    fn gzip_json(plain: &[u8]) -> Vec<u8> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write as _;
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(plain).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    // P1-7: upstream bodies keep their wire encoding. A Fields rewrite used to
+    // parse the gzip bytes as JSON and fail forever on every compressing interface
+    // (the script path already decodes). Decode first, then strip
+    // content-encoding because plain bytes are written back.
+    #[test]
+    fn response_body_field_rewrite_handles_gzip_json() {
+        let rule = response_body_field_rule();
+        let mut response = response_with_debug_header();
+        response.replace_response_body(gzip_json(br#"{"user":{"name":"grace"},"keep":1}"#));
+        response
+            .response_headers
+            .insert(CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+        response
+            .response_headers
+            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let mut entries = Vec::new();
+
+        let outcome = apply_one_response_rule(&rule, &mut response, false, &mut entries);
+
+        assert_eq!(outcome.ok(), Some("success"), "entries: {entries:?}");
+        let body: serde_json::Value = serde_json::from_slice(&response.response_body)
+            .expect("rewritten body must be plain JSON");
+        assert_eq!(body["user"]["name"], "ada");
+        assert_eq!(body["keep"], 1, "untouched fields must survive");
+        assert!(
+            response.response_headers.get(CONTENT_ENCODING).is_none(),
+            "content-encoding must be stripped once plain bytes are written back"
+        );
+    }
+
+    // P1-8: object key order must survive a Fields rewrite. serde_json's default
+    // BTreeMap reordered every key, which breaks APIs that sign the raw JSON
+    // string (the user edits one field, the whole body changes order).
+    #[test]
+    fn response_body_field_rewrite_preserves_key_order() {
+        let rule = response_body_field_rule();
+        let mut response = response_with_debug_header();
+        response.replace_response_body(br#"{"z":1,"a":2,"user":{"name":"grace"}}"#.to_vec());
+        response
+            .response_headers
+            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let mut entries = Vec::new();
+
+        let outcome = apply_one_response_rule(&rule, &mut response, false, &mut entries);
+
+        assert_eq!(outcome.ok(), Some("success"), "entries: {entries:?}");
+        assert_eq!(
+            String::from_utf8(response.response_body.clone()).unwrap(),
+            r#"{"z":1,"a":2,"user":{"name":"ada"}}"#,
+            "key order must be preserved across a field rewrite"
         );
     }
 }

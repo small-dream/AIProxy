@@ -16,11 +16,11 @@
 | 级别 | 条数 | 说明 |
 |---|---|---|
 | P0（严重，立即修） | 3 | 核心功能被破坏，且对用户表现为「莫名失败」 |
-| P1（高） | 7 | 数据静默损坏、整机流量黑洞、凭证/配置丢失、文档与实现矛盾 |
+| P1（高） | 6（另 1 条复核后撤回） | 数据静默损坏、整机流量黑洞、凭证/配置丢失、文档与实现矛盾 |
 | P2（中） | 15 | 特定条件下功能失效或状态不一致 |
 | P3（低） | 18（其中 1 条与 D7 同源） | 健壮性、跨平台缺口、可排障性 |
 | DB（`crates/db` 专章） | 14 | 其中 2 条为「中」，其余为中低/低 |
-| **合计** | **57（去重后 56）** | 无架构性返工需求，P0 三条均为局部可修 |
+| **合计** | **57（去重后 56；复核撤回 1 条 → 有效 55）** | 无架构性返工需求，P0 三条均为局部可修 |
 
 **总体评价**：这个仓库的工程质量明显高于同类项目——历史 bug 几乎都带编号注释与回归测试，并为「取消安全」「半关闭」「spool RAII」「原子写」「证书 pinning 排除」「连接池 pending 泄漏」等硬问题留下了成体系的设计与说明。本次发现的问题集中在四类**模式缺口**：
 
@@ -156,18 +156,18 @@ await enableSystemProxyMutation.mutateAsync(undefined);
 
 ---
 
-### P1-6 DNS 映射规则默认 `contains` 子串匹配，命中范围过大
+### P1-6 DNS 映射规则默认 `contains` 子串匹配，命中范围过大 —— ⚠️ 复核后撤回（非缺陷）
 
 | 项 | 内容 |
 |---|---|
 | 位置 | `crates/proxy-core/src/rules/mod.rs:52-60`；默认 `crates/proxy-core/src/rules/patterns.rs:3-11`；前端模型 `apps/desktop/src/features/rules/rules.helpers.ts`（`createEmptyDnsMappingRule` 无 `matchType`） |
-| 复核 | ✓ |
+| 复核 | ✓（但结论错误，见下） |
 
-DNS 规则走 `pattern_matches(&r.host_pattern, hostname, r.match_type)`，默认 `"contains"`；而前端 DNS 规则模型没有 `matchType` 字段，因此**所有 DNS 规则都是子串匹配**。
+DNS 规则走 `pattern_matches(&r.host_pattern, hostname, r.match_type)`，默认 `"contains"`，因此新建规则默认按子串匹配。
 
-**触发**：只映射 `example.com`，则 `notexample.com`、`myexample.com`、`example.com.evil.tld` 全部被解析到覆盖 IP（`crates/proxy-core/src/upstream.rs:199` 用 `request.host` 查覆盖）。用户完全无感，流量被导向非预期主机。
+**撤回理由（2026-10-31，修复阶段复核）**：本条的原始判断「前端 DNS 规则模型没有 matchType，因此所有 DNS 规则都是子串匹配」不成立——DNS 规则编辑器确实提供了 Match Type 选择器（`apps/desktop/src/features/rules/components/DnsMappingsPanel.tsx:470`，类型定义在 `packages/shared-types/src/rules.ts`），并且用户指南已明确文档化 Contains 默认值及其子串语义、以及「`example.com` 会匹配 `api.example.com`」的后果（`apps/desktop/user-guides/zh-CN/dns-mapping.md:39-52`）。`createEmptyDnsMappingRule` 不带 `matchType` 只是依赖该已文档化的默认值，不是遗漏。
 
-**修复建议**：DNS 规则改走 host 语义（精确 host + `*.` 前缀），直接复用 `host_pattern::matches_any`；确有子串需求时再单独提供 matchType。
+**保留为产品建议（非缺陷，未在本轮修改）**：默认值偏宽，DNS 映射通常期望「主机名等值」而非子串；建议后续把新建规则的默认 Match Type 改为 Exact（或提供 `*.` 域匹配），并在文档迁移说明中提示存量规则行为不变。
 
 ---
 
@@ -425,6 +425,6 @@ for entry in headers {
 | 第 1 批 | P0-1、P0-2、P0-3 | ✅ 已修复 | `fix(proxy-core,desktop): stop advertising WS extensions, fix packet-loss unit and autostart restore` | P0-1 抽出 `build_ws_upgrade_response` 便于断言；P0-2 同步 `API_SPEC.md` 单位约定；P0-3 新增「启动中重渲染仍恢复系统代理」回归测试（已确认在旧实现上为红） |
 | 第 2 批 | P1-4、P1-9、P1-10 | ✅ 已修复 | `fix(proxy-core,desktop): script bodies, response headers, linux rollback` | P1-4 采用「base64 精确字节 + lossy 文本比对」而非简单 base64 优先，保留直接赋值 `bodyText` 的编辑语义；P1-9 本地无法编译 `linux.rs`（`cfg(target_os = "linux")`），仅经人工核对与 rustfmt 校验，需由 Linux CI 验证 |
 | 第 3 批 | D1、D3 | ✅ 已修复 | `fix(db): enforce 1:1 session details and atomic body writes` | D1 迁移先收敛重复行（保留最早写入的一行）再建唯一索引，且以「唯一索引是否存在」做一次性门控，避免每次启动全表扫描；detail 写入改为 `ON CONFLICT(session_summary_id)` 单语句 upsert 以消除并发重复；D3 改为临时文件 + `rename` 原子替换（不 fsync，避免拖慢抓包热路径），并发读测试在旧实现上可稳定复现部分读取 |
-| 第 4 批 | P1-5、P1-6、P1-7、P1-8 | ⏳ 待处理 | — | — |
+| 第 4 批 | P1-5、P1-7、P1-8（P1-6 复核后撤回） | ✅ 已修复 | `fix(proxy-core): compressed body rewrite, JSON key order, wildcard docs` | P1-5 选择「改文档/提示」而非放宽匹配语义（放宽会让通配规则匹配到预期之外的主机）；P1-7 在 Fields 重写前解码并按需剥离 content-encoding；P1-8 全仓启用 `serde_json` 的 `preserve_order`（7 个 crate 显式声明，避免单 crate 构建时特性不一致） |
 | 第 5 批 | P2-14、P2-16、P2-17、P2-22 | ⏳ 待处理 | — | — |
 | 后续 | 其余 P2/P3/D | ⏳ 待处理 | — | — |

@@ -885,7 +885,8 @@ export const enMessages = {
         regex: "Regex",
         regexHint: "Pattern is a regular expression. Example: api\\.example\\.com/v[12]/.*",
         wildcard: "Wildcard",
-        wildcardHint: "Use * as a placeholder. api.example.com/v1/* matches all paths under /v1/.",
+        wildcardHint:
+          "Use * as a wildcard anywhere in the pattern. A leading * leaves the URL prefix unanchored, e.g. *api.example.com/v1/* matches every path under /v1/ on that host; without a leading *, the pattern must match from the start of the URL.",
       },
     },
     rewrite: {

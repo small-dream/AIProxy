@@ -90,18 +90,21 @@ Match Type controls how the URL Pattern is compared against the request URL. Fou
 | Match Type | Behavior | Pattern example | Matches `https://api.example.com/v1/users` |
 |---|---|---|---|
 | **Contains** (default) | URL contains the pattern (substring) | `api.example.com` | ✓ |
-| **Wildcard** | `*` matches zero or more characters | `api.example.com/v1/*` | ✓ |
+| **Wildcard** | `*` matches zero or more characters; a leading segment without `*` must start at the beginning of the URL | `*api.example.com/v1/*` | ✓ |
 | **Exact** | URL must equal the pattern | `https://api.example.com/v1/users` | ✓ |
 | **Regex** | Pattern is a regular expression | `api\.example\.com/v1/.*` | ✓ |
 
 In Contains mode, an empty value or `*` matches all URLs. In Wildcard mode, an empty value or `*` also matches all URLs.
+
+> Wildcard anchoring: if the **first** segment does not start with `*`, it must appear at the start of the URL; if the **last** segment does not end with `*`, it must appear at the end. To match a host anywhere in the URL, spell it as `*api.example.com/v1/*` — `api.example.com/v1/*` only matches URLs that literally begin with `api.example.com/v1/` (real URLs begin with `https://`, so it never matches).
 
 Examples:
 
 | Match Type | Pattern | Matches |
 |---|---|---|
 | Contains | `api.example.com` | `https://api.example.com/v1/users` |
-| Wildcard | `api.example.com/v1/*` | `https://api.example.com/v1/users?id=1` |
+| Wildcard (unanchored prefix) | `*api.example.com/v1/*` | `https://api.example.com/v1/users?id=1` |
+| Wildcard (anchored at URL start) | `https://api.example.com/*` | only URLs starting with `https://api.example.com/` |
 | Wildcard | `*login*` | any URL containing `login` |
 | Exact | `https://api.example.com/v1/users` | only that exact URL |
 | Regex | `api\..*\.com/v[12]/` | `api.example.com/v1/users`, `api.staging.com/v2/items` |

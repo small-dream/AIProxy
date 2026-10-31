@@ -848,7 +848,8 @@ export const zhCNMessages: Messages = {
         regex: "正则",
         regexHint: "作为正则表达式匹配。例：api\\.example\\.com/v[12]/.*",
         wildcard: "通配符",
-        wildcardHint: "用 * 作为占位符。api.example.com/v1/* 匹配 /v1/ 下所有路径。",
+        wildcardHint:
+          "用 * 作为通配符，可放在任意位置。以 * 开头表示不限定 URL 前缀，例如 *api.example.com/v1/* 匹配该域名下 /v1/ 的所有路径；不以 * 开头则必须从 URL 起始处匹配。",
       },
     },
     rewrite: {

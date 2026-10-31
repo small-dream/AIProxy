@@ -32,6 +32,15 @@ pub(crate) fn compile_match_regex(match_type: &Option<String>, url_pattern: &str
     }
 }
 
+/// Match `candidate` against a `*`-wildcard pattern.
+///
+/// Anchoring contract (also documented in the user guides and the editor hint):
+/// `*` may appear anywhere, but a pattern segment that is not adjacent to a `*`
+/// is anchored — the first segment must start the candidate and the last one must
+/// end it. So `api.example.com/v1/*` only matches URLs that literally begin with
+/// `api.example.com/v1/`, while `*api.example.com/v1/*` matches the host anywhere
+/// in the URL. Changing this without updating the docs and the i18n hint (and
+/// vice versa) is what produced the P1-5 mismatch in the 2026-10-31 review.
 pub(crate) fn wildcard_matches(normalized: &str, candidate: &str) -> bool {
     if normalized.is_empty() || normalized == "*" {
         return true;
