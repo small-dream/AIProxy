@@ -37,4 +37,31 @@ describe("MarkdownRenderer", () => {
     expect(scrollIntoViewMock).toHaveBeenCalled();
     scrollIntoViewMock.mockRestore();
   });
+
+  // P3: cross-guide links such as `./rewrite-rules.md#规则导入--导出` rely on
+  // GitHub-style heading ids, which the renderer did not generate.
+  it("gives headings GitHub-compatible ids so cross-guide anchors resolve", () => {
+    renderMd("## 规则导入 / 导出\n\n### Packet-loss recovery");
+
+    expect(screen.getByRole("heading", { level: 2 })).toHaveAttribute("id", "规则导入--导出");
+    expect(screen.getByRole("heading", { level: 3 })).toHaveAttribute("id", "packet-loss-recovery");
+  });
+
+  it("passes a cross-guide anchor to the internal-link handler", () => {
+    const onInternalLink = vi.fn();
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <MarkdownRenderer
+          onInternalLink={onInternalLink}
+          resolveInternalLink={() => ({ anchor: "规则导入--导出", slug: "rewrite-rules" })}
+        >
+          See [import](./rewrite-rules.md#规则导入--导出).
+        </MarkdownRenderer>
+      </ThemeProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "import" }));
+
+    expect(onInternalLink).toHaveBeenCalledWith("rewrite-rules", "规则导入--导出");
+  });
 });

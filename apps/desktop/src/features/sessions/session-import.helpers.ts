@@ -93,8 +93,10 @@ function buildBodyReference(
 }
 
 function base64DecodedByteLength(value: string): number {
-  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
-  return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
+  // Some HAR writers wrap base64 text at 76 columns; whitespace is not payload.
+  const compact = value.replace(/\s+/g, "");
+  const padding = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
 }
 
 function buildTimingBreakdown(entry: HarEntry): TimingBreakdown | undefined {

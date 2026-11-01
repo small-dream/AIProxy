@@ -37,6 +37,53 @@ export type WorkspaceHandle = {
   activateSearch: () => void;
 };
 
+type DeferredContentKey =
+  | "requestBodyText"
+  | "requestBodyBase64"
+  | "requestRaw"
+  | "responseBodyText"
+  | "responseBodyBase64"
+  | "responseRaw";
+
+/**
+ * Whether a requested deferred field is still missing after a content load.
+ * Mirrors the load effect's conditions, so a resolved call that delivered nothing
+ * is treated as a failure instead of re-arming the effect forever (P2-6).
+ */
+function deferredContentStillMissing(detail: SessionDetail, key: DeferredContentKey): boolean {
+  switch (key) {
+    case "requestBodyText":
+      return (
+        Boolean(detail.requestBody?.textDeferred) && detail.requestBody?.inlineText === undefined
+      );
+    case "requestBodyBase64":
+      return (
+        Boolean(detail.requestBody?.base64Deferred) && detail.requestBody?.base64Text === undefined
+      );
+    case "requestRaw":
+      return (
+        Boolean(detail.rawRequestDeferred) &&
+        getRawMessageText(detail.rawRequest, detail.rawRequestHead, detail.requestBody) ===
+          undefined
+      );
+    case "responseBodyText":
+      return (
+        Boolean(detail.responseBody?.textDeferred) && detail.responseBody?.inlineText === undefined
+      );
+    case "responseBodyBase64":
+      return (
+        Boolean(detail.responseBody?.base64Deferred) &&
+        detail.responseBody?.base64Text === undefined
+      );
+    case "responseRaw":
+      return (
+        Boolean(detail.rawResponseDeferred) &&
+        getRawMessageText(detail.rawResponse, detail.rawResponseHead, detail.responseBody) ===
+          undefined
+      );
+  }
+}
+
 type SessionInspectorWorkspaceProps = {
   detailErrorMessage: string | undefined;
   inspectorSplitRatio: number;
@@ -168,13 +215,7 @@ export const SessionInspectorWorkspace = forwardRef<
 
   const loadDeferredContent = useCallback(
     async (
-      key:
-        | "requestBodyText"
-        | "requestBodyBase64"
-        | "requestRaw"
-        | "responseBodyText"
-        | "responseBodyBase64"
-        | "responseRaw",
+      key: DeferredContentKey,
       request: {
         includeRequestBodyText?: boolean;
         includeRequestBodyBase64?: boolean;
@@ -200,7 +241,22 @@ export const SessionInspectorWorkspace = forwardRef<
       });
 
       try {
-        await ensureSessionDetailContent(queryClient, selectedSession.id, request);
+        const nextDetail = await ensureSessionDetailContent(
+          queryClient,
+          selectedSession.id,
+          request,
+        );
+        // P2-6: a resolved call can still leave the field missing when the stored
+        // body disappeared between the detail fetch and the content fetch. Treat
+        // that like a rejection — otherwise the load effect would re-arm on the
+        // next render and call again forever.
+        if (deferredContentStillMissing(nextDetail, key)) {
+          setFailedContentKeys((current) =>
+            current.has(key) ? current : new Set(current).add(key),
+          );
+          return;
+        }
+
         setFailedContentKeys((current) => {
           if (!current.has(key)) {
             return current;

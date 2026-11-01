@@ -474,30 +474,10 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
             // Reflect the synthesized 502 in the captured session detail too,
             // so the Inspector does not show a misleading 101 for a connection
             // the proxy never upgraded. Clear the WS mime type for the same
-            // reason.
+            // reason. The captured head/headers are rebuilt below, once the body
+            // length the client receives is known (P3).
             detail.summary.status_code = StatusCode::BAD_GATEWAY.as_u16();
             detail.summary.response_mime_type = None;
-
-            // P3: the detail's head and header list were captured from the
-            // upstream 101 before this rewrite, so the Inspector showed a 101
-            // head for a session that returned 502. Rebuild them from exactly
-            // the headers the client receives.
-            let forwarded_entries: Vec<ProxyHeaderEntry> = upstream_header_entries
-                .iter()
-                .filter(|entry| should_forward_refusal_header(&entry.name, true))
-                .cloned()
-                .collect();
-            detail.response_headers = forwarded_entries.clone();
-            detail.raw_response_head = Some(build_raw_http_head(
-                &format!(
-                    "HTTP/1.1 {} {}",
-                    StatusCode::BAD_GATEWAY.as_u16(),
-                    StatusCode::BAD_GATEWAY
-                        .canonical_reason()
-                        .unwrap_or("Bad Gateway")
-                ),
-                &forwarded_entries,
-            ));
 
             StatusCode::BAD_GATEWAY.as_u16()
         } else {
@@ -555,9 +535,10 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
                 }
             }
         };
+        let body_length = body_bytes.len();
         let mut builder = hyper::Response::builder()
             .status(StatusCode::from_u16(forwarded_status).unwrap_or(StatusCode::BAD_GATEWAY))
-            .header("Content-Length", body_bytes.len());
+            .header("Content-Length", body_length);
         for (name, value) in &upstream_headers {
             // For a malformed-101, strip the upgrade-related headers so the
             // client does not see a contradictory 502 carrying Connection/
@@ -597,6 +578,34 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         detail.rewrite_traces = rewrite_traces;
         detail.script_traces = script_traces;
         detail.throttle_traces = throttle_traces;
+
+        // P3: the captured head and header list were taken from the upstream 101.
+        // Rebuild them from exactly what the client receives (502, the forwarded
+        // headers without the handshake ones, and the synthesized content
+        // length), so Raw/Headers in the Inspector match the wire.
+        if malformed_101 {
+            let mut forwarded_entries: Vec<ProxyHeaderEntry> = upstream_header_entries
+                .iter()
+                .filter(|entry| should_forward_refusal_header(&entry.name, true))
+                .cloned()
+                .collect();
+            forwarded_entries.push(ProxyHeaderEntry {
+                is_pseudo: None,
+                name: "Content-Length".to_string(),
+                value: body_length.to_string(),
+            });
+            detail.response_headers = forwarded_entries.clone();
+            detail.raw_response_head = Some(build_raw_http_head(
+                &format!(
+                    "HTTP/1.1 {} {}",
+                    StatusCode::BAD_GATEWAY.as_u16(),
+                    StatusCode::BAD_GATEWAY
+                        .canonical_reason()
+                        .unwrap_or("Bad Gateway")
+                ),
+                &forwarded_entries,
+            ));
+        }
 
         if ctx.session_sender.send(detail).await.is_err() {
             tracing::debug!(

@@ -539,6 +539,19 @@ fn load_hash_key(data_dir: &Path) -> Vec<u8> {
         return key;
     }
 
+    if path.exists() {
+        // An empty/partial file (crash between create and write, disk full) would
+        // otherwise downgrade every future run to the path-derived key. Give a
+        // concurrent writer a few milliseconds to finish, then replace it.
+        for _ in 0..5 {
+            if let Some(key) = read_hash_key(&path) {
+                return key;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
     let key = random_hash_key();
     match write_hash_key(&path, &key) {
         Ok(()) => key,
@@ -807,6 +820,22 @@ mod tests {
             .mode();
 
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn replaces_an_unusable_key_file_instead_of_downgrading() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(REDACTION_KEY_FILE), b"bad").unwrap();
+
+        let first = redactor_for_dir(dir.path());
+        let bytes = std::fs::read(dir.path().join(REDACTION_KEY_FILE)).unwrap();
+        assert_eq!(bytes.len(), 32, "an unusable key file must be replaced");
+
+        let second = redactor_for_dir(dir.path());
+        assert_eq!(
+            first.pseudonym("email", "alice@example.com"),
+            second.pseudonym("email", "alice@example.com")
+        );
     }
 
     #[test]

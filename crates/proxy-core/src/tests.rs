@@ -4822,6 +4822,10 @@ async fn ws_upgrade_malformed_101_returns_502_and_does_not_register_relay() {
         "the 101 handshake headers must not survive on the 502 record, got: {raw_head}"
     );
     assert!(
+        raw_head.to_ascii_lowercase().contains("content-length:"),
+        "the captured 502 head must describe the body length the client receives, got: {raw_head}"
+    );
+    assert!(
         completed_session
             .response_headers
             .iter()

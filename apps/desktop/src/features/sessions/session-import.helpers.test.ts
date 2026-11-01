@@ -144,6 +144,32 @@ describe("parseHarArchive", () => {
     expect(details[0]?.responseBody?.base64Text).toBe("aGVsbG8=");
   });
 
+  it("ignores line wrapping in a base64 body when counting bytes", () => {
+    const details = parseHarArchive(
+      JSON.stringify({
+        log: {
+          entries: [
+            {
+              request: { headers: [], method: "GET", url: "https://example.com/api" },
+              response: {
+                content: {
+                  encoding: "base64",
+                  mimeType: "image/png",
+                  // Same 5-byte payload, wrapped at 4 columns.
+                  text: "aGVs\nbG8=",
+                },
+                headers: [],
+                status: 200,
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(details[0]?.responseBody?.sizeBytes).toBe(5);
+  });
+
   // P3: a bare `Invalid URL` from `new URL` aborted the whole import with no
   // hint about which record was broken.
   it("names the offending entry when a request URL is invalid", () => {

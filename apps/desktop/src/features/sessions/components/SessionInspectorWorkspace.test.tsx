@@ -804,4 +804,51 @@ describe("SessionInspectorWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
     await waitFor(() => expect(ensureMock).toHaveBeenCalledTimes(2));
   });
+
+  // P2-6 follow-up: the IPC call can resolve while the requested field is still
+  // missing (the stored body disappeared between the detail and content fetch).
+  // That path used to re-arm the load effect just like a rejection.
+  it("stops when a resolved content load still delivers nothing", async () => {
+    const { ensureSessionDetailContent } =
+      await import("@/features/sessions/session-detail-content");
+    const ensureMock = vi.mocked(ensureSessionDetailContent);
+    ensureMock.mockReset();
+    const unchangedDetail = createSessionDetail({
+      responseBody: {
+        mimeType: "text/plain",
+        sizeBytes: 42,
+        textDeferred: true,
+      },
+      summary: createSessionSummary({ responseMimeType: "text/plain" }),
+    });
+    ensureMock.mockResolvedValue(unchangedDetail);
+
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="text"
+          selectedSession={createSessionSummary({ responseMimeType: "text/plain" })}
+          selectedSessionDetail={unchangedDetail}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(ensureMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(ensureMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+  });
 });
