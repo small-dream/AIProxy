@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Checkbox,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -51,6 +52,10 @@ export function RulesImportPreviewDialog(props: {
   const { file, onClose } = props;
   const plan = useMemo(() => (file ? planRulesImport(file) : null), [file]);
   const [selected, setSelected] = useState<Set<ImportKind>>(new Set());
+  // P2-19: guard against a second click while the (sequential, awaited) import
+  // is still running. Two concurrent runs each regenerate fresh rule ids, so a
+  // double click really did import every rule twice.
+  const [importing, setImporting] = useState(false);
 
   const { data: existingBreakpoints = [] } = useBreakpointRules();
   const { data: existingProfiles = [] } = useThrottleProfiles();
@@ -87,71 +92,79 @@ export function RulesImportPreviewDialog(props: {
   }
 
   async function applyImport() {
+    if (importing) {
+      return;
+    }
     if (!file || selectedTotal === 0) {
       useNotificationStore.getState().push(t("rulesPage.importExport.nothingSelected"));
       return;
     }
 
-    const saved: PromiseSettledResult<unknown>[] = [];
-    const settle = async (promise: Promise<unknown>) => {
+    setImporting(true);
+    // Count per imported entry, not per awaited promise: a batch API such as
+    // `setBreakpointRules` covers N rules with a single promise, and the old
+    // "one rejected promise = one failure" count under-reported it (P2-19).
+    let succeeded = 0;
+    let failed = 0;
+    const settle = async (promise: Promise<unknown>, count = 1) => {
       try {
         await promise;
-        saved.push({ status: "fulfilled", value: undefined });
-      } catch (reason) {
-        saved.push({ status: "rejected", reason });
+        succeeded += count;
+      } catch {
+        failed += count;
       }
     };
 
-    if (selected.has("rewrite")) {
-      for (const rule of regenerateImportedRules(file.rules.rewrite)) {
-        await settle(saveRewriteRule(rule));
+    try {
+      if (selected.has("rewrite")) {
+        for (const rule of regenerateImportedRules(file.rules.rewrite)) {
+          await settle(saveRewriteRule(rule));
+        }
       }
-    }
-    if (selected.has("map")) {
-      for (const rule of regenerateImportedRules(file.rules.map)) {
-        await settle(saveMapRule(rule));
+      if (selected.has("map")) {
+        for (const rule of regenerateImportedRules(file.rules.map)) {
+          await settle(saveMapRule(rule));
+        }
       }
-    }
-    if (selected.has("dns")) {
-      for (const rule of regenerateImportedRules(file.rules.dns)) {
-        await settle(saveDnsMapping(rule));
+      if (selected.has("dns")) {
+        for (const rule of regenerateImportedRules(file.rules.dns)) {
+          await settle(saveDnsMapping(rule));
+        }
       }
-    }
-    if (selected.has("script")) {
-      for (const rule of regenerateImportedRules(file.rules.script)) {
-        await settle(saveScriptRule(rule));
+      if (selected.has("script")) {
+        for (const rule of regenerateImportedRules(file.rules.script)) {
+          await settle(saveScriptRule(rule));
+        }
       }
-    }
-    if (selected.has("throttleProfiles")) {
-      for (const profile of regenerateImportedProfiles(
-        file.rules.throttleProfiles,
-        existingProfiles,
-      )) {
-        await settle(saveThrottleProfile(profile));
+      if (selected.has("throttleProfiles")) {
+        for (const profile of regenerateImportedProfiles(
+          file.rules.throttleProfiles,
+          existingProfiles,
+        )) {
+          await settle(saveThrottleProfile(profile));
+        }
       }
-    }
-    if (selected.has("throttle")) {
-      for (const rule of regenerateImportedRules(file.rules.throttle)) {
-        await settle(saveThrottleRule(rule));
+      if (selected.has("throttle")) {
+        for (const rule of regenerateImportedRules(file.rules.throttle)) {
+          await settle(saveThrottleRule(rule));
+        }
       }
-    }
-    if (selected.has("breakpoint")) {
-      const next = [
-        ...existingBreakpoints,
-        ...regenerateImportedBreakpointRules(file.rules.breakpoint),
-      ];
-      await settle(setBreakpointRules(next));
-    }
+      if (selected.has("breakpoint")) {
+        const imported = regenerateImportedBreakpointRules(file.rules.breakpoint);
+        await settle(setBreakpointRules([...existingBreakpoints, ...imported]), imported.length);
+      }
 
-    const failed = saved.filter((result) => result.status === "rejected").length;
-    useNotificationStore
-      .getState()
-      .push(
-        failed > 0
-          ? t("rulesPage.importExport.imported", { count: selectedTotal - failed })
-          : t("rulesPage.importExport.imported", { count: selectedTotal }),
-      );
-    onClose();
+      useNotificationStore
+        .getState()
+        .push(
+          failed > 0
+            ? t("rulesPage.importExport.importedPartial", { failed, success: succeeded })
+            : t("rulesPage.importExport.imported", { count: succeeded }),
+        );
+      onClose();
+    } finally {
+      setImporting(false);
+    }
   }
 
   return (
@@ -183,10 +196,13 @@ export function RulesImportPreviewDialog(props: {
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>{t("common.actions.cancel")}</Button>
+        <Button disabled={importing} onClick={onClose}>
+          {t("common.actions.cancel")}
+        </Button>
         <Button
+          startIcon={importing ? <CircularProgress color="inherit" size={16} /> : undefined}
           variant="contained"
-          disabled={selectedTotal === 0}
+          disabled={importing || selectedTotal === 0}
           onClick={() => void applyImport()}
         >
           {t("rulesPage.importExport.importButton", { count: selectedTotal })}

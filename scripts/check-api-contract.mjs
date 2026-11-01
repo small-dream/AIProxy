@@ -71,8 +71,13 @@ function extractRegisteredCommands() {
     console.error("[check-api-contract] FAIL: could not locate generate_handler![] in main.rs");
     process.exit(1);
   }
+  // Registered handlers may live in any module (`commands::foo`, but also
+  // `agent_control::bar`). Matching only the `commands::` prefix used to report
+  // genuinely registered commands as "documented but missing" (P3).
   return uniqueSorted(
-    [...handlerMatch[1].matchAll(/commands::([a-z][a-z0-9_]*)/g)].map((m) => m[1]),
+    [...handlerMatch[1].matchAll(/\b(?:[a-z_][a-z0-9_]*::)+([a-z][a-z0-9_]*)/g)].map(
+      (match) => match[1],
+    ),
   );
 }
 

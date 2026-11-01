@@ -8,8 +8,6 @@ import {
   ListItemText,
   Stack,
   Typography,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -55,8 +53,6 @@ function normalizeSearchText(value: string) {
 
 export function SettingsPage() {
   const { t } = useI18n();
-  const theme = useTheme();
-  const isWideViewport = useMediaQuery(theme.breakpoints.up("md"));
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -211,7 +207,7 @@ export function SettingsPage() {
       <Stack spacing={2} sx={{ flex: 1, minWidth: 0 }}>
         <Stack spacing={0.25}>
           <Typography variant="h4" sx={{ fontSize: 30, lineHeight: 1.15 }}>
-            {isWideViewport ? "Settings" : "Settings"}
+            {t("settingsPage.title")}
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {t("settingsPage.description")}

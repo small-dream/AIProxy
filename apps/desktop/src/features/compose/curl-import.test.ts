@@ -141,6 +141,22 @@ describe("parseCurlCommand", () => {
     expect(parseCurlCommand("curl ftp://example.com")).toBeNull();
     expect(parseCurlCommand("wget https://example.com")).toBeNull();
   });
+
+  // P2-13: an unhandled value-taking option used to donate its value as the URL,
+  // and the real URL was then ignored because one had already been found — the
+  // whole command failed to import. Firefox/Safari exports routinely carry
+  // `-A` / `-b` / `-o`.
+  it.each([
+    [`curl -A "Mozilla/5.0" https://api.example.com/x`, "-A value"],
+    [`curl -b 'sid=1' https://api.example.com/x`, "-b value"],
+    [`curl -o out.json https://api.example.com/x`, "-o value"],
+    [`curl --max-time 5 https://api.example.com/x`, "--max-time value"],
+    [`curl -e https://referer.example https://api.example.com/x`, "referer URL"],
+    [`curl -x http://proxy.example:8080 https://api.example.com/x`, "proxy URL"],
+    [`curl --unknown-option value https://api.example.com/x`, "unknown option value"],
+  ])("ignores an unhandled option value and keeps the real URL (%s)", (command) => {
+    expect(parseCurlCommand(command)?.url).toBe("https://api.example.com/x");
+  });
 });
 
 describe("inferRawLanguageFromContentType", () => {

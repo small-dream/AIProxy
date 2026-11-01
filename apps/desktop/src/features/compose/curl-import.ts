@@ -134,6 +134,49 @@ function parseFormPart(token: string): FormPart | null {
 }
 
 /**
+ * Options that consume a following value which the editor does not model.
+ *
+ * P2-13: without this table the VALUE of an unhandled option was mistaken for the
+ * URL (`curl -A "Mozilla/5.0" https://api…`), the real URL was then ignored
+ * because a URL was already found, and the whole import failed with "invalid
+ * curl command". Firefox/Safari exports routinely include `-A` / `-b` / `-o`.
+ */
+const IGNORED_VALUE_OPTIONS = new Set([
+  "-A",
+  "--user-agent",
+  "-b",
+  "--cookie",
+  "-c",
+  "--cookie-jar",
+  "-e",
+  "--referer",
+  "-o",
+  "--output",
+  "-x",
+  "--proxy",
+  "-U",
+  "--proxy-user",
+  "-m",
+  "--max-time",
+  "--connect-timeout",
+  "--retry",
+  "-T",
+  "--upload-file",
+  "-w",
+  "--write-out",
+  "-E",
+  "--cert",
+  "--key",
+  "--cacert",
+  "--capath",
+  "--resolve",
+  "--interface",
+  "--limit-rate",
+  "-r",
+  "--range",
+]);
+
+/**
  * Parse a cURL command into a composed-request shape. Returns `null` when the
  * URL is missing or not http(s) (C4).
  */
@@ -152,6 +195,7 @@ export function parseCurlCommand(command: string): ParsedCurlCommand | null {
 
   for (let index = 1; index < tokens.length; index += 1) {
     const token = tokens[index];
+    if (token === undefined) continue;
     if (token === "-X" || token === "--request") {
       method = tokens[++index]?.toUpperCase() ?? method;
     } else if (token === "-H" || token === "--header") {
@@ -183,7 +227,12 @@ export function parseCurlCommand(command: string): ParsedCurlCommand | null {
     } else if (token === "-u" || token === "--user") {
       // Skip the credentials argument (kept out of the import).
       index += 1;
-    } else if (token !== undefined && !token.startsWith("-") && url === undefined) {
+    } else if (IGNORED_VALUE_OPTIONS.has(token)) {
+      // Skip the option's value; it is not part of the request being imported.
+      index += 1;
+    } else if (url === undefined && /^https?:\/\//i.test(token)) {
+      // Only an http(s) URL can be the request target. This keeps the value of
+      // an unknown value-taking option from being captured as the URL.
       url = token;
     }
   }

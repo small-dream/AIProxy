@@ -4807,6 +4807,28 @@ async fn ws_upgrade_malformed_101_returns_502_and_does_not_register_relay() {
         completed_session.summary.status_code, 502,
         "session status must be the synthesized 502, not the upstream's 101"
     );
+    // P3: the Inspector's Raw view and header list come from the same detail, so
+    // they must describe the synthesized 502 rather than the upstream's 101 head.
+    let raw_head = completed_session
+        .raw_response_head
+        .as_deref()
+        .expect("session must capture a raw response head");
+    assert!(
+        raw_head.starts_with("HTTP/1.1 502"),
+        "raw response head must start with the synthesized 502, got: {raw_head}"
+    );
+    assert!(
+        !raw_head.to_ascii_lowercase().contains("upgrade:"),
+        "the 101 handshake headers must not survive on the 502 record, got: {raw_head}"
+    );
+    assert!(
+        completed_session
+            .response_headers
+            .iter()
+            .all(|header| !header.name.eq_ignore_ascii_case("upgrade")
+                && !header.name.eq_ignore_ascii_case("sec-websocket-accept")),
+        "the captured header list must match the 502 the client received"
+    );
 
     // WS registry must NOT have this session (only a VALID 101 gets registered;
     // a malformed 101 must never enter the relay).

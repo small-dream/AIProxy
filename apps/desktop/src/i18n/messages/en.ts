@@ -1159,6 +1159,7 @@ export const enMessages = {
       importButton: "Import {{count}} selected",
       importDisabledHint: "Rule import requires the desktop app.",
       imported: "Imported {{count}} rules.",
+      importedPartial: "Imported {{success}} rules; {{failed}} failed. Check the app log.",
       invalidFile: "This file is not a valid AIProxy rules export.",
       nothingSelected: "Select at least one rule kind to import.",
       previewHint: "Imported rules are added disabled with fresh ids — nothing is overwritten.",

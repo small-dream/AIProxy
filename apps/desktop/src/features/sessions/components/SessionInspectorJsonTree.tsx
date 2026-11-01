@@ -103,6 +103,11 @@ export function SessionInspectorJsonTree({
   const [viewportHeight, setViewportHeight] = useState(0);
   const tableRef = useRef<HTMLDivElement | null>(null);
   const dragFrameRef = useRef<number | null>(null);
+  // P3: tracks the active drag cleanup so a mid-drag unmount (switching the
+  // selected session remounts the inspector) removes the window pointer
+  // listeners AND restores `body` cursor/user-select. Without this the whole app
+  // stayed in "col-resize / cannot select text" mode until another full drag.
+  const dragCleanupRef = useRef<(() => void) | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const menuItemSx = getContextMenuItemSx(theme);
   const iconSx = getContextMenuIconSx(theme);
@@ -327,6 +332,7 @@ export function SessionInspectorJsonTree({
       };
 
       const stopResize = () => {
+        dragCleanupRef.current = null;
         document.body.style.cursor = previousCursor;
         document.body.style.userSelect = previousUserSelect;
         window.removeEventListener("pointermove", handlePointerMove);
@@ -334,12 +340,25 @@ export function SessionInspectorJsonTree({
         window.removeEventListener("pointercancel", stopResize);
       };
 
+      dragCleanupRef.current = stopResize;
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", stopResize);
       window.addEventListener("pointercancel", stopResize);
     },
     [containerRef, nameColumnRatio, typeDividerRatio],
   );
+
+  // P3: release a drag that was in flight when the tree unmounted.
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.();
+      dragCleanupRef.current = null;
+      if (dragFrameRef.current) {
+        window.cancelAnimationFrame(dragFrameRef.current);
+        dragFrameRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <Box

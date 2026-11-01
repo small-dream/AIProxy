@@ -477,6 +477,28 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
             // reason.
             detail.summary.status_code = StatusCode::BAD_GATEWAY.as_u16();
             detail.summary.response_mime_type = None;
+
+            // P3: the detail's head and header list were captured from the
+            // upstream 101 before this rewrite, so the Inspector showed a 101
+            // head for a session that returned 502. Rebuild them from exactly
+            // the headers the client receives.
+            let forwarded_entries: Vec<ProxyHeaderEntry> = upstream_header_entries
+                .iter()
+                .filter(|entry| should_forward_refusal_header(&entry.name, true))
+                .cloned()
+                .collect();
+            detail.response_headers = forwarded_entries.clone();
+            detail.raw_response_head = Some(build_raw_http_head(
+                &format!(
+                    "HTTP/1.1 {} {}",
+                    StatusCode::BAD_GATEWAY.as_u16(),
+                    StatusCode::BAD_GATEWAY
+                        .canonical_reason()
+                        .unwrap_or("Bad Gateway")
+                ),
+                &forwarded_entries,
+            ));
+
             StatusCode::BAD_GATEWAY.as_u16()
         } else {
             status_code
@@ -541,18 +563,7 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
             // client does not see a contradictory 502 carrying Connection/
             // Upgrade: websocket (which could confuse some clients into WS
             // framing). For a genuine non-101 refusal, forward headers as-is.
-            if malformed_101
-                && (name.eq_ignore_ascii_case("connection")
-                    || name.eq_ignore_ascii_case("upgrade")
-                    || name.eq_ignore_ascii_case("sec-websocket-accept")
-                    || name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS))
-            {
-                continue;
-            }
-            if name.eq_ignore_ascii_case("connection")
-                || name.eq_ignore_ascii_case("transfer-encoding")
-                || name.eq_ignore_ascii_case("content-length")
-            {
+            if !should_forward_refusal_header(name, malformed_101) {
                 continue;
             }
             builder = builder.header(name.as_str(), value.as_str());
@@ -1127,6 +1138,32 @@ fn should_forward_ws_upgrade_response_header(name: &str) -> bool {
     !name.eq_ignore_ascii_case("connection")
         && !name.eq_ignore_ascii_case("transfer-encoding")
         && !name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS)
+}
+
+/// Whether an upstream header may be forwarded on a **non-101 refusal** (a
+/// genuine refusal or a malformed 101 rewritten to 502).
+///
+/// Framing headers never survive (the proxy frames the body itself). A
+/// malformed-101 refusal additionally drops the handshake headers
+/// (`upgrade`, `sec-websocket-accept`, extensions) so the client cannot see a
+/// contradictory `502` carrying `Upgrade: websocket`.
+fn should_forward_refusal_header(name: &str, malformed_101: bool) -> bool {
+    if name.eq_ignore_ascii_case("connection")
+        || name.eq_ignore_ascii_case("transfer-encoding")
+        || name.eq_ignore_ascii_case("content-length")
+    {
+        return false;
+    }
+
+    if malformed_101
+        && (name.eq_ignore_ascii_case("upgrade")
+            || name.eq_ignore_ascii_case("sec-websocket-accept")
+            || name.eq_ignore_ascii_case(SEC_WEBSOCKET_EXTENSIONS))
+    {
+        return false;
+    }
+
+    true
 }
 
 /// Build the `101 Switching Protocols` response sent back to the client from the

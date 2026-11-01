@@ -47,6 +47,9 @@ function SessionContainerTabsImpl({
   const tabListRef = useRef<HTMLDivElement | null>(null);
   const tabButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const scrollbarTrackRef = useRef<HTMLDivElement | null>(null);
+  // P3: a drag that is still running when the tab strip unmounts must release
+  // its window pointer listeners instead of leaking them.
+  const dragCleanupRef = useRef<(() => void) | null>(null);
   const [scrollbarState, setScrollbarState] = useState<TabScrollbarState>({
     canScroll: false,
     thumbLeft: 0,
@@ -225,18 +228,28 @@ function SessionContainerTabsImpl({
       };
 
       const stopDragging = () => {
+        dragCleanupRef.current = null;
         setIsScrollbarDragging(false);
         window.removeEventListener("pointermove", handlePointerMove);
         window.removeEventListener("pointerup", stopDragging);
         window.removeEventListener("pointercancel", stopDragging);
       };
 
+      dragCleanupRef.current = stopDragging;
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", stopDragging);
       window.addEventListener("pointercancel", stopDragging);
     },
     [scrollbarState.thumbWidth, updateScrollbarState],
   );
+
+  // P3: release a scrollbar drag that was in flight on unmount.
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.();
+      dragCleanupRef.current = null;
+    };
+  }, []);
 
   return (
     <Box

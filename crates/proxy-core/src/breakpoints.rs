@@ -877,7 +877,12 @@ pub(crate) fn build_mock_upstream_response(mock: &MockResponse) -> UpstreamRespo
             HeaderName::from_bytes(entry.name.as_bytes()),
             HeaderValue::from_str(&entry.value),
         ) {
-            headers.insert(name, value);
+            // `append`, not `insert`: the editor round-trips every header, so
+            // repeated names (multiple Set-Cookie / Link / WWW-Authenticate)
+            // must survive a mock response too. `insert` silently kept only the
+            // last value (P3, mirroring the P1-10 fix in
+            // `apply_response_resolution`).
+            headers.append(name, value);
         }
     }
     // Ensure content-length matches body
@@ -1618,5 +1623,37 @@ mod tests {
             "duplicate Set-Cookie values must all survive the edit"
         );
         assert_eq!(response.response_headers.get("x-edited").unwrap(), "yes");
+    }
+
+    // P3: the mock/respond path built its header map with `insert`, so a mock
+    // response with two Set-Cookie lines only sent the last one.
+    #[test]
+    fn mock_response_preserves_duplicate_header_names() {
+        let response = build_mock_upstream_response(&MockResponse {
+            body_base64: None,
+            headers: vec![
+                ProxyHeaderEntry {
+                    is_pseudo: None,
+                    name: "Set-Cookie".to_string(),
+                    value: "a=1".to_string(),
+                },
+                ProxyHeaderEntry {
+                    is_pseudo: None,
+                    name: "set-cookie".to_string(),
+                    value: "b=2".to_string(),
+                },
+            ],
+            status_code: 200,
+        });
+
+        let cookies: Vec<String> = response
+            .response_headers
+            .get_all("set-cookie")
+            .iter()
+            .filter_map(|value| value.to_str().ok().map(str::to_string))
+            .collect();
+        assert_eq!(cookies, vec!["a=1", "b=2"]);
+        // The synthesized content-length still matches the empty mock body.
+        assert_eq!(response.response_headers.get(CONTENT_LENGTH).unwrap(), "0");
     }
 }

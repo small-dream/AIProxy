@@ -29,13 +29,19 @@ export function resolveInitialSlug(
   return entries[0]?.slug ?? "";
 }
 
+export type DocLinkTarget = {
+  slug: string;
+  /** GitHub-style heading anchor carried by the link (`…md#规则导入--导出`). */
+  anchor?: string;
+};
+
 /**
- * Normalize a markdown href to a doc slug. Handles relative refs (./x.md, x.md)
- * and absolute paths by their trailing filename. Returns null for anything with a
- * scheme (http:, mailto:, ...) or an in-page anchor, so callers can route those
- * elsewhere (external browser / scroll).
+ * Normalize a markdown href to a doc slug plus optional heading anchor. Handles
+ * relative refs (./x.md, x.md) and absolute paths by their trailing filename.
+ * Returns null for anything with a scheme (http:, mailto:, ...) or an in-page
+ * anchor, so callers can route those elsewhere (external browser / scroll).
  */
-export function resolveDocLink(href: string | undefined): string | null {
+export function resolveDocLink(href: string | undefined): DocLinkTarget | null {
   if (!href) {
     return null;
   }
@@ -54,5 +60,22 @@ export function resolveDocLink(href: string | undefined): string | null {
   }
 
   const slug = filename.replace(/\.md$/i, "");
-  return slug || null;
+  if (!slug) {
+    return null;
+  }
+
+  const hashIndex = href.indexOf("#");
+  const anchor = hashIndex >= 0 ? decodeAnchor(href.slice(hashIndex + 1)) : "";
+
+  // Cross-page links used to drop their `#fragment`, so "导入 / 导出" links
+  // always landed at the top of the target guide (P3).
+  return anchor ? { anchor, slug } : { slug };
+}
+
+function decodeAnchor(value: string): string {
+  try {
+    return decodeURIComponent(value).trim();
+  } catch {
+    return value.trim();
+  }
 }

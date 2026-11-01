@@ -66,7 +66,16 @@ function buildBodyReference(
     return undefined;
   }
 
-  const sizeBytes = Math.max(body.text.length, fallbackSize);
+  // P3: HAR `text` is a JS string. Measuring it with `.length` counts UTF-16
+  // code units, not bytes — CJK text was under-counted (1 char = 3 UTF-8 bytes)
+  // and base64 payloads were over-counted by ~1.37x. Every other size in the
+  // app is a UTF-8 byte count, so convert properly and keep `content.size` as a
+  // lower bound (it can be the compressed wire size).
+  const textBytes =
+    body.encoding === "base64"
+      ? base64DecodedByteLength(body.text)
+      : new TextEncoder().encode(body.text).length;
+  const sizeBytes = Math.max(textBytes, fallbackSize);
 
   if (body.encoding === "base64") {
     return {
@@ -81,6 +90,11 @@ function buildBodyReference(
     inlineText: body.text,
     sizeBytes,
   };
+}
+
+function base64DecodedByteLength(value: string): number {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
 }
 
 function buildTimingBreakdown(entry: HarEntry): TimingBreakdown | undefined {
@@ -138,6 +152,21 @@ function buildImportedId(index: number) {
   return `imported-har-${Date.now()}-${index}`;
 }
 
+/**
+ * Parse an entry's request URL.
+ *
+ * P3: a single malformed URL used to throw the browser's bare `Invalid URL`
+ * (English, no entry number), aborting the whole import with no hint about which
+ * record was broken. Surface the entry number instead.
+ */
+function parseRequestUrl(url: string, index: number): URL {
+  try {
+    return new URL(url);
+  } catch {
+    throw new Error(`Entry ${index + 1} has an invalid request URL: ${url}`);
+  }
+}
+
 function parseHarEntry(entry: HarEntry, index: number): SessionDetail {
   const request = entry.request;
 
@@ -145,7 +174,7 @@ function parseHarEntry(entry: HarEntry, index: number): SessionDetail {
     throw new Error(`Entry ${index + 1} is missing a valid request method or URL.`);
   }
 
-  const parsedUrl = new URL(request.url);
+  const parsedUrl = parseRequestUrl(request.url, index);
   const startedAt =
     typeof entry.startedDateTime === "string" &&
     !Number.isNaN(new Date(entry.startedDateTime).getTime())

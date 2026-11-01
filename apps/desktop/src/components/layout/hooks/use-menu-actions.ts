@@ -42,12 +42,17 @@ export function useMenuActions(deps: MenuHandlerDeps) {
   const menuHandlerRef = useRef({
     ...deps,
     setThemePreference,
+    t,
   });
 
   useEffect(() => {
     menuHandlerRef.current = {
       ...deps,
       setThemePreference,
+      // P3: the menu-event listener is registered once, so a message built from
+      // the hook's `t` would keep the first language forever. Read the current
+      // translator through the ref like every other handler.
+      t,
     };
   });
 
@@ -216,7 +221,7 @@ export function useMenuActions(deps: MenuHandlerDeps) {
         break;
       case "show_logs":
         void showLogFile().catch((error) => {
-          h.onSnackbarMessage(getErrorMessage(error, t("common.errors.unexpected")));
+          h.onSnackbarMessage(getErrorMessage(error, h.t("common.errors.unexpected")));
         });
         break;
       case "shortcuts":
@@ -229,7 +234,7 @@ export function useMenuActions(deps: MenuHandlerDeps) {
       case "edit_paste":
       case "edit_select_all":
         void runDocumentEditCommand(menuId).catch((error) => {
-          h.onSnackbarMessage(getErrorMessage(error, t("common.errors.unexpected")));
+          h.onSnackbarMessage(getErrorMessage(error, h.t("common.errors.unexpected")));
         });
         break;
       case "window_minimize":

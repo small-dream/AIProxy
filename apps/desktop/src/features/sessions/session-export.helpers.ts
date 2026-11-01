@@ -58,7 +58,7 @@ export function buildHarArchive(details: SessionDetail[]) {
             postData: detail.requestBody
               ? {
                   mimeType: detail.requestBody.mimeType ?? "application/octet-stream",
-                  text: getBodyText(detail.requestBody),
+                  ...harBodyPayload(detail.requestBody),
                 }
               : undefined,
           },
@@ -76,7 +76,7 @@ export function buildHarArchive(details: SessionDetail[]) {
                 detail.responseBody?.mimeType ??
                 detail.summary.responseMimeType ??
                 "application/octet-stream",
-              text: getBodyText(detail.responseBody),
+              ...harBodyPayload(detail.responseBody),
             },
             redirectURL: "",
             headersSize: -1,
@@ -96,6 +96,32 @@ export function buildHarArchive(details: SessionDetail[]) {
       }),
     },
   };
+}
+
+/**
+ * HAR body payload for `postData` / `content`.
+ *
+ * P3: HAR allows `encoding: "base64"` for bodies that are not text. The exporter
+ * used to run base64 through `atob` and write the resulting Latin-1 string as
+ * plain UTF-8 text, so every binary body (images, fonts, archives) was corrupted
+ * and could not round-trip through this app's own importer or another HAR tool.
+ * Text bodies keep their readable inline text.
+ */
+export function harBodyPayload(
+  body: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+): { encoding?: "base64"; text: string } {
+  if (!body) {
+    return { text: "" };
+  }
+
+  if (body.inlineText !== undefined) {
+    return { text: body.inlineText };
+  }
+  if (body.base64Text !== undefined) {
+    return { encoding: "base64", text: body.base64Text };
+  }
+
+  return { text: "" };
 }
 
 export function buildHarExportFilename(scope: "request" | "host" | "sessions", label?: string) {

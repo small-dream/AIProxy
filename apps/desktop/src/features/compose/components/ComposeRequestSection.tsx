@@ -309,21 +309,69 @@ function parseQueryParams(url: string): HeaderEntry[] | null {
   }
 }
 
-// Rebuild a URL string with the query replaced by the given params. Returns null
-// when the base URL is not parseable.
+function decodeQueryComponent(value: string): string {
+  const normalized = value.replace(/\+/g, " ");
+  try {
+    return decodeURIComponent(normalized);
+  } catch {
+    return normalized;
+  }
+}
+
+/**
+ * Rebuild a URL with the query taken from `params`.
+ *
+ * P2-14: untouched name/value pairs are kept **byte-for-byte** from the original
+ * query and the base URL is spliced textually (no `new URL().toString()`), so
+ * editing one parameter no longer re-encodes the rest (`%20` → `+`) or inserts a
+ * `/` into an empty path — both break APIs that sign the raw query string.
+ * Only new or changed pairs are encoded. Returns null when the URL is not
+ * parseable.
+ */
 function buildUrlWithParams(url: string, params: HeaderEntry[]): string | null {
   try {
-    const parsed = new URL(url);
-    parsed.search = "";
-    for (const entry of params) {
-      if (entry.name.trim()) {
-        parsed.searchParams.append(entry.name, entry.value);
-      }
-    }
-    return parsed.toString();
+    new URL(url);
   } catch {
     return null;
   }
+
+  const hashIndex = url.indexOf("#");
+  const hash = hashIndex >= 0 ? url.slice(hashIndex) : "";
+  const withoutHash = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+  const queryIndex = withoutHash.indexOf("?");
+  const base = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
+  const originalPairs =
+    queryIndex >= 0
+      ? withoutHash
+          .slice(queryIndex + 1)
+          .split("&")
+          .filter((pair) => pair.length > 0)
+      : [];
+
+  const unusedPairs = [...originalPairs];
+  const pairs: string[] = [];
+  for (const entry of params) {
+    if (!entry.name.trim()) continue;
+
+    const originalIndex = unusedPairs.findIndex((pair) => {
+      const equalIndex = pair.indexOf("=");
+      const rawName = equalIndex < 0 ? pair : pair.slice(0, equalIndex);
+      const rawValue = equalIndex < 0 ? "" : pair.slice(equalIndex + 1);
+      return (
+        decodeQueryComponent(rawName) === entry.name &&
+        decodeQueryComponent(rawValue) === entry.value
+      );
+    });
+
+    if (originalIndex >= 0) {
+      pairs.push(unusedPairs.splice(originalIndex, 1)[0] ?? "");
+      continue;
+    }
+
+    pairs.push(`${encodeURIComponent(entry.name)}=${encodeURIComponent(entry.value)}`);
+  }
+
+  return `${base}${pairs.length > 0 ? `?${pairs.join("&")}` : ""}${hash}`;
 }
 
 export function QueryParamsEditor({

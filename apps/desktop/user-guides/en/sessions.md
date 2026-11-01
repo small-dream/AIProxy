@@ -124,6 +124,8 @@ AIProxy supports the **HAR** format:
 - **Export**: choose a scope — All Sessions / Filtered Sessions / Selected Domain / Selected Session — and export a `.har` file
 - **Import**: load a HAR file into the current workspace to keep viewing, filtering, and re-exporting
 
+Binary bodies (images, fonts, archives) are exported with the HAR-standard `encoding: "base64"`, so they round-trip through this app or another HAR tool byte-for-byte; text bodies stay readable. Imported body sizes are counted in UTF-8 bytes / decoded bytes, and a malformed request URL is reported together with the offending entry number.
+
 ### Save captured files to disk
 
 Right-click any path-folder node or host group → **Save All Files…**: choose how name conflicts are handled ("keep only the last request" vs "save every request", suffixed `name (1).ext`), pick a target folder, and response bodies are written mirroring the URL path below the host — extensions are inferred from MIME when missing; WebSocket and body-less requests are skipped. A snackbar reports saved / skipped / failed counts.

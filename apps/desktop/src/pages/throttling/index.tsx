@@ -27,9 +27,23 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { ProfileEditor } from "@/features/throttling/components/ProfileEditor";
 import { RuleEditor } from "@/features/throttling/components/RuleEditor";
-import { formatDelay, useThrottleEditor } from "@/features/throttling/use-throttle-editor";
-import { useI18n } from "@/i18n";
+import {
+  TEMP_ENABLE_MS,
+  formatDelay,
+  useThrottleEditor,
+} from "@/features/throttling/use-throttle-editor";
+import { useI18n, type TranslationKey } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
+
+const TEMP_ENABLE_MINUTES = Math.round(TEMP_ENABLE_MS / 60_000);
+
+// Rule stages are stored as `request` / `response` / `both`; the list subtitle
+// used to print the raw enum value next to already-translated text.
+function stageLabelKey(stage: string): TranslationKey {
+  if (stage === "request") return "throttlingPage.stageRequest";
+  if (stage === "response") return "throttlingPage.stageResponse";
+  return "throttlingPage.stageBoth";
+}
 
 export function ThrottlingPage() {
   const { t } = useI18n();
@@ -100,7 +114,9 @@ export function ThrottlingPage() {
                     <Chip
                       size="small"
                       icon={<TimerOutlinedIcon />}
-                      label={`${Math.ceil(ed.temporaryRemaining / 60000)} min`}
+                      label={t("throttlingPage.temporaryRemaining", {
+                        minutes: Math.ceil(ed.temporaryRemaining / 60000),
+                      })}
                       sx={{ height: 20, fontSize: 11 }}
                     />
                   ) : null}
@@ -153,7 +169,7 @@ export function ThrottlingPage() {
                 onClick={() => ed.handleTemporaryEnable()}
                 disabled={ed.profiles.length === 0 || ed.setActivePending}
               >
-                15 min
+                {t("throttlingPage.temporaryRemaining", { minutes: TEMP_ENABLE_MINUTES })}
               </Button>
               <Button
                 size="small"
@@ -334,7 +350,7 @@ export function ThrottlingPage() {
                                 {rule.name}
                               </Typography>
                             }
-                            secondary={`${rule.urlPattern} • ${rule.methods.length ? rule.methods.join(", ") : t("throttlingPage.anyMethod")} • ${rule.stage}`}
+                            secondary={`${rule.urlPattern} • ${rule.methods.length ? rule.methods.join(", ") : t("throttlingPage.anyMethod")} • ${t(stageLabelKey(rule.stage))}`}
                             slotProps={{ secondary: { noWrap: true, sx: { fontSize: 11.5 } } }}
                           />
                           {/* Review §4.1: inline toggle persists immediately

@@ -12,9 +12,36 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 
+import { slugifyDocHeading } from "@/lib/markdown-heading";
 import { fontFamilies } from "@/themes/fonts";
 
 type Density = "compact" | "comfortable";
+
+/** A cross-guide link target resolved by the caller (docs slug + heading id). */
+export type MarkdownInternalLink = {
+  slug: string;
+  anchor?: string;
+};
+
+/** Flatten a heading's rendered children back to text so it can be slugged. */
+function headingText(node: unknown): string {
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(headingText).join("");
+  }
+  if (node && typeof node === "object" && "props" in node) {
+    return headingText((node as { props?: { children?: unknown } }).props?.children);
+  }
+
+  return "";
+}
+
+function headingId(label: unknown): string | undefined {
+  const text = headingText(label).trim();
+  return text ? slugifyDocHeading(text) : undefined;
+}
 
 interface SizeScale {
   h1: number;
@@ -33,14 +60,14 @@ export interface MarkdownRendererProps {
   children: string;
   density?: Density;
   /**
-   * Maps an href to an in-app slug when it should be handled internally (e.g. a
-   * relative *.md reference). Returning null lets the link fall through to its
-   * default behavior or onExternalLink. Kept as a prop so this component stays
-   * free of docs-domain coupling.
+   * Maps an href to an in-app target when it should be handled internally (e.g. a
+   * relative *.md reference, including its `#heading` anchor). Returning null lets
+   * the link fall through to its default behavior or onExternalLink. Kept as a
+   * prop so this component stays free of docs-domain coupling.
    */
-  resolveInternalLink?: (href: string) => string | null;
-  /** Invoked for links resolveInternalLink maps to a slug. */
-  onInternalLink?: (slug: string) => void;
+  resolveInternalLink?: (href: string) => MarkdownInternalLink | null;
+  /** Invoked for links resolveInternalLink maps to a target. */
+  onInternalLink?: (slug: string, anchor?: string) => void;
   /** Invoked for http(s) links (e.g. open in the system browser). */
   onExternalLink?: (href: string) => void;
   /**
@@ -67,6 +94,7 @@ export function MarkdownRenderer({
     h1: ({ children: label }) => (
       <Typography
         component="h1"
+        id={headingId(label)}
         sx={{ fontSize: scale.h1, fontWeight: 750, mt: 2.5, mb: 1, lineHeight: 1.3 }}
       >
         {label}
@@ -75,6 +103,7 @@ export function MarkdownRenderer({
     h2: ({ children: label }) => (
       <Typography
         component="h2"
+        id={headingId(label)}
         sx={{ fontSize: scale.h2, fontWeight: 750, mt: 2.5, mb: 1, lineHeight: 1.35 }}
       >
         {label}
@@ -83,6 +112,7 @@ export function MarkdownRenderer({
     h3: ({ children: label }) => (
       <Typography
         component="h3"
+        id={headingId(label)}
         sx={{ fontSize: scale.h3, fontWeight: 700, mt: 2, mb: 0.75, lineHeight: 1.4 }}
       >
         {label}
@@ -178,9 +208,9 @@ export function MarkdownRenderer({
           );
         }
 
-        const slug = resolveInternalLink?.(href);
-        if (slug != null && onInternalLink) {
-          const activate = () => onInternalLink(slug);
+        const target = resolveInternalLink?.(href);
+        if (target != null && onInternalLink) {
+          const activate = () => onInternalLink(target.slug, target.anchor);
           return (
             <Typography
               component="a"

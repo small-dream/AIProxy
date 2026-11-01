@@ -87,10 +87,12 @@ export function DocsPage() {
     setSearchParams({ doc: slug });
   }
 
-  function handleInternalLink(slug: string) {
-    // Only navigate to slugs that actually exist as guides.
+  function handleInternalLink(slug: string, linkAnchor?: string) {
+    // Only navigate to slugs that actually exist as guides. A cross-guide
+    // `#heading` anchor is carried in the URL so the target section scrolls into
+    // view once the article renders (P3 — the fragment used to be dropped).
     if (docsEntries.some((entry) => entry.slug === slug)) {
-      handleSelect(slug);
+      setSearchParams(linkAnchor ? { anchor: linkAnchor, doc: slug } : { doc: slug });
     }
   }
 

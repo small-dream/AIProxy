@@ -91,6 +91,78 @@ describe("parseHarArchive", () => {
     );
   });
 
+  // P3: `text.length` counts UTF-16 code units, not bytes, so CJK bodies were
+  // under-counted and base64 bodies over-counted by ~1.37x in the list, the
+  // inspector and any re-export.
+  it("measures a text body in UTF-8 bytes", () => {
+    const details = parseHarArchive(
+      JSON.stringify({
+        log: {
+          entries: [
+            {
+              request: { headers: [], method: "GET", url: "https://example.com/api" },
+              response: {
+                content: { mimeType: "text/plain", text: "中文" },
+                headers: [],
+                status: 200,
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    // Two CJK characters = 6 UTF-8 bytes (not 2).
+    expect(details[0]?.responseBody?.sizeBytes).toBe(6);
+  });
+
+  it("measures a base64 body by its decoded byte length", () => {
+    const details = parseHarArchive(
+      JSON.stringify({
+        log: {
+          entries: [
+            {
+              request: { headers: [], method: "GET", url: "https://example.com/api" },
+              response: {
+                content: {
+                  encoding: "base64",
+                  mimeType: "image/png",
+                  // btoa("hello") = "aGVsbG8=" → 5 decoded bytes, 8 characters.
+                  size: 5,
+                  text: "aGVsbG8=",
+                },
+                headers: [],
+                status: 200,
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(details[0]?.responseBody?.sizeBytes).toBe(5);
+    expect(details[0]?.responseBody?.base64Text).toBe("aGVsbG8=");
+  });
+
+  // P3: a bare `Invalid URL` from `new URL` aborted the whole import with no
+  // hint about which record was broken.
+  it("names the offending entry when a request URL is invalid", () => {
+    expect(() =>
+      parseHarArchive(
+        JSON.stringify({
+          log: {
+            entries: [
+              {
+                request: { headers: [], method: "GET", url: "not a url" },
+                response: { content: {}, headers: [], status: 200 },
+              },
+            ],
+          },
+        }),
+      ),
+    ).toThrow(/Entry 1 has an invalid request URL/);
+  });
+
   it("parses HTTP/2 version from HAR entry", () => {
     const details = parseHarArchive(
       JSON.stringify({

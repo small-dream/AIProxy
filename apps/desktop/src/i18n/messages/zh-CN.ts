@@ -1108,6 +1108,7 @@ export const zhCNMessages: Messages = {
       importButton: "导入已选 {{count}} 条",
       importDisabledHint: "规则导入需要桌面应用。",
       imported: "已导入 {{count}} 条规则。",
+      importedPartial: "已导入 {{success}} 条规则，{{failed}} 条失败，请查看应用日志。",
       invalidFile: "该文件不是有效的 AIProxy 规则导出文件。",
       nothingSelected: "请至少选择一种要导入的规则类型。",
       previewHint: "导入的规则默认禁用并使用全新 id，不会覆盖任何现有规则。",

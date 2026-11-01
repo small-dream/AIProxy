@@ -93,3 +93,59 @@ describe("QueryParamsEditor — focus retention (H12)", () => {
     expect(getValueInputs()[0]!.value).toBe("abc123");
   });
 });
+
+function CaptureEditor({
+  initialUrl,
+  onUrl,
+}: {
+  initialUrl: string;
+  onUrl: (url: string) => void;
+}) {
+  const [url, setUrl] = useState(initialUrl);
+  return (
+    <QueryParamsEditor
+      namePlaceholder="Name"
+      valuePlaceholder="Value"
+      url={url}
+      onUrlChange={(next) => {
+        setUrl(next);
+        onUrl(next);
+      }}
+    />
+  );
+}
+
+// P2-14: the old rebuild did `parsed.search = ""` and re-appended every pair
+// through `URLSearchParams`, which normalizes the whole query (`%20` → `+`) and
+// turns an empty path into `/`. Editing one parameter must leave the others —
+// and the URL around them — byte-for-byte intact, because signature-based APIs
+// sign the raw query string.
+describe("QueryParamsEditor raw query preservation (P2-14)", () => {
+  it("keeps untouched parameter encoding byte-for-byte", () => {
+    const emitted: string[] = [];
+    render(
+      <CaptureEditor
+        initialUrl="https://api.example.com/x?sig=a%20b&page=1#frag"
+        onUrl={(url) => emitted.push(url)}
+      />,
+    );
+
+    fireEvent.change(getValueInputs()[1]!, { target: { value: "2" } });
+
+    expect(emitted.at(-1)).toBe("https://api.example.com/x?sig=a%20b&page=2#frag");
+  });
+
+  it("does not insert a slash into an empty path or reorder the fragment", () => {
+    const emitted: string[] = [];
+    render(
+      <CaptureEditor
+        initialUrl="https://api.example.com?a=1#top"
+        onUrl={(url) => emitted.push(url)}
+      />,
+    );
+
+    fireEvent.change(getValueInputs()[0]!, { target: { value: "2" } });
+
+    expect(emitted.at(-1)).toBe("https://api.example.com?a=2#top");
+  });
+});
