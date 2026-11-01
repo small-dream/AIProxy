@@ -89,6 +89,7 @@ Compare 让你把两条请求、或两组请求放在一起做 diff，快速发�
 
 - 发送前可点 **预览 AI Payload** 查看完整输入 JSON，确认要发什么
 - 敏感字段（如 token、password 等）会自动脱敏
+- URL 同样会脱敏：`?token=`、`?access_token=`、`?code=`、`?signature=`、`?sig=`、`X-Amz-Signature` 等敏感 query 参数值，以及 `user:password@host` 形式的凭据，都会替换为 `[REDACTED]`；其它参数与编码保持原样
 - 是否把 Body 内容包含进 AI 输入由开关控制；本地计算脱敏后才上传
 
 ## 常见问题

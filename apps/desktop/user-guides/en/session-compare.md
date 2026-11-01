@@ -89,6 +89,7 @@ When unconfigured, the panel prompts and offers a **Configure AI Model** button 
 
 - Click **Preview AI Payload** before sending to review the full input JSON
 - Sensitive fields (token, password, etc.) are auto-redacted
+- URLs are redacted too: sensitive query values (`?token=`, `?access_token=`, `?code=`, `?signature=`, `?sig=`, `X-Amz-Signature`, …) and `user:password@host` credentials are replaced with `[REDACTED]`, while every other parameter and its encoding is left untouched
 - Whether to include body content in the AI input is controlled by a toggle; redaction happens locally before upload
 
 ## FAQ

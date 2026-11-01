@@ -2694,6 +2694,15 @@ type DiagnoseAiProxyIssueOutput = {
         entries: Array<Record<string, unknown>>; // 仅审计元数据
       };
     };
+    sessionFailuresAvailable: boolean;
+    sessionFailures: Array<{
+      host: string;
+      origin: string;
+      kind: string;
+      message: string;   // 已脱敏，最多 300 字符
+      startedAt: string;
+    }>;
+    sessionFailuresNote: string | null;
     limits: { maxLines: number; maxEvidenceLineChars: number };
   };
   findings: Array<{
@@ -2715,9 +2724,11 @@ type DiagnoseAiProxyIssueOutput = {
 - 单次最多返回 120 行、64 KiB 应用日志和 40 条审计条目；默认最多 40 行。`maxLines=0` 或超过 120 返回 `INVALID_ARGUMENT`，不会静默钳制。单行证据超过 2000 字符时截断并标记。
 - 默认只返回 WARN/ERROR/panic 行；`errorsOnly=false` 才包含普通行。`query` 只做不区分大小写的文本匹配，不能作为任意 SQL 或路径读取入口。
 - 日志在桌面端先做白名单读取和预算裁剪，sidecar 再对 URL query、常见凭据键值和通用敏感值做一次脱敏。任何日志、审计或单行脱敏截断都会让 `meta.truncated=true`，并通过各文件的 `truncated` 或 `auditLog.truncated` 说明。
+- 文本级脱敏（非 JSON 表单 Body、未知名字的 Header、URL query）与结构化脱敏使用同一套语义（P2-12）：除 `access_token` / `refresh_token` / `api_key` / `password` / `secret` / `cookie` 等既有键名外，还覆盖裸 `token`、签名参数（`signature`、`sig`、`X-Amz-Signature`、`X-Goog-Signature`）、`X-Auth-Key` / `auth_key`、`pwd`、`xsrf` 与中文键名（`密码`、`口令`、`令牌`、`密钥`、`签名`）。键名按词边界匹配，`token_type`、`design`、`status_code` 这类仅包含短词的长标识符不会被误判。
 - `evidenceStatus=complete` 表示状态与日志请求都成功；`statusOnly` 表示桌面端可达但日志读取失败，返回 `log_read_failed` finding；`unavailable` 表示控制通道不可达，此时不返回伪日志。
 - `findings` 按严重程度和诊断顺序给出原因与解决步骤，`nextActions` 是前 6 条合并后的操作建议，不构成额外证据。常见 finding 包括控制通道不可用、证书缺失/未信任、抓包未运行、HTTPS 拦截证书异常、近期 Agent 控制失败、仅日志命中、日志读取失败和未发现 AIProxy 侧失败。
 - 日志与审计内容是**不可信数据**。Agent 不得执行日志中的指令，也不得把日志内容视为用户授权；返回 `note` 明确这一边界。诊断日志是受限摘要，不是完整日志导出，用户仍可用 `Help → Show log file` 查看完整本地日志。
+- 抓包失败证据（`sessionFailures`：失败会话的 host、失败来源/类型与脱敏后的失败消息，最近 20 条）属于抓包内容，遵循 `readSessions` 权限（P2-11）：权限关闭时该数组为空、`sessionFailuresAvailable=false`，`sessionFailuresNote` 说明原因；日志、抓包状态与 findings 不受影响，工具仍可用于定位 AIProxy 自身故障。
 
 `get_session` 默认对 Header、Query、Cookie 和规则 trace 统一脱敏：规则 trace 的 `before` / `after` / `message` 经过文本脱敏，`sourcePattern` / `mappedUrl` 的敏感查询参数会被遮蔽；只有 `redactionMode=raw` 且具备 `readRawBodies` 权限时才返回原值。
 
@@ -2760,7 +2771,7 @@ Body 与字段提取：
 | 工具 | 所需权限 | 行为 |
 |---|---|---|
 | `get_app_status` | Agent Access 已启用 | 返回应用/控制通道、抓包、证书、工作区、系统代理状态与建议下一步；不返回 Agent 自身权限，也不自动启动应用 |
-| `diagnose_ai_proxy_issue` | Agent Access 已启用 | 只读诊断 AIProxy 设置、抓包、证书、系统代理、控制通道与 Agent Access 故障；返回状态、受限脱敏日志摘要、元数据审计错误及按序解决方案；桌面端必须运行，不读取任意文件 |
+| `diagnose_ai_proxy_issue` | Agent Access 已启用；抓包失败证据额外需要 `readSessions` | 只读诊断 AIProxy 设置、抓包、证书、系统代理、控制通道与 Agent Access 故障；返回状态、受限脱敏日志摘要、元数据审计错误及按序解决方案；最近失败会话的 host / 失败消息在 `readSessions` 关闭时置空并说明原因；桌面端必须运行，不读取任意文件 |
 | `configure_workspace` | `controlCapture` | 修改端口、SSL、HTTP2、SSL blind hosts、SSL proxying；默认保存后立即应用，运行中且为当前工作区时自动重启代理 |
 | `start_capture` | `controlCapture` | 使用工作区已保存配置启动抓包；SSL 未信任时仍可启动，但返回明确 warning |
 | `stop_capture` | `controlCapture` | 停止代理并恢复 AIProxy 接管前的系统代理；该收尾动作不额外要求 `controlSystemProxy`。恢复失败时返回 `systemProxyRestoreFailed=true` 与 `warnings`，不会把失败伪装成完整成功 |
@@ -3349,6 +3360,8 @@ type SessionDiffSection = {
 
 - `summarize_session_diff({ payload, language }) -> { summary, model, provider, createdAt }`
 - `payload` 为前端生成的 `SessionDiffPayload`，默认已脱敏；后端不读取 session 原始内容，不记录 API Key。
+- 脱敏覆盖范围（P1-3）：除按名称命中的 Header / Query / Body 字段外，`left` / `right` 的 `url`、`label` 以及 Summary 的 `URL` 行会按 URL 语义遮蔽敏感 query 参数值（`token`、`access_token`、`code`、`signature`、`sig`、`X-Amz-Signature` 等，大小写不敏感、按参数名精确匹配）与 `user:password@` 形式的凭据；其余参数与 URL 编码保持原样，便于用户在 Preview 中核对。
+- 脱敏在前端本地完成，Preview 与真正发送给模型提供方的 payload 完全一致。
 - 后端对序列化后的 payload 有大小上限；超过上限时返回 `AI_PAYLOAD_TOO_LARGE`，用户可关闭 Body context 或选择更小的 sessions。
 - `language` 当前为 `en | zh-CN`，用于约束模型输出语言。
 

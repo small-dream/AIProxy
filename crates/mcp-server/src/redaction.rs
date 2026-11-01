@@ -549,7 +549,15 @@ fn is_secret_name(name: &str) -> bool {
             | "clientsecret"
             | "privatekey"
             | "csrf"
+            | "xsrf"
             | "jwt"
+            | "pwd"
+            | "sig"
+            | "signature"
+            | "xamzsignature"
+            | "xgoogsignature"
+            | "authkey"
+            | "xauthkey"
     ) || name.contains("token")
         || name.contains("password")
         || name.contains("passwd")
@@ -557,6 +565,18 @@ fn is_secret_name(name: &str) -> bool {
         || name.contains("privatekey")
         || name.contains("apikey")
         || name.contains("csrf")
+        // P2-12: signature / auth-key headers (`X-Amz-Signature`,
+        // `X-Goog-Signature`, `X-Auth-Key`, Cloudflare's `X-Auth-Key`) and the
+        // `?sig=`-style query names used by signed URLs.
+        || name.ends_with("signature")
+        || name.ends_with("sig")
+        || name.ends_with("authkey")
+        // Localized keys, mirroring the Chinese PII coverage in `is_pii_name`.
+        || name.contains("密码")
+        || name.contains("口令")
+        || name.contains("令牌")
+        || name.contains("密钥")
+        || name.contains("签名")
 }
 
 fn is_identifier_name(name: &str) -> bool {
@@ -612,8 +632,16 @@ fn text_secret_regex() -> Option<&'static Regex> {
     static REGEX: OnceLock<Option<Regex>> = OnceLock::new();
     REGEX
         .get_or_init(|| {
+            // P2-12: the structured (JSON/header) path already treats any name
+            // containing `token` as a secret via `is_secret_name`, but this
+            // text-level regex is the only protection for form bodies
+            // (`user=a&token=…`), unknown header names and URL query values
+            // (`?signature=…`, `?sig=…`). Keep both word lists in sync.
+            //
+            // `\b` avoids matching inside longer identifiers (`token_type`,
+            // `mytoken`), and the value class stops at framing characters.
             Regex::new(
-                r#"(?i)(authorization|cookie|set-cookie|api[_-]?key|x-api-key|access[_-]?token|refresh[_-]?token|id[_-]?token|password|passwd|client[_-]?secret|secret|csrf)(\s*[:=]\s*)("(?:[^"\\]|\\.)*"|[^"\r\n,;]+)"#,
+                r#"(?i)\b(authorization|cookie|set-cookie|api[_-]?key|x-api-key|auth[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|passwd|pwd|client[_-]?secret|secret|csrf|xsrf|jwt|signature|sig|x-amz-signature|x-goog-signature|密码|口令|令牌|密钥)(\s*[:=]\s*)("(?:[^"\\]|\\.)*"|[^"\r\n,;]+)"#,
             )
             .ok()
         })
@@ -715,9 +743,16 @@ mod tests {
     fn redacts_jwts_in_plain_text() {
         let redactor = redactor();
         let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature1234567890";
-        let output = redactor.redact_text(&format!("token={jwt}"));
-        assert!(!output.value.contains(jwt));
-        assert!(output.value.contains("[REDACTED:jwt]"));
+        // Keyed form: the `key=value` rule (which now also matches a bare
+        // `token` name) may redact the whole value before the JWT detector sees
+        // it — either marker is fine as long as nothing leaks.
+        let keyed = redactor.redact_text(&format!("token={jwt}"));
+        assert!(!keyed.value.contains(jwt));
+        assert!(keyed.value.contains("[REDACTED"));
+        // Bare form: only the JWT detector can catch this one.
+        let bare = redactor.redact_text(&format!("pasted jwt {jwt}"));
+        assert!(!bare.value.contains(jwt));
+        assert!(bare.value.contains("[REDACTED:jwt]"));
     }
 
     #[test]
@@ -729,5 +764,64 @@ mod tests {
         assert_eq!(headers.value[0].is_pseudo, Some(true));
         assert_eq!(headers.value[1].is_pseudo, Some(false));
         assert_eq!(headers.value[1].value, REDACTED_VALUE);
+    }
+
+    // P2-12: the text-level path is the only protection for form bodies,
+    // unknown header names and URL query values. It used to know only
+    // `access_token`/`refresh_token`/… and no signature parameters, so
+    // `token=…`, `?signature=…`, `?sig=…` and `X-Auth-Key: …` went out verbatim
+    // even though the tool description promises redacted values.
+    #[test]
+    fn redacts_bare_token_signature_and_auth_key_forms_in_text() {
+        let redactor = redactor();
+        for (text, secret) in [
+            ("user=alice&token=3f9a2c", "3f9a2c"),
+            ("?signature=abc123", "abc123"),
+            ("?sig=def456", "def456"),
+            ("?X-Amz-Signature=ghi789", "ghi789"),
+            ("X-Goog-Signature: jkl012", "jkl012"),
+            ("X-Auth-Key: k-123", "k-123"),
+            ("密码=hunter2", "hunter2"),
+            ("令牌: tok-42", "tok-42"),
+        ] {
+            let output = redactor.redact_text(text);
+            assert!(
+                !output.value.contains(secret),
+                "`{text}` leaked `{secret}`: {}",
+                output.value
+            );
+        }
+    }
+
+    // `\b` keeps longer identifiers from being treated as the secret name, so
+    // useful diagnostics are not swallowed.
+    #[test]
+    fn does_not_redact_identifiers_that_merely_contain_a_short_secret_name() {
+        let redactor = redactor();
+        for text in [
+            "token_type=Bearer",
+            "design=compact",
+            "mytoken=abc",
+            "status_code=200",
+        ] {
+            let output = redactor.redact_text(text);
+            assert_eq!(output.value, text, "`{text}` must pass through unchanged");
+        }
+    }
+
+    // Structured keys: signature/auth-key headers and localized key names are
+    // now classified as secrets, while a signature *algorithm* field is not.
+    #[test]
+    fn classifies_signature_headers_and_localized_keys_as_secrets() {
+        let redactor = redactor();
+        let headers = redactor.redact_headers_json(
+            r#"[{"name":"X-Amz-Signature","value":"sig-1"},{"name":"X-Auth-Key","value":"key-1"},{"name":"X-Signature-Algorithm","value":"rsa-sha256"},{"name":"令牌","value":"tok-9"},{"name":"密码","value":"pw-9"}]"#,
+        );
+
+        assert_eq!(headers.value[0].value, REDACTED_VALUE);
+        assert_eq!(headers.value[1].value, REDACTED_VALUE);
+        assert_eq!(headers.value[2].value, "rsa-sha256");
+        assert_eq!(headers.value[3].value, REDACTED_VALUE);
+        assert_eq!(headers.value[4].value, REDACTED_VALUE);
     }
 }

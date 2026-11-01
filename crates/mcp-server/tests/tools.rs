@@ -1336,6 +1336,79 @@ async fn diagnostic_control_unavailable_is_structured_without_fake_logs() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
+// P2-11: session-failure evidence is captured traffic (hosts plus failure
+// messages), so `diagnose_ai_proxy_issue` must withhold it when `readSessions`
+// is disabled — like every other capture-reading tool — while keeping the
+// diagnostics themselves available.
+#[tokio::test]
+async fn diagnostic_withholds_session_failure_evidence_without_read_sessions() {
+    let (directory, context) = create_fixture("diagnostic_permission");
+
+    {
+        let connection =
+            aiproxy_db::rusqlite::Connection::open(directory.join("aiproxy.db")).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                UPDATE session_summaries
+                   SET failure_origin = 'proxy',
+                       failure_kind = 'dns'
+                 WHERE id = 'left';
+                UPDATE session_details
+                   SET failure_message = 'captured-failure.example.com could not resolve'
+                 WHERE session_summary_id = 'left';
+                "#,
+            )
+            .unwrap();
+    }
+
+    let config_path = context.paths.config_path.clone();
+    let mut config = AgentAccessConfig {
+        enabled: true,
+        ..AgentAccessConfig::default()
+    };
+    config.permissions.read_sessions = false;
+    write_config(&config_path, &config).unwrap();
+
+    let (withheld, _) = diagnose_issue(&context, DiagnoseIssueRequest::default())
+        .await
+        .unwrap();
+
+    assert_eq!(withheld["evidence"]["sessionFailuresAvailable"], false);
+    assert_eq!(
+        withheld["evidence"]["sessionFailures"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert!(
+        withheld["evidence"]["sessionFailuresNote"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("readSessions"),
+        "the caller must be told why the evidence is missing"
+    );
+
+    // Control: the same fixture row is returned once the permission is granted,
+    // so the assertion above cannot pass vacuously.
+    config.permissions.read_sessions = true;
+    write_config(&config_path, &config).unwrap();
+
+    let (allowed, _) = diagnose_issue(&context, DiagnoseIssueRequest::default())
+        .await
+        .unwrap();
+
+    assert_eq!(allowed["evidence"]["sessionFailuresAvailable"], true);
+    let failures = allowed["evidence"]["sessionFailures"].as_array().unwrap();
+    assert!(
+        !failures.is_empty(),
+        "seeded failure row must be visible with readSessions enabled"
+    );
+    assert_eq!(failures[0]["host"], "api.example.com");
+    let _ = std::fs::remove_dir_all(directory);
+}
+
 #[test]
 fn sidecar_handles_mcp_initialize_and_tools_list() {
     let (directory, context) = create_fixture("stdio");

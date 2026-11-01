@@ -145,29 +145,37 @@ pub async fn diagnose_issue(
         ),
     };
     let capture = read_capture_status(&state.paths.data_dir);
-    let session_failures = load_recent_session_failures(state)
-        .await
-        .into_iter()
-        .map(|failure| {
-            let message = redactor.redact_text(&failure.message).value;
-            SessionFailureEvidence {
-                host: failure.host,
-                origin: failure.origin,
-                kind: failure.kind,
-                message: message.chars().take(300).collect(),
-                started_at: failure.started_at,
-            }
+    // P2-11: session-failure evidence is captured traffic (hosts plus failure
+    // messages), so it must honor the same `readSessions` permission every other
+    // capture-reading tool enforces. Logs, capture status and findings stay
+    // available so this tool can still explain a broken setup.
+    let session_failures_allowed = config.permissions.read_sessions;
+    let session_failures = if session_failures_allowed {
+        load_recent_session_failures(state).await
+    } else {
+        Vec::new()
+    }
+    .into_iter()
+    .map(|failure| {
+        let message = redactor.redact_text(&failure.message).value;
+        SessionFailureEvidence {
+            host: failure.host,
+            origin: failure.origin,
+            kind: failure.kind,
+            message: message.chars().take(300).collect(),
+            started_at: failure.started_at,
+        }
+    })
+    .filter(|failure| {
+        query.as_deref().is_none_or(|query| {
+            let query = query.to_lowercase();
+            failure.host.to_lowercase().contains(&query)
+                || failure.kind.to_lowercase().contains(&query)
+                || failure.origin.to_lowercase().contains(&query)
+                || failure.message.to_lowercase().contains(&query)
         })
-        .filter(|failure| {
-            query.as_deref().is_none_or(|query| {
-                let query = query.to_lowercase();
-                failure.host.to_lowercase().contains(&query)
-                    || failure.kind.to_lowercase().contains(&query)
-                    || failure.origin.to_lowercase().contains(&query)
-                    || failure.message.to_lowercase().contains(&query)
-            })
-        })
-        .collect::<Vec<_>>();
+    })
+    .collect::<Vec<_>>();
     let mut findings = analyze(
         app_status.as_ref(),
         &logs,
@@ -207,6 +215,7 @@ pub async fn diagnose_issue(
             "captureUpdatedAt": capture.updated_at,
             "agentAuditPath": state.paths.audit_path.display().to_string(),
             "logs": logs,
+            "sessionFailuresAvailable": session_failures_allowed,
             "sessionFailures": session_failures.iter().map(|failure| json!({
                 "host": failure.host,
                 "origin": failure.origin,
@@ -214,6 +223,11 @@ pub async fn diagnose_issue(
                 "message": failure.message,
                 "startedAt": failure.started_at,
             })).collect::<Vec<_>>(),
+            "sessionFailuresNote": if session_failures_allowed {
+                Value::Null
+            } else {
+                json!("Captured session-failure evidence was withheld because readSessions is disabled in AIProxy Settings > Agent Access.")
+            },
             "limits": {
                 "maxLines": max_lines,
                 "maxEvidenceLineChars": MAX_EVIDENCE_LINE_CHARS,
