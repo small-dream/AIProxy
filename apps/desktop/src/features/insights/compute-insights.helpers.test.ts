@@ -84,6 +84,39 @@ describe("computeInsightsFromSummaries", () => {
     expect(result.byStatusCode).toEqual([{ statusCode: 200, count: 1 }]);
   });
 
+  // P3: the backend groups hosts with `LOWER(host)`; the live computation used
+  // the raw host, so the same host in mixed case produced an extra row here and
+  // disappeared after the persisted backend result loaded.
+  it("groups hosts case-insensitively and reports the normalized host", () => {
+    const result = computeInsightsFromSummaries(
+      [
+        summary({ host: "API.Example.com", id: "a", sizeBytes: 10 }),
+        summary({ host: "api.example.com", id: "b", sizeBytes: 20 }),
+        summary({ host: "cdn.example.com", id: "c", sizeBytes: 30 }),
+      ],
+      unscoped,
+    );
+
+    expect(result.byHost).toEqual([
+      {
+        avgDurationMs: 100,
+        errorCount: 0,
+        host: "api.example.com",
+        p95DurationMs: 100,
+        requestCount: 2,
+        totalBytes: 30,
+      },
+      {
+        avgDurationMs: 100,
+        errorCount: 0,
+        host: "cdn.example.com",
+        p95DurationMs: 100,
+        requestCount: 1,
+        totalBytes: 30,
+      },
+    ]);
+  });
+
   // Rankings share a deterministic tiebreaker with the backend so tied rows do
   // not reorder when the view flips between the backend and frontend paths.
   it("breaks slow-request ties by startedAt desc, then id asc", () => {

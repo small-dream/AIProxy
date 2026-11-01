@@ -83,7 +83,7 @@ Expand **Advanced permissions** to:
 
 - Enable **Read unredacted bodies** only when the task truly requires the original payload.
 - Enable **Detect sensitive values by format** for JWTs, email addresses, phone numbers, device IDs, and similar values.
-- Enable **Stable identifier hashing** so the same identifier remains linkable across calls without revealing its original value.
+- Enable **Stable identifier hashing** so the same identifier remains linkable across calls without revealing its original value. The random HMAC key is stored in `agent-redaction.key` in the local data directory and never leaves the machine through logs, exports, or diagnostics; deleting the file unlinks pseudonyms created before and after.
 - Add **Custom sensitive field names** for headers, query parameters, or JSON fields that need redaction; press Enter after each entry.
 - Tune **Maximum sessions per page** and **Body chunk limit** to reduce the data returned by one call.
 

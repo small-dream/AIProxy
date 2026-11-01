@@ -32,7 +32,7 @@ export function buildHarArchive(details: SessionDetail[]) {
       version: "1.2",
       creator: {
         name: "AIProxy",
-        version: "0.1.0",
+        version: __APP_VERSION__,
       },
       entries: details.map((detail) => {
         const protocolMetadata = getSessionProtocolMetadata(detail.summary);

@@ -68,12 +68,7 @@ pub struct Redactor {
 
 impl Redactor {
     pub fn from_config(config: &AgentAccessConfig, data_dir: &Path) -> Result<Self, String> {
-        // The key is stable per AIProxy data directory and never leaves the local
-        // machine. It makes identifiers linkable without exposing their raw value.
-        let mut hasher = Sha256::new();
-        hasher.update(b"aiproxy-agent-redaction-v1\0");
-        hasher.update(data_dir.to_string_lossy().as_bytes());
-        let hash_key = hasher.finalize().to_vec();
+        let hash_key = load_hash_key(data_dir);
 
         let mut custom_patterns = Vec::new();
         for rule in &config.redaction.custom_patterns {
@@ -528,6 +523,89 @@ impl Redactor {
     }
 }
 
+const REDACTION_KEY_FILE: &str = "agent-redaction.key";
+
+/// HMAC key used for identifier pseudonyms, persisted next to the Agent config.
+///
+/// P3: the key used to be `SHA-256(b"aiproxy-agent-redaction-v1" + data_dir)`.
+/// The data directory path is guessable (or known), so anyone holding a
+/// pseudonym could recompute the key and brute-force a low-entropy value (an
+/// 11-digit phone number takes seconds). Generate 32 random bytes on first use
+/// and persist them (0600 on Unix) so pseudonyms stay stable across runs without
+/// being derivable from public information.
+fn load_hash_key(data_dir: &Path) -> Vec<u8> {
+    let path = data_dir.join(REDACTION_KEY_FILE);
+    if let Some(key) = read_hash_key(&path) {
+        return key;
+    }
+
+    let key = random_hash_key();
+    match write_hash_key(&path, &key) {
+        Ok(()) => key,
+        // Another sidecar won the create race; use the persisted key.
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => read_hash_key(&path)
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    component = "mcp.redaction",
+                    event = "redaction_key_race_lost",
+                    "redaction key file appeared but is unreadable; using a path-derived key"
+                );
+                path_derived_hash_key(data_dir)
+            }),
+        Err(error) => {
+            tracing::warn!(
+                component = "mcp.redaction",
+                event = "redaction_key_write_failed",
+                error = %error,
+                "could not persist the redaction key; using a path-derived key (lower protection)"
+            );
+            path_derived_hash_key(data_dir)
+        }
+    }
+}
+
+fn read_hash_key(path: &Path) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(path).ok()?;
+    (bytes.len() >= 32).then_some(bytes)
+}
+
+fn random_hash_key() -> Vec<u8> {
+    let mut key = Vec::with_capacity(32);
+    while key.len() < 32 {
+        key.extend_from_slice(uuid::Uuid::new_v4().as_bytes());
+    }
+    key.truncate(32);
+    key
+}
+
+fn write_hash_key(path: &Path, key: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut options = std::fs::OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    let mut file = options.open(path)?;
+    use std::io::Write as _;
+    file.write_all(key)?;
+    file.sync_all()
+}
+
+/// Pre-P3 behaviour, kept as a last-resort fallback when the key file cannot be
+/// written. Deterministic so pseudonyms stay stable within such an environment.
+fn path_derived_hash_key(data_dir: &Path) -> Vec<u8> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"aiproxy-agent-redaction-v1\0");
+    hasher.update(data_dir.to_string_lossy().as_bytes());
+    hasher.finalize().to_vec()
+}
+
 fn is_secret_name(name: &str) -> bool {
     matches!(
         name,
@@ -682,9 +760,53 @@ fn phone_regex() -> Option<&'static Regex> {
 mod tests {
     use super::*;
 
-    fn redactor() -> Redactor {
+    fn redactor_for_dir(data_dir: &Path) -> Redactor {
         let config = AgentAccessConfig::default();
-        Redactor::from_config(&config, Path::new("/tmp/aiproxy-redaction-test")).unwrap()
+        Redactor::from_config(&config, data_dir).unwrap()
+    }
+
+    /// Unique data dir per call: the key file is persisted there, so a shared
+    /// hard-coded path would leak state between tests (and write to `/tmp`).
+    fn redactor() -> Redactor {
+        let dir = tempfile::tempdir().unwrap();
+        redactor_for_dir(dir.path())
+    }
+
+    // P3: pseudonyms used to be keyed by `SHA-256(constant + data_dir)`, which is
+    // derivable from a guessable path; the key is now 32 random bytes persisted
+    // in the data dir. It must still be stable across runs/instances.
+    #[test]
+    fn pseudonyms_are_stable_per_data_dir_and_distinct_across_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = redactor_for_dir(dir.path());
+        let second = redactor_for_dir(dir.path());
+        assert_eq!(
+            first.pseudonym("email", "alice@example.com"),
+            second.pseudonym("email", "alice@example.com")
+        );
+
+        let other = tempfile::tempdir().unwrap();
+        assert_ne!(
+            first.pseudonym("email", "alice@example.com"),
+            redactor_for_dir(other.path()).pseudonym("email", "alice@example.com")
+        );
+
+        assert!(dir.path().join(REDACTION_KEY_FILE).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn redaction_key_file_is_owner_only_on_unix() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let _ = redactor_for_dir(dir.path());
+        let mode = std::fs::metadata(dir.path().join(REDACTION_KEY_FILE))
+            .unwrap()
+            .permissions()
+            .mode();
+
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     #[test]
@@ -729,8 +851,8 @@ mod tests {
     fn disabled_hashing_reports_redaction_as_the_effective_action() {
         let mut config = AgentAccessConfig::default();
         config.redaction.hash_identifiers = false;
-        let redactor =
-            Redactor::from_config(&config, Path::new("/tmp/aiproxy-redaction-test")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let redactor = Redactor::from_config(&config, dir.path()).unwrap();
         let output = redactor.redact_text("contact alice@example.com");
         assert_eq!(output.value, "contact [REDACTED]");
         assert!(output

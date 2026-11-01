@@ -7,9 +7,11 @@ import { logDevDebug, logDevInfo } from "@/services/logger/dev-logger";
 import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 const fallbackAppBuildInfo: AppBuildInfo = {
-  version: "0.1.0",
+  // `__APP_VERSION__` is injected from apps/desktop/package.json at build time,
+  // so the non-Tauri fallback cannot drift from the released version.
+  version: __APP_VERSION__,
   buildNumber: "0",
-  versionIdentifier: "0.1.0+0",
+  versionIdentifier: `${__APP_VERSION__}+0`,
   commitHash: "dev",
 };
 

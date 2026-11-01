@@ -1162,10 +1162,17 @@ async fn create_response_spool_file(
 /// those exits previously leaked the partial spool file into the temp dir.
 /// The guard deletes it on drop; the success path calls [`take`](Self::take)
 /// to hand ownership to the returned `UpstreamResponse`.
-struct SpooledResponsePathGuard(Option<PathBuf>);
+pub(crate) struct SpooledResponsePathGuard(Option<PathBuf>);
 
 impl SpooledResponsePathGuard {
-    fn take(&mut self) -> Option<PathBuf> {
+    /// Own `path` until [`take`](Self::take) hands it on. Callers that took a
+    /// spool path out of an `UpstreamResponse` use this so an early `?` deletes
+    /// the file instead of leaking it (P3).
+    pub(crate) fn new(path: PathBuf) -> Self {
+        Self(Some(path))
+    }
+
+    pub(crate) fn take(&mut self) -> Option<PathBuf> {
         self.0.take()
     }
 }

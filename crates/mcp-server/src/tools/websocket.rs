@@ -14,7 +14,8 @@ use super::sessions::require_session_id;
 pub struct GetWebSocketMessagesRequest {
     /// Exact session id or a unique prefix of at least 8 characters.
     pub session_id: String,
-    /// Exact direction filter: client or server, case-insensitive.
+    /// Direction filter: `clientToServer` or `serverToClient` (case-insensitive).
+    /// The aliases `client` and `server` are accepted and normalized.
     pub direction: Option<String>,
     /// Case-insensitive substring matched against text payloads.
     pub keyword: Option<String>,
@@ -44,18 +45,20 @@ pub async fn get_messages(
             "WebSocket messages are unavailable until AIProxy migrates the database. Open AIProxy once, then retry.",
         ));
     }
+    // P3: the JSON schema told the model to pass `client` / `server`, while the
+    // implementation only accepted the storage values. Accept both (and any
+    // casing) and normalize, so a schema-following call no longer fails.
     if let Some(direction) = &request.direction {
-        if direction != "clientToServer" && direction != "serverToClient" {
-            return Err(ToolError::invalid(
-                "direction must be clientToServer or serverToClient",
-            ));
-        }
+        normalize_direction(direction)?;
     }
 
     let redactor = Redactor::from_config(&config, &state.paths.data_dir)
         .map_err(|message| ToolError::new("INVALID_REDACTION_CONFIG", message))?;
     let session_id = require_session_id(state, &request.session_id).await?;
-    let direction = request.direction;
+    let direction = match request.direction.as_deref() {
+        Some(value) => Some(normalize_direction(value)?),
+        None => None,
+    };
     let keyword = request.keyword;
     let limit = request.limit.unwrap_or(50).clamp(1, 100);
     let cursor = request.cursor;
@@ -107,4 +110,50 @@ pub async fn get_messages(
         json!({ "items": items }),
         ToolMeta::new(page.truncated, true, page.next_cursor),
     ))
+}
+
+/// Map a caller-supplied direction onto the stored value, accepting the schema's
+/// `client` / `server` aliases in any casing.
+fn normalize_direction(value: &str) -> Result<String, ToolError> {
+    let normalized = value.trim();
+    if normalized.eq_ignore_ascii_case("clientToServer")
+        || normalized.eq_ignore_ascii_case("client")
+        || normalized.eq_ignore_ascii_case("c2s")
+    {
+        return Ok("clientToServer".to_string());
+    }
+    if normalized.eq_ignore_ascii_case("serverToClient")
+        || normalized.eq_ignore_ascii_case("server")
+        || normalized.eq_ignore_ascii_case("s2c")
+    {
+        return Ok("serverToClient".to_string());
+    }
+
+    Err(ToolError::invalid(
+        "direction must be clientToServer or serverToClient (client/server are accepted aliases)",
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // P3: the JSON schema advertised `client` / `server`, but the tool only
+    // accepted the storage values, so a schema-following call failed.
+    #[test]
+    fn normalizes_direction_aliases_and_rejects_unknown_values() {
+        assert_eq!(normalize_direction("client").unwrap(), "clientToServer");
+        assert_eq!(
+            normalize_direction("CLIENTTOSERVER").unwrap(),
+            "clientToServer"
+        );
+        assert_eq!(normalize_direction("c2s").unwrap(), "clientToServer");
+        assert_eq!(normalize_direction("server").unwrap(), "serverToClient");
+        assert_eq!(normalize_direction(" Server ").unwrap(), "serverToClient");
+        assert_eq!(normalize_direction("s2c").unwrap(), "serverToClient");
+
+        for invalid in ["", "both", "upstream"] {
+            assert!(normalize_direction(invalid).is_err(), "{invalid}");
+        }
+    }
 }

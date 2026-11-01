@@ -2642,7 +2642,7 @@ type AgentAuditLog = {
 - 每次成功调用都会按 `limits.maxResponseBytes` 检查 `data` 的序列化大小；超限返回 `RESULT_TOO_LARGE`，`details` 包含 `resultBytes` 与 `maxResponseBytes`。调用方应减少 `limit`、改用 `compact` / `fields`，或拆分批量请求，不得静默截断后当作完整结果。
 
 - `search_sessions`：支持 `sortBy=startedAt|durationMs|sizeBytes|statusCode` 与 `sortOrder=asc|desc`；同值按 `started_at`、`id` 确定性排序。cursor v2 绑定排序字段、方向和当前排序值，不匹配时返回 `CURSOR_INVALID`。
-- `get_websocket_messages`：`timestamp ASC, id ASC`，不透明 cursor。
+- `get_websocket_messages`：`direction` 大小写不敏感，接受 `clientToServer` / `serverToClient` 及 `client` / `server` / `c2s` / `s2c` 别名（统一规范化后查询）；`timestamp ASC, id ASC`，不透明 cursor。
 - `wait_for_sessions`：只轮询已完成的持久化会话，最长 30 秒，间隔 300ms；不是实时流。`afterWatermark` 省略时以调用时刻最新完成会话为起点。超时返回 `satisfied=false`、`timedOut=true`，不是工具错误；抓包未运行时 `notes` 会明确提示。分页结果与下一轮 `meta.watermark` 一起使用。
 - `export_session_as_curl`：只生成命令，不发送请求。支持 `posix` / `powershell` 转义；敏感 Header、Query 与 JSON 字段在脱敏模式下替换为环境变量占位符，二进制或超过 64 KiB 的文本 Body 直接省略并说明原因；raw 模式需要 `readRawBodies`。每次导出使用独立标记，只有本次导出生成的占位符才会渲染为环境变量；抓包文本中的相似前缀按字面量转义，环境变量名仅允许 `[A-Z0-9_]`。
 
@@ -2760,7 +2760,7 @@ Body 与字段提取：
 - `jsonPaths` 的对象 `[*]` 按源文件中的 key 顺序返回；同一对象内重复 key 以最后一个值为准。所有 `jsonPaths` 请求共享这一语义，不按 Body 大小切换实现。
 - 单个目标值最多返回 `64 KiB`。标量超限时返回有界前缀、`truncated=true` 和 `valueSummary`；对象或数组超限时返回 `value=null`、`truncated=true` 和一层 `valueSummary`。摘要最多 `32` 个对象 key、`16` 个数组项和 `4 KiB`；对象包含 `kind`、`keyCount`、`returnedKeys`、`keys[]`，数组包含 `kind`、`arrayLength`、`items[]`。复杂子节点的 `sizeBytes` 为 `null`，不得为计算精确大小再次整棵物化。
 - 单路径最多保存 `256` 个匹配，超限继续消费文档但标记 `truncated=true`。单次 `jsonPaths` 字段载荷在扫描期限制为 `960 KiB`，为响应 envelope 和可能的 `textMatches` 留出空间；达到预算后不再保存新字段，对应结果带 `omittedByResultLimit=true`，整体 `truncatedReasons` 含 `resultLimit`。最终工具响应仍受 Agent Access `maxResponseBytes`（默认 `1 MiB`）检查，超限返回 `RESULT_TOO_LARGE`。
-- `jsonPaths` 的 `viewSizeBytes` 统一表示提取结果数组的序列化大小；`returnedBytes` 统计 `jsonPaths` 与 `textMatches` 载荷，不包含被跳过的 Body。`hash` 仍为整个 decoded Body 的 SHA-256，`scope="decodedBody"`。`structureParsed=true` 表示完整文档已成功解析；不会返回“已命中字段但尾部损坏”的部分成功。
+- `jsonPaths` 的 `viewSizeBytes` 统一表示提取结果数组的序列化大小；`returnedBytes` 统计 `jsonPaths` 与 `textMatches` 载荷，不包含被跳过的 Body。`hash` 仅在 `raw` 模式下返回整个 decoded Body 的 SHA-256（`scope="decodedBody"`）；脱敏视图（`redacted-text` / 表单提取等）返回 `hash=null`，避免把原始字节摘要变成短 Body 的离线爆破对照。`structureParsed=true` 表示完整文档已成功解析；不会返回“已命中字段但尾部损坏”的部分成功。
 - `captureTruncated=true` 表示抓包阶段已截断。若截断字节仍构成完整 JSON，则返回字段并保留 `truncatedReasons` 中的 `captureLimit`；若 JSON 不完整，则返回 `BODY_NOT_JSON` 和 `details.captureTruncated=true`，不返回部分字段。
 - `textQuery` 在脱敏文本视图中搜索，最多 20 个命中，`contextBytes` 默认 120、最大 1024。
 - `textQuery` 仍需要完整脱敏文本视图，扫描上限为 `8 MiB`；超过时返回 `BODY_TOO_LARGE` 且 `details.reason="scanLimit"`。`jsonPaths` 与 `textQuery` 混用时也受该上限约束，超限提示拆分为 `jsonPaths` 和 `textQuery` 两次调用。
@@ -2829,7 +2829,7 @@ Body 与字段提取：
 脱敏配置位于 `agent-access.json` 的 `redaction` 字段；内存契约版本为 `3`，磁盘兼容信封版本为 `2`：
 
 - `detectSensitiveValues`：按值格式识别 JWT、Bearer、邮箱、手机号、设备 ID、地址等。
-- `hashIdentifiers`：标识符使用本地稳定 HMAC 伪名，例如 `[ID:xxxxxxxx]`，仅用于关联，不可反推。
+- `hashIdentifiers`：标识符使用本地稳定 HMAC 伪名，例如 `[ID:xxxxxxxx]`，仅用于关联，不可反推。HMAC 密钥在首次使用时随机生成并持久化到数据目录的 `agent-redaction.key`（Unix 下权限 `0600`），不随日志、导出或诊断外发；无法写入时降级为路径派生密钥并记录 `redaction_key_write_failed` 警告。删除该文件会使已有伪名与之后的伪名失去关联。
 - `customSensitiveKeys`：最多 50 个自定义敏感字段名。
 - `customPatterns`：最多 20 条 `{ name, pattern, action: "redact" | "hash" }`，单条 pattern 最长 512 字符；无效正则返回 `INVALID_REDACTION_CONFIG`。
 

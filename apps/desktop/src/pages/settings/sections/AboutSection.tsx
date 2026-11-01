@@ -35,7 +35,9 @@ export function AboutSection() {
     queryKey: ["app-build-info"],
     queryFn: getAppBuildInfo,
   });
-  const version = buildInfo?.version ?? "0.1.0";
+  // While the build-info query is in flight, show the version compiled into this
+  // bundle instead of a stale hard-coded fallback.
+  const version = buildInfo?.version ?? __APP_VERSION__;
   const buildNumber = buildInfo?.buildNumber ?? "0";
   const versionIdentifier = buildInfo?.versionIdentifier ?? `${version}+${buildNumber}`;
   const commitHash = buildInfo?.commitHash ?? "dev";

@@ -3,15 +3,27 @@
 // makes tsc reject the `test` key below.
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
 
 // User guides are bundled into the desktop app; @docs points at their source so
 // docs-content.ts can import them as raw strings (single source of truth).
 const docsGuidesDir = fileURLToPath(new URL("./user-guides", import.meta.url));
 
+// Single source for `__APP_VERSION__` (fallback build info and HAR creator
+// metadata): the version released with this desktop package.
+const appVersion = (
+  JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as {
+    version: string;
+  }
+).version;
+
 export default defineConfig({
   base: "./",
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   build: {
     target: "esnext",
     cssCodeSplit: true,
@@ -34,7 +46,11 @@ export default defineConfig({
             if (id.includes("react-router")) {
               return "router-vendor";
             }
-            if (id.includes("/react-dom/") || id.includes("/scheduler/") || id.includes("/react/")) {
+            if (
+              id.includes("/react-dom/") ||
+              id.includes("/scheduler/") ||
+              id.includes("/react/")
+            ) {
               return "react-vendor";
             }
             if (id.includes("@tanstack")) {

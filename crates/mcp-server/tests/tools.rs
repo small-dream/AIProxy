@@ -400,6 +400,14 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
     let body_text = body_data["text"].as_str().unwrap();
     assert!(!body_text.contains("secret-left"), "{body_text}");
     assert!(body_meta.redacted);
+    // P3: the returned-view range hash is safe (it digests what the caller
+    // already sees), but the digest of the ORIGINAL bytes must never accompany a
+    // redacted view.
+    assert_ne!(
+        body_data["hash"]["scope"], "decodedBody",
+        "redacted body view leaked a raw-body digest: {}",
+        body_data["hash"]
+    );
 
     let raw_error = get_session_body(
         &context,
@@ -446,6 +454,13 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
     );
     assert!(field_body["returnedBytes"].as_u64().unwrap() < 500);
     assert!(field_body.get("text").is_some_and(Value::is_null));
+    // P3: a redacted field-selection view carries no digest of the raw body —
+    // it would be a brute-force oracle for a short secret value.
+    assert!(
+        field_body["hash"].is_null(),
+        "redacted jsonPaths view leaked a raw-body digest: {}",
+        field_body["hash"]
+    );
 
     let (searched_body, _) = get_session_body(
         &context,

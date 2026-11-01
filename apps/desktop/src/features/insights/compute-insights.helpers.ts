@@ -229,12 +229,40 @@ export function computeInsightsFromSummaries(
     .map((summary) => summary.durationMs)
     .sort((a, b) => a - b);
 
-  const hostBuckets = new Map<string, SessionSummary[]>();
+  // P3: bucket by the normalized host (the backend groups with `LOWER(host)`)
+  // and accumulate counters instead of copying a growing array per request —
+  // the previous `[...previous, summary]` was O(n²) for a single hot host.
+  type HostBucket = {
+    errorCount: number;
+    durationsMs: number[];
+    host: string;
+    requestCount: number;
+    totalBytes: number;
+    totalDurationMs: number;
+  };
+  const hostBuckets = new Map<string, HostBucket>();
   const statusCodeCounts = new Map<number, number>();
   const methodCounts = new Map<string, number>();
 
   for (const summary of filteredSummaries) {
-    hostBuckets.set(summary.host, [...(hostBuckets.get(summary.host) ?? []), summary]);
+    const host = normalizeHostValue(summary.host);
+    const bucket = hostBuckets.get(host) ?? {
+      durationsMs: [],
+      errorCount: 0,
+      host,
+      requestCount: 0,
+      totalBytes: 0,
+      totalDurationMs: 0,
+    };
+    bucket.requestCount += 1;
+    bucket.totalDurationMs += summary.durationMs;
+    bucket.totalBytes += summary.sizeBytes;
+    bucket.durationsMs.push(summary.durationMs);
+    if (summary.statusCode >= 400) {
+      bucket.errorCount += 1;
+    }
+    hostBuckets.set(host, bucket);
+
     // statusCode 0 means the request is still in flight (no response yet); it is
     // not a real HTTP status code, so it is excluded from the distribution.
     if (summary.statusCode > 0) {
@@ -255,24 +283,15 @@ export function computeInsightsFromSummaries(
     p95DurationMs: percentile(sortedDurations, 95),
     p99DurationMs: percentile(sortedDurations, 99),
     totalBytes,
-    byHost: Array.from(hostBuckets.entries())
-      .map(([host, hostSummaries]) => {
-        const hostDurations = hostSummaries
-          .map((summary) => summary.durationMs)
-          .sort((a, b) => a - b);
-        const requestCount = hostSummaries.length;
-        return {
-          host,
-          requestCount,
-          errorCount: hostSummaries.filter((summary) => summary.statusCode >= 400).length,
-          avgDurationMs:
-            requestCount > 0
-              ? hostSummaries.reduce((sum, summary) => sum + summary.durationMs, 0) / requestCount
-              : 0,
-          p95DurationMs: percentile(hostDurations, 95),
-          totalBytes: hostSummaries.reduce((sum, summary) => sum + summary.sizeBytes, 0),
-        };
-      })
+    byHost: Array.from(hostBuckets.values())
+      .map((bucket) => ({
+        host: bucket.host,
+        requestCount: bucket.requestCount,
+        errorCount: bucket.errorCount,
+        avgDurationMs: bucket.requestCount > 0 ? bucket.totalDurationMs / bucket.requestCount : 0,
+        p95DurationMs: percentile(bucket.durationsMs.slice().sort(compareNumberAsc), 95),
+        totalBytes: bucket.totalBytes,
+      }))
       .sort((a, b) => b.requestCount - a.requestCount || compareStringAsc(a.host, b.host))
       .slice(0, 50),
     byStatusCode: Array.from(statusCodeCounts.entries())

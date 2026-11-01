@@ -752,7 +752,11 @@ fn extract_body(
         };
         redacted_fields.extend(text_redaction_fields);
         if extraction.is_none() {
-            hash = Some(sha256_hex(raw_text.as_bytes()));
+            // Only raw mode may disclose the original digest (see the nulling
+            // below): a redacted view plus the raw hash is a guessing oracle.
+            if raw {
+                hash = Some(sha256_hex(raw_text.as_bytes()));
+            }
             structure_parsed = serde_json::from_str::<Value>(raw_text).is_ok();
         }
         let context_bytes = request
@@ -766,6 +770,14 @@ fn extract_body(
 
     if json_values.is_empty() {
         json_values = Vec::new();
+    }
+    // P3: the digest is computed over the ORIGINAL bytes. Exposing it alongside a
+    // redacted view gives a brute-force oracle for short bodies ("did this
+    // redacted payload contain token X?"), so only raw mode may disclose it. The
+    // redacted text view has its own `returnedViewRange` hash where a digest is
+    // useful.
+    if !raw {
+        hash = None;
     }
     let json_payload_size = if json_values.is_empty() {
         0
@@ -974,9 +986,20 @@ fn extract_form_body(
         "truncatedReasons": reasons,
         "redactedFields": redacted_fields,
         "structureParsed": !limited,
-        "hash": { "algorithm": "sha256", "value": sha256_hex(&body.bytes), "scope": "decodedBody" },
+        // P3: same rule as the JSON/text view — a redacted form view must not
+        // carry the digest of the original bytes (guess oracle for short bodies).
+        "hash": body_hash_value(raw, &body.bytes),
     });
     Ok((data, ToolMeta::new(truncated, !raw, None)))
+}
+
+/// Raw-byte digest exposed on a body view, or null for a redacted view.
+fn body_hash_value(raw: bool, bytes: &[u8]) -> Value {
+    if raw {
+        json!({ "algorithm": "sha256", "value": sha256_hex(bytes), "scope": "decodedBody" })
+    } else {
+        Value::Null
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2232,5 +2255,17 @@ mod tests {
         let details = batch.details.unwrap();
         assert_eq!(details["reason"], "batchScanLimit");
         assert_eq!(details["batchScanLimitBytes"], MAX_BATCH_JSON_SCAN_BYTES);
+    }
+
+    // P3: hashing the ORIGINAL bytes next to a redacted view is a brute-force
+    // oracle ("did this body contain token X?"). Only raw mode may disclose it.
+    #[test]
+    fn body_hash_is_only_disclosed_in_raw_mode() {
+        assert_eq!(body_hash_value(false, b"secret"), Value::Null);
+
+        let disclosed = body_hash_value(true, b"secret");
+        assert_eq!(disclosed["algorithm"], "sha256");
+        assert_eq!(disclosed["scope"], "decodedBody");
+        assert_eq!(disclosed["value"], sha256_hex(b"secret"));
     }
 }

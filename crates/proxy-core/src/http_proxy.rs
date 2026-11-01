@@ -1179,6 +1179,11 @@ async fn stage_process_upstream_response(
     // the response body).
     let spool_path = upstream_response.spooled_response_path.take();
     let (response_body, streamed_content_length) = if let Some(spool_path) = spool_path {
+        // P3: the path was taken out of the response, so its own Drop no longer
+        // owns it. Keep a guard on it until the file is opened and handed to
+        // `CleanupStream`: a failed open (fd exhaustion, AV deleting the temp
+        // file, disk error) would otherwise leak the spool file forever.
+        let mut spool_guard = crate::upstream::SpooledResponsePathGuard::new(spool_path.clone());
         // The spool file holds the full, untruncated upstream body. Use its
         // on-disk size as the authoritative Content-Length so hyper emits a
         // fixed-length response (a StreamBody has no inherent length, and
@@ -1198,6 +1203,8 @@ async fn stage_process_upstream_response(
         let file = tokio::fs::File::open(&spool_path)
             .await
             .map_err(crate::ProxyError::IoError)?;
+        // The file opened: ownership moves to `CleanupStream` below.
+        drop(spool_guard.take());
         let reader_stream = tokio_util::io::ReaderStream::new(file);
         let cleaned = CleanupStream::new(reader_stream, spool_path);
         // StreamBody frames a Stream<Result<Frame<Bytes>, E>> as a Body.
