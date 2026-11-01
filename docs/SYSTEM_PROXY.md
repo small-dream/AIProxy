@@ -164,7 +164,8 @@ Windows 当前实现基于：
 
 恢复流程：
 
-1. 从快照恢复所有 gsettings 键值
+1. 从快照恢复所有 gsettings 键值（mode、http/https 的 host/port、ignore-hosts，以及 ftp/socks/use-same-proxy）
+2. 原本为空（`None`）的 host/port 会显式写回空串 / `0`，而不是跳过；否则该协议槽位会残留 AIProxy 地址，关闭系统代理后整机流量仍指向已停止的代理端口
 
 ### KDE Plasma (kwriteconfig6)
 
@@ -183,7 +184,9 @@ Windows 当前实现基于：
 
 ### GNOME 取值归一化
 
-`gsettings_get_optional` 在读取 `org.gnome.system.proxy` 的键值时，会将空串、`''`、`'none'` 三种值统一视为「未设置」（返回 `None`），避免把 GNOME 表达「无代理」的 `'none'` 误当成有效 host 捕获进快照。
+`gsettings_get_optional` 把空串 / `''` 视为「未设置」（`None`）；`gsettings get` 调用失败、或 port/布尔键返回无法解析的值时，**整次快照捕获返回错误**，不会生成「看似合法」的空快照。这样既不会把 GNOME 表达「无代理」的空值误当成有效 host，也不会因一次读取失败而在恢复时清空用户配置。
+
+恢复时 `None` 会写回空串（host）与 `0`（port），确保原本为空的协议槽位也会被清空，不残留 AIProxy 地址。
 
 ## 9. 已知限制
 

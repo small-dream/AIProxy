@@ -173,18 +173,18 @@ pub fn restore_system_proxy(snapshot: &LinuxSystemProxySnapshot) -> Result<(), S
 
 fn capture_gnome_snapshot() -> Result<GnomeProxySnapshot, String> {
     Ok(GnomeProxySnapshot {
-        mode: gsettings_get_value("mode"),
-        http_host: gsettings_get_optional("http", "host"),
-        http_port: gsettings_get_optional_u32("http", "port"),
-        https_host: gsettings_get_optional("https", "host"),
-        https_port: gsettings_get_optional_u32("https", "port"),
-        ignore_hosts: gsettings_get_list("ignore-hosts"),
+        mode: gsettings_get_value("mode")?,
+        http_host: gsettings_get_optional("http", "host")?,
+        http_port: gsettings_get_optional_u32("http", "port")?,
+        https_host: gsettings_get_optional("https", "host")?,
+        https_port: gsettings_get_optional_u32("https", "port")?,
+        ignore_hosts: gsettings_get_list("ignore-hosts")?,
         // M13: capture the rest of the schema (ftp, socks, use-same-proxy).
-        ftp_host: gsettings_get_optional("ftp", "host"),
-        ftp_port: gsettings_get_optional_u32("ftp", "port"),
-        socks_host: gsettings_get_optional("socks", "host"),
-        socks_port: gsettings_get_optional_u32("socks", "port"),
-        use_same_proxy: gsettings_get_optional_bool("use-same-proxy"),
+        ftp_host: gsettings_get_optional("ftp", "host")?,
+        ftp_port: gsettings_get_optional_u32("ftp", "port")?,
+        socks_host: gsettings_get_optional("socks", "host")?,
+        socks_port: gsettings_get_optional_u32("socks", "port")?,
+        use_same_proxy: gsettings_get_optional_bool("use-same-proxy")?,
     })
 }
 
@@ -221,25 +221,25 @@ fn restore_gnome(snapshot: Option<&GnomeProxySnapshot>) -> Result<(), String> {
         errors.push(format!("restore mode: {e}"));
     }
 
-    if let Some(ref host) = snapshot.http_host {
-        if let Err(e) = gsettings_set("http", "host", host) {
-            errors.push(format!("restore http host: {e}"));
-        }
+    // P1-6: restore EVERY protocol slot, including the ones that were empty
+    // before AIProxy took over. The previous `if let Some(...)` skipped them,
+    // so a user who had only http (https empty) ended up with https still
+    // pointing at the AIProxy port after "disable system proxy" — the mode was
+    // restored to `manual`, the recovery file was deleted, and the dead-port
+    // black hole became permanent. Empty host + port 0 is GNOME's "unset".
+    let http_host = restore_host(snapshot.http_host.as_deref());
+    if let Err(e) = gsettings_set("http", "host", http_host) {
+        errors.push(format!("restore http host: {e}"));
     }
-    if let Some(port) = snapshot.http_port {
-        if let Err(e) = gsettings_set("http", "port", &port.to_string()) {
-            errors.push(format!("restore http port: {e}"));
-        }
+    if let Err(e) = gsettings_set("http", "port", &restore_port(snapshot.http_port)) {
+        errors.push(format!("restore http port: {e}"));
     }
-    if let Some(ref host) = snapshot.https_host {
-        if let Err(e) = gsettings_set("https", "host", host) {
-            errors.push(format!("restore https host: {e}"));
-        }
+    let https_host = restore_host(snapshot.https_host.as_deref());
+    if let Err(e) = gsettings_set("https", "host", https_host) {
+        errors.push(format!("restore https host: {e}"));
     }
-    if let Some(port) = snapshot.https_port {
-        if let Err(e) = gsettings_set("https", "port", &port.to_string()) {
-            errors.push(format!("restore https port: {e}"));
-        }
+    if let Err(e) = gsettings_set("https", "port", &restore_port(snapshot.https_port)) {
+        errors.push(format!("restore https port: {e}"));
     }
     let ignore_refs: Vec<&str> = snapshot.ignore_hosts.iter().map(String::as_str).collect();
     if let Err(e) = gsettings_set_ignore_hosts(&ignore_refs) {
@@ -251,25 +251,19 @@ fn restore_gnome(snapshot: Option<&GnomeProxySnapshot>) -> Result<(), String> {
     // no-ops unless another tool changed them while the proxy was enabled.
     // Restoring keeps the snapshot faithful: a captured `mode='manual'` with
     // pre-existing socks/ftp entries reactivates those entries on restore.
-    if let Some(ref host) = snapshot.ftp_host {
-        if let Err(e) = gsettings_set("ftp", "host", host) {
-            errors.push(format!("restore ftp host: {e}"));
-        }
+    let ftp_host = restore_host(snapshot.ftp_host.as_deref());
+    if let Err(e) = gsettings_set("ftp", "host", ftp_host) {
+        errors.push(format!("restore ftp host: {e}"));
     }
-    if let Some(port) = snapshot.ftp_port {
-        if let Err(e) = gsettings_set("ftp", "port", &port.to_string()) {
-            errors.push(format!("restore ftp port: {e}"));
-        }
+    if let Err(e) = gsettings_set("ftp", "port", &restore_port(snapshot.ftp_port)) {
+        errors.push(format!("restore ftp port: {e}"));
     }
-    if let Some(ref host) = snapshot.socks_host {
-        if let Err(e) = gsettings_set("socks", "host", host) {
-            errors.push(format!("restore socks host: {e}"));
-        }
+    let socks_host = restore_host(snapshot.socks_host.as_deref());
+    if let Err(e) = gsettings_set("socks", "host", socks_host) {
+        errors.push(format!("restore socks host: {e}"));
     }
-    if let Some(port) = snapshot.socks_port {
-        if let Err(e) = gsettings_set("socks", "port", &port.to_string()) {
-            errors.push(format!("restore socks port: {e}"));
-        }
+    if let Err(e) = gsettings_set("socks", "port", &restore_port(snapshot.socks_port)) {
+        errors.push(format!("restore socks port: {e}"));
     }
     if let Some(value) = snapshot.use_same_proxy {
         if let Err(e) = gsettings_set_value("use-same-proxy", if value { "true" } else { "false" })
@@ -295,70 +289,85 @@ fn restore_gnome(snapshot: Option<&GnomeProxySnapshot>) -> Result<(), String> {
     Ok(())
 }
 
-fn gsettings_get(child_schema: &str, key: &str) -> String {
+/// Port argument for a restore. `None` means the key was empty at capture time
+/// (GNOME's "unset") and must be written back as 0; skipping it would leave the
+/// AIProxy port behind (P1-6).
+fn restore_port(port: Option<u32>) -> String {
+    port.unwrap_or(0).to_string()
+}
+
+/// Host argument for a restore. Empty slots must be actively cleared with an
+/// empty value; skipping the write leaves AIProxy's host behind (P1-6).
+fn restore_host(host: Option<&str>) -> &str {
+    match host {
+        Some(value) if !value.is_empty() => value,
+        _ => "",
+    }
+}
+
+/// Read one child-schema key. A failed `gsettings` invocation is an error, NOT
+/// an empty value: the caller must abort capture instead of writing a bogus
+/// snapshot (P1-6 — an empty snapshot is now restored as "clear this key", so a
+/// swallowed read failure would erase the user's configuration).
+fn gsettings_get(child_schema: &str, key: &str) -> Result<String, String> {
     let schema = format!("{GSETTINGS_PROXY_SCHEMA}.{child_schema}");
     let output = Command::new("gsettings")
         .args(["get", &schema, key])
-        .output();
+        .output()
+        .map_err(|e| format!("gsettings get {schema} {key}: {e}"))?;
 
-    match output {
-        Ok(o) if o.status.success() => {
-            let val = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            // Strip surrounding single quotes from gsettings output.
-            val.strip_prefix('\'')
-                .and_then(|v| v.strip_suffix('\''))
-                .map(str::to_string)
-                .unwrap_or(val)
-        }
-        _ => "'none'".to_string(),
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!("gsettings get {schema} {key} failed: {stderr}"));
     }
+
+    Ok(strip_gsettings_quotes(
+        String::from_utf8_lossy(&output.stdout).trim(),
+    ))
 }
 
-fn gsettings_get_optional(child_schema: &str, key: &str) -> Option<String> {
-    let val = gsettings_get(child_schema, key);
-    if val.is_empty() || val == "''" || val == "'none'" {
-        None
+/// `None` means the key holds an empty string (GNOME's "unset" value) and the
+/// snapshot must restore exactly that. Read failures are returned as `Err`.
+fn gsettings_get_optional(child_schema: &str, key: &str) -> Result<Option<String>, String> {
+    let val = gsettings_get(child_schema, key)?;
+    if val.is_empty() {
+        Ok(None)
     } else {
-        Some(val)
+        Ok(Some(val))
     }
 }
 
-fn gsettings_get_optional_u32(child_schema: &str, key: &str) -> Option<u32> {
-    let val = gsettings_get(child_schema, key);
-    val.parse::<u32>().ok().filter(|&p| p != 0)
+fn gsettings_get_optional_u32(child_schema: &str, key: &str) -> Result<Option<u32>, String> {
+    let val = gsettings_get(child_schema, key)?;
+    if val.is_empty() {
+        return Ok(None);
+    }
+    let port = val.parse::<u32>().map_err(|error| {
+        format!(
+            "gsettings returned a non-numeric value for {child_schema}.{key}: {val:?} ({error})"
+        )
+    })?;
+    Ok((port != 0).then_some(port))
 }
 
 /// M13: read a top-level boolean key (e.g. `use-same-proxy`) directly from the
 /// root GNOME proxy schema `org.gnome.system.proxy`. gsettings prints booleans
-/// as `true`/`false`. Returns None if the key is empty/missing or holds a
-/// non-boolean value.
-fn gsettings_get_optional_bool(key: &str) -> Option<bool> {
-    let output = Command::new("gsettings")
-        .args(["get", GSETTINGS_PROXY_SCHEMA, key])
-        .output();
-    let val = match output {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-        _ => return None,
-    };
+/// as `true`/`false`; any other value means the schema/read is broken and must
+/// fail capture rather than silently produce a partial snapshot.
+fn gsettings_get_optional_bool(key: &str) -> Result<Option<bool>, String> {
+    let val = gsettings_get_root(key)?;
     match val.as_str() {
-        "true" => Some(true),
-        "false" => Some(false),
-        _ => None,
+        "true" => Ok(Some(true)),
+        "false" => Ok(Some(false)),
+        "" => Ok(None),
+        other => Err(format!(
+            "gsettings returned a non-boolean value for {key}: {other:?}"
+        )),
     }
 }
 
-fn gsettings_get_list(key: &str) -> Vec<String> {
-    let output = Command::new("gsettings")
-        .args(["get", GSETTINGS_PROXY_SCHEMA, key])
-        .output();
-
-    match output {
-        Ok(o) if o.status.success() => {
-            let raw = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            parse_gsettings_array(&raw)
-        }
-        _ => Vec::new(),
-    }
+fn gsettings_get_list(key: &str) -> Result<Vec<String>, String> {
+    Ok(parse_gsettings_array(&gsettings_get_root(key)?))
 }
 
 fn gsettings_set(child_schema: &str, key: &str, value: &str) -> Result<(), String> {
@@ -376,22 +385,33 @@ fn gsettings_set(child_schema: &str, key: &str, value: &str) -> Result<(), Strin
     Ok(())
 }
 
-fn gsettings_get_value(key: &str) -> String {
+/// Read a top-level key exactly as gsettings prints it (quotes/array syntax
+/// preserved).
+fn gsettings_get_root(key: &str) -> Result<String, String> {
     let output = Command::new("gsettings")
         .args(["get", GSETTINGS_PROXY_SCHEMA, key])
-        .output();
+        .output()
+        .map_err(|e| format!("gsettings get {key}: {e}"))?;
 
-    match output {
-        Ok(o) if o.status.success() => {
-            let val = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            // Strip surrounding single quotes from gsettings output.
-            val.strip_prefix('\'')
-                .and_then(|v| v.strip_suffix('\''))
-                .map(str::to_string)
-                .unwrap_or(val)
-        }
-        _ => "'none'".to_string(),
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!("gsettings get {key} failed: {stderr}"));
     }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn gsettings_get_value(key: &str) -> Result<String, String> {
+    Ok(strip_gsettings_quotes(&gsettings_get_root(key)?))
+}
+
+/// gsettings prints string values as `'value'`; strip the surrounding single
+/// quotes so the snapshot stores the logical value.
+fn strip_gsettings_quotes(raw: &str) -> String {
+    raw.strip_prefix('\'')
+        .and_then(|value| value.strip_suffix('\''))
+        .map(str::to_string)
+        .unwrap_or_else(|| raw.to_string())
 }
 
 fn gsettings_set_value(key: &str, value: &str) -> Result<(), String> {
@@ -598,6 +618,30 @@ fn kread_config(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restore_port_clears_missing_slots() {
+        // P1-6: an empty pre-AIProxy port must be written as 0 (GNOME's unset
+        // value), not skipped, otherwise the AIProxy port survives disable.
+        assert_eq!(restore_port(None), "0");
+        assert_eq!(restore_port(Some(8888)), "8888");
+    }
+
+    #[test]
+    fn restore_host_clears_missing_slots() {
+        // P1-6: an empty pre-AIProxy host must be written back as an empty
+        // string, not skipped.
+        assert_eq!(restore_host(None), "");
+        assert_eq!(restore_host(Some("")), "");
+        assert_eq!(restore_host(Some("127.0.0.1")), "127.0.0.1");
+    }
+
+    #[test]
+    fn strips_gsettings_string_quotes() {
+        assert_eq!(strip_gsettings_quotes("'manual'"), "manual");
+        assert_eq!(strip_gsettings_quotes("''"), "");
+        assert_eq!(strip_gsettings_quotes("[ 'a' ]"), "[ 'a' ]");
+    }
 
     #[test]
     fn parses_empty_gvariant_array() {

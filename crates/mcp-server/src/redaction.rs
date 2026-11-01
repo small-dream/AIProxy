@@ -167,9 +167,45 @@ impl Redactor {
             return self.output(rendered, records);
         }
 
+        // P1-5: SSE/NDJSON/multi-document bodies are not ONE JSON document.
+        // Redact each line that itself carries a JSON object/array with the
+        // structured pass (so nested secrets are found), keep every other line
+        // byte-identical, then let the plain-text rules cover form bodies and
+        // bare tokens. A key regex alone cannot do this: `"credentials":
+        // {"password":"…"}` is a single non-secret key whose value consumes the
+        // nested secret.
         let mut records = Vec::new();
-        let output = self.redact_string_inner(text, "$text", &mut records);
+        let mut output = String::with_capacity(text.len());
+        for (index, line) in text.split('\n').enumerate() {
+            if index > 0 {
+                output.push('\n');
+            }
+            output.push_str(&self.redact_json_line(line, &mut records));
+        }
+
+        let output = self.redact_string_inner(&output, "$text", &mut records);
         self.output(output, records)
+    }
+
+    /// Redact one line that contains a JSON object/array (NDJSON, SSE `data:`).
+    /// Lines that do not parse as JSON are returned unchanged so non-JSON
+    /// content keeps its exact bytes.
+    fn redact_json_line(&self, line: &str, records: &mut Vec<RedactionRecord>) -> String {
+        let Some((prefix, candidate, suffix)) = split_json_segment(line) else {
+            return line.to_string();
+        };
+        let Ok(mut value) = serde_json::from_str::<Value>(candidate) else {
+            return line.to_string();
+        };
+        let before = records.len();
+        self.redact_json_value_inner(&mut value, "$", records);
+        if records.len() == before {
+            return line.to_string();
+        }
+        match serde_json::to_string(&value) {
+            Ok(serialized) => format!("{prefix}{serialized}{suffix}"),
+            Err(_) => line.to_string(),
+        }
     }
 
     pub fn redact_json_value(
@@ -342,6 +378,42 @@ impl Redactor {
                         action: "redact".to_string(),
                     });
                     format!("{key}{}{}", &captures[2], REDACTED_VALUE)
+                })
+                .into_owned();
+        }
+        if let Some(regex) = json_quoted_secret_regex() {
+            output = regex
+                .replace_all(&output, |captures: &regex::Captures<'_>| {
+                    let key = captures.get(1).map(|value| value.as_str()).unwrap_or("");
+                    let lower = key.trim().to_lowercase();
+                    let normalized: String = lower
+                        .chars()
+                        .filter(|character| {
+                            character.is_ascii_alphanumeric() || !character.is_ascii()
+                        })
+                        .collect();
+                    let is_custom = self
+                        .redaction
+                        .custom_sensitive_keys
+                        .iter()
+                        .any(|candidate| candidate == &lower || candidate == &normalized);
+                    if !is_custom && !is_secret_name(&normalized) {
+                        // Not a secret: keep the original text byte-for-byte.
+                        return captures
+                            .get(0)
+                            .map(|value| value.as_str().to_string())
+                            .unwrap_or_default();
+                    }
+                    records.push(RedactionRecord {
+                        path: path.to_string(),
+                        rule: if is_custom {
+                            format!("custom:{normalized}")
+                        } else {
+                            normalized
+                        },
+                        action: "redact".to_string(),
+                    });
+                    format!("\"{key}\"{}\"{REDACTED_VALUE}\"", &captures[2])
                 })
                 .into_owned();
         }
@@ -739,6 +811,42 @@ fn text_secret_regex() -> Option<&'static Regex> {
         .as_ref()
 }
 
+/// P1-5: quoted-key JSON rule for the plain-text fallback.
+///
+/// `redact_text` only gets a structured pass when the WHOLE input is one JSON
+/// document. SSE/NDJSON streams, BOM-prefixed JSON and concatenated documents
+/// fall back to `redact_string_inner`, whose only key rule required a bare
+/// `key:`/`key=` (no surrounding quotes) — so `{"password":"hunter2"}` leaked
+/// verbatim while the tool still reported `redacted=true`.
+///
+/// The key is classified with `is_secret_name` (plus the configured custom
+/// keys) in the replacement closure, so the word list stays in one place.
+fn json_quoted_secret_regex() -> Option<&'static Regex> {
+    static REGEX: OnceLock<Option<Regex>> = OnceLock::new();
+    REGEX
+        .get_or_init(|| {
+            Regex::new(
+                r#"(?i)"((?:[^"\\]|\\.)*)"(\s*:\s*)("(?:[^"\\]|\\.)*"|[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?|true|false|null|\{[^{}]*\}|\[[^\[\]]*\])"#,
+            )
+            .ok()
+        })
+        .as_ref()
+}
+
+/// Split one line into `(prefix, json, suffix)` when it carries a JSON
+/// object/array. Only short prefixes are accepted (SSE `data: `, a BOM) so text
+/// that merely contains a `{` is not treated as structured JSON.
+fn split_json_segment(line: &str) -> Option<(&str, &str, &str)> {
+    let start = line.find(['{', '['])?;
+    if start > 32 {
+        return None;
+    }
+    let (prefix, rest) = line.split_at(start);
+    let trimmed = rest.trim_end_matches(['\r', ' ', '\t']);
+    let suffix = &rest[trimmed.len()..];
+    Some((prefix, trimmed, suffix))
+}
+
 fn bearer_regex() -> Option<&'static Regex> {
     static REGEX: OnceLock<Option<Regex>> = OnceLock::new();
     REGEX
@@ -857,6 +965,62 @@ mod tests {
         assert!(!body.value.contains("device-123"));
         assert!(body.fields.contains(&"token".to_string()));
         assert!(body.fields.contains(&"email".to_string()));
+    }
+
+    #[test]
+    fn text_fallback_redacts_quoted_json_secrets() {
+        // P1-5: these bodies are valid JSON-in-parts but NOT a single JSON
+        // document, so `redact_text` falls back to the plain-text rules. The
+        // quoted-key rule must still find the secret (the old bare `key=value`
+        // rule did not, and the tool still reported redacted=true).
+        let redactor = redactor();
+        let cases = [
+            (r#"{"password":"hunter2"}"#, "hunter2"),
+            ("data: {\"access_token\":\"abc123\"}\n", "abc123"),
+            ("{\"a\":1}\n{\"token\":\"xyz\"}", "xyz"),
+            ("\u{FEFF}{\"client_secret\":\"s3cret\"}", "s3cret"),
+            (r#"{"user":{"password":"hunter2"}}"#, "hunter2"),
+            (
+                // Nested secret value in an NDJSON line (not a single JSON doc).
+                "{\"a\":1}\n{\"credentials\":{\"password\":\"hunter2\"}}",
+                "hunter2",
+            ),
+        ];
+
+        for (input, secret) in cases {
+            let output = redactor.redact_text(input);
+            assert!(
+                !output.value.contains(secret),
+                "leaked {secret} from {input}: {}",
+                output.value
+            );
+            assert!(
+                !output.fields.is_empty(),
+                "no redaction record for {input}: {}",
+                output.value
+            );
+        }
+    }
+
+    #[test]
+    fn text_fallback_leaves_non_secret_quoted_keys_untouched() {
+        let redactor = redactor();
+        let input = r#"{"status":"ok","count":3}"#;
+        let output = redactor.redact_text(input);
+        assert_eq!(output.value, input);
+        assert!(output.fields.is_empty());
+    }
+
+    #[test]
+    fn text_fallback_honours_custom_sensitive_keys() {
+        let mut config = AgentAccessConfig::default();
+        config.redaction.custom_sensitive_keys = vec!["x-custom".to_string()];
+        let dir = tempfile::tempdir().unwrap();
+        let redactor = Redactor::from_config(&config, dir.path()).unwrap();
+
+        let output = redactor.redact_text("{\"a\":1}\n{\"x-custom\":\"custom-secret\"}");
+        assert!(!output.value.contains("custom-secret"), "{}", output.value);
+        assert!(output.fields.iter().any(|field| field == "custom:xcustom"));
     }
 
     #[test]
