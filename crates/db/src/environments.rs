@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 
+use crate::numeric::read_u32;
 use crate::DbError;
 
 // ---------------------------------------------------------------------------
@@ -250,7 +251,7 @@ fn row_to_environment(row: &rusqlite::Row<'_>) -> rusqlite::Result<EnvironmentRo
     Ok(EnvironmentRow {
         id: row.get("id")?,
         name: row.get("name")?,
-        sort_order: row.get::<_, i32>("sort_order")? as u32,
+        sort_order: read_u32(row, "sort_order")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -263,7 +264,7 @@ fn row_to_env_variable(row: &rusqlite::Row<'_>) -> rusqlite::Result<EnvironmentV
         key: row.get("key")?,
         value: row.get("value")?,
         enabled: row.get::<_, i32>("enabled")? != 0,
-        sort_order: row.get::<_, i32>("sort_order")? as u32,
+        sort_order: read_u32(row, "sort_order")?,
     })
 }
 
@@ -273,7 +274,7 @@ fn row_to_global_variable(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalVar
         key: row.get("key")?,
         value: row.get("value")?,
         enabled: row.get::<_, i32>("enabled")? != 0,
-        sort_order: row.get::<_, i32>("sort_order")? as u32,
+        sort_order: read_u32(row, "sort_order")?,
     })
 }
 

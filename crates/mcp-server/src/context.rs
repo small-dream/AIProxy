@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use aiproxy_db::body_store::BodyStore;
@@ -17,13 +17,26 @@ use crate::status::read_capture_status;
 
 pub const TOOL_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// How often a failed schema probe is retried. The sidecar is long-lived: a
+/// user who starts the MCP client before AIProxy (or upgrades the app) is told
+/// to "open AIProxy once, then retry", so the cached failure must be re-checked
+/// without restarting the sidecar. A short throttle keeps a broken database
+/// from being reopened on every single tool call.
+const SCHEMA_RECHECK_INTERVAL: Duration = Duration::from_secs(2);
+
+#[derive(Clone)]
+struct SchemaProbe {
+    capabilities: Option<SchemaCapabilities>,
+    startup_error: Option<ToolError>,
+    last_checked: Option<Instant>,
+}
+
 #[derive(Clone)]
 pub struct AppContext {
     pub paths: AppPaths,
     pub body_store: BodyStore,
     pub audit: Arc<AuditLog>,
-    pub capabilities: Option<SchemaCapabilities>,
-    pub startup_error: Option<ToolError>,
+    schema: Arc<Mutex<SchemaProbe>>,
     pub sidecar_version: String,
 }
 
@@ -48,35 +61,71 @@ pub struct Freshness {
     pub capture_updated_at: Option<String>,
 }
 
-impl AppContext {
-    pub fn new(paths: AppPaths) -> Self {
-        let (capabilities, startup_error) = match open_read_only_database(&paths.db_path) {
-            Ok(connection) => match inspect_schema(&connection) {
-                Ok(capabilities) if capabilities.core_sessions => (Some(capabilities), None),
-                Ok(_) => (
-                    None,
-                    Some(ToolError::new(
-                        "SCHEMA_INCOMPATIBLE",
-                        "The AIProxy database is missing required session tables or columns. Open AIProxy once so it can run migrations, then retry.",
-                    )),
-                ),
-                Err(error) => (None, Some(crate::protocol::map_db_error(error, false))),
-            },
-            Err(DbError::Connection(message)) if message.contains("does not exist") => (
+fn probe_schema(db_path: &Path) -> SchemaProbe {
+    let (capabilities, startup_error) = match open_read_only_database(db_path) {
+        Ok(connection) => match inspect_schema(&connection) {
+            Ok(capabilities) if capabilities.core_sessions => (Some(capabilities), None),
+            Ok(_) => (
                 None,
-                Some(ToolError::new("AI_PROXY_NOT_INITIALIZED", message)),
+                Some(ToolError::new(
+                    "SCHEMA_INCOMPATIBLE",
+                    "The AIProxy database is missing required session tables or columns. Open AIProxy once so it can run migrations, then retry.",
+                )),
             ),
             Err(error) => (None, Some(crate::protocol::map_db_error(error, false))),
-        };
+        },
+        Err(DbError::Connection(message)) if message.contains("does not exist") => (
+            None,
+            Some(ToolError::new("AI_PROXY_NOT_INITIALIZED", message)),
+        ),
+        Err(error) => (None, Some(crate::protocol::map_db_error(error, false))),
+    };
+
+    SchemaProbe {
+        capabilities,
+        startup_error,
+        last_checked: Some(Instant::now()),
+    }
+}
+
+impl AppContext {
+    pub fn new(paths: AppPaths) -> Self {
+        let schema = Arc::new(Mutex::new(probe_schema(&paths.db_path)));
 
         Self {
             body_store: BodyStore::new(paths.body_dir.clone()),
             audit: Arc::new(AuditLog::new(paths.audit_path.clone())),
             paths,
-            capabilities,
-            startup_error,
+            schema,
             sidecar_version: env!("CARGO_PKG_VERSION").to_string(),
         }
+    }
+
+    /// Cached schema capabilities, re-probed when the last probe failed and the
+    /// retry throttle has elapsed.
+    pub fn capabilities(&self) -> Option<SchemaCapabilities> {
+        self.current_probe().capabilities
+    }
+
+    /// The cached startup failure, re-probed under the same throttle. `None`
+    /// once the database/schema becomes usable.
+    pub fn startup_error(&self) -> Option<ToolError> {
+        self.current_probe().startup_error
+    }
+
+    fn current_probe(&self) -> SchemaProbe {
+        let mut probe = self
+            .schema
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let recheck = probe.startup_error.is_some()
+            && probe
+                .last_checked
+                .is_none_or(|last| last.elapsed() >= SCHEMA_RECHECK_INTERVAL);
+        if recheck {
+            *probe = probe_schema(&self.paths.db_path);
+        }
+        probe.clone()
     }
 
     pub fn config(&self) -> Result<AgentAccessConfig, ToolError> {
@@ -98,7 +147,7 @@ impl AppContext {
     }
 
     pub fn freshness(&self) -> Freshness {
-        let latest_session_at = if self.startup_error.is_some() {
+        let latest_session_at = if self.startup_error().is_some() {
             None
         } else {
             match open_read_only_database(&self.paths.db_path) {
@@ -139,8 +188,8 @@ impl AppContext {
         T: Send + 'static,
         F: FnOnce(&aiproxy_db::rusqlite::Connection) -> Result<T, DbError> + Send + 'static,
     {
-        if let Some(error) = &self.startup_error {
-            return Err(error.clone());
+        if let Some(error) = self.startup_error() {
+            return Err(error);
         }
         let db_path = self.paths.db_path.clone();
         let task = tokio::task::spawn_blocking(move || {
@@ -200,9 +249,10 @@ impl AppContext {
 
     pub fn doctor_result(&self) -> Value {
         let config = self.config_for_doctor();
-        let database_readable = self.startup_error.is_none();
+        let probe = self.current_probe();
+        let database_readable = probe.startup_error.is_none();
         let config_readable = config.is_ok();
-        let capabilities = self.capabilities;
+        let capabilities = probe.capabilities;
         let schema_compatible = capabilities.is_some_and(|value| {
             value.core_sessions && value.session_details && value.body_references
         });
@@ -229,7 +279,7 @@ impl AppContext {
                 "message": "The AIProxy database could not be opened in read-only mode.",
             }));
         }
-        if let Some(error) = &self.startup_error {
+        if let Some(error) = &probe.startup_error {
             issues.push(json!({
                 "code": error.code,
                 "message": error.message,
@@ -280,7 +330,7 @@ impl AppContext {
                 "availableTools": available_tools(),
             },
         });
-        if let Some(error) = &self.startup_error {
+        if let Some(error) = &probe.startup_error {
             body["error"] = json!({ "code": error.code, "message": error.message });
         }
         if let Err(error) = &config {
@@ -334,4 +384,68 @@ pub fn available_tools() -> Vec<&'static str> {
 
 pub fn config_is_readable(path: &Path) -> bool {
     path.is_file()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_paths(name: &str) -> AppPaths {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("aiproxy_mcp_ctx_{name}_{unique}"));
+        std::fs::create_dir_all(&directory).unwrap();
+        AppPaths::resolve(Some(directory), None).unwrap()
+    }
+
+    // P1-8: the sidecar is long-lived and its error message tells the user to
+    // open AIProxy (run migrations) and retry. The probe must therefore be
+    // re-run instead of caching the startup failure for the process lifetime.
+    #[tokio::test]
+    async fn reprobes_schema_after_the_database_is_initialized() {
+        let paths = temp_paths("reprobe");
+        let db_path = paths.db_path.clone();
+        let context = AppContext::new(paths);
+
+        assert!(
+            context.startup_error().is_some(),
+            "a missing database must start in the error state"
+        );
+        assert!(context.capabilities().is_none());
+
+        // Simulate the user opening AIProxy, which creates/migrates the DB.
+        let connection = aiproxy_db::rusqlite::Connection::open(&db_path).unwrap();
+        aiproxy_db::schema::run_migrations(&connection).unwrap();
+        drop(connection);
+
+        // Skip the retry throttle without sleeping.
+        context
+            .schema
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .last_checked = None;
+
+        assert!(
+            context.startup_error().is_none(),
+            "the sidecar must recover without a restart"
+        );
+        assert!(context
+            .capabilities()
+            .is_some_and(|capabilities| capabilities.core_sessions));
+
+        // The same refresh is what `with_db` gates on.
+        let value = context
+            .with_db(|connection| {
+                connection
+                    .query_row("SELECT 1", [], |row| row.get::<_, i64>(0))
+                    .map_err(|error| DbError::query("select 1", error))
+            })
+            .await
+            .expect("tools must work after the schema becomes usable");
+        assert_eq!(value, 1);
+
+        let _ = std::fs::remove_dir_all(context.paths.data_dir.clone());
+    }
 }

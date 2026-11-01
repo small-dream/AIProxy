@@ -37,7 +37,7 @@ pub async fn get_messages(
         ));
     }
     if !state
-        .capabilities
+        .capabilities()
         .is_some_and(|capabilities| capabilities.websocket_messages)
     {
         return Err(ToolError::new(

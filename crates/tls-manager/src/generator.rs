@@ -132,10 +132,31 @@ impl RootCaPair {
         storage: &CertStorage,
         alpn_protocols: Option<Vec<Vec<u8>>>,
     ) -> Result<Arc<rustls::ServerConfig>, TlsManagerError> {
+        self.create_server_config_for_host(storage, alpn_protocols, None)
+    }
+
+    /// Like [`Self::create_server_config`], but the resolver falls back to
+    /// `fallback_host` when the ClientHello carries no SNI (P1-7). IP-literal
+    /// targets never send SNI (RFC 6066), and some clients omit it for DNS
+    /// names; without a fallback the resolver returns `None` and rustls aborts
+    /// the handshake with "no certificate available".
+    pub fn create_server_config_for_host(
+        &self,
+        storage: &CertStorage,
+        alpn_protocols: Option<Vec<Vec<u8>>>,
+        fallback_host: Option<&str>,
+    ) -> Result<Arc<rustls::ServerConfig>, TlsManagerError> {
         use crate::resolver::DynamicCertResolver;
 
         let sign_data = self.create_sign_data();
-        let resolver = DynamicCertResolver::new(sign_data, storage.clone());
+        let resolver = match fallback_host {
+            Some(host) => DynamicCertResolver::with_fallback_host(
+                sign_data,
+                storage.clone(),
+                Some(host.to_string()),
+            ),
+            None => DynamicCertResolver::new(sign_data, storage.clone()),
+        };
 
         let mut config = rustls::ServerConfig::builder()
             .with_no_client_auth()
@@ -189,6 +210,16 @@ fn dns_san(hostname: &str) -> Result<SanType, TlsManagerError> {
     let ia5 = Ia5String::try_from(hostname.to_string())
         .map_err(|e| TlsManagerError::GenerationFailed(format!("invalid hostname for SAN: {e}")))?;
     Ok(SanType::DnsName(ia5))
+}
+
+/// Build a SAN entry for a host: IP literals need an `iPAddress` SAN (browsers
+/// reject a `dNSName` entry for an IP target), DNS names keep the existing
+/// `dNSName` behaviour.
+fn host_san(hostname: &str) -> Result<SanType, TlsManagerError> {
+    if let Ok(ip) = hostname.parse::<std::net::IpAddr>() {
+        return Ok(SanType::IpAddress(ip));
+    }
+    dns_san(hostname)
 }
 
 /// `rcgen::date_time_ymd` values for a leaf cert's not_before, rolled back one
@@ -245,7 +276,7 @@ pub fn sign_host_certificate(
 ) -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>), TlsManagerError> {
     let mut params = CertificateParams::default();
     params.distinguished_name.push(DnType::CommonName, hostname);
-    params.subject_alt_names.push(dns_san(hostname)?);
+    params.subject_alt_names.push(host_san(hostname)?);
     params.key_usages.push(KeyUsagePurpose::DigitalSignature);
     params.key_usages.push(KeyUsagePurpose::KeyEncipherment);
     params
@@ -275,7 +306,7 @@ pub fn sign_host_certificate_from_data(
 ) -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>), TlsManagerError> {
     let mut params = CertificateParams::default();
     params.distinguished_name.push(DnType::CommonName, hostname);
-    params.subject_alt_names.push(dns_san(hostname)?);
+    params.subject_alt_names.push(host_san(hostname)?);
     params.key_usages.push(KeyUsagePurpose::DigitalSignature);
     params.key_usages.push(KeyUsagePurpose::KeyEncipherment);
     params
@@ -350,6 +381,27 @@ mod tests {
             .iter()
             .find(|ext| ext.oid == x509_parser::oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME);
         assert!(san.is_some(), "host cert should have SAN extension");
+    }
+
+    // P1-7: an IP-literal target needs an iPAddress SAN. Browsers ignore a
+    // dNSName entry for an IP target, so the previous SAN made those
+    // certificates fail hostname verification even when the handshake itself
+    // could proceed.
+    #[test]
+    fn signs_an_ip_literal_certificate_with_ip_san() {
+        let root_ca = RootCaPair::generate().unwrap();
+        let (cert_der, _key_der) = sign_host_certificate(&root_ca, "192.168.1.10").unwrap();
+        let (_, cert) = x509_parser::parse_x509_certificate(&cert_der).unwrap();
+        let san = cert
+            .subject_alternative_name()
+            .expect("SAN extension parses")
+            .expect("host cert should have a SAN extension");
+        match san.value.general_names.first().expect("one SAN entry") {
+            x509_parser::extensions::GeneralName::IPAddress(bytes) => {
+                assert_eq!(*bytes, [192, 168, 1, 10]);
+            }
+            other => panic!("expected an iPAddress SAN, got {other:?}"),
+        }
     }
 
     #[test]

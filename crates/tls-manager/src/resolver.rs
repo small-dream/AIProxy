@@ -11,6 +11,10 @@ use crate::storage::CertStorage;
 pub struct DynamicCertResolver {
     root_ca_sign_data: RootCaSignData,
     storage: CertStorage,
+    /// Host used when the ClientHello carries no SNI. IP-literal targets never
+    /// send SNI (RFC 6066), and some clients omit it for DNS names; without a
+    /// fallback the handshake fails with "no certificate available".
+    fallback_host: Option<String>,
 }
 
 impl DynamicCertResolver {
@@ -18,6 +22,19 @@ impl DynamicCertResolver {
         Self {
             root_ca_sign_data,
             storage,
+            fallback_host: None,
+        }
+    }
+
+    pub fn with_fallback_host(
+        root_ca_sign_data: RootCaSignData,
+        storage: CertStorage,
+        fallback_host: Option<String>,
+    ) -> Self {
+        Self {
+            root_ca_sign_data,
+            storage,
+            fallback_host,
         }
     }
 }
@@ -30,7 +47,12 @@ impl fmt::Debug for DynamicCertResolver {
 
 impl ResolvesServerCert for DynamicCertResolver {
     fn resolve(&self, client_hello: rustls::server::ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
-        let hostname = client_hello.server_name()?;
+        let hostname = match client_hello.server_name() {
+            Some(server_name) => server_name,
+            // No SNI: fall back to the CONNECT target this acceptor was built
+            // for (IP literals and clients that omit SNI).
+            None => self.fallback_host.as_deref()?,
+        };
 
         // Fast path: check the in-memory cache first. No per-host slot is
         // needed once a cert is cached.
@@ -155,5 +177,22 @@ mod tests {
         let sign_data = root_ca.create_sign_data();
         let storage = CertStorage::new_in_temp_dir();
         let _resolver = DynamicCertResolver::new(sign_data, storage);
+    }
+
+    // P1-7: the per-connection acceptor carries the CONNECT target as the
+    // resolver fallback, so a ClientHello without SNI (IP literal, or a client
+    // that omits SNI) still gets a certificate instead of aborting the
+    // handshake with "no certificate available".
+    #[test]
+    fn resolver_keeps_the_configured_fallback_host() {
+        let root_ca = RootCaPair::generate().unwrap();
+        let storage = CertStorage::new_in_temp_dir();
+        let resolver = DynamicCertResolver::with_fallback_host(
+            root_ca.create_sign_data(),
+            storage,
+            Some("192.168.1.10".to_string()),
+        );
+
+        assert_eq!(resolver.fallback_host.as_deref(), Some("192.168.1.10"));
     }
 }

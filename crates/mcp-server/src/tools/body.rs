@@ -1908,7 +1908,7 @@ fn body_truncation_reasons(
 
 fn require_session_details(state: &AppContext) -> Result<(), ToolError> {
     if state
-        .capabilities
+        .capabilities()
         .is_some_and(|capabilities| capabilities.session_details)
     {
         return Ok(());

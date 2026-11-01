@@ -490,7 +490,7 @@ fn truncate_chars(value: &str, max_chars: usize) -> (String, bool) {
 
 async fn load_recent_session_failures(state: &AppContext) -> Vec<SessionFailureEvidence> {
     if !state
-        .capabilities
+        .capabilities()
         .is_some_and(|capabilities| capabilities.session_failures)
     {
         return Vec::new();

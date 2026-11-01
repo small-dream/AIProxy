@@ -62,6 +62,22 @@ describe("PriorityField", () => {
     expect(field).toHaveValue(0);
   });
 
+  it("clamps values to the u32 priority range", () => {
+    const onCommit = vi.fn();
+    render(
+      <AppProviders>
+        <PriorityField value={100} label="Priority" onCommit={onCommit} />
+      </AppProviders>,
+    );
+
+    const field = screen.getByRole("spinbutton");
+    fireEvent.change(field, { target: { value: "-10" } });
+    expect(onCommit).toHaveBeenLastCalledWith(0);
+
+    fireEvent.change(field, { target: { value: "5000000000" } });
+    expect(onCommit).toHaveBeenLastCalledWith(4_294_967_295);
+  });
+
   it("syncs back when the value changes externally", () => {
     render(
       <AppProviders>

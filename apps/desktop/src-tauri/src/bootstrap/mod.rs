@@ -149,6 +149,19 @@ pub struct AppState {
     repository: Repository,
 }
 
+/// Startup rule loading used to be `if let Ok(rows)`, so one unreadable row
+/// silently left the whole category empty (P1-9). Keep failing open, but make
+/// the failure visible in the log with the dataset name.
+fn log_startup_load_failure(dataset: &'static str, error: &aiproxy_db::DbError) {
+    tracing::error!(
+        component = "desktop.bootstrap",
+        event = "startup_load_failed",
+        dataset = %dataset,
+        error = %error,
+        "startup_load_failed"
+    );
+}
+
 impl AppState {
     pub fn new(
         db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
@@ -208,39 +221,55 @@ impl AppState {
 
         let conn = self.repository.lock_or_recover("startup_load");
 
-        if let Ok(rows) = aiproxy_db::workspaces::load_all_workspaces(&conn) {
-            if !rows.is_empty() {
+        match aiproxy_db::workspaces::load_all_workspaces(&conn) {
+            Ok(rows) if !rows.is_empty() => {
                 self.workspace_manager
                     .set_workspaces(rows.into_iter().map(workspace_row_to_data).collect());
             }
+            Ok(_) => {}
+            Err(error) => log_startup_load_failure("workspaces", &error),
         }
-        if let Ok(rows) = aiproxy_db::rules::load_all_rewrite_rules(&conn) {
-            self.rewrite_manager
-                .set_rules(rows.into_iter().map(rewrite_row_to_rule).collect());
+        match aiproxy_db::rules::load_all_rewrite_rules(&conn) {
+            Ok(rows) => self
+                .rewrite_manager
+                .set_rules(rows.into_iter().map(rewrite_row_to_rule).collect()),
+            Err(error) => log_startup_load_failure("rewrite_rules", &error),
         }
-        if let Ok(rows) = aiproxy_db::rules::load_all_map_rules(&conn) {
-            self.map_manager
-                .set_rules(rows.into_iter().map(map_row_to_rule).collect());
+        match aiproxy_db::rules::load_all_map_rules(&conn) {
+            Ok(rows) => self
+                .map_manager
+                .set_rules(rows.into_iter().map(map_row_to_rule).collect()),
+            Err(error) => log_startup_load_failure("map_rules", &error),
         }
-        if let Ok(rows) = aiproxy_db::rules::load_all_script_rules(&conn) {
-            self.script_manager
-                .set_rules(rows.into_iter().map(script_row_to_rule).collect());
+        match aiproxy_db::rules::load_all_script_rules(&conn) {
+            Ok(rows) => self
+                .script_manager
+                .set_rules(rows.into_iter().map(script_row_to_rule).collect()),
+            Err(error) => log_startup_load_failure("script_rules", &error),
         }
-        if let Ok(rows) = aiproxy_db::rules::load_all_throttle_profiles(&conn) {
-            self.throttle_manager
-                .set_profiles(rows.into_iter().map(throttle_row_to_profile).collect());
+        match aiproxy_db::rules::load_all_throttle_profiles(&conn) {
+            Ok(rows) => self
+                .throttle_manager
+                .set_profiles(rows.into_iter().map(throttle_row_to_profile).collect()),
+            Err(error) => log_startup_load_failure("throttle_profiles", &error),
         }
-        if let Ok(rows) = aiproxy_db::rules::load_all_throttle_rules(&conn) {
-            self.throttle_manager
-                .set_rules(rows.into_iter().map(throttle_row_to_rule).collect());
+        match aiproxy_db::rules::load_all_throttle_rules(&conn) {
+            Ok(rows) => self
+                .throttle_manager
+                .set_rules(rows.into_iter().map(throttle_row_to_rule).collect()),
+            Err(error) => log_startup_load_failure("throttle_rules", &error),
         }
-        if let Ok(rows) = aiproxy_db::rules::load_breakpoint_rules(&conn) {
-            self.breakpoint_manager
-                .set_rules(rows.into_iter().map(breakpoint_row_to_rule).collect());
+        match aiproxy_db::rules::load_breakpoint_rules(&conn) {
+            Ok(rows) => self
+                .breakpoint_manager
+                .set_rules(rows.into_iter().map(breakpoint_row_to_rule).collect()),
+            Err(error) => log_startup_load_failure("breakpoint_rules", &error),
         }
-        if let Ok(rows) = aiproxy_db::rules::load_all_dns_mappings(&conn) {
-            self.dns_manager
-                .set_rules(rows.into_iter().map(dns_mapping_row_to_rule).collect());
+        match aiproxy_db::rules::load_all_dns_mappings(&conn) {
+            Ok(rows) => self
+                .dns_manager
+                .set_rules(rows.into_iter().map(dns_mapping_row_to_rule).collect()),
+            Err(error) => log_startup_load_failure("dns_mappings", &error),
         }
     }
 

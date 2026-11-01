@@ -20,6 +20,16 @@ type PriorityFieldProps = {
 // verbatim into five panels; keep one copy here. Callers pass the localized
 // label (the throttle page uses its own label) while the precedence hint is
 // read from the shared rulesPage.priorityHint key.
+
+// `priority` is a u32 on the Rust wire type: a negative value makes serde reject
+// the whole save, and a value above u32::MAX overflows it. Clamp before commit
+// so the field can never produce an unpersistable rule (P2-31).
+const MAX_RULE_PRIORITY = 4_294_967_295;
+
+function clampPriority(value: number): number {
+  return Math.min(MAX_RULE_PRIORITY, Math.max(0, Math.trunc(value)));
+}
+
 export function PriorityField(props: PriorityFieldProps) {
   const { t } = useI18n();
   // L3: priority is committed from a local text draft so clearing the field
@@ -43,12 +53,13 @@ export function PriorityField(props: PriorityFieldProps) {
         setPriorityText(e.target.value);
         const parsed = Number(e.target.value);
         if (Number.isFinite(parsed) && e.target.value.trim() !== "") {
-          props.onCommit(parsed);
+          props.onCommit(clampPriority(parsed));
         }
       }}
       onBlur={() => {
         const parsed = Number(priorityText);
-        const next = Number.isFinite(parsed) && priorityText.trim() !== "" ? parsed : 0;
+        const next =
+          Number.isFinite(parsed) && priorityText.trim() !== "" ? clampPriority(parsed) : 0;
         setPriorityText(String(next));
         if (props.value !== next) props.onCommit(next);
       }}

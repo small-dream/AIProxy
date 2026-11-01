@@ -572,7 +572,11 @@ pub(crate) async fn handle_connect_mitm<S: AsyncRead + AsyncWrite + Unpin + Send
         .await
         .map_err(ProxyError::IoError)?;
 
-    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_manager.server_config.clone());
+    // P1-7: build the acceptor with the CONNECT target as the resolver
+    // fallback. IP-literal clients never send SNI, so the shared config (whose
+    // resolver only sees SNI) would otherwise fail every such handshake.
+    let tls_acceptor =
+        tokio_rustls::TlsAcceptor::from(tls_manager.server_config_for_connect(&host));
     let tls_instant = Instant::now();
     // P1-3: bound the MITM TLS handshake. A client that completes the CONNECT
     // but then never sends the TLS ClientHello would otherwise hold this

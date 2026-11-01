@@ -787,6 +787,35 @@ impl std::fmt::Debug for TlsManager {
     }
 }
 
+impl TlsManager {
+    /// The server config to use for a MITM handshake to `host`.
+    ///
+    /// IP-literal targets never send SNI (RFC 6066) and some clients omit it
+    /// even for DNS names, so the shared config's resolver — which only knows
+    /// the SNI value — cannot answer those ClientHellos and rustls aborts the
+    /// handshake with "no certificate available" (P1-7). This per-connection
+    /// config carries the CONNECT target as the resolver fallback and shares
+    /// the same certificate cache/storage, so leaf certs are still signed once.
+    pub fn server_config_for_connect(&self, host: &str) -> Arc<tokio_rustls::rustls::ServerConfig> {
+        match self.root_ca.create_server_config_for_host(
+            &self.storage,
+            Some(self.server_config.alpn_protocols.clone()),
+            Some(host),
+        ) {
+            Ok(config) => config,
+            Err(error) => {
+                tracing::warn!(
+                    event = "tls_server_config_for_host_failed",
+                    host = %host,
+                    error = %error,
+                    "tls_server_config_for_host_failed"
+                );
+                Arc::clone(&self.server_config)
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ParsedProxyRequest {
     pub(crate) body: Vec<u8>,

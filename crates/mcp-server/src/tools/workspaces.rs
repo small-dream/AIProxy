@@ -24,7 +24,7 @@ pub async fn list_workspaces(
         ));
     }
     if !state
-        .capabilities
+        .capabilities()
         .is_some_and(|capabilities| capabilities.workspaces)
     {
         return Err(ToolError::new(

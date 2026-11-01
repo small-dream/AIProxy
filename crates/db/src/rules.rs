@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 
+use crate::numeric::read_u32;
 use crate::DbError;
 
 /// Maximum number of bound variables per statement. SQLite caps this at
@@ -104,7 +105,7 @@ pub fn load_rewrite_rules(
                 name: row.get(2)?,
                 note: row.get(3)?,
                 enabled: row.get::<_, i32>(4)? != 0,
-                priority: row.get::<_, i32>(5)? as u32,
+                priority: read_u32(row, 5)?,
                 match_methods: row.get(6)?,
                 match_stage: row.get(7)?,
                 match_url_pattern: row.get(8)?,
@@ -137,7 +138,7 @@ pub fn load_all_rewrite_rules(conn: &Connection) -> Result<Vec<RewriteRuleRow>, 
                 name: row.get(2)?,
                 note: row.get(3)?,
                 enabled: row.get::<_, i32>(4)? != 0,
-                priority: row.get::<_, i32>(5)? as u32,
+                priority: read_u32(row, 5)?,
                 match_methods: row.get(6)?,
                 match_stage: row.get(7)?,
                 match_url_pattern: row.get(8)?,
@@ -254,7 +255,7 @@ pub fn load_all_map_rules(conn: &Connection) -> Result<Vec<MapRuleRow>, DbError>
                 enabled: row.get::<_, i32>(5)? != 0,
                 preserve_path: row.get::<_, i32>(6)? != 0,
                 preserve_query: row.get::<_, i32>(7)? != 0,
-                priority: row.get::<_, i32>(8)? as u32,
+                priority: read_u32(row, 8)?,
                 source_pattern: row.get(9)?,
                 target_value: row.get(10)?,
                 match_type: row.get(11)?,
@@ -368,7 +369,7 @@ pub fn load_map_runs_for_session(
                 mapped_url: row.get(10)?,
                 local_path: row.get(11)?,
                 duration_ms: row.get::<_, i64>(12)? as u128,
-                sequence: row.get::<_, i64>(13)? as u32,
+                sequence: read_u32(row, 13)?,
                 created_at: row.get(14)?,
             })
         })
@@ -513,9 +514,9 @@ pub fn load_all_throttle_profiles(conn: &Connection) -> Result<Vec<ThrottleProfi
                 note: row.get(3)?,
                 enabled: row.get::<_, i32>(4)? != 0,
                 preset: row.get::<_, i32>(5)? != 0,
-                latency_ms: row.get::<_, i32>(6)? as u32,
-                upload_kbps: row.get::<_, i32>(7)? as u32,
-                download_kbps: row.get::<_, i32>(8)? as u32,
+                latency_ms: read_u32(row, 6)?,
+                upload_kbps: read_u32(row, 7)?,
+                download_kbps: read_u32(row, 8)?,
                 packet_loss_ratio: row.get(9)?,
             })
         })
@@ -661,7 +662,7 @@ pub fn load_all_throttle_rules(conn: &Connection) -> Result<Vec<ThrottleRuleRow>
                 name: row.get(2)?,
                 note: row.get(3)?,
                 enabled: row.get::<_, i32>(4)? != 0,
-                priority: row.get::<_, i32>(5)? as u32,
+                priority: read_u32(row, 5)?,
                 profile_id: row.get(6)?,
                 url_pattern: row.get(7)?,
                 methods: row.get(8)?,
@@ -774,7 +775,7 @@ pub fn load_throttle_runs_for_session(
                 transfer_delay_ms: row.get::<_, i64>(11)? as u64,
                 body_bytes: row.get::<_, i64>(12)? as usize,
                 message: row.get(13)?,
-                sequence: row.get::<_, i64>(14)? as u32,
+                sequence: read_u32(row, 14)?,
                 created_at: row.get(15)?,
             })
         })
@@ -959,7 +960,7 @@ pub fn load_all_dns_mappings(conn: &Connection) -> Result<Vec<DnsMappingRow>, Db
                 name: row.get(2)?,
                 note: row.get(3)?,
                 enabled: row.get::<_, i32>(4)? != 0,
-                priority: row.get::<_, i32>(5)? as u32,
+                priority: read_u32(row, 5)?,
                 host_pattern: row.get(6)?,
                 target_ip: row.get(7)?,
                 match_type: row.get(8)?,
@@ -1137,7 +1138,7 @@ pub fn load_all_script_rules(conn: &Connection) -> Result<Vec<ScriptRuleRow>, Db
                 name: row.get(2)?,
                 note: row.get(3)?,
                 enabled: row.get::<_, i32>(4)? != 0,
-                priority: row.get::<_, i32>(5)? as u32,
+                priority: read_u32(row, 5)?,
                 match_methods: row.get(6)?,
                 match_stage: row.get(7)?,
                 match_url_pattern: row.get(8)?,
@@ -1302,7 +1303,7 @@ pub fn load_script_run_entries(
                     key: row.get(4)?,
                     message: row.get(5)?,
                     payload_json: row.get(6)?,
-                    seq: row.get::<_, i32>(7)? as u32,
+                    seq: read_u32(row, 7)?,
                 })
             })
             .map_err(|e| DbError::query("query script run entries", e))?;
@@ -1480,7 +1481,7 @@ pub fn load_rewrite_run_entries(
                     before_value: row.get(4)?,
                     after_value: row.get(5)?,
                     message: row.get(6)?,
-                    seq: row.get::<_, i32>(7)? as u32,
+                    seq: read_u32(row, 7)?,
                 })
             })
             .map_err(|e| DbError::query("query rewrite run entries", e))?;

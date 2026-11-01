@@ -57,6 +57,12 @@ describe("nextAppendedPriority", () => {
     expect(nextAppendedPriority([100, 50, 20])).toBe(10);
     expect(nextAppendedPriority([20, 10])).toBe(0);
   });
+
+  it("never assigns a negative priority (the wire type is u32)", () => {
+    // P2-31: 0 - 10 used to reach serde as -10 and fail the whole save.
+    expect(nextAppendedPriority([20, 0])).toBe(0);
+    expect(nextAppendedPriority([0])).toBe(0);
+  });
 });
 
 describe("resolveNewRulePriority", () => {

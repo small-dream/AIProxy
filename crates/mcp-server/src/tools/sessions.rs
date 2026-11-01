@@ -613,7 +613,7 @@ pub async fn get_session(
         .iter()
         .any(|item| !matches!(item, SessionInclude::Summary));
     let details_available = state
-        .capabilities
+        .capabilities()
         .is_some_and(|capabilities| capabilities.session_details);
     if needs_details && !details_available {
         return Err(ToolError::new(
@@ -623,7 +623,7 @@ pub async fn get_session(
     }
     let raw = request.redaction_mode == RedactionMode::Raw;
     let rule_traces_available = state
-        .capabilities
+        .capabilities()
         .map(|capabilities| capabilities.rule_traces)
         .unwrap_or(false);
     let session_id_for_query = session_id.clone();

@@ -5,6 +5,7 @@ pub mod connection;
 pub mod environments;
 pub mod error;
 pub mod insights;
+mod numeric;
 pub mod rules;
 pub mod schema;
 pub mod session_search;

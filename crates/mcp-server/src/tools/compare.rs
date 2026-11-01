@@ -80,7 +80,7 @@ pub async fn compare_sessions(
         ));
     }
     if !state
-        .capabilities
+        .capabilities()
         .is_some_and(|capabilities| capabilities.session_details)
     {
         return Err(ToolError::new(

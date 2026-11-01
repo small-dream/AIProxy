@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 
+use crate::numeric::read_u32;
 use crate::DbError;
 use std::collections::HashSet;
 
@@ -591,7 +592,7 @@ fn row_to_collection(row: &rusqlite::Row<'_>) -> rusqlite::Result<CollectionRow>
         parent_id: row.get("parent_id")?,
         name: row.get("name")?,
         description: row.get("description")?,
-        sort_order: row.get::<_, i32>("sort_order")? as u32,
+        sort_order: read_u32(row, "sort_order")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -603,7 +604,7 @@ fn row_to_collection_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Collectio
         collection_id: row.get("collection_id")?,
         name: row.get("name")?,
         description: row.get("description")?,
-        sort_order: row.get::<_, i32>("sort_order")? as u32,
+        sort_order: read_u32(row, "sort_order")?,
         method: row.get("method")?,
         url: row.get("url")?,
         headers: row.get("headers")?,

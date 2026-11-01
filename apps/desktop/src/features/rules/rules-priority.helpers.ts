@@ -40,7 +40,11 @@ export const DEFAULT_RULE_PRIORITY = 100;
  */
 export function nextAppendedPriority(existingPriorities: number[]): number {
   if (existingPriorities.length === 0) return DEFAULT_RULE_PRIORITY;
-  return Math.min(...existingPriorities) - 10;
+  // Never go below zero: `priority` is a u32 on the wire, so a negative value
+  // was rejected by serde and the save failed with a generic error (P2-31).
+  // A tie at 0 is harmless — the list stays deterministic and a reorder
+  // renumbers the affected rules.
+  return Math.max(0, Math.min(...existingPriorities) - 10);
 }
 
 /**
