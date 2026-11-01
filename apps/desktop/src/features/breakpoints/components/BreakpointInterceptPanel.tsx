@@ -1163,6 +1163,26 @@ export function BreakpointInterceptPanel() {
     [pendingHits, activeHitId],
   );
 
+  // The draft editors belong to the hit that was active when the user started
+  // editing. When the backend releases that hit (wait timeout, client
+  // disconnect) the store promotes another pending hit WITHOUT navigating, so
+  // reset every draft whenever the active hit identity changes. Otherwise
+  // Forward would send the previous request's headers/body to this one — a
+  // cross-host credential leak, or worse, overwrite this request's body.
+  const activeHitIdentity = activeHit
+    ? `${activeHit.sessionId}:${activeHit.stage}:${activeHit.receivedAt}`
+    : null;
+  useEffect(() => {
+    setEditedReqQueryParams(null);
+    setEditedReqHeaders(null);
+    setEditedReqBody(null);
+    setEditedRespStatusCode(null);
+    setEditedRespHeaders(null);
+    setEditedRespBody(null);
+    setMockMode(false);
+    setResolveError(null);
+  }, [activeHitIdentity]);
+
   const activeIdx = pendingHits.findIndex((h) => h.sessionId === activeHitId);
   const totalCount = pendingHits.length;
 

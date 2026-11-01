@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { BreakpointHit } from "@aiproxy/shared-types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -104,6 +104,67 @@ describe("BreakpointInterceptPanel", () => {
         }),
       );
     });
+  });
+
+  it("drops the previous hit's drafts when the backend releases the active hit", async () => {
+    const hitA = createHit({
+      host: "a.example.com",
+      path: "/a",
+      requestBody: { inlineText: "body-a", mimeType: "text/plain", sizeBytes: 6 },
+      requestHeaders: [{ name: "Content-Type", value: "text/plain" }],
+      sessionId: "hit-a",
+      url: "https://a.example.com/a",
+    });
+    const hitB = createHit({
+      host: "b.example.com",
+      path: "/b",
+      requestBody: { inlineText: "body-b", mimeType: "text/plain", sizeBytes: 6 },
+      requestHeaders: [{ name: "Content-Type", value: "text/plain" }],
+      sessionId: "hit-b",
+      url: "https://b.example.com/b",
+    });
+
+    useBreakpointStore.setState({
+      activeHitId: "hit-a",
+      pendingHits: [
+        { ...hitA, receivedAt: 1 },
+        { ...hitB, receivedAt: 2 },
+      ],
+      rules: [],
+    });
+
+    render(
+      <AppProviders>
+        <BreakpointInterceptPanel />
+      </AppProviders>,
+    );
+
+    // Edit hit A's body.
+    const requestBodyTab = screen.getAllByRole("tab", { name: "Body" })[0];
+    if (!requestBodyTab) throw new Error("Request body tab not found");
+    fireEvent.click(requestBodyTab);
+    fireEvent.change(
+      screen.getAllByLabelText("Body").find((element) => element.tagName === "TEXTAREA")!,
+      { target: { value: "edited-a" } },
+    );
+
+    // The backend releases A (timeout / client disconnect); the store promotes
+    // B without going through navigateHit.
+    act(() => {
+      useBreakpointStore.getState().removePendingHit("hit-a");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Forward" }));
+
+    await waitFor(() => {
+      expect(resolveBreakpoint).toHaveBeenCalledTimes(1);
+    });
+
+    const resolution = vi.mocked(resolveBreakpoint).mock.calls[0]?.[0];
+    expect(resolution).toMatchObject({ action: "forward", sessionId: "hit-b" });
+    // B must be sent with its own untouched body/headers, never A's draft.
+    expect(resolution?.modifiedRequestBodyBase64).toBeUndefined();
+    expect(resolution?.modifiedRequestHeaders).toBeUndefined();
   });
 
   it("sends edited response status, headers, and body when forwarding a response breakpoint", async () => {

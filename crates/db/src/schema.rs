@@ -258,8 +258,7 @@ CREATE TABLE IF NOT EXISTS rewrite_runs (
     outcome         TEXT NOT NULL,
     duration_ms     INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE,
-    FOREIGN KEY (rule_id) REFERENCES rewrite_rules(id) ON DELETE CASCADE
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_rewrite_runs_session ON rewrite_runs(session_id);
 CREATE INDEX IF NOT EXISTS idx_rewrite_runs_rule ON rewrite_runs(rule_id);
@@ -293,8 +292,7 @@ CREATE TABLE IF NOT EXISTS map_runs (
     duration_ms     INTEGER NOT NULL DEFAULT 0,
     sequence        INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE,
-    FOREIGN KEY (rule_id) REFERENCES map_rules(id) ON DELETE CASCADE
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_map_runs_session ON map_runs(session_id);
 CREATE INDEX IF NOT EXISTS idx_map_runs_rule ON map_runs(rule_id);
@@ -600,8 +598,162 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
         })?;
     }
 
+    // P1-4: rule traces must accept rule ids that never existed in the rule
+    // tables (Agent-injected temporary rules live only in memory, and a rule
+    // may be deleted while its history stays). The original `rule_id` foreign
+    // keys turned any such trace into a failed INSERT, which rolled back the
+    // whole per-session trace transaction and silently dropped the user rules'
+    // traces too. Existing databases still carry the constraint, so rebuild the
+    // two tables without it.
+    migrate_rule_trace_rule_id_foreign_keys(conn)?;
+
     Ok(())
 }
+
+/// P1-4: drop the `rule_id` foreign keys from `rewrite_runs` / `map_runs`.
+///
+/// SQLite cannot drop a constraint in place, so each affected table is rebuilt
+/// with the documented procedure (foreign keys off, copy, drop, rename,
+/// recreate indexes, integrity-check, commit). The `session_id` foreign key is
+/// preserved. Gated on `PRAGMA foreign_key_list`, so fresh databases (whose
+/// `CREATE TABLE` no longer declares the constraint) and already-migrated
+/// databases skip the rebuild entirely.
+fn migrate_rule_trace_rule_id_foreign_keys(conn: &Connection) -> Result<(), DbError> {
+    let rewrite_needs_rebuild = foreign_key_references(conn, "rewrite_runs", "rewrite_rules")?;
+    let map_needs_rebuild = foreign_key_references(conn, "map_runs", "map_rules")?;
+    if !rewrite_needs_rebuild && !map_needs_rebuild {
+        return Ok(());
+    }
+
+    // `PRAGMA foreign_keys` is a no-op inside a transaction, so toggle it
+    // before starting one (and always restore it, even on failure).
+    conn.execute_batch("PRAGMA foreign_keys=OFF;")
+        .map_err(|e| {
+            DbError::MigrationFailed(format!("disable foreign keys for rule trace rebuild: {e}"))
+        })?;
+
+    let result = (|| -> Result<(), DbError> {
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|e| DbError::MigrationFailed(format!("begin rule trace rebuild: {e}")))?;
+
+        if rewrite_needs_rebuild {
+            tx.execute_batch(REWRITE_RUNS_REBUILD_WITHOUT_RULE_FK)
+                .map_err(|e| {
+                    DbError::MigrationFailed(format!("rebuild rewrite_runs without rule FK: {e}"))
+                })?;
+        }
+        if map_needs_rebuild {
+            tx.execute_batch(MAP_RUNS_REBUILD_WITHOUT_RULE_FK)
+                .map_err(|e| {
+                    DbError::MigrationFailed(format!("rebuild map_runs without rule FK: {e}"))
+                })?;
+        }
+
+        // The rebuild copies rows while enforcement is off; make sure the
+        // surviving constraints (session_id, run entries) still hold before
+        // committing.
+        let mut check = tx
+            .prepare("PRAGMA foreign_key_check")
+            .map_err(|e| DbError::MigrationFailed(format!("check rule trace FKs: {e}")))?;
+        let violations = check
+            .query_map([], |_| Ok(()))
+            .map_err(|e| DbError::MigrationFailed(format!("run rule trace FK check: {e}")))?
+            .count();
+        drop(check);
+        if violations > 0 {
+            return Err(DbError::MigrationFailed(format!(
+                "rule trace rebuild left {violations} foreign key violations"
+            )));
+        }
+
+        tx.commit()
+            .map_err(|e| DbError::MigrationFailed(format!("commit rule trace rebuild: {e}")))
+    })();
+
+    let restored = conn.execute_batch("PRAGMA foreign_keys=ON;").map_err(|e| {
+        DbError::MigrationFailed(format!(
+            "re-enable foreign keys after rule trace rebuild: {e}"
+        ))
+    });
+
+    result?;
+    restored
+}
+
+/// True when `table` declares a foreign key that references `referenced`.
+fn foreign_key_references(
+    conn: &Connection,
+    table: &str,
+    referenced: &str,
+) -> Result<bool, DbError> {
+    // Table names are internal constants (never user input), so the format is
+    // not an injection surface.
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA foreign_key_list({table})"))
+        .map_err(|e| DbError::MigrationFailed(format!("inspect {table} foreign keys: {e}")))?;
+    let referenced_tables: Result<Vec<String>, DbError> = stmt
+        .query_map([], |row| row.get::<_, String>(2))
+        .map_err(|e| DbError::MigrationFailed(format!("query {table} foreign keys: {e}")))?
+        .map(|row| row.map_err(|e| DbError::query("decode foreign key row", e)))
+        .collect();
+    let referenced_tables = referenced_tables?;
+    drop(stmt);
+    Ok(referenced_tables.iter().any(|name| name == referenced))
+}
+
+const REWRITE_RUNS_REBUILD_WITHOUT_RULE_FK: &str = "
+CREATE TABLE rewrite_runs_new (
+    id              TEXT NOT NULL PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    rule_id         TEXT NOT NULL,
+    rule_name       TEXT NOT NULL DEFAULT '',
+    workspace_id    TEXT NOT NULL,
+    rewrite_type    TEXT NOT NULL,
+    stage           TEXT NOT NULL,
+    outcome         TEXT NOT NULL,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE
+);
+INSERT INTO rewrite_runs_new
+    (id, session_id, rule_id, rule_name, workspace_id, rewrite_type, stage, outcome, duration_ms, created_at)
+SELECT id, session_id, rule_id, rule_name, workspace_id, rewrite_type, stage, outcome, duration_ms, created_at
+FROM rewrite_runs;
+DROP TABLE rewrite_runs;
+ALTER TABLE rewrite_runs_new RENAME TO rewrite_runs;
+CREATE INDEX IF NOT EXISTS idx_rewrite_runs_session ON rewrite_runs(session_id);
+CREATE INDEX IF NOT EXISTS idx_rewrite_runs_rule ON rewrite_runs(rule_id);
+";
+
+const MAP_RUNS_REBUILD_WITHOUT_RULE_FK: &str = "
+CREATE TABLE map_runs_new (
+    id              TEXT NOT NULL PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    workspace_id    TEXT NOT NULL,
+    rule_id         TEXT NOT NULL,
+    rule_name       TEXT NOT NULL DEFAULT '',
+    mode            TEXT NOT NULL,
+    outcome         TEXT NOT NULL,
+    source_pattern  TEXT NOT NULL,
+    target_value    TEXT NOT NULL,
+    original_url    TEXT NOT NULL,
+    mapped_url      TEXT,
+    local_path      TEXT,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    sequence        INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE
+);
+INSERT INTO map_runs_new
+    (id, session_id, workspace_id, rule_id, rule_name, mode, outcome, source_pattern, target_value, original_url, mapped_url, local_path, duration_ms, sequence, created_at)
+SELECT id, session_id, workspace_id, rule_id, rule_name, mode, outcome, source_pattern, target_value, original_url, mapped_url, local_path, duration_ms, sequence, created_at
+FROM map_runs;
+DROP TABLE map_runs;
+ALTER TABLE map_runs_new RENAME TO map_runs;
+CREATE INDEX IF NOT EXISTS idx_map_runs_session ON map_runs(session_id);
+CREATE INDEX IF NOT EXISTS idx_map_runs_rule ON map_runs(rule_id);
+";
 
 /// D1: collapse pre-existing duplicate `session_details.session_summary_id`
 /// rows, keeping the earliest-inserted row per summary. Idempotent: a no-op once
@@ -1055,5 +1207,206 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM session_details", [], |row| row.get(0))
             .unwrap();
         assert_eq!(survivors_again, 2, "a second pass must not delete rows");
+    }
+
+    // P1-4: rule traces must not enforce `rule_id` against the rule tables.
+    // Agent-injected temporary rules never reach those tables, so the FK used to
+    // abort the whole per-session trace transaction (losing user-rule traces).
+    #[test]
+    fn rule_trace_tables_have_no_rule_foreign_keys() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        assert!(
+            !foreign_key_references(&conn, "rewrite_runs", "rewrite_rules").unwrap(),
+            "rewrite_runs must not reference rewrite_rules"
+        );
+        assert!(
+            !foreign_key_references(&conn, "map_runs", "map_rules").unwrap(),
+            "map_runs must not reference map_rules"
+        );
+        assert!(
+            foreign_key_references(&conn, "rewrite_runs", "session_summaries").unwrap(),
+            "the session_id foreign key must be preserved"
+        );
+    }
+
+    fn seed_session_summary(conn: &Connection, id: &str) {
+        conn.execute(
+            "INSERT INTO session_summaries
+                (id, method, host, path, protocol, scheme, http_version, transport_protocol,
+                 application_protocol, started_at, finished_at, duration_ms, size_bytes,
+                 status_code, url, response_mime_type)
+             VALUES (?1, 'GET', 'example.com', '/', 'HTTP/1.1', 'https', '1.1', 'tcp',
+                     'http', '2026-01-01T00:00:00Z', '2026-01-01T00:00:01Z', 0, 0, 200,
+                     'https://example.com/', NULL)",
+            [id],
+        )
+        .unwrap();
+    }
+
+    fn test_rewrite_rule(id: &str) -> crate::rules::RewriteRuleRow {
+        crate::rules::RewriteRuleRow {
+            id: id.into(),
+            workspace_id: "default".into(),
+            name: "Test".into(),
+            note: None,
+            enabled: true,
+            priority: 10,
+            match_methods: "[]".into(),
+            match_stage: "request".into(),
+            match_url_pattern: "example.com".into(),
+            match_type: "contains".into(),
+            rewrite_type: "header".into(),
+            payload: "{}".into(),
+        }
+    }
+
+    const LEGACY_REWRITE_RUNS_WITH_RULE_FK: &str = "
+CREATE TABLE rewrite_runs (
+    id              TEXT NOT NULL PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    rule_id         TEXT NOT NULL,
+    rule_name       TEXT NOT NULL DEFAULT '',
+    workspace_id    TEXT NOT NULL,
+    rewrite_type    TEXT NOT NULL,
+    stage           TEXT NOT NULL,
+    outcome         TEXT NOT NULL,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE,
+    FOREIGN KEY (rule_id) REFERENCES rewrite_rules(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_rewrite_runs_session ON rewrite_runs(session_id);
+CREATE INDEX idx_rewrite_runs_rule ON rewrite_runs(rule_id);
+";
+
+    const LEGACY_MAP_RUNS_WITH_RULE_FK: &str = "
+CREATE TABLE map_runs (
+    id              TEXT NOT NULL PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    workspace_id    TEXT NOT NULL,
+    rule_id         TEXT NOT NULL,
+    rule_name       TEXT NOT NULL DEFAULT '',
+    mode            TEXT NOT NULL,
+    outcome         TEXT NOT NULL,
+    source_pattern  TEXT NOT NULL,
+    target_value    TEXT NOT NULL,
+    original_url    TEXT NOT NULL,
+    mapped_url      TEXT,
+    local_path      TEXT,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    sequence        INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES session_summaries(id) ON DELETE CASCADE,
+    FOREIGN KEY (rule_id) REFERENCES map_rules(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_map_runs_session ON map_runs(session_id);
+CREATE INDEX idx_map_runs_rule ON map_runs(rule_id);
+";
+
+    #[test]
+    fn legacy_rule_trace_foreign_keys_are_rebuilt_without_losing_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Recreate the pre-fix tables (with both FKs) to exercise the migration.
+        conn.execute_batch("DROP TABLE rewrite_runs; DROP TABLE map_runs;")
+            .unwrap();
+        conn.execute_batch(LEGACY_REWRITE_RUNS_WITH_RULE_FK)
+            .unwrap();
+        conn.execute_batch(LEGACY_MAP_RUNS_WITH_RULE_FK).unwrap();
+        assert!(foreign_key_references(&conn, "rewrite_runs", "rewrite_rules").unwrap());
+
+        seed_session_summary(&conn, "sess-1");
+        crate::workspaces::upsert_workspace(
+            &conn,
+            &crate::workspaces::WorkspaceRow {
+                id: "default".into(),
+                name: "Default".into(),
+                proxy_port: 8888,
+                ssl_enabled: false,
+                http2_enabled: true,
+                system_proxy_enabled: false,
+                verify_upstream_tls: false,
+                tls_verify_hosts: "[]".into(),
+                ssl_blind_hosts: "[]".into(),
+                upstream_proxy: String::new(),
+                ssl_proxying: String::new(),
+                storage_path: String::new(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                updated_at: "2026-01-01T00:00:00Z".into(),
+            },
+        )
+        .unwrap();
+        crate::rules::save_rewrite_rule(&conn, &test_rewrite_rule("r1")).unwrap();
+        conn.execute(
+            "INSERT INTO rewrite_runs
+                (id, session_id, rule_id, rule_name, workspace_id, rewrite_type, stage, outcome, duration_ms, created_at)
+             VALUES ('run-1', 'sess-1', 'r1', 'Test', 'default', 'header', 'request', 'success', 5, '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        assert!(!foreign_key_references(&conn, "rewrite_runs", "rewrite_rules").unwrap());
+        assert!(!foreign_key_references(&conn, "map_runs", "map_rules").unwrap());
+        assert!(foreign_key_references(&conn, "rewrite_runs", "session_summaries").unwrap());
+
+        // Existing traces survived the table rebuild.
+        let existing_runs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM rewrite_runs WHERE id = 'run-1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(existing_runs, 1, "existing traces must survive the rebuild");
+
+        // An in-memory-only Agent rule id can now be persisted.
+        conn.execute(
+            "INSERT INTO rewrite_runs
+                (id, session_id, rule_id, rule_name, workspace_id, rewrite_type, stage, outcome, duration_ms, created_at)
+             VALUES ('run-agent', 'sess-1', 'agent-abc', 'Agent rule', 'default', 'header', 'request', 'success', 1, '2026-01-01T00:00:01Z')",
+            [],
+        )
+        .expect("agent rule traces must not violate a foreign key");
+        conn.execute(
+            "INSERT INTO map_runs
+                (id, session_id, workspace_id, rule_id, rule_name, mode, outcome, source_pattern, target_value, original_url, mapped_url, local_path, duration_ms, sequence, created_at)
+             VALUES ('map-run-1', 'sess-1', 'default', 'agent-map', 'Agent map', 'map_local', 'success', 'example.com', '/tmp/file', 'https://example.com/', 'https://example.com/', '/tmp/file', 1, 0, '2026-01-01T00:00:01Z')",
+            [],
+        )
+        .expect("agent map rule traces must not violate a foreign key");
+
+        // Deleting a rule no longer cascades its historical traces away.
+        crate::rules::delete_rewrite_rule(&conn, "r1").unwrap();
+        let after_delete: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM rewrite_runs WHERE rule_id = 'r1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(after_delete, 1, "trace history must outlive the rule");
+
+        // Indexes are recreated on the rebuilt tables.
+        let index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND tbl_name='rewrite_runs' \
+                 AND name IN ('idx_rewrite_runs_session', 'idx_rewrite_runs_rule')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(index_count, 2, "both indexes must be recreated");
+
+        // Idempotent: a second pass must not rebuild again or lose rows.
+        run_migrations(&conn).unwrap();
+        let total_runs: i64 = conn
+            .query_row("SELECT COUNT(*) FROM rewrite_runs", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(total_runs, 2, "a second migration pass must be a no-op");
     }
 }

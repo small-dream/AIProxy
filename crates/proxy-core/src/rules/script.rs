@@ -100,9 +100,20 @@ struct ScriptBodyUpdate {
     unchanged: bool,
 }
 
+/// The exact body fields the JS bridge handed to the script. Comparing the
+/// returned fields against these lets `script_body_update` tell which
+/// representation a direct assignment (`ctx.response.bodyBase64 = ...`) changed
+/// instead of guessing from the lossy text rendering.
+#[derive(Clone, Copy)]
+struct ScriptBodyEcho<'a> {
+    text: Option<&'a str>,
+    base64: Option<&'a str>,
+}
+
 fn script_body_update(
     body_text: Option<String>,
     body_base64: Option<String>,
+    original: Option<ScriptBodyEcho<'_>>,
 ) -> Result<ScriptBodyUpdate, String> {
     // When the bridge hands back both fields, `bodyText` is the lossy UTF-8
     // rendering of `bodyBase64`'s bytes. A script that only read the body (or
@@ -112,21 +123,61 @@ fn script_body_update(
     // as soon as an unrelated header was changed. A script that assigned
     // `bodyText` directly makes it diverge from that rendering, so the edit
     // still wins.
+    //
+    // Direct assignment to `bodyBase64` (documented in script-rules.md) is the
+    // mirror case: the text stays untouched while the base64 changes, so the
+    // lossy comparison alone would keep the OLD text and drop the edit. The
+    // caller passes the exact fields the bridge produced (`original`) so a
+    // single changed representation can be identified unambiguously.
     match (body_text, body_base64) {
-        (Some(text), Some(base64_text)) => Ok(match BASE64_STANDARD.decode(&base64_text) {
-            Ok(decoded) if String::from_utf8_lossy(&decoded).as_ref() == text.as_str() => {
-                ScriptBodyUpdate {
-                    bytes: decoded,
-                    unchanged: true,
+        (Some(text), Some(base64_text)) => match BASE64_STANDARD.decode(&base64_text) {
+            Ok(decoded) => match original {
+                Some(original) => {
+                    let text_changed = original.text != Some(text.as_str());
+                    let base64_changed = original.base64 != Some(base64_text.as_str());
+                    if !text_changed && !base64_changed {
+                        Ok(ScriptBodyUpdate {
+                            bytes: decoded,
+                            unchanged: true,
+                        })
+                    } else if base64_changed && !text_changed {
+                        // DIRECT bodyBase64 assignment: only the byte-exact
+                        // representation changed, so it is the edit.
+                        Ok(ScriptBodyUpdate {
+                            bytes: decoded,
+                            unchanged: false,
+                        })
+                    } else {
+                        // bodyText changed (or both did): the text edit wins.
+                        Ok(ScriptBodyUpdate {
+                            bytes: text.into_bytes(),
+                            unchanged: false,
+                        })
+                    }
                 }
-            }
+                // No bridge snapshot available (mock/override or a unit test):
+                // fall back to comparing the two representations.
+                None => {
+                    if String::from_utf8_lossy(&decoded).as_ref() == text.as_str() {
+                        Ok(ScriptBodyUpdate {
+                            bytes: decoded,
+                            unchanged: true,
+                        })
+                    } else {
+                        Ok(ScriptBodyUpdate {
+                            bytes: text.into_bytes(),
+                            unchanged: false,
+                        })
+                    }
+                }
+            },
             // The text diverged (script edit) or the base64 is unusable: keep
             // the script's text.
-            _ => ScriptBodyUpdate {
+            Err(_) => Ok(ScriptBodyUpdate {
                 bytes: text.into_bytes(),
                 unchanged: false,
-            },
-        }),
+            }),
+        },
         (Some(text), None) => Ok(ScriptBodyUpdate {
             bytes: text.into_bytes(),
             unchanged: false,
@@ -159,6 +210,7 @@ fn header_map_from_script_headers(headers: &[ScriptHeader]) -> HeaderMap {
 fn apply_script_request_to_runtime(
     request: &mut ParsedProxyRequest,
     script_request: ScriptRequest,
+    original_body: Option<ScriptBodyEcho<'_>>,
 ) -> Result<(), String> {
     request.method = Method::from_bytes(script_request.method.as_bytes()).map_err(|error| {
         format!(
@@ -181,7 +233,11 @@ fn apply_script_request_to_runtime(
             is_pseudo: None,
         })
         .collect();
-    let body_update = script_body_update(script_request.body_text, script_request.body_base64)?;
+    let body_update = script_body_update(
+        script_request.body_text,
+        script_request.body_base64,
+        original_body,
+    )?;
     // Only a script EDIT invalidates the wire body and its integrity headers.
     // When the script echoed the body untouched, keep the original bytes and the
     // headers it echoed: they may still describe a compressed stream the bridge
@@ -199,6 +255,7 @@ fn apply_script_request_to_runtime(
 fn apply_script_response_to_runtime(
     response: &mut UpstreamResponse,
     script_response: ScriptResponse,
+    original_body: Option<ScriptBodyEcho<'_>>,
 ) -> Result<(), String> {
     response.status_code = StatusCode::from_u16(script_response.status).map_err(|error| {
         format!(
@@ -207,7 +264,11 @@ fn apply_script_response_to_runtime(
         )
     })?;
     response.response_headers = header_map_from_script_headers(&script_response.headers);
-    let body_update = script_body_update(script_response.body_text, script_response.body_base64)?;
+    let body_update = script_body_update(
+        script_response.body_text,
+        script_response.body_base64,
+        original_body,
+    )?;
     // See `apply_script_request_to_runtime`: an untouched body keeps its wire
     // bytes and the encoding headers the script echoed (P2-2); only an edited
     // body is replaced with plain bytes and has those headers stripped.
@@ -223,8 +284,12 @@ fn upstream_response_from_override(
 ) -> Result<UpstreamResponse, String> {
     // A mock/override body is always a script-supplied plain payload, so it is
     // never "unchanged" even when the script reused both echo fields.
-    let response_body =
-        script_body_update(override_response.body_text, override_response.body_base64)?.bytes;
+    let response_body = script_body_update(
+        override_response.body_text,
+        override_response.body_base64,
+        None,
+    )?
+    .bytes;
 
     Ok(UpstreamResponse {
         body_truncated: false,
@@ -330,6 +395,10 @@ pub(crate) async fn apply_request_script_rules(
         // payload mirrors request/response into owned Strings/Vecs.
         let (session, script_request) =
             build_script_request(workspace_id, ScriptTraceStage::Request, request);
+        // Snapshot the exact body fields the script receives so a direct
+        // `bodyBase64` assignment can be distinguished from an untouched echo.
+        let body_text_before = script_request.body_text.clone();
+        let body_base64_before = script_request.body_base64.clone();
         let payload = ScriptHookPayload {
             request: script_request,
             response: None,
@@ -375,7 +444,13 @@ pub(crate) async fn apply_request_script_rules(
         }
 
         if let Some(script_request) = result.request {
-            if let Err(error) = apply_script_request_to_runtime(request, script_request) {
+            let original_body = ScriptBodyEcho {
+                text: body_text_before.as_deref(),
+                base64: body_base64_before.as_deref(),
+            };
+            if let Err(error) =
+                apply_script_request_to_runtime(request, script_request, Some(original_body))
+            {
                 trace = invalid_trace(trace, error);
             }
         }
@@ -403,9 +478,15 @@ pub(crate) async fn apply_response_script_rules(
         // pool. See apply_request_script_rules for the rationale.
         let (session, script_request) =
             build_script_request(workspace_id, ScriptTraceStage::Response, request);
+        let script_response = build_script_response(response);
+        // Snapshot the exact body fields the script receives (see the request
+        // loop above): a direct bodyBase64 assignment must not be mistaken for
+        // an untouched echo.
+        let body_text_before = script_response.body_text.clone();
+        let body_base64_before = script_response.body_base64.clone();
         let payload = ScriptHookPayload {
             request: script_request,
-            response: Some(build_script_response(response)),
+            response: Some(script_response),
             session,
         };
         let rule_id = rule.rule.id.clone();
@@ -424,7 +505,13 @@ pub(crate) async fn apply_response_script_rules(
         let mut trace = result.trace;
 
         if let Some(script_response) = result.response {
-            if let Err(error) = apply_script_response_to_runtime(response, script_response) {
+            let original_body = ScriptBodyEcho {
+                text: body_text_before.as_deref(),
+                base64: body_base64_before.as_deref(),
+            };
+            if let Err(error) =
+                apply_script_response_to_runtime(response, script_response, Some(original_body))
+            {
                 trace = invalid_trace(trace, error);
             }
         }
@@ -490,7 +577,7 @@ mod tests {
             ],
         );
 
-        apply_script_response_to_runtime(&mut response, script_response).unwrap();
+        apply_script_response_to_runtime(&mut response, script_response, None).unwrap();
 
         assert!(response.response_headers.get("content-encoding").is_none());
         assert!(response.response_headers.get("etag").is_none());
@@ -577,7 +664,7 @@ mod tests {
             url: "https://example.com/".to_string(),
         };
 
-        apply_script_request_to_runtime(&mut request, script_request).unwrap();
+        apply_script_request_to_runtime(&mut request, script_request, None).unwrap();
 
         assert!(
             request
@@ -614,7 +701,7 @@ mod tests {
             "fixture must be lossy under UTF-8, got: {text}"
         );
 
-        let update = script_body_update(Some(text), Some(BASE64_STANDARD.encode(&raw)))
+        let update = script_body_update(Some(text), Some(BASE64_STANDARD.encode(&raw)), None)
             .expect("base64 decodes");
 
         assert_eq!(update.bytes, raw, "untouched body must stay byte-exact");
@@ -629,6 +716,7 @@ mod tests {
         let update = script_body_update(
             Some("{\"ok\":false}".to_string()),
             Some(BASE64_STANDARD.encode(raw)),
+            None,
         )
         .expect("base64 decodes even when the text edit wins");
 
@@ -640,24 +728,29 @@ mod tests {
     fn script_body_uses_whichever_representation_is_present() {
         // Helper-driven edits null the other field (setText → bodyBase64=None).
         assert_eq!(
-            script_body_update(Some("edited".to_string()), None)
+            script_body_update(Some("edited".to_string()), None, None)
                 .unwrap()
                 .bytes,
             b"edited"
         );
         // setBase64 → bodyText=None.
         assert_eq!(
-            script_body_update(None, Some(BASE64_STANDARD.encode("from-base64")))
+            script_body_update(None, Some(BASE64_STANDARD.encode("from-base64")), None)
                 .unwrap()
                 .bytes,
             b"from-base64"
         );
         // Empty body from either side.
-        assert!(script_body_update(None, None).unwrap().bytes.is_empty());
-        assert!(script_body_update(Some(String::new()), Some(String::new()))
+        assert!(script_body_update(None, None, None)
             .unwrap()
             .bytes
             .is_empty());
+        assert!(
+            script_body_update(Some(String::new()), Some(String::new()), None)
+                .unwrap()
+                .bytes
+                .is_empty()
+        );
     }
 
     // An unusable base64 payload must not turn a text-carrying script into a
@@ -667,6 +760,7 @@ mod tests {
         let update = script_body_update(
             Some("{\"ok\":true}".to_string()),
             Some("not-base64!!".to_string()),
+            None,
         )
         .expect("text still applies");
 
@@ -675,7 +769,7 @@ mod tests {
 
     #[test]
     fn script_body_errors_when_only_base64_is_present_and_malformed() {
-        let error = script_body_update(None, Some("not-base64!!".to_string()))
+        let error = script_body_update(None, Some("not-base64!!".to_string()), None)
             .expect_err("malformed base64 with no text cannot be decoded");
         assert!(error.contains("base64"), "unexpected error: {error}");
     }
@@ -731,7 +825,7 @@ mod tests {
             status: 200,
         };
 
-        apply_script_response_to_runtime(&mut response, script_response).unwrap();
+        apply_script_response_to_runtime(&mut response, script_response, None).unwrap();
 
         assert_eq!(
             response.response_body, wire,
@@ -789,7 +883,7 @@ mod tests {
             url: "https://example.com/".to_string(),
         };
 
-        apply_script_request_to_runtime(&mut request, script_request).unwrap();
+        apply_script_request_to_runtime(&mut request, script_request, None).unwrap();
 
         assert_eq!(request.body, wire, "the untouched wire body must survive");
         assert!(
@@ -800,5 +894,105 @@ mod tests {
             "content-encoding must still describe the wire body, got: {:?}",
             request.request_headers
         );
+    }
+
+    // P1-3: `script-rules.md` documents DIRECT assignment to `bodyBase64` (not
+    // only `setBase64()`). The bridge then returns the untouched lossy text
+    // together with the edited base64; the byte-exact representation is the
+    // edit and must win (the previous lossy comparison dropped it silently and
+    // re-encoded the old text, corrupting non-UTF-8 bodies).
+    #[test]
+    fn script_response_direct_base64_assignment_is_applied() {
+        let wire = gbk_html_body();
+        let original_text = String::from_utf8_lossy(&wire).to_string();
+        let original_base64 = BASE64_STANDARD.encode(&wire);
+        let replacement = b"{\"ok\":false}".to_vec();
+
+        let mut response = UpstreamResponse {
+            body_truncated: false,
+            connect_ms: 0,
+            connection_reused: None,
+            connection_wait_ms: None,
+            dns_ms: 0,
+            request_send_ms: None,
+            response_body: wire.clone(),
+            response_body_size_bytes: wire.len(),
+            response_headers: HeaderMap::new(),
+            response_read_ms: 0,
+            spooled_response_path: None,
+            status_code: StatusCode::OK,
+            tls_ms: None,
+            waiting_ms: 0,
+            via_upstream_proxy: None,
+        };
+
+        let script_response = ScriptResponse {
+            // Untouched lossy text + directly assigned base64.
+            body_text: Some(original_text.clone()),
+            body_base64: Some(BASE64_STANDARD.encode(&replacement)),
+            headers: vec![
+                script_header("content-type", "application/json"),
+                script_header("content-encoding", "gzip"),
+            ],
+            mime_type: None,
+            status: 200,
+        };
+
+        apply_script_response_to_runtime(
+            &mut response,
+            script_response,
+            Some(ScriptBodyEcho {
+                text: Some(original_text.as_str()),
+                base64: Some(original_base64.as_str()),
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(response.response_body, replacement);
+        assert!(
+            response.response_headers.get("content-encoding").is_none(),
+            "a replaced plain body must not keep content-encoding"
+        );
+    }
+
+    #[test]
+    fn script_body_untouched_echo_with_original_is_unchanged() {
+        let raw = gbk_html_body();
+        let text = String::from_utf8_lossy(&raw).to_string();
+        let base64 = BASE64_STANDARD.encode(&raw);
+
+        let update = script_body_update(
+            Some(text.clone()),
+            Some(base64.clone()),
+            Some(ScriptBodyEcho {
+                text: Some(text.as_str()),
+                base64: Some(base64.as_str()),
+            }),
+        )
+        .unwrap();
+
+        assert!(update.unchanged, "identical echo fields mean untouched");
+        assert_eq!(update.bytes, raw);
+    }
+
+    #[test]
+    fn script_body_direct_base64_edit_wins_over_untouched_text() {
+        let raw = gbk_html_body();
+        let text = String::from_utf8_lossy(&raw).to_string();
+        let original_base64 = BASE64_STANDARD.encode(&raw);
+        let replacement = BASE64_STANDARD.encode("{\"ok\":false}");
+
+        let update = script_body_update(
+            Some(text.clone()),
+            Some(replacement),
+            Some(ScriptBodyEcho {
+                text: Some(text.as_str()),
+                base64: Some(original_base64.as_str()),
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(update.bytes, br#"{"ok":false}"#);
+        assert!(!update.unchanged, "a changed base64 is a script edit");
     }
 }
