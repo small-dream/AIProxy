@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use aiproxy_proxy_core::{ProxySessionDetail, ProxySessionSummary};
@@ -27,6 +28,9 @@ struct DetailState {
 pub(crate) struct SessionCache {
     details: Mutex<DetailState>,
     summaries: Mutex<Vec<ProxySessionSummary>>,
+    /// Cap on retained summaries. A field (not only the const) so tests can
+    /// exercise eviction without materialising 15k sessions (P2-3).
+    summary_max: AtomicUsize,
 }
 
 impl SessionCache {
@@ -37,7 +41,14 @@ impl SessionCache {
                 order: VecDeque::new(),
             }),
             summaries: Mutex::new(Vec::new()),
+            summary_max: AtomicUsize::new(SESSION_SUMMARY_MAX),
         }
+    }
+
+    /// Test-only: shrink the summary cap so the eviction path is reachable.
+    #[cfg(test)]
+    pub fn set_summary_max_for_tests(&self, summary_max: usize) {
+        self.summary_max.store(summary_max, Ordering::Relaxed);
     }
 
     // ── summaries ──────────────────────────────────────────────────
@@ -61,7 +72,8 @@ impl SessionCache {
     }
 
     /// Insert or update a summary. Returns the IDs of any summaries evicted
-    /// because the cap was exceeded (oldest non-focused first).
+    /// because the cap was exceeded (oldest non-focused first). The caller is
+    /// responsible for removing the evicted sessions from storage too (P2-3).
     pub fn upsert_summary(
         &self,
         summary: ProxySessionSummary,
@@ -78,8 +90,9 @@ impl SessionCache {
             summaries.push(summary);
         }
 
+        let summary_max = self.summary_max.load(Ordering::Relaxed);
         let mut removed = Vec::new();
-        while summaries.len() > SESSION_SUMMARY_MAX {
+        while summaries.len() > summary_max {
             let idx = select_eviction_index(&summaries, focused_hosts);
             removed.push(summaries.remove(idx).id);
         }

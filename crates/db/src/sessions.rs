@@ -827,10 +827,11 @@ mod tests {
 
     // Regression for H7: building ?1..?N placeholders for the entire id list
     // exceeds SQLITE_LIMIT_VARIABLE_NUMBER when N is large, causing prepare to
-    // fail and the whole delete to abort. The background cleaner swallows the
-    // error, so old sessions never get pruned. Batching the deletes (batch
-    // size well under the limit) keeps each statement within the SQLite
-    // variable limit.
+    // fail and the whole delete to abort. Every bulk caller — the UI/Agent
+    // batch delete and the desktop summary-cap eviction — depends on the delete
+    // succeeding, so a failed prepare would leave the requested sessions behind
+    // forever. Batching the deletes (batch size well under the limit) keeps each
+    // statement within the SQLite variable limit.
     //
     // The bundled SQLite ships with MAX_VARIABLE_NUMBER=32766, and system
     // SQLite on older platforms defaults to 999. The chunked delete path is

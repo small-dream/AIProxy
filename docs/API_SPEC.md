@@ -681,6 +681,12 @@ type StopProxyInput = {
 type StopProxyOutput = ProxyStatus;
 ```
 
+停止顺序与收尾（P2-1）：
+
+- 先关闭监听器（不再接受新连接），再等待采集器把已排队但未落库的会话 / WebSocket 帧写完（最多 3 秒），最后才在超时情况下强制终止采集器。
+- 因此 Stop / 重启最多可能多花约 3 秒；这段时间内已捕获的数据不会丢失，`session-upsert` 会在停止返回前后照常到达。
+- 已建立的连接（长连接 WebSocket、挂起的上游请求）不保证在停止时立即关闭；它们持有的发送端会让采集器继续存活，直到宽限期结束。
+
 ### `get_bootstrap_status`
 
 请求：
@@ -964,6 +970,13 @@ type ListSessionsInput = Record<string, never>;
 ```ts
 type ListSessionsOutput = SessionSummary[];
 ```
+
+会话保留（P2-3）：
+
+- 该命令返回内存中的摘要列表，单次运行最多保留 `15000` 条；超出后按「最久远且未被 focus 的主机优先」淘汰。
+- 淘汰是**真正的回收**：对应 `session_summaries` / `session_details` / `ws_messages` 行与 body 文件会一并删除，并发出 `session-remove`。因此列表、`get_insights`、`search_sessions`、body 目录与磁盘占用始终一致。
+- 会话本身不跨启动持久：桌面端启动时会清空会话存储，因此上述上限是「单次运行」的保留窗口，而不是跨启动的历史配额。
+- 淘汰会在会话写入路径上同步完成（持会话生命周期锁），属低频事件；发生时会写入 `session_summary_evicted_and_deleted` 警告日志。
 
 ### `get_session_detail`
 

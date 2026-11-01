@@ -423,7 +423,13 @@ fn run_heavy_shutdown_cleanup(app_handle: &tauri::AppHandle) {
     if let Some(runtime_handles) = app_state.take_runtime() {
         app_state.set_runtime(runtime_handles);
         tauri::async_runtime::block_on(async {
-            let _ = commands::shutdown_proxy_runtime(Arc::clone(&app_state)).await;
+            // P2-1: no drain grace on exit — session storage is cleared on the
+            // next launch, and a lingering WebSocket must not delay quitting.
+            let _ = commands::shutdown_proxy_runtime_with_grace(
+                Arc::clone(&app_state),
+                std::time::Duration::ZERO,
+            )
+            .await;
         });
 
         let _ = app_state.stop_proxy(workspace_id.clone());

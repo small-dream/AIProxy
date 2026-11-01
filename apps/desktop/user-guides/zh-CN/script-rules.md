@@ -181,6 +181,8 @@ export function onResponse(ctx) {}
 - `ctx.response.removeHeader(name)`
 
 > Body 的字节语义：如果脚本只读取 body 或只修改 header、没有改 body，代理会按原始字节透传 body（包括 GBK、Latin-1 等非 UTF-8 编码的页面），不会把 `bodyText` 的 UTF-8 文本重新编码写回。只有当脚本通过 `setText()` / `setBase64()`（或直接赋值 `bodyText` / `bodyBase64`）真正改动 body 时，才会用改动后的内容替换。
+>
+> 编码相关：仅改 header 时，`content-encoding` 等描述原始字节的头也会一并保留；即使该编码无法解码（例如 `zstd`、解压后超过 64 MiB、压缩流损坏），代理也不会把压缩字节当明文发出去。改写 body 时，写回的是解码后的明文，代理会移除 `content-encoding` / `etag` / `content-md5` 等已不匹配的响应头。
 
 ### `ctx.session`
 

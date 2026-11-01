@@ -83,10 +83,27 @@ fn build_script_response(response: &UpstreamResponse) -> ScriptResponse {
     }
 }
 
-fn bytes_from_script_body(
+/// The body state a script bridge hands back, reconciled with what the script
+/// actually did.
+#[derive(Debug)]
+struct ScriptBodyUpdate {
+    bytes: Vec<u8>,
+    /// The bridge echoed the body back untouched: both the lossy `bodyText` and
+    /// the byte-exact `bodyBase64` still agree. The caller must then keep the
+    /// ORIGINAL wire bytes and the encoding/integrity headers the script echoed.
+    ///
+    /// This matters whenever the wire body could not be decoded (an unsupported
+    /// `content-encoding` such as `zstd`, a >64 MiB expansion, a corrupt
+    /// gzip/br stream): the "decoded" mirror is the compressed stream itself, so
+    /// writing it back while stripping `content-encoding` served compressed
+    /// bytes as plain text (P2-2).
+    unchanged: bool,
+}
+
+fn script_body_update(
     body_text: Option<String>,
     body_base64: Option<String>,
-) -> Result<Vec<u8>, String> {
+) -> Result<ScriptBodyUpdate, String> {
     // When the bridge hands back both fields, `bodyText` is the lossy UTF-8
     // rendering of `bodyBase64`'s bytes. A script that only read the body (or
     // edited headers) leaves them in exactly that state, and the base64 image is
@@ -96,21 +113,34 @@ fn bytes_from_script_body(
     // `bodyText` directly makes it diverge from that rendering, so the edit
     // still wins.
     match (body_text, body_base64) {
-        (Some(text), Some(base64_text)) => {
-            Ok(match BASE64_STANDARD.decode(&base64_text) {
-                Ok(decoded) if String::from_utf8_lossy(&decoded).as_ref() == text.as_str() => {
-                    decoded
+        (Some(text), Some(base64_text)) => Ok(match BASE64_STANDARD.decode(&base64_text) {
+            Ok(decoded) if String::from_utf8_lossy(&decoded).as_ref() == text.as_str() => {
+                ScriptBodyUpdate {
+                    bytes: decoded,
+                    unchanged: true,
                 }
-                // The text diverged (script edit) or the base64 is unusable:
-                // keep the script's text.
-                _ => text.into_bytes(),
-            })
-        }
-        (Some(text), None) => Ok(text.into_bytes()),
-        (None, Some(base64_text)) => BASE64_STANDARD
-            .decode(base64_text)
-            .map_err(|error| format!("decode script body base64: {error}")),
-        (None, None) => Ok(Vec::new()),
+            }
+            // The text diverged (script edit) or the base64 is unusable: keep
+            // the script's text.
+            _ => ScriptBodyUpdate {
+                bytes: text.into_bytes(),
+                unchanged: false,
+            },
+        }),
+        (Some(text), None) => Ok(ScriptBodyUpdate {
+            bytes: text.into_bytes(),
+            unchanged: false,
+        }),
+        (None, Some(base64_text)) => Ok(ScriptBodyUpdate {
+            bytes: BASE64_STANDARD
+                .decode(base64_text)
+                .map_err(|error| format!("decode script body base64: {error}"))?,
+            unchanged: false,
+        }),
+        (None, None) => Ok(ScriptBodyUpdate {
+            bytes: Vec::new(),
+            unchanged: false,
+        }),
     }
 }
 
@@ -151,14 +181,18 @@ fn apply_script_request_to_runtime(
             is_pseudo: None,
         })
         .collect();
-    request.body = bytes_from_script_body(script_request.body_text, script_request.body_base64)?;
-    // The script received a DECODED body (see `build_body_reference` /
-    // `decode_body_bytes`), and `bytes_from_script_body` returns those decoded
-    // plain bytes (or script-supplied base64). Either way the bytes written
-    // back are no longer the wire-encoded stream, so strip integrity/encoding
-    // headers that would otherwise mis-describe the body. Mirrors the rewrite
-    // path (`apply_body_field_rewrite` / response body rewrite).
-    strip_plain_body_edit_header_entries(&mut request.request_headers);
+    let body_update = script_body_update(script_request.body_text, script_request.body_base64)?;
+    // Only a script EDIT invalidates the wire body and its integrity headers.
+    // When the script echoed the body untouched, keep the original bytes and the
+    // headers it echoed: they may still describe a compressed stream the bridge
+    // could not decode (P2-2).
+    if !body_update.unchanged {
+        request.body = body_update.bytes;
+        // The bytes written back are the decoded/edited plain form, so strip
+        // integrity/encoding headers that would otherwise mis-describe them.
+        // Mirrors the rewrite path (`apply_body_field_rewrite`).
+        strip_plain_body_edit_header_entries(&mut request.request_headers);
+    }
     rebuild_request_runtime_state(request)
 }
 
@@ -173,24 +207,24 @@ fn apply_script_response_to_runtime(
         )
     })?;
     response.response_headers = header_map_from_script_headers(&script_response.headers);
-    response.replace_response_body(bytes_from_script_body(
-        script_response.body_text,
-        script_response.body_base64,
-    )?);
-    // See `apply_script_request_to_runtime`: the body is now plain decoded
-    // bytes, so encoding/integrity headers describing the old wire body must be
-    // stripped — otherwise a gzip response served as plain bytes corrupts the
-    // client. (content-length is intentionally left; `build_hyper_response_*`
-    // recomputes it.)
-    strip_plain_body_edit_headers(&mut response.response_headers);
+    let body_update = script_body_update(script_response.body_text, script_response.body_base64)?;
+    // See `apply_script_request_to_runtime`: an untouched body keeps its wire
+    // bytes and the encoding headers the script echoed (P2-2); only an edited
+    // body is replaced with plain bytes and has those headers stripped.
+    if !body_update.unchanged {
+        response.replace_response_body(body_update.bytes);
+        strip_plain_body_edit_headers(&mut response.response_headers);
+    }
     Ok(())
 }
 
 fn upstream_response_from_override(
     override_response: ScriptResponseOverride,
 ) -> Result<UpstreamResponse, String> {
+    // A mock/override body is always a script-supplied plain payload, so it is
+    // never "unchanged" even when the script reused both echo fields.
     let response_body =
-        bytes_from_script_body(override_response.body_text, override_response.body_base64)?;
+        script_body_update(override_response.body_text, override_response.body_base64)?.bytes;
 
     Ok(UpstreamResponse {
         body_truncated: false,
@@ -557,7 +591,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // bytes_from_script_body — lossy text vs byte-exact base64
+    // script_body_update — lossy text vs byte-exact base64
     // -----------------------------------------------------------------------
 
     /// GBK-encoded `中文` wrapped in a tiny HTML document: not valid UTF-8, so
@@ -580,10 +614,11 @@ mod tests {
             "fixture must be lossy under UTF-8, got: {text}"
         );
 
-        let bytes = bytes_from_script_body(Some(text), Some(BASE64_STANDARD.encode(&raw)))
+        let update = script_body_update(Some(text), Some(BASE64_STANDARD.encode(&raw)))
             .expect("base64 decodes");
 
-        assert_eq!(bytes, raw, "untouched body must stay byte-exact");
+        assert_eq!(update.bytes, raw, "untouched body must stay byte-exact");
+        assert!(update.unchanged, "both fields agreeing means untouched");
     }
 
     // A script that assigns `bodyText` directly (without the helper) produces a
@@ -591,53 +626,179 @@ mod tests {
     #[test]
     fn script_body_text_edit_wins_over_untouched_base64() {
         let raw = b"{\"ok\":true}";
-        let bytes = bytes_from_script_body(
+        let update = script_body_update(
             Some("{\"ok\":false}".to_string()),
             Some(BASE64_STANDARD.encode(raw)),
         )
         .expect("base64 decodes even when the text edit wins");
 
-        assert_eq!(bytes, br#"{"ok":false}"#);
+        assert_eq!(update.bytes, br#"{"ok":false}"#);
+        assert!(!update.unchanged, "a diverging text is a script edit");
     }
 
     #[test]
     fn script_body_uses_whichever_representation_is_present() {
         // Helper-driven edits null the other field (setText → bodyBase64=None).
         assert_eq!(
-            bytes_from_script_body(Some("edited".to_string()), None).unwrap(),
+            script_body_update(Some("edited".to_string()), None)
+                .unwrap()
+                .bytes,
             b"edited"
         );
         // setBase64 → bodyText=None.
         assert_eq!(
-            bytes_from_script_body(None, Some(BASE64_STANDARD.encode("from-base64"))).unwrap(),
+            script_body_update(None, Some(BASE64_STANDARD.encode("from-base64")))
+                .unwrap()
+                .bytes,
             b"from-base64"
         );
         // Empty body from either side.
-        assert!(bytes_from_script_body(None, None).unwrap().is_empty());
-        assert!(
-            bytes_from_script_body(Some(String::new()), Some(String::new()))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(script_body_update(None, None).unwrap().bytes.is_empty());
+        assert!(script_body_update(Some(String::new()), Some(String::new()))
+            .unwrap()
+            .bytes
+            .is_empty());
     }
 
     // An unusable base64 payload must not turn a text-carrying script into a
     // hard failure: the text path is what the pre-existing implementation used.
     #[test]
     fn script_body_ignores_malformed_base64_when_text_is_present() {
-        let bytes = bytes_from_script_body(
+        let update = script_body_update(
             Some("{\"ok\":true}".to_string()),
             Some("not-base64!!".to_string()),
         )
         .expect("text still applies");
 
-        assert_eq!(bytes, br#"{"ok":true}"#);
+        assert_eq!(update.bytes, br#"{"ok":true}"#);
     }
 
     #[test]
     fn script_body_errors_when_only_base64_is_present_and_malformed() {
-        let error = bytes_from_script_body(None, Some("not-base64!!".to_string()))
+        let error = script_body_update(None, Some("not-base64!!".to_string()))
             .expect_err("malformed base64 with no text cannot be decoded");
         assert!(error.contains("base64"), "unexpected error: {error}");
+    }
+
+    fn script_header(name: &str, value: &str) -> ScriptHeader {
+        ScriptHeader {
+            name: name.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    // P2-2: when the bridge cannot decode the wire body (`zstd`, an over-cap
+    // expansion, a corrupt stream) the "decoded" mirror is the compressed bytes
+    // themselves. A script that only edited a header then used to write those
+    // bytes back while stripping `content-encoding`, so clients received
+    // compressed data as plain text. The untouched body must keep both.
+    #[test]
+    fn untouched_compressed_script_response_keeps_wire_bytes_and_encoding() {
+        let wire = b"\x28\xb5\x2f\xfdnot-really-zstd\x00\x01".to_vec();
+        let text = String::from_utf8_lossy(&wire).to_string();
+        assert!(
+            text.contains('\u{FFFD}'),
+            "fixture must be lossy under UTF-8"
+        );
+
+        let mut response = UpstreamResponse {
+            body_truncated: false,
+            connect_ms: 0,
+            connection_reused: None,
+            connection_wait_ms: None,
+            dns_ms: 0,
+            request_send_ms: None,
+            response_body: wire.clone(),
+            response_body_size_bytes: wire.len(),
+            response_headers: HeaderMap::new(),
+            response_read_ms: 0,
+            spooled_response_path: None,
+            status_code: StatusCode::OK,
+            tls_ms: None,
+            waiting_ms: 0,
+            via_upstream_proxy: None,
+        };
+
+        let script_response = ScriptResponse {
+            body_base64: Some(BASE64_STANDARD.encode(&wire)),
+            body_text: Some(text),
+            headers: vec![
+                script_header("content-type", "application/json"),
+                script_header("content-encoding", "zstd"),
+                script_header("x-scripted", "yes"),
+            ],
+            mime_type: None,
+            status: 200,
+        };
+
+        apply_script_response_to_runtime(&mut response, script_response).unwrap();
+
+        assert_eq!(
+            response.response_body, wire,
+            "the untouched wire body must not be rewritten"
+        );
+        assert_eq!(
+            response.response_headers.get("content-encoding").unwrap(),
+            "zstd",
+            "an untouched body keeps the encoding that describes it"
+        );
+        assert_eq!(
+            response.response_headers.get("x-scripted").unwrap(),
+            "yes",
+            "header-only script edits must still apply"
+        );
+    }
+
+    // Mirror of the response case on the request path: forwarding compressed
+    // bytes as a plain body makes the upstream reject or mis-parse the request.
+    #[test]
+    fn untouched_compressed_script_request_keeps_wire_bytes_and_encoding() {
+        let wire = b"\x28\xb5\x2f\xfdnot-really-zstd\x00\x01".to_vec();
+        let text = String::from_utf8_lossy(&wire).to_string();
+
+        let mut request = ParsedProxyRequest {
+            body: wire.clone(),
+            client_address: None,
+            headers: HeaderMap::new(),
+            host: "example.com".to_string(),
+            method: Method::POST,
+            path: "/".to_string(),
+            protocol: "HTTP/1.1".to_string(),
+            query_params: Vec::new(),
+            raw_request: String::new(),
+            request_headers: vec![ProxyHeaderEntry {
+                name: "content-encoding".to_string(),
+                value: "zstd".to_string(),
+                is_pseudo: None,
+            }],
+            request_id: "req-1".to_string(),
+            url: Url::parse("https://example.com/").unwrap(),
+            tls_cipher_suite: None,
+            tls_protocol: None,
+        };
+
+        let script_request = ScriptRequest {
+            body_base64: Some(BASE64_STANDARD.encode(&wire)),
+            body_text: Some(text),
+            headers: vec![
+                script_header("content-type", "application/json"),
+                script_header("content-encoding", "zstd"),
+            ],
+            method: "POST".to_string(),
+            mime_type: None,
+            url: "https://example.com/".to_string(),
+        };
+
+        apply_script_request_to_runtime(&mut request, script_request).unwrap();
+
+        assert_eq!(request.body, wire, "the untouched wire body must survive");
+        assert!(
+            request
+                .request_headers
+                .iter()
+                .any(|header| header.name.eq_ignore_ascii_case("content-encoding")),
+            "content-encoding must still describe the wire body, got: {:?}",
+            request.request_headers
+        );
     }
 }

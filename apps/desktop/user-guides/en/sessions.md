@@ -96,6 +96,10 @@ For a failed request, the General group in Overview adds two rows: **Failure** s
 
 A single body is captured up to **20 MB** and truncated past that (both the list and the inspector warn you). When a JSON payload is too large for the tree view, switch to **JSON Text** or **Raw**.
 
+### Session retention limit
+
+A single run keeps at most **15,000** sessions. Past that, the oldest sessions on unfocused hosts are reclaimed automatically: they leave the list and their database rows and body files are deleted with them, so Insights, search, and disk usage always match the list. Sessions themselves are not kept across launches — reopening AIProxy clears the previous run's captures. Export to HAR or save a response when you need to keep a request for longer.
+
 ## Right-click actions
 
 Right-clicking a session offers actions grouped roughly as:

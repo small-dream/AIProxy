@@ -264,6 +264,13 @@ impl AppState {
         self.cache.read_summaries()
     }
 
+    /// Test-only: shrink the summary cache cap so eviction is reachable without
+    /// materialising 15 000 sessions.
+    #[cfg(test)]
+    pub(crate) fn set_summary_max_for_tests(&self, summary_max: usize) {
+        self.cache.set_summary_max_for_tests(summary_max);
+    }
+
     pub(crate) fn session_generation(&self) -> u64 {
         self.session_generation.load(Ordering::Acquire)
     }
@@ -478,7 +485,8 @@ impl AppState {
             .repository
             .persist_session_full(detail, &active_workspace_id)
             .await;
-        self.update_session_cache_and_emit(&detail);
+        let evicted = self.update_session_cache_and_emit(&detail);
+        self.delete_evicted_sessions(evicted).await;
     }
 
     pub(crate) async fn upsert_session_batch_async_at_generation(
@@ -499,9 +507,11 @@ impl AppState {
             .repository
             .persist_session_batch_full(sessions, &active_workspace_id)
             .await;
+        let mut evicted = Vec::new();
         for session in &sessions {
-            self.update_session_cache_and_emit(session);
+            evicted.extend(self.update_session_cache_and_emit(session));
         }
+        self.delete_evicted_sessions(evicted).await;
     }
 
     /// Persist a WebSocket message only if the session generation that produced
@@ -556,7 +566,10 @@ impl AppState {
     /// `read_session_detail()`. An already-cached detail for this session is,
     /// however, refreshed in place so a viewer does not keep reading a stale
     /// snapshot (e.g. one captured before the response body arrived).
-    fn update_session_cache_and_emit(&self, session_detail: &ProxySessionDetail) {
+    ///
+    /// Returns the summaries the cap evicted; the caller must remove those
+    /// sessions from storage too (see `delete_evicted_sessions`).
+    fn update_session_cache_and_emit(&self, session_detail: &ProxySessionDetail) -> Vec<String> {
         let session_summary = session_detail.summary.clone();
         let focused_hosts = self.read_focused_hosts();
 
@@ -595,6 +608,34 @@ impl AppState {
         if let Some(handle) = self.read_app_handle() {
             emit_session_upsert(&handle, session_summary);
         }
+
+        removed_ids
+    }
+
+    /// P2-3: the summary cache is bounded (`SESSION_SUMMARY_MAX`, 15 000). An
+    /// evicted summary is a session the UI no longer lists, so remove its
+    /// persisted row and body files as well. Before this the rows, bodies and
+    /// WebSocket messages lived on invisibly for the rest of the run: the list
+    /// hid them, `search_sessions` / `get_insights` / `get_session` still saw
+    /// them, and the disk usage kept growing.
+    ///
+    /// Runs while the caller holds `session_lifecycle_lock`, so the delete is
+    /// serialized with other upserts/deletes. Best-effort: `Repository` logs
+    /// storage failures instead of failing the capture path.
+    async fn delete_evicted_sessions(&self, evicted_ids: Vec<String>) {
+        if evicted_ids.is_empty() {
+            return;
+        }
+
+        tracing::warn!(
+            component = "desktop.sessions",
+            event = "session_summary_evicted_and_deleted",
+            evicted_count = evicted_ids.len(),
+            "session summary cache cap reached; evicted sessions are removed from storage"
+        );
+        self.repository
+            .delete_sessions_and_bodies_async(evicted_ids)
+            .await;
     }
 
     pub fn read_db_connection(&self) -> &Arc<Mutex<aiproxy_db::rusqlite::Connection>> {
@@ -850,7 +891,7 @@ mod tests {
     use super::converters::{proxy_detail_to_row, proxy_summary_to_row};
     use super::AppState;
     use aiproxy_db::body_store::BodyStore;
-    use aiproxy_proxy_core::{ProxySessionDetail, ProxySessionSummary};
+    use aiproxy_proxy_core::{ProxyBodyReference, ProxySessionDetail, ProxySessionSummary};
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;
 
@@ -1224,6 +1265,64 @@ mod tests {
             h2_stream_id: None,
             via_upstream_proxy: None,
         }
+    }
+
+    // P2-3: when the bounded summary cache evicts a session, the session must
+    // also disappear from storage. Previously the row, its bodies and its
+    // WebSocket messages stayed behind for the rest of the run — invisible in
+    // the list but still counted by `get_insights` / `search_sessions`, and still
+    // consuming disk.
+    #[test]
+    fn evicting_a_session_also_removes_its_row_and_body_files() {
+        tauri::async_runtime::block_on(async {
+            let (state, body_store_dir) = empty_state();
+            state.set_summary_max_for_tests(2);
+
+            for (id, with_large_body) in [("s-1", true), ("s-2", false)] {
+                let summary = build_summary(id, "api.example.com");
+                let mut detail = build_detail(&summary);
+                if with_large_body {
+                    detail.response_body = Some(ProxyBodyReference::from_decoded_bytes(
+                        vec![b'x'; 300 * 1024],
+                        Some("text/plain".to_string()),
+                        300 * 1024,
+                        false,
+                        true,
+                    ));
+                }
+                state.upsert_session_async(detail).await;
+            }
+
+            assert!(
+                body_store_dir.join("s-1").is_dir(),
+                "fixture body must be spilled to disk before eviction"
+            );
+
+            // The third summary pushes the cache over its cap and evicts s-1.
+            let summary = build_summary("s-3", "api.example.com");
+            state.upsert_session_async(build_detail(&summary)).await;
+
+            assert_eq!(
+                state
+                    .read_sessions()
+                    .into_iter()
+                    .map(|session| session.id)
+                    .collect::<Vec<_>>(),
+                vec!["s-2".to_string(), "s-3".to_string()],
+                "only the two newest summaries may remain in the cache"
+            );
+            assert!(
+                state.read_session_detail("s-1").unwrap().is_none(),
+                "an evicted session must not stay readable from the database"
+            );
+            assert!(
+                !body_store_dir.join("s-1").exists(),
+                "an evicted session's body files must be removed with it"
+            );
+            assert!(state.read_session_detail("s-2").unwrap().is_some());
+
+            let _ = std::fs::remove_dir_all(body_store_dir);
+        });
     }
 
     /// Minimal state for proxy-lifecycle tests: an empty in-memory DB plus a

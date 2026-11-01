@@ -697,15 +697,60 @@ pub(crate) async fn stop_proxy_impl(
     Ok(status)
 }
 
+/// How long a stopping proxy may take to flush sessions it already captured
+/// before its collector is force-aborted (see `shutdown_proxy_runtime`). Long
+/// enough for a queued batch write, short enough that Stop stays responsive.
+const COLLECTOR_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
+
 pub(crate) async fn shutdown_proxy_runtime(state: Arc<AppState>) -> bool {
+    shutdown_proxy_runtime_with_grace(state, COLLECTOR_DRAIN_GRACE).await
+}
+
+/// Same as [`shutdown_proxy_runtime`] with an explicit collector drain grace.
+///
+/// The app-exit path passes `Duration::ZERO`: session storage is cleared on the
+/// next launch, so persisting the last queued captures is pointless there and a
+/// lingering WebSocket must not delay quitting. Stop/restart use
+/// `COLLECTOR_DRAIN_GRACE` so a burst captured just before Stop is not lost.
+pub(crate) async fn shutdown_proxy_runtime_with_grace(
+    state: Arc<AppState>,
+    collector_grace: std::time::Duration,
+) -> bool {
     let Some(runtime_handles) = state.take_runtime() else {
         return false;
     };
 
     state.read_breakpoint_manager().cancel_all();
-    runtime_handles.collector_handle.abort();
-    let _ = runtime_handles.collector_handle.await;
+
+    // P2-1: stop the listener BEFORE the collector. Shutting the server down
+    // drops the session/WS senders owned by the accept loop, so the collector's
+    // channels close, its loop exits normally and it runs the in-flight drain at
+    // the end of the collector task. Aborting first — the previous order —
+    // discarded every queued session and WS frame (the channels are bounded at
+    // 4096) and made that drain unreachable.
     runtime_handles.proxy_server_handle.shutdown().await;
+
+    // Connections that were already accepted hold their own sender clones and
+    // can outlive the listener (a long-lived WebSocket, a hanging upstream), so
+    // the channels are not guaranteed to be closed yet. Give the collector a
+    // bounded grace period to persist what it already has, then abort it so Stop
+    // cannot hang on a peer that never drains.
+    let collector = runtime_handles.collector_handle;
+    let collector_abort = collector.inner().abort_handle();
+    if collector_grace.is_zero() {
+        collector_abort.abort();
+    } else if tokio::time::timeout(collector_grace, collector)
+        .await
+        .is_err()
+    {
+        tracing::warn!(
+            component = "desktop.commands",
+            event = "collector_drain_timeout",
+            grace_ms = collector_grace.as_millis() as u64,
+            "collector still running after the drain grace period; aborting it"
+        );
+        collector_abort.abort();
+    }
 
     true
 }
@@ -920,3 +965,116 @@ pub(crate) async fn disable_system_proxy_impl(
 }
 
 // --- Certificate command implementations ---
+
+#[cfg(test)]
+mod tests {
+    use super::shutdown_proxy_runtime;
+    use crate::bootstrap::{AppState, RuntimeHandles};
+    use aiproxy_db::body_store::BodyStore;
+    use std::sync::{Arc, Mutex};
+
+    fn empty_state() -> (AppState, std::path::PathBuf) {
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", uuid::Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+        (
+            AppState::new(Arc::new(Mutex::new(conn)), body_store),
+            body_store_dir,
+        )
+    }
+
+    async fn start_test_proxy_server() -> aiproxy_proxy_core::StartedProxyServer {
+        let managers = aiproxy_proxy_core::ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        };
+
+        let mut last_error = String::new();
+        for _ in 0..5 {
+            let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("ephemeral port");
+            let port = probe.local_addr().expect("local addr").port();
+            drop(probe);
+
+            let config = aiproxy_proxy_core::ProxyConfig {
+                runtime: aiproxy_proxy_core::ProxyRuntimeConfig {
+                    port,
+                    ssl_enabled: false,
+                    http2_enabled: Some(false),
+                    verify_upstream_tls: false,
+                    tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                    ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                    upstream_proxy: None,
+                    ssl_proxying: None,
+                },
+                workspace_id: Some("default".to_string()),
+                event_emitter: None,
+            };
+
+            match aiproxy_proxy_core::start_proxy_server(config, managers.clone()).await {
+                Ok(started) => return started,
+                // Another process may have taken the probed port in between.
+                Err(error) => last_error = error,
+            }
+        }
+
+        panic!("could not start a test proxy server: {last_error}");
+    }
+
+    // P2-1: stopping the proxy must let the collector exit through its
+    // channel-close path — the only path that reaches the in-flight drain —
+    // instead of aborting it first. Queued sessions/WS frames (up to the 4096
+    // channel bound) were silently discarded on every Stop/restart before.
+    #[test]
+    fn stopping_the_proxy_drains_the_collector_instead_of_aborting_it() {
+        tauri::async_runtime::block_on(async {
+            let (state, body_store_dir) = empty_state();
+            let started = start_test_proxy_server().await;
+
+            // Shaped like the real collector: it records "drained" only after
+            // both channels close, which is exactly what the abort used to
+            // prevent.
+            let (drained_tx, drained_rx) = tokio::sync::oneshot::channel::<()>();
+            let collector = tauri::async_runtime::spawn(async move {
+                let mut session_rx = started.session_receiver;
+                let mut ws_rx = started.ws_message_receiver;
+                loop {
+                    tokio::select! {
+                        session = session_rx.recv() => {
+                            if session.is_none() {
+                                break;
+                            }
+                        }
+                        message = ws_rx.recv() => {
+                            if message.is_none() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                let _ = drained_tx.send(());
+            });
+
+            let state = Arc::new(state);
+            state.set_runtime(RuntimeHandles {
+                collector_handle: collector,
+                proxy_server_handle: started.server_handle,
+            });
+
+            assert!(shutdown_proxy_runtime(Arc::clone(&state)).await);
+            assert!(
+                drained_rx.await.is_ok(),
+                "the collector must finish through the channel-close drain, not an abort"
+            );
+
+            let _ = std::fs::remove_dir_all(body_store_dir);
+        });
+    }
+}

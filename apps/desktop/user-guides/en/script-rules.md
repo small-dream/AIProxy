@@ -181,6 +181,8 @@ Common fields and methods:
 - `ctx.response.removeHeader(name)`
 
 > Body byte semantics: if a script only reads the body or edits headers without touching the body, the proxy passes the original bytes through — including non-UTF-8 payloads such as GBK or Latin-1 pages — instead of re-encoding the UTF-8 `bodyText`. The body is replaced only when the script actually changes it via `setText()` / `setBase64()` (or by assigning `bodyText` / `bodyBase64` directly).
+>
+> Encoding: a header-only edit also keeps the headers that describe the original bytes, including `content-encoding`. Even when that encoding cannot be decoded (for example `zstd`, an expansion over 64 MiB, or a corrupt stream), the compressed bytes are never forwarded as if they were plain text. When the script does rewrite the body, the decoded plain bytes are written back and the now-wrong `content-encoding` / `etag` / `content-md5` headers are removed.
 
 ### `ctx.session`
 
