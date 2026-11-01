@@ -45,6 +45,12 @@ export type CollectionSaveInput = {
   formData: HeaderEntry[];
   urlEncoded: HeaderEntry[];
   formFiles: FormFileEntry[];
+  /**
+   * Sibling order to persist. Callers that edit an existing item must echo the
+   * current value: omitting it makes the command default to `0` and moves the
+   * item to the top of its collection (P2-5).
+   */
+  sortOrder?: number;
 };
 
 export type SessionToCollectionInput = {

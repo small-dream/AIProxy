@@ -21,6 +21,7 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -180,11 +181,28 @@ export const SessionInspectorResponsePane = forwardRef<
     }
   }, [onResponseTabChange, responseTab, visibleTabs]);
 
+  // P2-9: open media responses on the preview tab exactly once per session.
+  // The effect used to run whenever `responseTab` changed, so clicking
+  // "Overview" on an image/audio/video response was immediately undone and that
+  // tab was unreachable.
+  const autoPreviewSessionRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (visibleTabs.includes("preview") && responseTab === "overview") {
+    if (autoPreviewSessionRef.current === session.id) {
+      return;
+    }
+    if (!visibleTabs.includes("preview")) {
+      // Wait until we know the response is previewable (the detail may still be
+      // loading); the ref is only claimed when we act or the tab is already
+      // fine.
+      return;
+    }
+
+    autoPreviewSessionRef.current = session.id;
+    if (responseTab === "overview") {
       onResponseTabChange("preview");
     }
-  }, [onResponseTabChange, session.id, responseTab, visibleTabs]);
+  }, [onResponseTabChange, responseTab, session.id, visibleTabs]);
 
   useEffect(() => {
     if (!isSearchable) {

@@ -1923,6 +1923,7 @@ export const zhCNMessages: Messages = {
       countLabel: "{{label}} ({{count}})",
     },
     workspace: {
+      contentLoadFailed: "部分请求内容加载失败。请查看应用日志后重试。",
       emptyDescription: "选择一条已捕获的请求，查看它的 Headers、Body、Timing 和原始 HTTP 消息。",
       emptyTitle: "检查器工作区",
       loading: "正在加载当前选中会话的详情...",

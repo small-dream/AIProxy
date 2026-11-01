@@ -50,6 +50,7 @@ import { SaveToCollectionDialog } from "@/features/collections/components/SaveTo
 import { useUpsertCollectionItem } from "@/features/collections/use-collection-items";
 import { useNotificationStore } from "@/services/notification.store";
 import { useI18n } from "@/i18n";
+import { readStoredNumber, writeStorageValue } from "@/lib/storage";
 import { appFontCssVars } from "@/themes/fonts";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -73,20 +74,6 @@ const COMPOSE_SPLIT_DEFAULT = 0.45;
 
 function clampSplitRatio(ratio: number): number {
   return Math.min(COMPOSE_SPLIT_MAX, Math.max(COMPOSE_SPLIT_MIN, ratio));
-}
-
-function readStorageValue(key: string): string | null {
-  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
-    return null;
-  }
-  return window.localStorage.getItem(key);
-}
-
-function writeStorageValue(key: string, value: string) {
-  if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
-    return;
-  }
-  window.localStorage.setItem(key, value);
 }
 
 export function ComposePage() {
@@ -136,22 +123,17 @@ export function ComposePage() {
   const responseDetail = sendMutation.data;
   const [responseTab, setResponseTab] = useState<ComposeResponseTab>("overview");
   const [snackbarOpen, setSnackbarOpen] = useState(false);
-  const [splitRatio, setSplitRatio] = useState(COMPOSE_SPLIT_DEFAULT);
+  // P2-4: read the saved split lazily so a missing key keeps the designed
+  // default (the old effect parsed `Number(null)` as 0 and clamped to 15%).
+  const [splitRatio, setSplitRatio] = useState(() =>
+    clampSplitRatio(readStoredNumber(COMPOSE_SPLIT_STORAGE_KEY, COMPOSE_SPLIT_DEFAULT)),
+  );
   const dragFrameRef = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   // M21: tracks the active resize cleanup fn so a mid-drag unmount can remove
   // the window pointer listeners (and cancel the pending animation frame)
   // instead of leaking them until some unrelated pointerup elsewhere fires.
   const resizeCleanupRef = useRef<(() => void) | null>(null);
-
-  // Load split ratio from localStorage
-  useEffect(() => {
-    const saved = readStorageValue(COMPOSE_SPLIT_STORAGE_KEY);
-    const parsed = Number(saved);
-    if (Number.isFinite(parsed)) {
-      setSplitRatio(clampSplitRatio(parsed));
-    }
-  }, []);
 
   // Persist split ratio
   useEffect(() => {

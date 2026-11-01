@@ -10,9 +10,20 @@ import {
 } from "./use-session-filters";
 
 let throttledSessionIds: string[] = [];
+// Captured by the mocked `useQuery` so tests can assert how the throttled-session
+// query is scoped (P2-8).
+type QueryOptions = {
+  queryKey: unknown[];
+  queryFn: () => Promise<string[]>;
+  enabled?: boolean;
+};
+let lastQueryOptions: QueryOptions | undefined;
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: throttledSessionIds }),
+  useQuery: (options: QueryOptions) => {
+    lastQueryOptions = options;
+    return { data: throttledSessionIds };
+  },
 }));
 
 vi.mock("@/i18n", () => ({
@@ -20,7 +31,7 @@ vi.mock("@/i18n", () => ({
 }));
 
 vi.mock("@/services/commands", () => ({
-  listThrottledSessionIds: vi.fn(),
+  listThrottledSessionIds: vi.fn(async () => throttledSessionIds),
 }));
 
 function createSessionSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
@@ -44,14 +55,17 @@ function createSessionSummary(overrides: Partial<SessionSummary> = {}): SessionS
 function setupHook({
   displayActiveSessions,
   searchValue = "",
+  activeWorkspaceId,
 }: {
   displayActiveSessions: SessionSummary[];
   searchValue?: string;
+  activeWorkspaceId?: string;
 }) {
   const updateContainer = vi.fn();
 
   const { result } = renderHook(() =>
     useSessionFilters({
+      activeWorkspaceId,
       displayActiveSessions,
       updateContainer: updateContainer as unknown as (
         updater: (container: SessionContainer) => SessionContainer,
@@ -65,6 +79,7 @@ function setupHook({
 
 beforeEach(() => {
   throttledSessionIds = [];
+  lastQueryOptions = undefined;
   // The test environment's localStorage is stubbed out (see the existing
   // pattern in pages/sessions.test.tsx); install an in-memory replacement.
   const storage = new Map<string, string>();
@@ -138,5 +153,37 @@ describe("useSessionFilters — filtering pipeline", () => {
 
     expect(result.current.focusedHosts.size).toBe(0);
     expect(result.current.visibleSessions).toHaveLength(1);
+  });
+
+  // P2-8: throttle runs are stored per workspace. The query used to be keyed and
+  // issued for the literal "default" workspace, so every non-default workspace
+  // filtered down to an empty list.
+  it("scopes the throttled-session query to the active workspace", async () => {
+    const { listThrottledSessionIds } = await import("@/services/commands");
+    const mockedList = vi.mocked(listThrottledSessionIds);
+    mockedList.mockClear();
+
+    const { result } = setupHook({
+      displayActiveSessions: [createSessionSummary()],
+      activeWorkspaceId: "ws-2",
+    });
+
+    expect(lastQueryOptions?.queryKey).toEqual(["throttled-session-ids", "ws-2"]);
+    // Idle until the filter is turned on.
+    expect(lastQueryOptions?.enabled).toBe(false);
+
+    act(() => result.current.setShowOnlyThrottled(true));
+
+    expect(lastQueryOptions?.enabled).toBe(true);
+    await act(async () => {
+      await lastQueryOptions?.queryFn();
+    });
+    expect(mockedList).toHaveBeenCalledWith("ws-2");
+  });
+
+  it("falls back to the default workspace before the first status poll", () => {
+    setupHook({ displayActiveSessions: [createSessionSummary()] });
+
+    expect(lastQueryOptions?.queryKey).toEqual(["throttled-session-ids", "default"]);
   });
 });

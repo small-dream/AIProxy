@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import type { SessionSummary } from "@aiproxy/shared-types";
+import { DEFAULT_WORKSPACE_ID, type SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { listThrottledSessionIds } from "@/services/commands";
@@ -37,12 +37,19 @@ export interface UseSessionFiltersParams {
   updateContainer: (updater: (container: SessionContainer) => SessionContainer) => void;
   /** The container's search value. */
   searchValue: string;
+  /**
+   * Workspace the running proxy captures into. Throttle runs are recorded with
+   * it, so the throttled-session filter must query the same workspace (P2-8);
+   * before the first status poll it falls back to the default workspace.
+   */
+  activeWorkspaceId?: string | undefined;
 }
 
 export function useSessionFilters({
   displayActiveSessions,
   updateContainer,
   searchValue,
+  activeWorkspaceId,
 }: UseSessionFiltersParams): SessionFiltersState {
   const { t } = useI18n();
 
@@ -57,10 +64,17 @@ export function useSessionFilters({
     () => readStorageValue(COMPARE_BASE_SESSION_ID_STORAGE_KEY) ?? "",
   );
 
+  const throttledWorkspaceId = activeWorkspaceId ?? DEFAULT_WORKSPACE_ID;
   const { data: throttledSessionIds = [] } = useQuery({
-    queryKey: ["throttled-session-ids", "default"],
-    queryFn: () => listThrottledSessionIds(),
+    // P2-8: scope both the cache key and the query to the workspace the proxy
+    // is actually recording into. The literal "default" key used to return an
+    // empty list (and never refetch on a workspace switch) for every non-default
+    // workspace.
+    queryKey: ["throttled-session-ids", throttledWorkspaceId],
+    queryFn: () => listThrottledSessionIds(throttledWorkspaceId),
     refetchInterval: 2_000,
+    // Only poll while the filter is on; the ids have no other consumer.
+    enabled: showOnlyThrottled,
   });
   const throttledSessionIdSet = useMemo(() => new Set(throttledSessionIds), [throttledSessionIds]);
 

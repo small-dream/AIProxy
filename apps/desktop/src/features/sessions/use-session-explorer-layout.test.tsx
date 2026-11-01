@@ -2,7 +2,8 @@ import { act, renderHook } from "@testing-library/react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useSessionExplorerLayout } from "./use-session-explorer-layout";
+import { useSessionExplorerLayout, DEFAULT_EXPLORER_WIDTH } from "./use-session-explorer-layout";
+import { DEFAULT_REQUEST_SPLIT_RATIO } from "./components/session-inspector.helpers";
 
 // M21: unmounting mid-drag must remove the window pointer listeners (and
 // release the pointer capture) instead of leaking them until an unrelated
@@ -106,5 +107,25 @@ describe("useSessionExplorerLayout resize cleanup (M21)", () => {
     expect(removeListenerSpy.mock.calls.length).toBe(callsAfterPointerUp);
 
     removeListenerSpy.mockRestore();
+  });
+
+  // P2-4: with nothing persisted, the designed defaults must win. The old code
+  // parsed the missing key with `Number(null)` (0, which is finite) and clamped
+  // the width to 280px and the split to 15%.
+  it("uses the designed defaults on first run", () => {
+    const { result } = renderLayout();
+
+    expect(result.current.explorerWidth).toBe(DEFAULT_EXPLORER_WIDTH);
+    expect(result.current.defaultInspectorSplitRatio).toBe(DEFAULT_REQUEST_SPLIT_RATIO);
+  });
+
+  it("restores persisted layout values", () => {
+    storage.set("aiproxy.sessions.explorerWidth", "420");
+    storage.set("aiproxy.sessions.inspectorSplitRatio", "0.6");
+
+    const { result } = renderLayout();
+
+    expect(result.current.explorerWidth).toBe(420);
+    expect(result.current.defaultInspectorSplitRatio).toBe(0.6);
   });
 });

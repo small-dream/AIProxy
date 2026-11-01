@@ -12,6 +12,8 @@ export type CollectionEditorItem = {
   method: string;
   name: string;
   rawLanguage: string;
+  /** Sibling order; echoed back on save so the command does not reset it (P2-5). */
+  sortOrder: number;
   url: string;
   urlEncoded: HeaderEntry[];
 };

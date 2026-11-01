@@ -1,10 +1,18 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 import { describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
 
 import { SessionInspectorWorkspace } from "./SessionInspectorWorkspace";
+
+// P2-6: the deferred-content loader is mocked so the failure path is
+// deterministic. A rejected load used to be retried on every render forever.
+vi.mock("@/features/sessions/session-detail-content", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/features/sessions/session-detail-content")>();
+  return { ...actual, ensureSessionDetailContent: vi.fn() };
+});
 
 function createSessionSummary(overrides: Partial<SessionSummary> = {}): SessionSummary {
   return {
@@ -744,5 +752,56 @@ describe("SessionInspectorWorkspace", () => {
     expect(screen.queryByText(/application\/x-www-form-urlencoded/)).not.toBeInTheDocument();
     expect(screen.getByText("name")).toBeInTheDocument();
     expect(screen.getByText("pharles")).toBeInTheDocument();
+  });
+
+  // P2-6: a permanently failing deferred-content load used to re-arm itself on
+  // every render (the loading flag is cleared in `finally` and is part of the
+  // effect's dependencies), producing an unbounded IPC loop with an unhandled
+  // rejection and no user-visible feedback.
+  it("stops retrying a failing deferred-content load and offers a retry", async () => {
+    const { ensureSessionDetailContent } =
+      await import("@/features/sessions/session-detail-content");
+    const ensureMock = vi.mocked(ensureSessionDetailContent);
+    ensureMock.mockReset();
+    ensureMock.mockRejectedValue(new Error("ipc unavailable"));
+
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="query"
+          responseTab="text"
+          selectedSession={createSessionSummary({ responseMimeType: "text/plain" })}
+          selectedSessionDetail={createSessionDetail({
+            responseBody: {
+              mimeType: "text/plain",
+              sizeBytes: 42,
+              textDeferred: true,
+            },
+            summary: createSessionSummary({ responseMimeType: "text/plain" }),
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    await waitFor(() => expect(ensureMock).toHaveBeenCalledTimes(1));
+    // Let several effect cycles elapse: a regression would keep calling.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(ensureMock).toHaveBeenCalledTimes(1);
+
+    // Explicit retry is offered instead of a silent loop.
+    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+    await waitFor(() => expect(ensureMock).toHaveBeenCalledTimes(2));
   });
 });

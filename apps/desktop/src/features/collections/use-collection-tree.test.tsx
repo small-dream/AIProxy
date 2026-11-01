@@ -25,21 +25,23 @@ function makeCollection(id: string): ApiCollection {
   };
 }
 
-function makeParams(collections: ApiCollection[]): UseCollectionTreeParams {
-  const mutation = { mutate: vi.fn() };
-  return {
+function makeParams(collections: ApiCollection[]) {
+  const upsertCollection = { mutate: vi.fn() };
+  const deleteMutation = { mutate: vi.fn() };
+  const upsertItem = { mutate: vi.fn() };
+  const params: UseCollectionTreeParams = {
     collections,
     items: [],
     tree: buildCollectionTree(collections),
     selectedCollectionId: null,
     selectedItemId: null,
     collectionFilter: "",
-    upsertCollection: mutation as unknown as UseCollectionTreeParams["upsertCollection"],
-    deleteCollection: mutation as unknown as UseCollectionTreeParams["deleteCollection"],
-    moveCollection: mutation as unknown as UseCollectionTreeParams["moveCollection"],
-    upsertItem: mutation as unknown as UseCollectionTreeParams["upsertItem"],
-    deleteItem: mutation as unknown as UseCollectionTreeParams["deleteItem"],
-    moveItem: mutation as unknown as UseCollectionTreeParams["moveItem"],
+    upsertCollection: upsertCollection as unknown as UseCollectionTreeParams["upsertCollection"],
+    deleteCollection: deleteMutation as unknown as UseCollectionTreeParams["deleteCollection"],
+    moveCollection: deleteMutation as unknown as UseCollectionTreeParams["moveCollection"],
+    upsertItem: upsertItem as unknown as UseCollectionTreeParams["upsertItem"],
+    deleteItem: deleteMutation as unknown as UseCollectionTreeParams["deleteItem"],
+    moveItem: deleteMutation as unknown as UseCollectionTreeParams["moveItem"],
     editor: {
       loadFromItem: vi.fn(),
       reset: vi.fn(),
@@ -47,6 +49,36 @@ function makeParams(collections: ApiCollection[]): UseCollectionTreeParams {
     setSelectedCollectionId: vi.fn(),
     setSelectedItemId: vi.fn(),
     t: (key) => key,
+  };
+
+  return { params, upsertCollection, upsertItem };
+}
+
+function fakeContextMenuEvent() {
+  return {
+    clientX: 0,
+    clientY: 0,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+  } as unknown as Parameters<ReturnType<typeof useCollectionTree>["handleTreeContextMenu"]>[0];
+}
+
+function makeEditorItem(overrides: { id: string; collectionId: string; sortOrder: number }) {
+  return {
+    body: "",
+    bodyType: "none",
+    collectionId: overrides.collectionId,
+    description: "",
+    formData: [],
+    formFiles: [],
+    headers: [],
+    id: overrides.id,
+    method: "GET",
+    name: overrides.id,
+    rawLanguage: "json",
+    sortOrder: overrides.sortOrder,
+    url: "https://api.example.com/",
+    urlEncoded: [],
   };
 }
 
@@ -89,7 +121,8 @@ describe("useCollectionTree spring-load timer cleanup", () => {
 
   it("expands the collapsed folder after 500ms while mounted (control)", () => {
     const collections = [makeCollection("col-a"), makeCollection("col-b")];
-    const { result } = renderHook(() => useCollectionTree(makeParams(collections)));
+    const { params } = makeParams(collections);
+    const { result } = renderHook(() => useCollectionTree(params));
 
     armSpringLoad(result);
     expect(result.current.isFolderExpanded("col-b")).toBe(false);
@@ -102,8 +135,9 @@ describe("useCollectionTree spring-load timer cleanup", () => {
 
   it("clears the pending spring-load timer on unmount", () => {
     const collections = [makeCollection("col-a"), makeCollection("col-b")];
+    const { params } = makeParams(collections);
     const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
-    const { result, unmount } = renderHook(() => useCollectionTree(makeParams(collections)));
+    const { result, unmount } = renderHook(() => useCollectionTree(params));
 
     armSpringLoad(result);
     expect(result.current.isFolderExpanded("col-b")).toBe(false);
@@ -113,5 +147,66 @@ describe("useCollectionTree spring-load timer cleanup", () => {
     // The unmount cleanup must have cleared the pending expand timer.
     expect(clearTimeoutSpy).toHaveBeenCalled();
     clearTimeoutSpy.mockRestore();
+  });
+});
+
+// P2-5: renaming must echo the current sibling order. The commands default a
+// missing `sortOrder` to 0, which silently moved the renamed entry to the top
+// of its list (and flattening repeated saves).
+describe("useCollectionTree rename keeps sort order", () => {
+  it("keeps a folder's sort order", () => {
+    const collections = [{ ...makeCollection("col-a"), sortOrder: 7 }];
+    const { params, upsertCollection } = makeParams(collections);
+    const { result } = renderHook(() => useCollectionTree(params));
+
+    act(() => {
+      result.current.handleTreeContextMenu(fakeContextMenuEvent(), {
+        kind: "collection",
+        id: "col-a",
+        name: "col-a",
+        parentId: null,
+      });
+    });
+    act(() => {
+      result.current.handleBeginRename();
+    });
+    act(() => {
+      result.current.setRenameName("renamed");
+    });
+    act(() => {
+      result.current.handleRenameSubmit();
+    });
+
+    expect(upsertCollection.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "col-a", name: "renamed", parentId: null, sortOrder: 7 }),
+      expect.anything(),
+    );
+  });
+
+  it("keeps a request item's sort order", () => {
+    const collections = [makeCollection("col-a")];
+    const { params, upsertItem } = makeParams(collections);
+    const { result } = renderHook(() => useCollectionTree(params));
+
+    act(() => {
+      result.current.handleTreeContextMenu(fakeContextMenuEvent(), {
+        kind: "item",
+        item: makeEditorItem({ id: "item-1", collectionId: "col-a", sortOrder: 3 }),
+      });
+    });
+    act(() => {
+      result.current.handleBeginRename();
+    });
+    act(() => {
+      result.current.setRenameName("renamed item");
+    });
+    act(() => {
+      result.current.handleRenameSubmit();
+    });
+
+    expect(upsertItem.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "item-1", name: "renamed item", sortOrder: 3 }),
+      expect.anything(),
+    );
   });
 });

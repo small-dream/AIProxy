@@ -2014,6 +2014,7 @@ export const enMessages = {
       countLabel: "{{label}} ({{count}})",
     },
     workspace: {
+      contentLoadFailed: "Some request details could not be loaded. Check the app log, then retry.",
       emptyDescription:
         "Select a captured request to inspect headers, body, timing, and raw HTTP messages.",
       emptyTitle: "Inspector Workspace",

@@ -6,6 +6,11 @@ export type CollectionEditorState = {
   // Item identity
   itemId: string | null;
   collectionId: string | null;
+  /**
+   * Sibling order of the loaded item. Kept so "save" can echo it back and the
+   * command does not reset it to 0 (which moves the item to the top, P2-5).
+   */
+  sortOrder: number;
   name: string;
   description: string;
 
@@ -24,6 +29,7 @@ export type CollectionEditorState = {
   loadFromItem: (item: {
     id: string;
     collectionId: string;
+    sortOrder: number;
     name: string;
     description: string;
     method: string;
@@ -68,6 +74,7 @@ const INITIAL: Omit<
 > = {
   itemId: null,
   collectionId: null,
+  sortOrder: 0,
   name: "",
   description: "",
   method: "GET",
@@ -104,6 +111,7 @@ export const useCollectionEditorStore = create<CollectionEditorState>((set) => (
     set({
       itemId: item.id,
       collectionId: item.collectionId,
+      sortOrder: item.sortOrder,
       name: item.name,
       description: item.description,
       method: item.method,

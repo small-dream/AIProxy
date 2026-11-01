@@ -1,26 +1,6 @@
-export function readStorageValue(key: string): string | null {
-  if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") {
-    return null;
-  }
+import { readStorageValue } from "@/lib/storage";
 
-  return window.localStorage.getItem(key);
-}
-
-export function writeStorageValue(key: string, value: string) {
-  if (typeof window === "undefined" || typeof window.localStorage?.setItem !== "function") {
-    return;
-  }
-
-  window.localStorage.setItem(key, value);
-}
-
-export function removeStorageValue(key: string) {
-  if (typeof window === "undefined" || typeof window.localStorage?.removeItem !== "function") {
-    return;
-  }
-
-  window.localStorage.removeItem(key);
-}
+export { readStorageValue, writeStorageValue, removeStorageValue } from "@/lib/storage";
 
 export function normalizeStoredHost(value: string | null): string | null {
   if (!value) {

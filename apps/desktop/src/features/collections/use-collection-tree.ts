@@ -300,11 +300,15 @@ export function useCollectionTree(params: UseCollectionTreeParams): UseCollectio
     if (!renameTarget || !nextName) return;
 
     if (renameTarget.kind === "collection") {
+      // P2-5: echo the current order. Omitting it made the command default to 0
+      // and the renamed folder jumped to the top of its siblings.
+      const currentCollection = findFolder(renameTarget.id);
       upsertCollection.mutate(
         {
           id: renameTarget.id,
           name: nextName,
           parentId: renameTarget.parentId,
+          ...(currentCollection ? { sortOrder: currentCollection.sortOrder } : {}),
         },
         {
           onSuccess: () => handleRenameCancel(),
@@ -327,6 +331,8 @@ export function useCollectionTree(params: UseCollectionTreeParams): UseCollectio
         method: item.method,
         name: nextName,
         rawLanguage: item.rawLanguage,
+        // P2-5: same reason as the collection branch above.
+        sortOrder: item.sortOrder,
         url: item.url,
         urlEncoded: item.urlEncoded,
       },

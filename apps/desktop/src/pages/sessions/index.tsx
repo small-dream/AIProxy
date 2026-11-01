@@ -106,7 +106,10 @@ export function SessionsPage() {
   const {
     data: runtimeSessions = [],
     error: sessionsError,
+    isFetchedAfterMount: sessionsFetchedAfterMount,
+    isFetching: areSessionsFetching,
     isLoading: areSessionsLoading,
+    refetch: refetchSessions,
   } = useSessions();
 
   const lastHandledHostFilterActionRef = useRef(0);
@@ -190,6 +193,7 @@ export function SessionsPage() {
     visibleSessions,
     toggleHost,
   } = useSessionFilters({
+    activeWorkspaceId: proxyStatus?.activeWorkspaceId,
     displayActiveSessions,
     updateContainer,
     searchValue: activeContainer?.searchValue ?? "",
@@ -293,12 +297,51 @@ export function SessionsPage() {
     t("sessionsPage.sessionsLoadError"),
   );
 
+  // P2-7: `hydrated` is a one-way latch, so only seed it from a list the backend
+  // actually produced for this page:
+  //  - a failed first `list_sessions` must not latch an empty list (history would
+  //    stay invisible until the app restarts);
+  //  - the `["sessions"]` cache can be created before this lazy-loaded page
+  //    mounts (AppShell's `useSessionEvents` calls `setQueryData` on every
+  //    upsert), and a fresh 60s-stale entry would otherwise seed one session and
+  //    skip the backend list entirely.
+  // When the cache was not filled by a fetch after this page mounted, ask for one
+  // once; a genuinely fetched list then seeds normally.
+  const refetchSessionsRequestedRef = useRef(false);
+
   useEffect(() => {
-    if (areSessionsLoading) return;
-    if (!useSessionContainerStore.getState().hydrated) {
-      seedSessions(runtimeSessions);
+    if (areSessionsLoading || areSessionsFetching || sessionsError) {
+      return;
     }
-  }, [areSessionsLoading, runtimeSessions, seedSessions]);
+    if (useSessionContainerStore.getState().hydrated) {
+      return;
+    }
+
+    if (!sessionsFetchedAfterMount) {
+      if (!refetchSessionsRequestedRef.current) {
+        refetchSessionsRequestedRef.current = true;
+        void refetchSessions();
+      }
+      return;
+    }
+
+    // Keep sessions that arrived through events between the fetch and this seed:
+    // the snapshot cannot contain a capture that completed after it was taken.
+    const knownIds = new Set(runtimeSessions.map((session) => session.id));
+    const storeOnlySessions = Object.values(
+      useSessionContainerStore.getState().sessionSummaryById,
+    ).filter((session) => !knownIds.has(session.id));
+
+    seedSessions([...runtimeSessions, ...storeOnlySessions]);
+  }, [
+    areSessionsFetching,
+    areSessionsLoading,
+    refetchSessions,
+    runtimeSessions,
+    seedSessions,
+    sessionsError,
+    sessionsFetchedAfterMount,
+  ]);
 
   // Persist focused / ignored hosts
   useEffect(() => {

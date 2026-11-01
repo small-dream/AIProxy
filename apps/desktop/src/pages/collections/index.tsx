@@ -73,7 +73,7 @@ import {
   getContextMenuIconSx,
   getContextMenuItemSx,
 } from "@/features/sessions/components/context-menu.styles";
-import { readStorageValue, writeStorageValue } from "@/features/sessions/session-ui.helpers";
+import { readStoredNumber, readStorageValue, writeStorageValue } from "@/lib/storage";
 import { useI18n } from "@/i18n";
 
 export function CollectionsPage() {
@@ -110,16 +110,16 @@ export function CollectionsPage() {
   // the window pointer listeners instead of leaking them until some unrelated
   // pointerup elsewhere finally fires.
   const resizeCleanupRef = useRef<(() => void) | null>(null);
-  const [explorerWidth, setExplorerWidth] = useState(() => {
-    const parsedWidth = Number(readStorageValue(EXPLORER_WIDTH_STORAGE_KEY));
-    return Number.isFinite(parsedWidth) ? clampExplorerWidth(parsedWidth) : 320;
-  });
-  const [inspectorSplitRatio, setInspectorSplitRatio] = useState(() => {
-    const parsedRatio = Number(readStorageValue(INSPECTOR_SPLIT_RATIO_STORAGE_KEY));
-    return Number.isFinite(parsedRatio)
-      ? clampInspectorSplitRatio(parsedRatio)
-      : DEFAULT_REQUEST_SPLIT_RATIO;
-  });
+  const [explorerWidth, setExplorerWidth] = useState(() =>
+    // P2-4: a missing key must keep the designed default, not `Number(null) === 0`
+    // (which clamps to the minimum width).
+    clampExplorerWidth(readStoredNumber(EXPLORER_WIDTH_STORAGE_KEY, 320)),
+  );
+  const [inspectorSplitRatio, setInspectorSplitRatio] = useState(() =>
+    clampInspectorSplitRatio(
+      readStoredNumber(INSPECTOR_SPLIT_RATIO_STORAGE_KEY, DEFAULT_REQUEST_SPLIT_RATIO),
+    ),
+  );
   const [requestCollapsed, setRequestCollapsed] = useState(
     () => readStorageValue(REQUEST_COLLAPSED_STORAGE_KEY) === "true",
   );
@@ -281,6 +281,10 @@ export function CollectionsPage() {
         method: editor.method,
         name: editor.name || `${editor.method} ${editor.url}`,
         rawLanguage: editor.rawLanguage,
+        // P2-5: saving an existing request must not reset its sibling order.
+        // The command defaults a missing `sortOrder` to 0, which moves the item
+        // to the top of its collection.
+        sortOrder: editor.sortOrder,
         url: editor.url,
         urlEncoded: editor.urlEncodedEntries,
       },

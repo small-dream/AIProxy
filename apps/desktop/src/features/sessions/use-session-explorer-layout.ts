@@ -7,7 +7,8 @@ import {
   type RequestInspectorTab,
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
-import { readStorageValue, writeStorageValue } from "@/features/sessions/session-ui.helpers";
+import { writeStorageValue } from "@/features/sessions/session-ui.helpers";
+import { readStoredNumber } from "@/lib/storage";
 import type { SessionContainer } from "@/features/sessions/session-containers.helpers";
 
 const EXPLORER_WIDTH_STORAGE_KEY = "aiproxy.sessions.explorerWidth";
@@ -15,6 +16,8 @@ const EXPANDED_HOSTS_STORAGE_KEY = "aiproxy.sessions.expandedHosts";
 const INSPECTOR_SPLIT_RATIO_STORAGE_KEY = "aiproxy.sessions.inspectorSplitRatio";
 const REQUEST_COLLAPSED_STORAGE_KEY = "aiproxy.sessions.requestCollapsed";
 const SELECTED_SESSION_ID_STORAGE_KEY = "aiproxy.sessions.selectedSessionId";
+
+export const DEFAULT_EXPLORER_WIDTH = 360;
 
 export function clampExplorerWidth(width: number) {
   return Math.min(520, Math.max(280, Math.round(width)));
@@ -51,18 +54,20 @@ export function useSessionExplorerLayout({
   // pointerup elsewhere finally fires.
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
-  const defaultInspectorSplitRatio = useMemo(() => {
-    const savedRatio = Number(readStorageValue(INSPECTOR_SPLIT_RATIO_STORAGE_KEY));
-    return Number.isFinite(savedRatio)
-      ? clampInspectorSplitRatio(savedRatio)
-      : DEFAULT_REQUEST_SPLIT_RATIO;
-  }, []);
+  const defaultInspectorSplitRatio = useMemo(
+    () =>
+      clampInspectorSplitRatio(
+        readStoredNumber(INSPECTOR_SPLIT_RATIO_STORAGE_KEY, DEFAULT_REQUEST_SPLIT_RATIO),
+      ),
+    [],
+  );
 
-  const [explorerWidth, setExplorerWidth] = useState(() => {
-    const savedWidth = readStorageValue(EXPLORER_WIDTH_STORAGE_KEY);
-    const parsedWidth = Number(savedWidth);
-    return Number.isFinite(parsedWidth) ? clampExplorerWidth(parsedWidth) : 360;
-  });
+  const [explorerWidth, setExplorerWidth] = useState(() =>
+    // P2-4: `readStoredNumber` keeps the designed default when the key is
+    // absent; `Number(null)` used to be treated as a saved 0 and clamped to the
+    // 280px minimum on first run.
+    clampExplorerWidth(readStoredNumber(EXPLORER_WIDTH_STORAGE_KEY, DEFAULT_EXPLORER_WIDTH)),
+  );
 
   const handleInspectorSplitRatioChange = useCallback(
     (ratio: number) => {

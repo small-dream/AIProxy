@@ -1,4 +1,4 @@
-import { Alert, Box, Divider, Typography } from "@mui/material";
+import { Alert, Box, Button, Divider, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -15,6 +15,7 @@ import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { ensureSessionDetailContent } from "@/features/sessions/session-detail-content";
+import { logDevError } from "@/services/logger/dev-logger";
 import { type RequestPaneHandle, SessionInspectorRequestPane } from "./SessionInspectorRequestPane";
 import {
   type ResponsePaneHandle,
@@ -83,6 +84,12 @@ export const SessionInspectorWorkspace = forwardRef<
   const queryClient = useQueryClient();
   const [activePane, setActivePane] = useState<"request" | "response">("response");
   const [contentLoading, setContentLoading] = useState<Record<string, boolean>>({});
+  // P2-6: deferred-content keys whose last load failed. The load effect depends
+  // on the loading flags, and the loading flag is cleared in `finally`, so a
+  // permanently failing IPC call re-armed itself on every render (an unbounded
+  // request loop with an unhandled rejection). Remember the failure instead and
+  // let the user retry explicitly.
+  const [failedContentKeys, setFailedContentKeys] = useState<Set<string>>(() => new Set());
   const requestPaneRef = useRef<RequestPaneHandle>(null);
   const responsePaneRef = useRef<ResponsePaneHandle>(null);
 
@@ -93,6 +100,7 @@ export const SessionInspectorWorkspace = forwardRef<
 
   useEffect(() => {
     setContentLoading({});
+    setFailedContentKeys((current) => (current.size === 0 ? current : new Set()));
   }, [selectedSession?.id]);
 
   const requestBodyText = getBodyText(detail?.requestBody);
@@ -153,6 +161,11 @@ export const SessionInspectorWorkspace = forwardRef<
     }
   }, [activePane]);
 
+  // P2-6: clearing the failure memory re-arms the load effect for those keys.
+  const retryFailedContent = useCallback(() => {
+    setFailedContentKeys(new Set());
+  }, []);
+
   const loadDeferredContent = useCallback(
     async (
       key:
@@ -188,6 +201,31 @@ export const SessionInspectorWorkspace = forwardRef<
 
       try {
         await ensureSessionDetailContent(queryClient, selectedSession.id, request);
+        setFailedContentKeys((current) => {
+          if (!current.has(key)) {
+            return current;
+          }
+
+          const next = new Set(current);
+          next.delete(key);
+          return next;
+        });
+      } catch (error) {
+        // P2-6: record the failure so the load effect stops retrying. The pane
+        // renders its normal "body unavailable" state and the alert below offers
+        // an explicit retry.
+        logDevError("ui.sessions", "session_detail_content_load_failed", {
+          key,
+          sessionId: selectedSession.id,
+          error,
+        });
+        setFailedContentKeys((current) => {
+          if (current.has(key)) {
+            return current;
+          }
+
+          return new Set(current).add(key);
+        });
       } finally {
         setContentLoading((current) => {
           if (!current[key]) {
@@ -214,7 +252,8 @@ export const SessionInspectorWorkspace = forwardRef<
       detail.requestBody?.textDeferred &&
       detail.requestBody.inlineText === undefined &&
       !contentLoading.requestBodyText &&
-      !contentLoading.requestRaw
+      !contentLoading.requestRaw &&
+      !failedContentKeys.has("requestBodyText")
     ) {
       void loadDeferredContent("requestBodyText", { includeRequestBodyText: true });
     }
@@ -224,7 +263,8 @@ export const SessionInspectorWorkspace = forwardRef<
       isMultipartRequestBody &&
       detail.requestBody?.base64Deferred &&
       detail.requestBody.base64Text === undefined &&
-      !contentLoading.requestBodyBase64
+      !contentLoading.requestBodyBase64 &&
+      !failedContentKeys.has("requestBodyBase64")
     ) {
       void loadDeferredContent("requestBodyBase64", { includeRequestBodyBase64: true });
     }
@@ -235,7 +275,8 @@ export const SessionInspectorWorkspace = forwardRef<
       getRawMessageText(detail.rawRequest, detail.rawRequestHead, detail.requestBody) ===
         undefined &&
       !contentLoading.requestRaw &&
-      !(detail.requestBody?.textDeferred && contentLoading.requestBodyText)
+      !(detail.requestBody?.textDeferred && contentLoading.requestBodyText) &&
+      !failedContentKeys.has("requestRaw")
     ) {
       void loadDeferredContent(
         "requestRaw",
@@ -250,7 +291,8 @@ export const SessionInspectorWorkspace = forwardRef<
       detail.responseBody?.textDeferred &&
       detail.responseBody.inlineText === undefined &&
       !contentLoading.responseBodyText &&
-      !contentLoading.responseRaw
+      !contentLoading.responseRaw &&
+      !failedContentKeys.has("responseBodyText")
     ) {
       void loadDeferredContent("responseBodyText", { includeResponseBodyText: true });
     }
@@ -261,7 +303,8 @@ export const SessionInspectorWorkspace = forwardRef<
       getRawMessageText(detail.rawResponse, detail.rawResponseHead, detail.responseBody) ===
         undefined &&
       !contentLoading.responseRaw &&
-      !(detail.responseBody?.textDeferred && contentLoading.responseBodyText)
+      !(detail.responseBody?.textDeferred && contentLoading.responseBodyText) &&
+      !failedContentKeys.has("responseRaw")
     ) {
       void loadDeferredContent(
         "responseRaw",
@@ -275,7 +318,8 @@ export const SessionInspectorWorkspace = forwardRef<
       responseTab === "preview" &&
       detail.responseBody?.base64Deferred &&
       detail.responseBody.base64Text === undefined &&
-      !contentLoading.responseBodyBase64
+      !contentLoading.responseBodyBase64 &&
+      !failedContentKeys.has("responseBodyBase64")
     ) {
       void loadDeferredContent("responseBodyBase64", { includeResponseBodyBase64: true });
     }
@@ -287,6 +331,7 @@ export const SessionInspectorWorkspace = forwardRef<
     contentLoading.responseBodyBase64,
     contentLoading.responseRaw,
     detail,
+    failedContentKeys,
     isMultipartRequestBody,
     loadDeferredContent,
     requestBodyText,
@@ -354,6 +399,19 @@ export const SessionInspectorWorkspace = forwardRef<
       {detailErrorMessage ? (
         <Alert severity="error" sx={{ borderRadius: 0 }}>
           {detailErrorMessage}
+        </Alert>
+      ) : null}
+      {failedContentKeys.size > 0 ? (
+        <Alert
+          severity="warning"
+          action={
+            <Button color="inherit" onClick={retryFailedContent} size="small">
+              {t("common.actions.retry")}
+            </Button>
+          }
+          sx={{ borderRadius: 0 }}
+        >
+          {t("inspector.workspace.contentLoadFailed")}
         </Alert>
       ) : null}
       {isDetailLoading && !detail ? (

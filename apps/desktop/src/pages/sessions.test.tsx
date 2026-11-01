@@ -16,6 +16,15 @@ const mockLocation: { key: string; pathname: string; state: unknown } = {
 };
 const testState = vi.hoisted(() => ({
   runtimeSessions: [] as SessionSummary[],
+  // P2-7: overridable query state so tests can reproduce a failed first load or
+  // a cache that was warmed by events instead of a backend fetch.
+  sessionsQuery: {
+    error: null as unknown,
+    isFetchedAfterMount: true,
+    isFetching: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  },
 }));
 const EXPANDED_HOSTS_STORAGE_KEY = "aiproxy.sessions.expandedHosts";
 const INSPECTOR_SPLIT_RATIO_STORAGE_KEY = "aiproxy.sessions.inspectorSplitRatio";
@@ -120,7 +129,7 @@ vi.mock("@/features/sessions/use-session-events", () => ({
 }));
 
 vi.mock("@/features/sessions/use-sessions", () => ({
-  useSessions: () => ({ data: testState.runtimeSessions, error: null, isLoading: false }),
+  useSessions: () => ({ data: testState.runtimeSessions, ...testState.sessionsQuery }),
 }));
 
 vi.mock("@/services/events", () => ({
@@ -266,6 +275,13 @@ describe("SessionsPage inspector split ratio", () => {
     mockLocation.pathname = "/";
     mockLocation.state = null;
     testState.runtimeSessions = [];
+    testState.sessionsQuery = {
+      error: null,
+      isFetchedAfterMount: true,
+      isFetching: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
     useSessionContainerStore.getState().clearSessions();
     const storage = new Map<string, string>();
 
@@ -388,6 +404,53 @@ describe("SessionsPage inspector split ratio", () => {
     await waitFor(() => {
       expect(screen.getByTestId("search-value")).toHaveTextContent("api.example.com");
       expect(screen.getByTestId("expanded-hosts")).toHaveTextContent("api.example.com");
+    });
+  });
+
+  // P2-7: `hydrated` is a one-way latch. A failed first load used to seed an
+  // empty list and mark the page hydrated, hiding every historical session for
+  // the rest of the run (until the app restarted).
+  it("does not latch hydration when the first session load fails", async () => {
+    testState.sessionsQuery = {
+      error: new Error("list_sessions failed"),
+      isFetchedAfterMount: false,
+      isFetching: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+
+    render(
+      <AppProviders>
+        <SessionsPage />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(useSessionContainerStore.getState().hydrated).toBe(false);
+    });
+  });
+
+  // P2-7: the sessions cache can be created by `setQueryData` from session
+  // events before this lazy-loaded page mounts. Seeding from it skipped the
+  // backend list entirely; the page must ask for an authoritative fetch first.
+  it("refetches before seeding a cache that was warmed by events", async () => {
+    testState.runtimeSessions = [createSessionSummary({})];
+    // A fresh cache entry created by `setQueryData` was not produced by a fetch
+    // after this page mounted.
+    testState.sessionsQuery = {
+      ...testState.sessionsQuery,
+      isFetchedAfterMount: false,
+    };
+
+    render(
+      <AppProviders>
+        <SessionsPage />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(testState.sessionsQuery.refetch).toHaveBeenCalledTimes(1);
+      expect(useSessionContainerStore.getState().hydrated).toBe(false);
     });
   });
 });

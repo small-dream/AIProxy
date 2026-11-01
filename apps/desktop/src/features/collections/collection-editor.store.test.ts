@@ -10,6 +10,7 @@ function buildItem(
   overrides: Partial<{
     id: string;
     collectionId: string;
+    sortOrder: number;
     name: string;
     description: string;
     method: string;
@@ -26,6 +27,7 @@ function buildItem(
   return {
     id: overrides.id ?? "item-1",
     collectionId: overrides.collectionId ?? "col-1",
+    sortOrder: overrides.sortOrder ?? 0,
     name: overrides.name ?? "GET api.example.com",
     description: overrides.description ?? "",
     method: overrides.method ?? "GET",
@@ -98,6 +100,15 @@ describe("useCollectionEditorStore", () => {
       expect(state.body).toBe('{"name":"test"}');
       expect(state.bodyType).toBe("raw");
       expect(state.rawLanguage).toBe("json");
+    });
+
+    // P2-5: the editor must keep the loaded item's sibling order so "save"
+    // can echo it back; the command defaults a missing value to 0, which made
+    // every save/rename jump the item to the top of its collection.
+    it("keeps the loaded sortOrder", () => {
+      useCollectionEditorStore.getState().loadFromItem(buildItem({ sortOrder: 7 }));
+
+      expect(useCollectionEditorStore.getState().sortOrder).toBe(7);
     });
 
     it("creates a defensive copy of headers and formData", () => {
