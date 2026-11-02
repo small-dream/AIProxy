@@ -18,6 +18,9 @@ const clearAgentMutateMock = vi.fn();
 const deleteRuleMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 
 vi.mock("@/features/rules/use-rule-center", () => ({
+  // Read by the batch-delete/reorder cache updates; a partial mock without it
+  // throws asynchronously and surfaces as a flaky failure in another file.
+  REWRITE_RULES_QUERY_KEY: ["rewrite-rules"],
   useRewriteRules: () => ({ data: rulesState.current, isError: false }),
   useSaveRewriteRule: () => ({ mutate: saveMutateMock, isPending: false }),
   useDeleteManagedRule: () => ({ mutate: deleteMutateMock, isPending: false }),
