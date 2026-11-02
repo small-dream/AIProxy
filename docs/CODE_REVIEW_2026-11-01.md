@@ -314,6 +314,28 @@ rusqlite 对 `INTEGER` → `i32` 越界返回 `OutOfRange` 错误，`collect::<R
 ## 7. 审查方法与局限
 
 - **证据分级**：本轮区分「主审复核 ✓」与「子代理」。所有 P1 与约 20 条 P2 已由主审回读代码；P3 多数为子代理证据（均带逐字代码与行号），按低一档置信度对待。修复阶段复核撤回了 P1-1（WS 单向静默不会掐断健康连接，理由见该条），其内容降级为 P3 观察。
-- **门禁**：`tsc --noEmit` 通过；`cargo clippy --workspace --all-targets --offline` 全绿。`vitest` 在本次沙箱内因 Vite 的 `windowsSafeRealPathSync` 调用 `execFile` 被沙箱拒绝（`spawn EPERM`）无法启动，未取得动态测试结果；建议在 CI 或非沙箱环境复跑 `pnpm --filter @aiproxy/desktop test`。
+- **门禁**：`tsc --noEmit` 通过；`cargo clippy --workspace --all-targets --offline` 全绿（修复阶段按 crate 复跑，0 warning）。`vitest` 在本机沙箱最初因 Vite 的 `windowsSafeRealPathSync` 调用 `execFile`（`spawn EPERM`）无法启动；修复阶段改用 `--configLoader runner` 加一个仅本地生效的 `child_process.exec` 兼容垫片（不进入仓库）后跑通，全量 113 个文件 / 881 个用例通过。CI 环境无需该垫片。
 - **未覆盖/抽查**：`crates/mcp-server/src/tools/body.rs` 的中段字段提取、前端 200+ 组件中的纯展示组件、`scripts/*.sh` 的平台分支仍以抽读为主；P3 中标注「上轮遗留」的条目在上一轮报告中已有详细证据，本轮未重复展开。
 - **可复现性**：所有 P1/P2 条目均给出「文件:行号 + 触发条件 + 期望行为」，可直接转为 issue 与回归测试用例。
+
+---
+
+## 8. 修复进度（2026-11-02）
+
+按 §6 的批次推进，每批独立提交（代码 + 回归测试；文档按需同步）。
+
+| 批次 | 范围 | 状态 | 提交 | 验证 |
+|---|---|---|---|---|
+| 第 1 批 | P1-2、P1-3、P1-4 | ✅ 已修复 | `542e325` | proxy-core 脚本用例 13；db 全量 138；断点面板新增回归（已确认旧实现为红） |
+| 第 2 批 | P1-5、P1-6；P1-1 撤回 | ✅ 已修复 | `c3f8320` | mcp 98 + 18、redaction 13（含 NDJSON/SSE/BOM）；Linux `linux.rs` 仅 rustfmt + 人工核对，待 Linux CI |
+| 第 3 批 | P1-7、P1-8、P1-9（含 P2-31） | ✅ 已修复 | `20abc39` | tls-manager 56（含 iPAddress SAN）、mcp context 刷新用例、db 全量 139、前端 priority 6 例 |
+| 第 4 批 | P2-1、P2-2、P2-6、P2-7 | ✅ 已修复 | `ab102eb` | proxy-core 全量 383（含 slow-loris、停滞 body、8 KiB chunk 行、GBK body） |
+| 第 5 批 | P2-23、P2-26、P2-29、P2-35 | ✅ 已修复 | `b82901d` | 前端全量 113 文件 / 881 用例；Tauri 编译 + clippy |
+| 后续 | 其余 P2/P3 | ⏳ 待处理 | — | 建议按「系统代理跨平台一致性」「MCP 脱敏规则集」拆专项 |
+
+**说明**：
+
+- P1-1 已在修复阶段复核撤回（见 §2），未产生代码改动；其窄窗口观察留在该条。
+- P1-9 的落地同时包含前端 `priority` 钳制（P2-31），因此第 5 批不再重复该条。
+- Linux 系统代理改动（`apps/desktop/src-tauri/src/system_proxy/linux.rs`）无法在 Windows 本机编译/运行，只做了 `rustfmt --check` 与逐行核对，需由 Linux CI 或实机验证。
+- 批次提交后工作区干净；`cargo test` 均在 `--offline` 下以工作区内的 `CARGO_TARGET_DIR` 运行。
