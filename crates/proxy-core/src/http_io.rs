@@ -555,7 +555,7 @@ pub(crate) fn build_body_reference(
     let decoded_body =
         decode_body_bytes(body, content_encoding.as_deref()).unwrap_or_else(|| body.to_vec());
 
-    let render_as_text = should_render_body_as_text(mime_type.as_deref(), &decoded_body);
+    let render_as_text = should_render_body_as_text(&decoded_body);
 
     Some(ProxyBodyReference::from_decoded_bytes(
         decoded_body,
@@ -582,7 +582,7 @@ pub(crate) fn build_body_reference_from_decoded(
         .map(|value| value.split(';').next().unwrap_or(value).trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let render_as_text = should_render_body_as_text(mime_type.as_deref(), &decoded_body);
+    let render_as_text = should_render_body_as_text(&decoded_body);
 
     Some(ProxyBodyReference::from_decoded_bytes(
         decoded_body,
@@ -593,21 +593,17 @@ pub(crate) fn build_body_reference_from_decoded(
     ))
 }
 
-pub(crate) fn should_render_body_as_text(mime_type: Option<&str>, body: &[u8]) -> bool {
-    if let Some(mime_type) = mime_type {
-        let lowered = mime_type.to_ascii_lowercase();
-        if lowered.starts_with("text/")
-            || lowered.contains("json")
-            || lowered.contains("xml")
-            || lowered.contains("javascript")
-            || lowered.contains("yaml")
-            || lowered.contains("x-www-form-urlencoded")
-            || lowered.contains("multipart/form-data")
-        {
-            return true;
-        }
-    }
-
+/// Whether the body can be exposed as `inlineText`.
+///
+/// The MIME type is intentionally not consulted. A `text/html; charset=gbk`
+/// (or Latin-1 / Shift-JIS) body is not valid UTF-8, and rendering it with
+/// `String::from_utf8_lossy` turns every non-ASCII byte into U+FFFD while the
+/// serializer still reports `encoding: "utf-8"` — the Inspector shows mojibake
+/// and HAR exports contain text that cannot be restored (P2-1). Such bodies
+/// fall back to `base64Text`, as `docs/API_SPEC.md` requires. Valid UTF-8 is
+/// still rendered regardless of the declared MIME type, preserving the previous
+/// behaviour for e.g. `application/octet-stream` bodies that are plain text.
+pub(crate) fn should_render_body_as_text(body: &[u8]) -> bool {
     std::str::from_utf8(body).is_ok()
 }
 
@@ -724,43 +720,33 @@ mod tests {
     use proptest::prelude::*;
 
     // -----------------------------------------------------------------------
-    // P3: should_render_body_as_text
+    // should_render_body_as_text (P2-1)
     // -----------------------------------------------------------------------
 
-    // P3-1: text/* MIME always returns true
+    // Valid UTF-8 is rendered regardless of the declared MIME type.
     proptest! {
         #[test]
-        fn text_mime_always_returns_true(sub in "[a-zA-Z0-9]+", body in ".*") {
-            let mime = format!("text/{sub}");
-            prop_assert!(should_render_body_as_text(Some(&mime), body.as_bytes()));
+        fn valid_utf8_body_is_rendered(body in ".*") {
+            prop_assert!(should_render_body_as_text(body.as_bytes()));
         }
     }
 
-    // P3-2: Valid UTF-8 body always returns true regardless of MIME
-    proptest! {
-        #[test]
-        fn valid_utf8_body_always_true(mime in "(application|image)/[a-zA-Z0-9]+", body in ".*") {
-            prop_assert!(should_render_body_as_text(Some(&mime), body.as_bytes()));
-        }
+    // A text/* body that is not valid UTF-8 must not be rendered: doing so would
+    // replace every non-ASCII byte with U+FFFD and still label it utf-8.
+    #[test]
+    fn non_utf8_text_body_falls_back_to_base64() {
+        let mut gbk = b"<title>".to_vec();
+        gbk.extend_from_slice(&[0xD6, 0xD0, 0xCE, 0xC4]); // GBK "中文"
+        gbk.extend_from_slice(b"</title>");
+        assert!(!should_render_body_as_text(&gbk));
     }
 
-    // P3-3: application/json always returns true
     proptest! {
         #[test]
-        fn application_json_always_true(body in ".*") {
-            prop_assert!(should_render_body_as_text(Some("application/json"), body.as_bytes()));
-        }
-    }
-
-    // P3-4: Non-text MIME + non-UTF-8 body -> false
-    // Use suffixes that won't match text-like keywords (json, xml, javascript, yaml, etc.)
-    proptest! {
-        #[test]
-        fn non_text_mime_non_utf8_body_returns_false(suffix in "png|gif|bmp|tiff|ico|webp|bin|exe", extra in prop::collection::vec(any::<u8>(), 0..50)) {
-            let mime = format!("image/{suffix}");
+        fn invalid_utf8_body_is_never_rendered(extra in prop::collection::vec(any::<u8>(), 0..50)) {
             let mut body = vec![0xff, 0xfe];
             body.extend_from_slice(&extra);
-            prop_assert!(!should_render_body_as_text(Some(&mime), &body));
+            prop_assert!(!should_render_body_as_text(&body));
         }
     }
 

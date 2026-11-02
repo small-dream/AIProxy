@@ -6730,6 +6730,7 @@ fn client_handshake_rejection_separates_pinning_from_untrusted_root() {
 
 #[tokio::test]
 async fn silent_client_connections_are_reaped_within_the_header_read_ceiling() {
+    let _timeout_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
     let _header_guard =
         override_timeout_for_test(TimeoutKind::ClientHeaderRead, Duration::from_millis(300));
 
@@ -6821,6 +6822,7 @@ async fn silent_client_connections_are_reaped_within_the_header_read_ceiling() {
 
 #[tokio::test]
 async fn stalled_keepalive_client_is_reaped_within_the_header_read_ceiling() {
+    let _timeout_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
     let _header_guard =
         override_timeout_for_test(TimeoutKind::ClientHeaderRead, Duration::from_millis(300));
 
@@ -6921,4 +6923,140 @@ async fn stalled_keepalive_client_is_reaped_within_the_header_read_ceiling() {
 
     started_proxy.server_handle.shutdown().await;
     upstream_task.abort();
+}
+
+// P2-6: the header probe used to rearm its timeout on every read, so a client
+// that drips one byte at a time could hold a connection permit forever. The
+// probe now enforces one total budget (like hyper's header_read_timeout), so a
+// slow-loris connection must be answered with 400 and closed.
+#[tokio::test]
+async fn byte_by_byte_slow_loris_is_reaped_by_the_total_header_budget() {
+    let _timeout_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
+    let _header_guard =
+        override_timeout_for_test(TimeoutKind::ClientHeaderRead, Duration::from_millis(300));
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    let (mut reader, mut writer) = client.into_split();
+
+    // One byte every 100ms: each gap is well under the 300ms ceiling, which is
+    // exactly what defeated the old per-read timer. The full request would take
+    // over 4s; the total budget must cut it off.
+    let drip = tokio::spawn(async move {
+        for byte in b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n" {
+            if writer.write_all(&[*byte]).await.is_err() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
+
+    let mut response = Vec::new();
+    timeout(Duration::from_secs(2), async {
+        let mut chunk = [0_u8; 512];
+        loop {
+            match reader.read(&mut chunk).await {
+                Ok(0) | Err(_) => break,
+                Ok(bytes_read) => response.extend_from_slice(&chunk[..bytes_read]),
+            }
+        }
+    })
+    .await
+    .expect("a byte-by-byte slow-loris must be reaped by the total header budget");
+
+    let text = String::from_utf8_lossy(&response);
+    assert!(
+        text.starts_with("HTTP/1.1 400"),
+        "slow-loris should be answered with 400, got {text:?}"
+    );
+
+    drip.abort();
+    started_proxy.server_handle.shutdown().await;
+}
+
+// P2-2: a client that sends headers and then stalls before delivering the body
+// used to pin a connection permit forever (no response, no session, no log).
+// The body read is now bounded and answered with 408.
+#[tokio::test]
+async fn stalled_request_body_is_answered_with_408() {
+    let _timeout_lock = crate::WS_TIMEOUT_TEST_LOCK.lock().await;
+    let _body_guard =
+        override_timeout_for_test(TimeoutKind::ClientBodyRead, Duration::from_millis(300));
+
+    let proxy_port = allocate_unused_port();
+    let started_proxy = start_proxy_server(
+        ProxyConfig {
+            runtime: ProxyRuntimeConfig {
+                port: proxy_port,
+                ssl_enabled: false,
+                http2_enabled: None,
+                verify_upstream_tls: false,
+                tls_verify_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                ssl_blind_hosts: std::sync::Arc::from(Vec::<String>::new()),
+                upstream_proxy: None,
+                ssl_proxying: None,
+            },
+            workspace_id: None,
+            event_emitter: None,
+        },
+        ProxyManagers {
+            tls: None,
+            breakpoint: None,
+            rewrite: None,
+            map: None,
+            script: None,
+            throttle: None,
+            dns: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let mut client = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+    client
+        .write_all(
+            b"POST http://example.com/upload HTTP/1.1\r\nHost: example.com\r\nContent-Length: 1000\r\n\r\n",
+        )
+        .await
+        .unwrap();
+
+    let mut response = String::new();
+    timeout(Duration::from_secs(2), client.read_to_string(&mut response))
+        .await
+        .expect("a stalled request body must be reaped by the body-read budget")
+        .unwrap();
+    assert!(
+        response.starts_with("HTTP/1.1 408"),
+        "stalled body should be answered with 408, got {response:?}"
+    );
+
+    started_proxy.server_handle.shutdown().await;
 }

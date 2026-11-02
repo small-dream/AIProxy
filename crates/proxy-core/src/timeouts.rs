@@ -5,6 +5,7 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TimeoutKind {
     ClientHeaderRead,
+    ClientBodyRead,
     UpstreamRequest,
     ConnectTunnelConnect,
     TunnelIdle,
@@ -27,6 +28,12 @@ impl TimeoutKind {
     const fn default_duration(self) -> Duration {
         match self {
             Self::ClientHeaderRead => Duration::from_secs(30),
+            // Bounds how long one request may take to deliver its body. A
+            // client that sends headers and then stalls (or a half-open phone
+            // upload) would otherwise pin a connection permit forever, with no
+            // response, session or log (P2-2). Generous enough for a 20 MiB
+            // capture limit over a slow-but-alive link.
+            Self::ClientBodyRead => Duration::from_secs(120),
             Self::UpstreamRequest => Duration::from_secs(120),
             Self::ConnectTunnelConnect => Duration::from_secs(30),
             Self::TunnelIdle => Duration::from_secs(10 * 60),
@@ -49,6 +56,7 @@ impl TimeoutKind {
     #[cfg(test)]
     const fn test_override_slot(self) -> &'static AtomicU64 {
         static CLIENT_HEADER_READ_MS: AtomicU64 = AtomicU64::new(0);
+        static CLIENT_BODY_READ_MS: AtomicU64 = AtomicU64::new(0);
         static UPSTREAM_REQUEST_MS: AtomicU64 = AtomicU64::new(0);
         static CONNECT_TUNNEL_CONNECT_MS: AtomicU64 = AtomicU64::new(0);
         static TUNNEL_IDLE_MS: AtomicU64 = AtomicU64::new(0);
@@ -67,6 +75,7 @@ impl TimeoutKind {
         static UPSTREAM_POOL_EVICTION_MAX_IDLE_MS: AtomicU64 = AtomicU64::new(0);
         match self {
             Self::ClientHeaderRead => &CLIENT_HEADER_READ_MS,
+            Self::ClientBodyRead => &CLIENT_BODY_READ_MS,
             Self::UpstreamRequest => &UPSTREAM_REQUEST_MS,
             Self::ConnectTunnelConnect => &CONNECT_TUNNEL_CONNECT_MS,
             Self::TunnelIdle => &TUNNEL_IDLE_MS,
@@ -129,6 +138,7 @@ mod tests {
     fn every_timeout_kind_has_a_positive_default() {
         let kinds = [
             TimeoutKind::ClientHeaderRead,
+            TimeoutKind::ClientBodyRead,
             TimeoutKind::UpstreamRequest,
             TimeoutKind::ConnectTunnelConnect,
             TimeoutKind::TunnelIdle,

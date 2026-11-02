@@ -518,13 +518,20 @@ async fn read_header_only<S: AsyncReadExt + AsyncWriteExt + Unpin>(
 ) -> Result<(ParsedProxyRequest, Vec<u8>, Vec<u8>), String> {
     let mut buffer = Vec::with_capacity(READ_BUFFER_BYTES);
     let mut chunk = vec![0_u8; READ_BUFFER_BYTES];
+    // One total deadline, not a per-read timeout: rearming the timer on every
+    // byte lets a slow-loris client (one byte per few seconds) keep a connection
+    // permit forever. hyper's header_read_timeout is a single deadline too, so
+    // the probe now matches it.
+    let header_deadline =
+        tokio::time::Instant::now() + crate::timeout_for(crate::TimeoutKind::ClientHeaderRead);
     let header_end = loop {
-        let read_result = timeout(
-            crate::timeout_for(crate::TimeoutKind::ClientHeaderRead),
-            stream.read(&mut chunk),
-        )
-        .await
-        .map_err(|_| "timed out waiting for client request headers".to_string())?;
+        let remaining = header_deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return Err("timed out waiting for client request headers".to_string());
+        }
+        let read_result = timeout(remaining, stream.read(&mut chunk))
+            .await
+            .map_err(|_| "timed out waiting for client request headers".to_string())?;
 
         let bytes_read =
             read_result.map_err(|error| format!("failed to read from client stream: {error}"))?;

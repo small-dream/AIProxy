@@ -9,6 +9,11 @@ use http_body_util::BodyExt;
 
 type ProxyResponse = hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, String>>;
 
+/// Upper bound on one chunk-size line (size + extensions + CRLF). A malicious
+/// or broken upstream that streams bytes without ever sending CRLF must not
+/// grow the parser buffer without limit (P2-7); real chunk headers are tiny.
+const MAX_CHUNK_SIZE_LINE_BYTES: usize = 8 * 1024;
+
 /// How the body of a non-101 (refused WS upgrade) upstream response is
 /// delimited, per RFC 7230 §3.3.3.
 enum BodyFraming {
@@ -877,6 +882,14 @@ async fn read_chunked_body(
         let line_end = loop {
             if let Some(rel) = find_crlf(&buf[pos..]) {
                 break Some(pos + rel);
+            }
+            // P2-7: without this cap a hostile upstream can stream an
+            // endless chunk-size "line" and grow `buf` until the process is
+            // OOM-killed (the body ceiling only applies after the line parses).
+            if buf.len().saturating_sub(pos) > MAX_CHUNK_SIZE_LINE_BYTES {
+                return Err(format!(
+                    "chunk size line exceeds {MAX_CHUNK_SIZE_LINE_BYTES} bytes"
+                ));
             }
             if !refill_stream(upstream, &mut buf, &mut pos).await? {
                 break None;
@@ -1935,5 +1948,43 @@ mod tests {
             ctx.connection_semaphore.clone().try_acquire_owned().is_ok(),
             "a released slot can be reserved again"
         );
+    }
+
+    // P2-7: an upstream that streams bytes without ever sending CRLF must not
+    // grow the chunked-parser buffer without bound. The read must fail once the
+    // chunk-size line cap is exceeded instead of buffering until OOM.
+    #[tokio::test]
+    async fn chunked_refusal_body_aborts_on_an_unbounded_chunk_line() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            // 64 KiB of a chunk-size line that never terminates.
+            socket.write_all(&vec![b'a'; 64 * 1024]).await.unwrap();
+            let mut sink = [0_u8; 16];
+            let _ = socket.read(&mut sink).await;
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        });
+
+        let stream = TcpStream::connect(address).await.unwrap();
+        // DialedStream is itself `TlsOrPlain<TcpStream>`; the plain transport
+        // wraps one more layer.
+        let mut upstream = TlsOrPlain::Plain(TlsOrPlain::Plain(stream));
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            read_chunked_body(&mut upstream, Vec::new()),
+        )
+        .await
+        .expect("the parser must stop reading an unbounded chunk-size line");
+
+        assert!(
+            result.is_err(),
+            "an unterminated chunk-size line must fail instead of buffering forever"
+        );
+
+        server.abort();
     }
 }

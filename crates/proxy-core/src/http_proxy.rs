@@ -248,6 +248,54 @@ enum Stage1Outcome {
         request: ParsedProxyRequest,
         limit: usize,
     },
+    /// The client sent headers but did not finish its body within the
+    /// `ClientBodyRead` budget (P2-2). Answered with 408 + a session record.
+    RequestTimeout {
+        request: ParsedProxyRequest,
+    },
+}
+
+/// Record a Stage-1 rejection (413 / 408) as a session and build the plain-text
+/// response. Shared by the body-too-large and body-read-timeout paths so both
+/// stay visible in the Inspector for the same reasons.
+async fn reject_stage1_request(
+    ctx: &ConnectionContext,
+    request: &ParsedProxyRequest,
+    status: StatusCode,
+    message: String,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+) -> Result<ProxyResponse, String> {
+    let detail = build_session_detail(
+        request,
+        status.as_u16(),
+        &HeaderMap::new(),
+        message.as_bytes(),
+        message.len(),
+        started_at,
+        started_at_instant,
+        ProxyTimingBreakdown {
+            connect_ms: None,
+            connection_reused: None,
+            connection_wait_ms: None,
+            dns_ms: None,
+            request_send_ms: None,
+            response_read_ms: Some(0),
+            tls_ms: None,
+            total_ms: Some(started_at_instant.elapsed().as_millis()),
+            waiting_ms: Some(started_at_instant.elapsed().as_millis()),
+        },
+        false,
+        false, // M2 skip_bodies
+    );
+    if ctx.session_sender.send(detail).await.is_err() {
+        tracing::debug!(
+            event = "session_send_dropped",
+            reason = "receiver_disconnected",
+            "session_send_dropped"
+        );
+    }
+    build_plain_text_response(status, &message).map_err(|error| error.to_string())
 }
 
 /// Detect WebSocket upgrades, read the body, and build a [`ParsedProxyRequest`].
@@ -279,9 +327,15 @@ async fn stage_parse_request(
     // Build ParsedProxyRequest from the hyper Request.
     let (parts, body) = req.into_parts();
     let limited_body = http_body_util::Limited::new(body, MAX_CAPTURED_BODY_BYTES);
-    let body_bytes = match BodyExt::collect(limited_body).await {
-        Ok(collected) => collected.to_bytes(),
-        Err(error) => {
+    // P2-2: bound the whole body read. Without this a client that sends the
+    // headers and then stalls (phone sleep, Wi-Fi switch, half-open upload)
+    // holds a connection permit forever, with no response, session or log.
+    let body_read_timeout = crate::timeout_for(crate::TimeoutKind::ClientBodyRead);
+    let body_bytes = match tokio::time::timeout(body_read_timeout, BodyExt::collect(limited_body))
+        .await
+    {
+        Ok(Ok(collected)) => collected.to_bytes(),
+        Ok(Err(error)) => {
             // R6-2: a `LengthLimitError` means the request body exceeded the
             // 20 MiB capture limit. Downgrade to a 413 + session instead of
             // aborting the connection (which previously left the client with a
@@ -302,6 +356,13 @@ async fn stage_parse_request(
             return Err(crate::ProxyError::Other(format!(
                 "failed to read request body: {error}"
             )));
+        }
+        Err(_) => {
+            // Timed out: record the request with an empty body so the client
+            // gets a 408 and the Inspector shows what was attempted.
+            let request =
+                build_parsed_request_from_hyper(parts, bytes::Bytes::new(), ctx, &request_id)?;
+            return Ok(Stage1Outcome::RequestTimeout { request });
         }
     };
 
@@ -1275,35 +1336,6 @@ pub(crate) async fn handle_http_request(
                 "Request body exceeds the {} byte capture limit and was rejected.",
                 limit
             );
-            let detail = build_session_detail(
-                &request,
-                StatusCode::PAYLOAD_TOO_LARGE.as_u16(),
-                &HeaderMap::new(),
-                response_message.as_bytes(),
-                response_message.len(),
-                started_at,
-                started_at_instant,
-                ProxyTimingBreakdown {
-                    connect_ms: None,
-                    connection_reused: None,
-                    connection_wait_ms: None,
-                    dns_ms: None,
-                    request_send_ms: None,
-                    response_read_ms: Some(0),
-                    tls_ms: None,
-                    total_ms: Some(started_at_instant.elapsed().as_millis()),
-                    waiting_ms: Some(started_at_instant.elapsed().as_millis()),
-                },
-                false,
-                false, // M2 skip_bodies
-            );
-            if ctx.session_sender.send(detail).await.is_err() {
-                tracing::debug!(
-                    event = "session_send_dropped",
-                    reason = "receiver_disconnected",
-                    "session_send_dropped"
-                );
-            }
             tracing::warn!(
                 event = "request_body_too_large",
                 request_id = %request.request_id,
@@ -1312,8 +1344,40 @@ pub(crate) async fn handle_http_request(
                 limit,
                 "request_body_too_large"
             );
-            return build_plain_text_response(StatusCode::PAYLOAD_TOO_LARGE, &response_message)
-                .map_err(|e| e.to_string());
+            return reject_stage1_request(
+                ctx,
+                &request,
+                StatusCode::PAYLOAD_TOO_LARGE,
+                response_message,
+                started_at,
+                started_at_instant,
+            )
+            .await;
+        }
+        // P2-2: the client stalled before finishing its body. Return 408 and
+        // record a session so the permit is released and the attempt is visible.
+        Stage1Outcome::RequestTimeout { request } => {
+            let host = request.host.clone();
+            let response_message = format!(
+                "Timed out after {}s while reading the request body.",
+                crate::timeout_for(crate::TimeoutKind::ClientBodyRead).as_secs()
+            );
+            tracing::warn!(
+                event = "request_body_read_timeout",
+                request_id = %request.request_id,
+                host = %host,
+                url = %request.url,
+                "request_body_read_timeout"
+            );
+            return reject_stage1_request(
+                ctx,
+                &request,
+                StatusCode::REQUEST_TIMEOUT,
+                response_message,
+                started_at,
+                started_at_instant,
+            )
+            .await;
         }
     };
     let mut request = request;
