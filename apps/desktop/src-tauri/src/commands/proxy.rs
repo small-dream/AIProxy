@@ -435,10 +435,21 @@ pub(crate) async fn start_proxy_impl(
         const MAX_INFLIGHT_WS_INSERTS: usize = 64;
         let mut inflight_ws_inserts: Vec<tauri::async_runtime::JoinHandle<()>> = Vec::new();
 
+        // P2-23: drain BOTH channels to completion. The old loop broke as soon
+        // as EITHER receiver returned None, so once the session channel closed
+        // the WS channel's already-queued frames (and vice versa) were dropped
+        // on the floor during stop. Track each channel's closed state and stop
+        // polling only the one that ended.
+        let mut session_open = true;
+        let mut ws_open = true;
+
         loop {
+            if !session_open && !ws_open {
+                break;
+            }
             let session_generation = state_for_collector.session_generation();
             tokio::select! {
-                session = session_receiver.recv() => {
+                session = session_receiver.recv(), if session_open => {
                     match session {
                         Some(first) => {
                             let mut batch = vec![first];
@@ -452,10 +463,10 @@ pub(crate) async fn start_proxy_impl(
                                 .upsert_session_batch_async_at_generation(batch, session_generation)
                                 .await;
                         }
-                        None => break,
+                        None => session_open = false,
                     }
                 }
-                ws_msg = ws_message_receiver.recv() => {
+                ws_msg = ws_message_receiver.recv(), if ws_open => {
                     match ws_msg {
                         Some(msg) => {
                             let row = aiproxy_db::sessions::WsMessageRow {
@@ -504,7 +515,7 @@ pub(crate) async fn start_proxy_impl(
                                 }));
                             }
                         }
-                        None => break,
+                        None => ws_open = false,
                     }
                 }
             }

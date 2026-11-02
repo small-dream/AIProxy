@@ -128,9 +128,36 @@ describe("app-updater", () => {
 
     await expect(installPendingAppUpdate()).rejects.toThrow("download aborted");
 
-    // Without a fresh check the install must refuse — the stale handle is gone.
+    // The stale handle is gone; the retry re-checks. With no update available
+    // it must still refuse instead of installing the dead object.
+    vi.mocked(check).mockResolvedValueOnce(null);
     await expect(installPendingAppUpdate()).rejects.toThrow("No pending update");
     expect(failing).toHaveBeenCalledTimes(1);
+  });
+
+  // P2-35: the update dialog keeps the failure state and lets the user retry.
+  // A retry after a failed install must re-check and install the fresh update
+  // instead of failing forever with "No pending update".
+  it("re-checks and installs on a retry after a failed install", async () => {
+    const failing = vi.fn(async () => {
+      throw new Error("download aborted");
+    }) as unknown as DownloadAndInstall;
+    vi.mocked(check).mockResolvedValueOnce(makePendingUpdate(failing));
+    await checkForAppUpdate();
+
+    await expect(installPendingAppUpdate()).rejects.toThrow("download aborted");
+
+    const retry = deferredDownload();
+    vi.mocked(check).mockResolvedValueOnce(makePendingUpdate(retry.fn));
+    const install = installPendingAppUpdate();
+    // The retry re-checks first, so the download starts after a microtask
+    // chain; wait for it before resolving the deferred download.
+    await vi.waitFor(() => expect(retry.fn).toHaveBeenCalledTimes(1));
+    retry.resolve();
+    await install;
+
+    expect(retry.fn).toHaveBeenCalledTimes(1);
+    expect(check).toHaveBeenCalledTimes(2);
   });
 
   it("clears the pending update when the relaunch fails", async () => {
@@ -143,6 +170,8 @@ describe("app-updater", () => {
     download.resolve();
     await expect(install).rejects.toThrow("relaunch denied");
 
+    // The handle is gone; a retry re-checks. With nothing available it refuses.
+    vi.mocked(check).mockResolvedValueOnce(null);
     await expect(installPendingAppUpdate()).rejects.toThrow("No pending update");
   });
 });

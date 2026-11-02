@@ -775,6 +775,10 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
         );
         clearSelection();
         setBatchDeleteConfirmOpen(false);
+        // The raw command bypasses `useDeleteManagedRule`'s cache invalidation.
+        // Refresh explicitly, otherwise deleted rows stay in the list and a
+        // later save/toggle can resurrect them (P2-29).
+        void queryClient.invalidateQueries({ queryKey: REWRITE_RULES_QUERY_KEY });
       });
     }
 

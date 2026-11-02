@@ -69,7 +69,14 @@ export async function installPendingAppUpdate(
   }
 
   if (!pendingUpdate) {
-    throw new Error("No pending update is available. Check for updates first.");
+    // P2-35: a failed install/relaunch drops the handle, but the update dialog
+    // keeps the failure visible and offers "retry". Re-check here so that retry
+    // can succeed instead of permanently failing with "No pending update"
+    // until the dialog is reopened.
+    await checkForAppUpdate();
+    if (!pendingUpdate) {
+      throw new Error("No pending update is available. Check for updates first.");
+    }
   }
 
   const update = pendingUpdate;
@@ -101,8 +108,11 @@ export async function installPendingAppUpdate(
     .catch((error: unknown) => {
       // A failed download/install (or relaunch) leaves the pending handle
       // stale — drop it so the next attempt re-checks instead of retrying an
-      // update object that may already be superseded.
+      // update object that may already be superseded. Clear the single-flight
+      // guard here too: a retry started right after the rejection must not join
+      // the already-settled failed promise (P2-35).
       pendingUpdate = null;
+      installInFlight = null;
       throw error;
     })
     .finally(() => {

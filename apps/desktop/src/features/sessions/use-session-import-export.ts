@@ -112,21 +112,32 @@ export function useSessionImportExport({
     (details: SessionDetail[]) => {
       if (details.length === 0) return;
 
-      upsertImportedSessions(details);
+      const evictedIds = upsertImportedSessions(details);
+      const evicted = new Set(evictedIds);
+      // Sessions evicted by the memory cap must not stay in the list, the
+      // container store, or the query cache: their detail is gone, so opening
+      // or exporting them fails (P2-26). Only retained details are surfaced.
+      const retained = details.filter((detail) => !evicted.has(detail.id));
 
       queryClient.setQueryData<SessionSummary[]>(["sessions"], (current = []) => {
         let next = current;
-        for (const detail of details) {
+        for (const detail of retained) {
           next = upsertSessionSummary(next, detail.summary);
+        }
+        if (evicted.size > 0) {
+          next = next.filter((summary) => !evicted.has(summary.id));
         }
         return next;
       });
 
-      for (const detail of details) {
+      for (const id of evictedIds) {
+        queryClient.removeQueries({ queryKey: ["session-detail", id] });
+      }
+      for (const detail of retained) {
         queryClient.setQueryData(["session-detail", detail.id], detail);
       }
 
-      onImportComplete(details);
+      onImportComplete(retained);
 
       setImportSnackbarMessage(t("sessionsImport.messages.importedHar", { count: details.length }));
     },
