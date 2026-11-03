@@ -2015,6 +2015,7 @@ export const zhCNMessages: Messages = {
     copyAsCurl: "复制 cURL",
     copiedToClipboard: "已复制到剪贴板",
     copyFailed: "复制失败",
+    copyHostUrl: "复制 Host URL",
     search: "搜索",
     copyRequest: "复制请求",
     copyResponse: "复制响应",

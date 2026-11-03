@@ -1,4 +1,5 @@
 import AddCircleOutlineRoundedIcon from "@mui/icons-material/AddCircleOutlineRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import LockOpenRoundedIcon from "@mui/icons-material/LockOpenRounded";
 import LockRoundedIcon from "@mui/icons-material/LockRounded";
@@ -21,11 +22,13 @@ import {
 type DomainContextMenuProps = {
   anchorPosition: { left: number; top: number } | undefined;
   host: string | null;
+  hostUrl: string | null;
   isHostFocused: boolean;
   isHostIgnored: boolean;
   isHostSslDecryptDisabled: boolean;
   onClose: () => void;
   onAddToIncludeList: (host: string) => void;
+  onCopyHostUrl: (url: string) => void;
   onExportHost: (host: string) => void;
   onFocusHost: (host: string) => void;
   onIgnoreHost: (host: string) => void;
@@ -38,11 +41,13 @@ type DomainContextMenuProps = {
 export function DomainContextMenu({
   anchorPosition,
   host,
+  hostUrl,
   isHostFocused,
   isHostIgnored,
   isHostSslDecryptDisabled,
   onClose,
   onAddToIncludeList,
+  onCopyHostUrl,
   onExportHost,
   onFocusHost,
   onIgnoreHost,
@@ -70,6 +75,23 @@ export function DomainContextMenu({
       open={anchorPosition !== undefined}
       slotProps={buildContextMenuSlotProps(180)}
     >
+      <MenuItem
+        disabled={!hostUrl}
+        onClick={() => {
+          if (!hostUrl) return;
+          onCopyHostUrl(hostUrl);
+          onClose();
+        }}
+        sx={menuItemSx}
+      >
+        <ListItemIcon sx={iconSx}>
+          <ContentCopyRoundedIcon fontSize="small" />
+        </ListItemIcon>
+        <ListItemText {...contextMenuItemTextProps}>{t("contextMenu.copyHostUrl")}</ListItemText>
+      </MenuItem>
+
+      <Divider sx={dividerSx} />
+
       <MenuItem
         onClick={() => {
           onSaveHostFiles(host);

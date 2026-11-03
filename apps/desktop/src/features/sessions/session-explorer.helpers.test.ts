@@ -7,6 +7,7 @@ import {
   getSessionResourceKind,
   matchesKeyword,
   reconcileExpandedKeys,
+  resolveSessionHostUrl,
 } from "./session-explorer.helpers";
 
 function createSessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
@@ -351,6 +352,54 @@ describe("buildSessionHostGroups", () => {
         groups,
       ),
     ).toEqual(["assets.example.com", "assets.example.com::api"]);
+  });
+});
+
+describe("resolveSessionHostUrl", () => {
+  it("uses the latest matching session origin and keeps the port", () => {
+    const sessions = [
+      createSessionSummary({
+        host: "api.example.com",
+        id: "legacy",
+        url: "http://api.example.com:8080/legacy",
+      }),
+      createSessionSummary({
+        host: "api.example.com",
+        id: "latest",
+        url: "https://api.example.com/v1/users?page=1",
+      }),
+    ];
+
+    expect(resolveSessionHostUrl(sessions, "api.example.com")).toBe("https://api.example.com");
+    expect(
+      resolveSessionHostUrl(
+        [
+          createSessionSummary({
+            host: "localhost",
+            id: "local",
+            url: "http://localhost:3000/dashboard",
+          }),
+        ],
+        "localhost",
+      ),
+    ).toBe("http://localhost:3000");
+  });
+
+  it("falls back to the host when no matching session or URL is available", () => {
+    expect(resolveSessionHostUrl([], "api.example.com")).toBe("api.example.com");
+    expect(
+      resolveSessionHostUrl(
+        [
+          createSessionSummary({
+            host: "api.example.com",
+            id: "invalid-url",
+            url: "not a url",
+          }),
+        ],
+        "api.example.com",
+      ),
+    ).toBe("api.example.com");
+    expect(resolveSessionHostUrl([], "  ")).toBeNull();
   });
 });
 

@@ -124,6 +124,30 @@ describe("useSessionContextActions copy failure handling", () => {
   });
 });
 
+describe("useSessionContextActions host URL copy", () => {
+  beforeEach(() => {
+    useAppPreferencesStore.setState({ languagePreference: "en" });
+  });
+
+  it("copies the resolved host URL and reports success", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.assign(navigator, { clipboard: { writeText } });
+    const { result } = renderActionsHook();
+
+    try {
+      await act(async () => {
+        await result.current.handleCopyHostUrl("https://api.example.com");
+      });
+    } finally {
+      // @ts-expect-error -- jsdom has no clipboard; undo the test stub.
+      delete navigator.clipboard;
+    }
+
+    expect(writeText).toHaveBeenCalledWith("https://api.example.com");
+    expect(result.current.snackbarMessage).toBe("Copied to clipboard");
+  });
+});
+
 // P7: Repeat used to hardcode workspaceId "default", so a repeat fired while
 // the proxy ran under another workspace landed in the wrong workspace.
 describe("useSessionContextActions repeat workspace targeting", () => {

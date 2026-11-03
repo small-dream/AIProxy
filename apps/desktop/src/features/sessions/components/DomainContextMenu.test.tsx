@@ -10,11 +10,13 @@ function renderMenu(overrides: Partial<ComponentProps<typeof DomainContextMenu>>
   const props: ComponentProps<typeof DomainContextMenu> = {
     anchorPosition: { left: 20, top: 20 },
     host: "api.example.com",
+    hostUrl: "https://api.example.com",
     isHostFocused: false,
     isHostIgnored: false,
     isHostSslDecryptDisabled: false,
     onClose: vi.fn(),
     onAddToIncludeList: vi.fn(),
+    onCopyHostUrl: vi.fn(),
     onExportHost: vi.fn(),
     onFocusHost: vi.fn(),
     onIgnoreHost: vi.fn(),
@@ -35,6 +37,15 @@ function renderMenu(overrides: Partial<ComponentProps<typeof DomainContextMenu>>
 }
 
 describe("DomainContextMenu", () => {
+  it("offers copying the selected host URL", () => {
+    const { onCopyHostUrl, onClose } = renderMenu();
+
+    fireEvent.click(screen.getByText("Copy Host URL"));
+
+    expect(onCopyHostUrl).toHaveBeenCalledWith("https://api.example.com");
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("offers exporting the selected host", () => {
     const { onExportHost } = renderMenu();
 

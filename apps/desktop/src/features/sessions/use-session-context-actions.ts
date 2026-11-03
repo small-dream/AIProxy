@@ -169,6 +169,13 @@ export function useSessionContextActions({
     [copyToClipboard, t],
   );
 
+  const handleCopyHostUrl = useCallback(
+    (url: string) => {
+      void copyToClipboard(url, t("contextMenu.copiedToClipboard"));
+    },
+    [copyToClipboard, t],
+  );
+
   const handleCopyRequest = useCallback(
     async (session: SessionSummary) => {
       // P2 4.3-9: detail hydration can reject (command failure); report it via
@@ -520,6 +527,7 @@ export function useSessionContextActions({
     handleContextMenu,
     handleContextMenuClose,
     handleCopyCurl,
+    handleCopyHostUrl,
     handleCopyRequest,
     handleCopyResponse,
     handleCopyUrl,

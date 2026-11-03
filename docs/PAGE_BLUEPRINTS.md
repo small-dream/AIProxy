@@ -158,7 +158,7 @@ SessionsPage
 | `features/sessions/components/SessionInspectorWorkspace.tsx` | 请求 / 响应详情工作区，支持搜索与 Repeat 摘要动作 |
 | `features/sessions/components/SessionInspectorMediaPreview.tsx` | 响应体多媒体预览（图片/音频/视频），按 MIME 类型动态显示，支持右键复制图片/另存为/复制地址/在浏览器中打开 |
 | `features/sessions/components/SessionContextMenu.tsx` | 会话右键菜单，承载复制、导出、重放、Host 操作、规则跳转（含 Map Local 直达） |
-| `features/sessions/components/DomainContextMenu.tsx` | Host 节点右键菜单：保存该 host 下所有文件、导出 HAR、Focus / Ignore、加入包含列表、停用/启用 SSL 解密 |
+| `features/sessions/components/DomainContextMenu.tsx` | Host 节点右键菜单：复制 Host URL、保存该 host 下所有文件、导出 HAR、Focus / Ignore、加入包含列表、停用/启用 SSL 解密 |
 | `features/sessions/components/SessionFolderContextMenu.tsx` | URL 路径目录节点右键菜单，当前承载「保存所有文件」 |
 | `features/sessions/components/SaveResponseFilesDialog.tsx` | 保存抓包文件的策略对话框（同名冲突：只保留最后一次 / 全部保留），无冲突时不出现 |
 | `features/sessions/session-save-files.helpers.ts` | 可保存会话过滤（排除 WebSocket）与同名冲突检测 |
@@ -263,6 +263,7 @@ User right clicks a host node
 -> SessionsPage stores pointer anchorPosition + target host
 -> DomainContextMenu opens at cursor position
 -> menu action executes one of:
+   copy the host URL origin (latest captured scheme / explicit port)
    save all files under the host
    export host (HAR)
    focus or unfocus host

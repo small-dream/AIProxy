@@ -115,7 +115,7 @@ Right-clicking a session offers actions grouped roughly as:
 - **Host management**: Add/Remove Focus, Ignore/Stop Ignoring
 - **Clear others**: keep only the current session
 
-Right-clicking a host group also lets you **Export Host**, or Focus / Ignore that host. Path folder nodes offer **Save All Files…** (see [Import & export](#import--export)).
+Right-clicking a host group also lets you **Copy Host URL** (the protocol + host + explicit port, without the path or query string), **Export Host**, or Focus / Ignore that host. Path folder nodes offer **Save All Files…** (see [Import & export](#import--export)).
 
 ## Import & export
 

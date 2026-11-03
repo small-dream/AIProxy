@@ -113,6 +113,35 @@ export function buildSessionHostGroups(
   ];
 }
 
+export function resolveSessionHostUrl(
+  sessions: readonly SessionSummary[],
+  host: string | null | undefined,
+): string | null {
+  const normalizedHost = host?.trim() ?? "";
+
+  if (!normalizedHost) {
+    return null;
+  }
+
+  let latestSession: SessionSummary | undefined;
+
+  for (const session of sessions) {
+    if (session.host === normalizedHost) {
+      latestSession = session;
+    }
+  }
+
+  if (!latestSession) {
+    return normalizedHost;
+  }
+
+  try {
+    return new URL(latestSession.url).origin || normalizedHost;
+  } catch {
+    return normalizedHost;
+  }
+}
+
 export function reconcileExpandedKeys(
   expandedKeys: string[],
   groups: SessionHostGroup[],

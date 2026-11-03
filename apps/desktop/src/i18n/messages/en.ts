@@ -2109,6 +2109,7 @@ export const enMessages = {
     copyAsCurl: "Copy cURL",
     copiedToClipboard: "Copied to clipboard",
     copyFailed: "Copy failed",
+    copyHostUrl: "Copy Host URL",
     search: "Search",
     copyRequest: "Copy Request",
     copyResponse: "Copy Response",

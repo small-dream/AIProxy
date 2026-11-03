@@ -73,6 +73,7 @@ import {
   collectBranchSessions,
   collectVisibleSessionIds,
   reconcileExpandedKeys,
+  resolveSessionHostUrl,
   type SessionPathBranch,
 } from "@/features/sessions/session-explorer.helpers";
 import {
@@ -454,6 +455,7 @@ export function SessionsPage() {
     handleContextMenu,
     handleContextMenuClose,
     handleCopyCurl,
+    handleCopyHostUrl,
     handleCopyRequest,
     handleCopyResponse,
     handleCopyUrl,
@@ -485,6 +487,11 @@ export function SessionsPage() {
     setFocusedHosts,
     setIgnoredHosts,
   });
+
+  const contextMenuHostUrl = useMemo(
+    () => resolveSessionHostUrl(visibleSessions, contextMenuHost),
+    [contextMenuHost, visibleSessions],
+  );
 
   // ═══ repeat & import/export hooks ═══════════════════════════════
 
@@ -1276,6 +1283,7 @@ export function SessionsPage() {
       <DomainContextMenu
         anchorPosition={domainContextMenuAnchor}
         host={contextMenuHost}
+        hostUrl={contextMenuHostUrl}
         isHostFocused={contextMenuHost ? focusedHosts.has(contextMenuHost) : false}
         isHostIgnored={contextMenuHost ? ignoredHosts.has(contextMenuHost) : false}
         isHostSslDecryptDisabled={
@@ -1285,6 +1293,7 @@ export function SessionsPage() {
         }
         onClose={handleHostContextMenuClose}
         onAddToIncludeList={handleAddToIncludeList}
+        onCopyHostUrl={handleCopyHostUrl}
         onExportHost={handleExportHost}
         onFocusHost={handleFocusDomain}
         onIgnoreHost={handleIgnoreDomain}

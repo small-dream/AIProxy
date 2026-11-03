@@ -438,6 +438,7 @@ Sessions Page
 
 - 触发方式：右键 Host 分组节点或 host 分支
 - 定位方式：与其他上下文菜单一致，以鼠标指针位置为锚点弹出
+- 提供 `Copy Host URL`：复制当前 host 的 URL origin（协议 + host + 显式端口，不含路径、查询参数），协议与端口取该 host 最新一条已捕获会话
 - 提供 `Save All Files...`（该 host 下所有响应体落盘）、`Export Host`（导出 HAR）
 - Host 视图状态：`Focus / Unfocus Host`、`Ignore / Stop Ignoring Host`（与会话叶子菜单一致）
 - SSL 解密策略：
