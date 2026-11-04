@@ -341,6 +341,10 @@ pub fn run() {
             agent_status::spawn_heartbeat(Arc::clone(state.inner()));
             system_proxy_recovery::restore_pending_snapshot_on_startup(app.handle(), &state);
 
+            // Keep AIProxy-managed Skills current even when the user never
+            // opens Settings. Custom Skills and missing files are untouched.
+            commands::auto_update_managed_agent_skills();
+
             // Build the initial menu in the persisted (or default "system") language.
             // apply_locale resolves `system` via sys-locale, set_locale, and rebuilds;
             // all failures are logged best-effort inside it.

@@ -455,6 +455,7 @@ flowchart LR
 - 连接前选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据 / 完整控制），并在 Body 关闭时提示 Agent 无法分析响应体
 - MCP 结果 `meta` 返回 `latestSessionAt`、`captureStatus` 与 `captureUpdatedAt`，让 Agent 能说明“数据截止 12:03”而不是假装实时
 - Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化；当前 Skill 版本为 `3.4`
+- AIProxy 管理的旧 Skill 在应用启动时自动升级；缺失文件不创建、自定义 Skill 不覆盖，旧版应用不会降级更新版 Skill
 - 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
 - 明确数据流向：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；应用内不再二次确认已授权控制操作，但删除类和撤销证书信任仍要求当前对话明确请求
 

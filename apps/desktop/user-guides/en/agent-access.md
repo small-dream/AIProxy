@@ -196,7 +196,7 @@ Each client uses one of three states:
 | State | Meaning |
 |---|---|
 | Configured | The aiproxy MCP entry and managed Skill are both ready |
-| Update needed | The configuration or Skill is missing or out of date |
+| Update needed | The configuration or Skill is missing or out of date. AIProxy-managed Skills normally update automatically when the app starts |
 | Not configured | AIProxy has not written an MCP configuration or Skill for this client |
 
 The client **More actions** menu offers:
@@ -292,7 +292,7 @@ Body access is probably off. Enable **Read bodies** under **Settings → Agent A
 
 ### Q: Why does the Skill say "Update needed"?
 
-An installed Skill does not update itself when the bundled version changes. Click **Update connection** or **Reinstall Skill** and confirm the overwrite prompt if shown.
+AIProxy automatically upgrades an older Skill that carries its management marker when the app starts, so a normal app update does not require opening Settings. The client must be reloaded or restarted before it reads the new version. Custom Skills are never overwritten automatically, and missing Skills are not created automatically. If the state still says "Update needed", the MCP configuration path is probably stale, the Skill write failed, or a custom file occupies that path; open **Settings → Agent Access** and follow the inline prompt to update the connection or reinstall the Skill.
 
 ### Q: Why did AIProxy open by itself during an Agent action?
 

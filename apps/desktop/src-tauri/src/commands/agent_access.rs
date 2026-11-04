@@ -1555,6 +1555,132 @@ fn skill_is_current(contents: Option<&str>) -> bool {
     contents == Some(SKILL_CONTENT)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ManagedSkillSyncOutcome {
+    Missing,
+    Current,
+    Updated,
+    SkippedUnmanaged,
+    SkippedNewer,
+}
+
+/// Keep installed AIProxy-managed Skills aligned with the bundled version.
+/// Missing files and custom Skills are intentionally left untouched.
+pub fn auto_update_managed_agent_skills() {
+    for client in [AgentClient::Codex, AgentClient::Claude, AgentClient::Cursor] {
+        let path = match skill_path(client) {
+            Ok(path) => path,
+            Err(error) => {
+                tracing::warn!(
+                    component = "desktop.agent_access",
+                    event = "agent_skill_auto_update_path_failed",
+                    client = ?client,
+                    error = %error,
+                    "agent_skill_auto_update_path_failed"
+                );
+                continue;
+            }
+        };
+
+        match sync_managed_skill_at(&path) {
+            Ok(ManagedSkillSyncOutcome::Updated) => {
+                tracing::info!(
+                    component = "desktop.agent_access",
+                    event = "agent_skill_auto_updated",
+                    client = ?client,
+                    path = %path.display(),
+                    bundled_version = AGENT_SKILL_VERSION,
+                    "agent_skill_auto_updated"
+                );
+            }
+            Ok(ManagedSkillSyncOutcome::SkippedNewer) => {
+                tracing::info!(
+                    component = "desktop.agent_access",
+                    event = "agent_skill_auto_update_skipped_newer",
+                    client = ?client,
+                    path = %path.display(),
+                    bundled_version = AGENT_SKILL_VERSION,
+                    "agent_skill_auto_update_skipped_newer"
+                );
+            }
+            Ok(
+                ManagedSkillSyncOutcome::Missing
+                | ManagedSkillSyncOutcome::Current
+                | ManagedSkillSyncOutcome::SkippedUnmanaged,
+            ) => {}
+            Err(error) => {
+                tracing::warn!(
+                    component = "desktop.agent_access",
+                    event = "agent_skill_auto_update_failed",
+                    client = ?client,
+                    path = %path.display(),
+                    error = %error,
+                    "agent_skill_auto_update_failed"
+                );
+            }
+        }
+    }
+}
+
+fn sync_managed_skill_at(path: &Path) -> Result<ManagedSkillSyncOutcome, String> {
+    let existing = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ManagedSkillSyncOutcome::Missing)
+        }
+        Err(error) => {
+            return Err(app_error(
+                ERR_INTERNAL,
+                format!("read Agent Skill at {}: {error}", path.display()),
+            ))
+        }
+    };
+
+    if existing == SKILL_CONTENT {
+        return Ok(ManagedSkillSyncOutcome::Current);
+    }
+    if !is_managed_skill(&existing) {
+        return Ok(ManagedSkillSyncOutcome::SkippedUnmanaged);
+    }
+    if installed_skill_is_newer(&existing) {
+        return Ok(ManagedSkillSyncOutcome::SkippedNewer);
+    }
+
+    write_skill_file(path, SKILL_CONTENT.as_bytes()).map_err(|error| {
+        app_error(
+            ERR_INTERNAL,
+            format!("auto-update Agent Skill at {}: {error}", path.display()),
+        )
+    })?;
+    Ok(ManagedSkillSyncOutcome::Updated)
+}
+
+fn installed_skill_is_newer(existing: &str) -> bool {
+    let Some(installed) = skill_version(existing).and_then(|value| parse_skill_version(&value))
+    else {
+        return false;
+    };
+    let Some(bundled) = parse_skill_version(AGENT_SKILL_VERSION) else {
+        return false;
+    };
+    installed > bundled
+}
+
+fn parse_skill_version(value: &str) -> Option<Vec<u64>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    let mut parts = value
+        .split('.')
+        .map(|part| part.parse::<u64>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    while parts.len() > 1 && parts.last() == Some(&0) {
+        parts.pop();
+    }
+    Some(parts)
+}
+
 fn write_skill_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -1658,6 +1784,70 @@ mod tests {
         assert!(skill_is_current(Some(SKILL_CONTENT)));
         assert!(!skill_is_current(Some("# my custom skill")));
         assert!(!skill_is_current(None));
+    }
+
+    #[test]
+    fn managed_skill_auto_updates_older_managed_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("skills/aiproxy/SKILL.md");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "---\nname: aiproxy\nversion: 3.0\n---\n<!-- aiproxy-managed-skill: v1 -->\nold\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            sync_managed_skill_at(&path).unwrap(),
+            ManagedSkillSyncOutcome::Updated
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), SKILL_CONTENT);
+    }
+
+    #[test]
+    fn managed_skill_auto_update_leaves_missing_and_custom_files_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing/SKILL.md");
+        assert_eq!(
+            sync_managed_skill_at(&missing).unwrap(),
+            ManagedSkillSyncOutcome::Missing
+        );
+        assert!(!missing.exists());
+
+        let custom = dir.path().join("custom/SKILL.md");
+        std::fs::create_dir_all(custom.parent().unwrap()).unwrap();
+        let custom_content = "# my custom skill\n";
+        std::fs::write(&custom, custom_content).unwrap();
+        assert_eq!(
+            sync_managed_skill_at(&custom).unwrap(),
+            ManagedSkillSyncOutcome::SkippedUnmanaged
+        );
+        assert_eq!(std::fs::read_to_string(&custom).unwrap(), custom_content);
+    }
+
+    #[test]
+    fn managed_skill_auto_update_does_not_downgrade_newer_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("SKILL.md");
+        let newer =
+            "---\nname: aiproxy\nversion: 99.0\n---\n<!-- aiproxy-managed-skill: v1 -->\nnewer\n";
+        std::fs::write(&path, newer).unwrap();
+
+        assert_eq!(
+            sync_managed_skill_at(&path).unwrap(),
+            ManagedSkillSyncOutcome::SkippedNewer
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer);
+    }
+
+    #[test]
+    fn skill_versions_compare_numerically() {
+        assert!(parse_skill_version("3.10").unwrap() > parse_skill_version("3.4").unwrap());
+        assert_eq!(
+            parse_skill_version("3.4.0").unwrap(),
+            parse_skill_version("3.4").unwrap()
+        );
+        assert!(parse_skill_version("not-a-version").is_none());
     }
 
     #[test]

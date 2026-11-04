@@ -2422,6 +2422,7 @@ type AgentClientInfo = {
 - `automationApprovedRoots` 最多 10 个，只能通过 `pick_automation_approved_root` 的原生文件夹选择器添加；`automationApprovedRootStatuses` 返回路径当前是否存在且为目录，失效路径不会被静默删除。
 - `proxiedVerificationOrigins` 与 `automationCrossHostOrigins` 是两个独立的精确 origin 白名单；只接受 `http` / `https`，保存时规范化、排序、去重，每次最多 50 个。首版 `automationCrossHostOrigins` 仅预留给后续 Map Remote 写入。
 - `clients` 生成可复制片段；实际写入由 `install_agent_client_config` 完成。
+- 桌面端启动时会自动升级带 `<!-- aiproxy-managed-skill: v1 -->` 标记且版本不高于内置版本的 Skill；缺失文件不创建，自定义 Skill 不覆盖，安装版本更高时保留。自动升级失败只记录结构化日志，客户端状态继续显示 `需更新`，由用户在设置中重试。
 - Cursor 目标为 `~/.cursor/mcp.json`，使用标准 `mcpServers` 结构且不写 `type` 字段。
 - Codex 目标为 `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）。
 - Claude Code 展示用户级 `.claude.json` 顶层 `mcpServers` 片段；目录优先使用 `CLAUDE_CONFIG_DIR`，默认 `~/.claude.json`。

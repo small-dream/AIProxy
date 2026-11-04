@@ -433,7 +433,7 @@ TLS 证书缓存机制：
 - Claude Code：`CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`）顶层 `mcpServers`，Skill 位于 `CLAUDE_CONFIG_DIR/skills/aiproxy/SKILL.md`（默认 `~/.claude/skills`）
 - Cursor：`~/.cursor/mcp.json`，Skill 位于 `~/.cursor/skills/aiproxy/SKILL.md`
 
-应用在用户确认后合并写入客户端配置、先备份原文件，并支持从客户端移除 `aiproxy` 条目与受管 Skill；复制片段保留为兜底。Sidecar 通过 Tauri `externalBin` 与桌面安装包一起分发。
+应用在用户确认后合并写入客户端配置、先备份原文件，并在启动时自动升级带管理标记的 Skill；缺失文件不创建、自定义 Skill 不覆盖，安装版本高于内置版本时也不会降级。应用支持从客户端移除 `aiproxy` 条目与受管 Skill，复制片段保留为兜底。Sidecar 通过 Tauri `externalBin` 与桌面安装包一起分发。
 
 详细契约见 `docs/MCP_AGENT_SKILL_ARCHITECTURE.md`、`docs/DECISIONS/ADR-006-local-mcp-agent-access.md`、`docs/DECISIONS/ADR-007-agent-control-ipc.md`、`docs/DECISIONS/ADR-008-bounded-diagnostic-log-access.md`、`docs/DECISIONS/ADR-009-agent-replay-and-temporary-rules.md`、`docs/DECISIONS/ADR-010-automation-runtime-and-evidence.md` 与 `docs/API_SPEC.md` 6.14。
 
