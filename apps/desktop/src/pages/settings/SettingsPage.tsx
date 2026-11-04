@@ -62,6 +62,7 @@ export function SettingsPage() {
 
   const updateSection = useCallback(
     (nextSectionId: SettingsSectionId) => {
+      if (nextSectionId === sectionId) return;
       const nextSearchParams = new URLSearchParams(searchParams);
       if (nextSectionId === DEFAULT_SETTINGS_SECTION) {
         nextSearchParams.delete("section");
@@ -74,7 +75,7 @@ export function SettingsPage() {
       );
       setActiveItemId(null);
     },
-    [location.pathname, navigate, searchParams],
+    [location.pathname, navigate, searchParams, sectionId],
   );
 
   const searchResults = useMemo(() => {
@@ -217,7 +218,7 @@ export function SettingsPage() {
         {sectionId === "proxy" ? <ProxySettingsSection /> : null}
         {sectionId === "upstream" ? <UpstreamProxySection /> : null}
         {sectionId === "ssl" ? <SslProxyingSection /> : null}
-        {sectionId === "agent" ? <AgentAccessSection /> : null}
+        {sectionId === "agent" ? <AgentAccessSection highlightedItemId={activeItemId} /> : null}
         {sectionId === "ai" ? <AiModelSettingsSection /> : null}
         {sectionId === "appearance" ? <AppearanceSettingsSection /> : null}
         {sectionId === "behavior" ? <BehaviorSettingsSection /> : null}

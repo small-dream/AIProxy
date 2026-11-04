@@ -12,6 +12,10 @@ import {
   Button,
   Chip,
   Collapse,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   MenuItem,
   Select,
@@ -57,7 +61,23 @@ import {
   shouldConfirmConfigWrite,
   type AgentConnectPreset,
 } from "@/features/agent-access/agent-access.helpers";
-import { useI18n } from "@/i18n";
+import {
+  AGENT_PERMISSION_GROUPS,
+  AGENT_PERMISSION_KEYS,
+  availablePermissionDefinitions,
+  countEnabledPermissions,
+  enabledPermissionDefinitions,
+  hasUnmetPermissionDependencies,
+  isAgentAdvancedPermissionTarget,
+  isAgentPermissionMatrixTarget,
+  permissionDefinition,
+  permissionRiskKey,
+  requiresPermissionConfirmation,
+  type AgentPermissionGroupId,
+  type AgentPermissionRisk,
+} from "@/features/agent-access/agent-access.permissions";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
+import { useI18n, type TranslationKey } from "@/i18n";
 import {
   getAgentAccessSettings,
   getAgentAuditLog,
@@ -94,6 +114,16 @@ type Feedback = {
 
 type PendingConfigWrite = {
   info: AgentClientInfo;
+};
+
+type AgentAccessChangeItem = {
+  id: string;
+  label: string;
+  before: string;
+  after: string;
+  highRisk: boolean;
+  risk?: AgentPermissionRisk;
+  kind: "enabled" | "permission" | "policy" | "scope";
 };
 
 type PendingConnect = {
@@ -143,7 +173,11 @@ type ConnectOutcome =
       skill: InstallAgentSkillResult;
     };
 
-export function AgentAccessSection() {
+export function AgentAccessSection({
+  highlightedItemId = null,
+}: {
+  highlightedItemId?: string | null;
+} = {}) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<AgentAccessDraft | null>(null);
@@ -156,8 +190,11 @@ export function AgentAccessSection() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<AgentClientInfo | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [pickingAutomationRoot, setPickingAutomationRoot] = useState(false);
+  const [changesOpen, setChangesOpen] = useState(false);
+  const [pendingHighRiskSave, setPendingHighRiskSave] = useState<SaveInput | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: AGENT_SETTINGS_QUERY_KEY,
@@ -167,12 +204,31 @@ export function AgentAccessSection() {
     queryKey: AGENT_AUDIT_QUERY_KEY,
     queryFn: () => getAgentAuditLog(50),
   });
+  const savedDraftCandidate = settingsQuery.data ? draftFromSettings(settingsQuery.data) : null;
+  const agentSettingsReady = Boolean(settingsQuery.data && draft);
+  const dirty =
+    draft !== null && savedDraftCandidate !== null && !draftsEqual(draft, savedDraftCandidate);
+  const unsavedGuard = useUnsavedChangesGuard(dirty);
 
   useEffect(() => {
     if (settingsQuery.data) {
       setDraft((current) => current ?? draftFromSettings(settingsQuery.data));
     }
   }, [settingsQuery.data]);
+
+  useEffect(() => {
+    if (!highlightedItemId || !isAgentPermissionMatrixTarget(highlightedItemId)) return;
+    setPermissionsOpen(true);
+    if (isAgentAdvancedPermissionTarget(highlightedItemId)) setAdvancedOpen(true);
+    if (!agentSettingsReady) return;
+
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById(`settings-item-${highlightedItemId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [agentSettingsReady, highlightedItemId]);
 
   function updateClientCache(
     client: AgentClientInfo["client"],
@@ -211,6 +267,7 @@ export function AgentAccessSection() {
     onSuccess: (settings, input) => {
       queryClient.setQueryData(AGENT_SETTINGS_QUERY_KEY, settings);
       setDraft(draftFromSettings(settings));
+      setPendingHighRiskSave(null);
       setFeedback({
         area: input.area,
         severity: "success",
@@ -218,6 +275,7 @@ export function AgentAccessSection() {
       });
     },
     onError: (error, input) => {
+      setPendingHighRiskSave(null);
       setFeedback({
         area: input.area,
         severity: "error",
@@ -516,10 +574,12 @@ export function AgentAccessSection() {
   }
 
   const settings = settingsQuery.data;
+  const savedDraft = draftFromSettings(settings);
   const connectedClientCount = settings.clients.filter((client) => client.configInstalled).length;
   const bodyDisabled = !settings.permissions.readBodies;
-  const rawBodiesBlocked = !draft.permissions.readBodies;
-  const dirty = !draftsEqual(draft, draftFromSettings(settings));
+  const rawBodiesBlocked = hasUnmetPermissionDependencies(draft.permissions, "readRawBodies");
+  const changeItems = buildAgentAccessChangeItems(savedDraft, draft, t);
+  const highRiskChangeItems = changeItems.filter((item) => item.highRisk);
   const busy =
     saveMutation.isPending ||
     testMutation.isPending ||
@@ -632,7 +692,20 @@ export function AgentAccessSection() {
 
   function saveDraft(area: SaveInput["area"]) {
     if (!draft || !dirty || busy) return;
+    if (requiresPermissionConfirmation(savedDraft.permissions, draft.permissions)) {
+      setPendingHighRiskSave({ area, draft });
+      return;
+    }
     saveMutation.mutate({ area, draft });
+  }
+
+  function openPermissionDetails() {
+    setPermissionsOpen(true);
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById("settings-item-agent-permissions")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   async function copyText(value: string, area: FeedbackArea = "client") {
@@ -734,6 +807,13 @@ export function AgentAccessSection() {
               </Typography>
             </Stack>
 
+            <CapabilitySummary
+              dirty={dirty}
+              enabled={settings.enabled}
+              onAdjust={openPermissionDetails}
+              permissions={settings.permissions}
+            />
+
             {!draft.enabled ? (
               <Alert severity="warning" variant="outlined" sx={compactAlertSx}>
                 {t("settingsPage.agentAccess.disabledDescription")}
@@ -755,6 +835,14 @@ export function AgentAccessSection() {
                 }}
                 action={
                   <Stack direction="row" spacing={0.75}>
+                    <Button
+                      color="inherit"
+                      size="small"
+                      disabled={busy}
+                      onClick={() => setChangesOpen(true)}
+                    >
+                      {t("settingsPage.agentAccess.viewChanges")}
+                    </Button>
                     <Button color="inherit" size="small" disabled={busy} onClick={discardDraft}>
                       {t("settingsPage.agentAccess.discardChanges")}
                     </Button>
@@ -772,7 +860,21 @@ export function AgentAccessSection() {
                   </Stack>
                 }
               >
-                {t("settingsPage.agentAccess.unsavedChangesHint")}
+                <Stack spacing={0.25}>
+                  <Typography variant="body2">
+                    {t("settingsPage.agentAccess.unsavedChangesHint")}
+                  </Typography>
+                  <Typography variant="caption">
+                    {t("settingsPage.agentAccess.pendingChangeCount", {
+                      count: changeItems.length,
+                    })}
+                    {highRiskChangeItems.length > 0
+                      ? ` · ${t("settingsPage.agentAccess.highRiskChangeSummary", {
+                          count: highRiskChangeItems.length,
+                        })}`
+                      : null}
+                  </Typography>
+                </Stack>
               </Alert>
             ) : null}
 
@@ -908,592 +1010,618 @@ export function AgentAccessSection() {
         sx={{ scrollMarginTop: 24 }}
       >
         <SectionCard
+          allowStickyFooter
           compact
           title={t("settingsPage.agentAccess.permissionsTitle")}
           description={t("settingsPage.agentAccess.permissionsDescription")}
         >
-          <SettingsGroup>
-            <SettingsRow
-              itemId="agent-read-sessions"
-              label={t("settingsPage.agentAccess.readSessionsLabel")}
-              description={t("settingsPage.agentAccess.readSessionsDescription")}
-            >
-              <Switch
-                size="small"
-                checked={draft.permissions.readSessions}
-                onChange={(event) => updatePermission("readSessions", event.target.checked)}
-                slotProps={{
-                  input: { "aria-label": t("settingsPage.agentAccess.readSessionsLabel") },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-read-bodies"
-              label={t("settingsPage.agentAccess.readBodiesLabel")}
-              description={t("settingsPage.agentAccess.readBodiesDescription")}
-            >
-              <Switch
-                size="small"
-                checked={draft.permissions.readBodies}
-                onChange={(event) => updatePermission("readBodies", event.target.checked)}
-                slotProps={{
-                  input: { "aria-label": t("settingsPage.agentAccess.readBodiesLabel") },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-read-websocket"
-              label={t("settingsPage.agentAccess.readWebSocketLabel")}
-              description={t("settingsPage.agentAccess.readWebSocketDescription")}
-            >
-              <Switch
-                size="small"
-                checked={draft.permissions.readWebSocket}
-                onChange={(event) => updatePermission("readWebSocket", event.target.checked)}
-                slotProps={{
-                  input: { "aria-label": t("settingsPage.agentAccess.readWebSocketLabel") },
-                }}
-              />
-            </SettingsRow>
-          </SettingsGroup>
-
-          <Divider sx={{ mt: 1 }} />
           <Stack
-            direction="row"
+            direction={{ sm: "row", xs: "column" }}
             spacing={1}
-            sx={{ alignItems: "center", justifyContent: "space-between", pt: 1.5 }}
+            sx={{
+              alignItems: { sm: "center", xs: "stretch" },
+              justifyContent: "space-between",
+              pb: 1.5,
+            }}
           >
-            <Box>
-              <Typography variant="subtitle2">
-                {t("settingsPage.agentAccess.controlPermissionsTitle")}
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {t("settingsPage.agentAccess.permissionMatrixTitle")}
               </Typography>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                {t("settingsPage.agentAccess.controlPermissionsDescription")}
+                {t("settingsPage.agentAccess.permissionMatrixDescription")}
               </Typography>
             </Box>
             <Button
               size="small"
-              color="warning"
               variant="outlined"
-              onClick={() =>
-                setDraft((current) =>
-                  current
-                    ? {
-                        ...current,
-                        permissions: {
-                          ...current.permissions,
-                          controlCapture: true,
-                          controlSystemProxy: true,
-                          manageCertificates: true,
-                          deleteSessions: true,
-                          sendRequests: true,
-                          manageRules: true,
-                          manageAutomation: true,
-                          manageUserAutomation: true,
-                          manageScripts: true,
-                          manageCrossHostMappings: true,
-                          manageProxiedVerification: true,
-                          manageGlobalAutomation: true,
-                        },
-                      }
-                    : current,
-                )
-              }
-              sx={{ flexShrink: 0 }}
-            >
-              {t("settingsPage.agentAccess.enableFullControl")}
-            </Button>
-          </Stack>
-          <SettingsGroup>
-            <SettingsRow
-              itemId="agent-control-capture"
-              label={t("settingsPage.agentAccess.controlCaptureLabel")}
-              description={t("settingsPage.agentAccess.controlCaptureDescription")}
-            >
-              <Switch
-                size="small"
-                checked={draft.permissions.controlCapture}
-                onChange={(event) => updatePermission("controlCapture", event.target.checked)}
-                slotProps={{
-                  input: { "aria-label": t("settingsPage.agentAccess.controlCaptureLabel") },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-control-system-proxy"
-              label={t("settingsPage.agentAccess.controlSystemProxyLabel")}
-              description={t("settingsPage.agentAccess.controlSystemProxyDescription")}
-            >
-              <Switch
-                size="small"
-                color="warning"
-                checked={draft.permissions.controlSystemProxy}
-                onChange={(event) => updatePermission("controlSystemProxy", event.target.checked)}
-                slotProps={{
-                  input: {
-                    "aria-label": t("settingsPage.agentAccess.controlSystemProxyLabel"),
-                  },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-control-certificates"
-              label={t("settingsPage.agentAccess.manageCertificatesLabel")}
-              description={t("settingsPage.agentAccess.manageCertificatesDescription")}
-            >
-              <Switch
-                size="small"
-                color="warning"
-                checked={draft.permissions.manageCertificates}
-                onChange={(event) => updatePermission("manageCertificates", event.target.checked)}
-                slotProps={{
-                  input: {
-                    "aria-label": t("settingsPage.agentAccess.manageCertificatesLabel"),
-                  },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-control-delete-sessions"
-              label={t("settingsPage.agentAccess.deleteSessionsLabel")}
-              description={t("settingsPage.agentAccess.deleteSessionsDescription")}
-            >
-              <Switch
-                size="small"
-                color="error"
-                checked={draft.permissions.deleteSessions}
-                onChange={(event) => updatePermission("deleteSessions", event.target.checked)}
-                slotProps={{
-                  input: { "aria-label": t("settingsPage.agentAccess.deleteSessionsLabel") },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-send-requests"
-              label={t("settingsPage.agentAccess.sendRequestsLabel")}
-              description={t("settingsPage.agentAccess.sendRequestsDescription")}
-            >
-              <Switch
-                size="small"
-                color="warning"
-                checked={draft.permissions.sendRequests}
-                onChange={(event) => updatePermission("sendRequests", event.target.checked)}
-                slotProps={{
-                  input: { "aria-label": t("settingsPage.agentAccess.sendRequestsLabel") },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-manage-rules"
-              label={t("settingsPage.agentAccess.manageRulesLabel")}
-              description={t("settingsPage.agentAccess.manageRulesDescription")}
-            >
-              <Switch
-                size="small"
-                color="warning"
-                checked={draft.permissions.manageRules}
-                onChange={(event) => updatePermission("manageRules", event.target.checked)}
-                slotProps={{
-                  input: { "aria-label": t("settingsPage.agentAccess.manageRulesLabel") },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-manage-automation"
-              label={t("settingsPage.agentAccess.manageAutomationLabel")}
-              description={t("settingsPage.agentAccess.manageAutomationDescription")}
-            >
-              <Switch
-                size="small"
-                color="warning"
-                checked={draft.permissions.manageAutomation}
-                onChange={(event) => updatePermission("manageAutomation", event.target.checked)}
-                slotProps={{
-                  input: { "aria-label": t("settingsPage.agentAccess.manageAutomationLabel") },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-manage-user-automation"
-              label={t("settingsPage.agentAccess.manageUserAutomationLabel")}
-              description={t("settingsPage.agentAccess.manageUserAutomationDescription")}
-            >
-              <Switch
-                size="small"
-                color="error"
-                checked={draft.permissions.manageUserAutomation}
-                onChange={(event) => updatePermission("manageUserAutomation", event.target.checked)}
-                slotProps={{
-                  input: {
-                    "aria-label": t("settingsPage.agentAccess.manageUserAutomationLabel"),
-                  },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-manage-scripts"
-              label={t("settingsPage.agentAccess.manageScriptsLabel")}
-              description={t("settingsPage.agentAccess.manageScriptsDescription")}
-            >
-              <Switch
-                size="small"
-                color="warning"
-                checked={draft.permissions.manageScripts}
-                onChange={(event) => updatePermission("manageScripts", event.target.checked)}
-                slotProps={{
-                  input: { "aria-label": t("settingsPage.agentAccess.manageScriptsLabel") },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-manage-cross-host-mappings"
-              label={t("settingsPage.agentAccess.manageCrossHostMappingsLabel")}
-              description={t("settingsPage.agentAccess.manageCrossHostMappingsDescription")}
-            >
-              <Switch
-                size="small"
-                color="warning"
-                checked={draft.permissions.manageCrossHostMappings}
-                onChange={(event) =>
-                  updatePermission("manageCrossHostMappings", event.target.checked)
-                }
-                slotProps={{
-                  input: {
-                    "aria-label": t("settingsPage.agentAccess.manageCrossHostMappingsLabel"),
-                  },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-manage-proxied-verification"
-              label={t("settingsPage.agentAccess.manageProxiedVerificationLabel")}
-              description={t("settingsPage.agentAccess.manageProxiedVerificationDescription")}
-            >
-              <Switch
-                size="small"
-                color="warning"
-                checked={draft.permissions.manageProxiedVerification}
-                onChange={(event) =>
-                  updatePermission("manageProxiedVerification", event.target.checked)
-                }
-                slotProps={{
-                  input: {
-                    "aria-label": t("settingsPage.agentAccess.manageProxiedVerificationLabel"),
-                  },
-                }}
-              />
-            </SettingsRow>
-            <SettingsRow
-              itemId="agent-manage-global-automation"
-              label={t("settingsPage.agentAccess.manageGlobalAutomationLabel")}
-              description={t("settingsPage.agentAccess.manageGlobalAutomationDescription")}
-            >
-              <Switch
-                size="small"
-                color="error"
-                checked={draft.permissions.manageGlobalAutomation}
-                onChange={(event) =>
-                  updatePermission("manageGlobalAutomation", event.target.checked)
-                }
-                slotProps={{
-                  input: {
-                    "aria-label": t("settingsPage.agentAccess.manageGlobalAutomationLabel"),
-                  },
-                }}
-              />
-            </SettingsRow>
-          </SettingsGroup>
-          <Alert severity="warning" variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
-            {t("settingsPage.agentAccess.fullControlWarning")}
-          </Alert>
-
-          <Divider sx={{ mt: 2 }} />
-          <Box sx={{ pt: 1.5 }}>
-            <Typography variant="subtitle2">
-              {t("settingsPage.agentAccess.automationScopeTitle")}
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              {t("settingsPage.agentAccess.automationScopeDescription")}
-            </Typography>
-          </Box>
-          <Alert severity="info" variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
-            {t("settingsPage.agentAccess.newAutomationPermissionsHint")}
-          </Alert>
-
-          <Box sx={{ mt: 1.5 }}>
-            <Typography variant="subtitle2">
-              {t("settingsPage.agentAccess.automationRootsTitle")}
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              {t("settingsPage.agentAccess.automationRootsDescription")}
-            </Typography>
-            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
-              {draft.automationApprovedRoots.map((path) => {
-                const status = settings.automationApprovedRootStatuses.find(
-                  (entry) => entry.path === path,
-                );
-                const invalid = status ? !status.exists || !status.isDirectory : false;
-                return (
-                  <Chip
-                    key={path}
-                    color={invalid ? "warning" : "default"}
-                    icon={invalid ? <WarningAmberRoundedIcon /> : undefined}
-                    label={path}
-                    onDelete={() => removeAutomationRoot(path)}
-                    deleteIcon={<DeleteOutlineRoundedIcon />}
-                    sx={{ maxWidth: "100%" }}
-                  />
-                );
-              })}
-            </Stack>
-            {draft.automationApprovedRoots.length === 0 ? (
-              <Typography variant="body2" sx={{ color: "text.secondary", mt: 1 }}>
-                {t("settingsPage.agentAccess.automationRootsEmpty")}
-              </Typography>
-            ) : null}
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => void addAutomationRoot()}
-              disabled={busy || pickingAutomationRoot || draft.automationApprovedRoots.length >= 10}
-              sx={{ mt: 1 }}
-            >
-              {pickingAutomationRoot
-                ? t("settingsPage.agentAccess.automationRootPickerPending")
-                : t("settingsPage.agentAccess.automationRootPickerAction")}
-            </Button>
-          </Box>
-
-          <Box sx={{ mt: 2 }}>
-            <ScopedOriginEditor
-              title={t("settingsPage.agentAccess.proxiedVerificationOriginsTitle")}
-              description={t("settingsPage.agentAccess.proxiedVerificationOriginsDescription")}
-              values={draft.proxiedVerificationOrigins}
-              disabled={busy}
-              placeholder={t("settingsPage.agentAccess.originPlaceholder")}
-              invalidMessage={t("settingsPage.agentAccess.originInvalid")}
-              addLabel={t("settingsPage.agentAccess.originAdd")}
-              emptyLabel={t("settingsPage.agentAccess.originEmpty")}
-              onAdd={(origin) => addOrigin("proxiedVerificationOrigins", origin)}
-              onRemove={(origin) => removeOrigin("proxiedVerificationOrigins", origin)}
-            />
-          </Box>
-          <Box sx={{ mt: 1.5 }}>
-            <ScopedOriginEditor
-              title={t("settingsPage.agentAccess.crossHostOriginsTitle")}
-              description={t("settingsPage.agentAccess.crossHostOriginsDescription")}
-              values={draft.automationCrossHostOrigins}
-              disabled={busy}
-              placeholder={t("settingsPage.agentAccess.originPlaceholder")}
-              invalidMessage={t("settingsPage.agentAccess.originInvalid")}
-              addLabel={t("settingsPage.agentAccess.originAdd")}
-              emptyLabel={t("settingsPage.agentAccess.originEmpty")}
-              onAdd={(origin) => addOrigin("automationCrossHostOrigins", origin)}
-              onRemove={(origin) => removeOrigin("automationCrossHostOrigins", origin)}
-            />
-          </Box>
-
-          <Divider sx={{ mt: 1 }} />
-          <Box sx={{ pt: 1.5 }}>
-            <Button
-              size="small"
-              color="inherit"
-              aria-expanded={advancedOpen ? "true" : "false"}
-              onClick={() => setAdvancedOpen((current) => !current)}
+              aria-expanded={permissionsOpen ? "true" : "false"}
+              aria-controls="agent-permission-groups"
+              onClick={() => setPermissionsOpen((current) => !current)}
               endIcon={
                 <ExpandMoreRoundedIcon
                   fontSize="small"
                   sx={{
-                    transform: advancedOpen ? "rotate(180deg)" : "none",
+                    transform: permissionsOpen ? "rotate(180deg)" : "none",
                     transition: "transform 150ms ease",
                   }}
                 />
               }
-              sx={{ color: "text.primary", minHeight: 32, px: 0.5 }}
             >
-              <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                <span>{t("settingsPage.agentAccess.advancedPermissions")}</span>
-                {draft.permissions.readRawBodies ? (
-                  <Chip
+              {permissionsOpen
+                ? t("settingsPage.agentAccess.permissionMatrixHide")
+                : t("settingsPage.agentAccess.permissionMatrixShow")}
+            </Button>
+          </Stack>
+          <Collapse id="agent-permission-groups" in={permissionsOpen} unmountOnExit>
+            <Box>
+              <PermissionGroupHeading group="readData" permissions={draft.permissions} />
+              <SettingsGroup>
+                <SettingsRow
+                  itemId="agent-read-sessions"
+                  label={t("settingsPage.agentAccess.readSessionsLabel")}
+                  description={t("settingsPage.agentAccess.readSessionsDescription")}
+                >
+                  <Switch
+                    size="small"
+                    checked={draft.permissions.readSessions}
+                    onChange={(event) => updatePermission("readSessions", event.target.checked)}
+                    slotProps={{
+                      input: { "aria-label": t("settingsPage.agentAccess.readSessionsLabel") },
+                    }}
+                  />
+                </SettingsRow>
+                <SettingsRow
+                  itemId="agent-read-bodies"
+                  label={t("settingsPage.agentAccess.readBodiesLabel")}
+                  description={t("settingsPage.agentAccess.readBodiesDescription")}
+                >
+                  <Switch
+                    size="small"
+                    checked={draft.permissions.readBodies}
+                    onChange={(event) => updatePermission("readBodies", event.target.checked)}
+                    slotProps={{
+                      input: { "aria-label": t("settingsPage.agentAccess.readBodiesLabel") },
+                    }}
+                  />
+                </SettingsRow>
+                <SettingsRow
+                  itemId="agent-read-websocket"
+                  label={t("settingsPage.agentAccess.readWebSocketLabel")}
+                  description={t("settingsPage.agentAccess.readWebSocketDescription")}
+                >
+                  <Switch
+                    size="small"
+                    checked={draft.permissions.readWebSocket}
+                    onChange={(event) => updatePermission("readWebSocket", event.target.checked)}
+                    slotProps={{
+                      input: { "aria-label": t("settingsPage.agentAccess.readWebSocketLabel") },
+                    }}
+                  />
+                </SettingsRow>
+              </SettingsGroup>
+
+              <Divider sx={{ mt: 1 }} />
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: "center", justifyContent: "space-between", pt: 1.5 }}
+              >
+                <Box>
+                  <Typography variant="subtitle2">
+                    {t("settingsPage.agentAccess.controlPermissionsTitle")}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    {t("settingsPage.agentAccess.controlPermissionsDescription")}
+                  </Typography>
+                </Box>
+              </Stack>
+              <PermissionGroupHeading group="controlDesktop" permissions={draft.permissions} />
+              <SettingsGroup>
+                <SettingsRow
+                  itemId="agent-control-capture"
+                  label={t("settingsPage.agentAccess.controlCaptureLabel")}
+                  description={t("settingsPage.agentAccess.controlCaptureDescription")}
+                >
+                  <Switch
+                    size="small"
+                    checked={draft.permissions.controlCapture}
+                    onChange={(event) => updatePermission("controlCapture", event.target.checked)}
+                    slotProps={{
+                      input: { "aria-label": t("settingsPage.agentAccess.controlCaptureLabel") },
+                    }}
+                  />
+                </SettingsRow>
+                <SettingsRow
+                  itemId="agent-control-system-proxy"
+                  label={t("settingsPage.agentAccess.controlSystemProxyLabel")}
+                  description={t("settingsPage.agentAccess.controlSystemProxyDescription")}
+                >
+                  <Switch
                     size="small"
                     color="warning"
-                    variant="outlined"
-                    label={t("settingsPage.agentAccess.rawBodiesEnabled")}
-                    sx={{ height: 22, "& .MuiChip-label": { px: 0.75, fontSize: 11.5 } }}
+                    checked={draft.permissions.controlSystemProxy}
+                    onChange={(event) =>
+                      updatePermission("controlSystemProxy", event.target.checked)
+                    }
+                    slotProps={{
+                      input: {
+                        "aria-label": t("settingsPage.agentAccess.controlSystemProxyLabel"),
+                      },
+                    }}
                   />
-                ) : null}
-              </Stack>
-            </Button>
-            <Typography
-              variant="caption"
-              sx={{ color: "text.secondary", display: "block", mt: 0.25, px: 0.5 }}
-            >
-              {t("settingsPage.agentAccess.advancedPermissionsDescription")}
-            </Typography>
-            <Collapse in={advancedOpen} unmountOnExit>
-              <Box sx={{ pt: 1.5 }}>
-                <SettingsGroup>
-                  <SettingsRow
-                    itemId="agent-read-raw-bodies"
-                    label={t("settingsPage.agentAccess.readRawBodiesLabel")}
-                    description={t("settingsPage.agentAccess.readRawBodiesDescription")}
-                  >
-                    <Switch
-                      size="small"
-                      color="warning"
-                      checked={draft.permissions.readRawBodies}
-                      disabled={rawBodiesBlocked}
-                      onChange={(event) => updatePermission("readRawBodies", event.target.checked)}
-                      slotProps={{
-                        input: {
-                          "aria-label": t("settingsPage.agentAccess.readRawBodiesLabel"),
-                        },
-                      }}
-                    />
-                  </SettingsRow>
-                  <SettingsRow
-                    itemId="agent-detect-sensitive-values"
-                    label={t("settingsPage.agentAccess.detectSensitiveValuesLabel")}
-                    description={t("settingsPage.agentAccess.detectSensitiveValuesDescription")}
-                  >
-                    <Switch
-                      size="small"
-                      checked={draft.redaction.detectSensitiveValues}
-                      onChange={(event) =>
-                        updateRedaction("detectSensitiveValues", event.target.checked)
-                      }
-                      slotProps={{
-                        input: {
-                          "aria-label": t("settingsPage.agentAccess.detectSensitiveValuesLabel"),
-                        },
-                      }}
-                    />
-                  </SettingsRow>
-                  <SettingsRow
-                    itemId="agent-hash-identifiers"
-                    label={t("settingsPage.agentAccess.hashIdentifiersLabel")}
-                    description={t("settingsPage.agentAccess.hashIdentifiersDescription")}
-                  >
-                    <Switch
-                      size="small"
-                      checked={draft.redaction.hashIdentifiers}
-                      disabled={!draft.redaction.detectSensitiveValues}
-                      onChange={(event) => updateRedaction("hashIdentifiers", event.target.checked)}
-                      slotProps={{
-                        input: {
-                          "aria-label": t("settingsPage.agentAccess.hashIdentifiersLabel"),
-                        },
-                      }}
-                    />
-                  </SettingsRow>
-                  <SettingsRow
-                    itemId="agent-custom-sensitive-keys"
-                    label={t("settingsPage.agentAccess.customSensitiveKeysLabel")}
-                    description={t("settingsPage.agentAccess.customSensitiveKeysDescription")}
-                  >
-                    <Autocomplete
-                      multiple
-                      freeSolo
-                      size="small"
-                      options={[] as string[]}
-                      value={draft.redaction.customSensitiveKeys}
-                      disabled={!draft.redaction.detectSensitiveValues}
-                      onChange={(_, value) =>
-                        updateRedaction(
-                          "customSensitiveKeys",
-                          Array.from(
-                            new Set(value.map((item) => item.trim().toLowerCase()).filter(Boolean)),
-                          ),
-                        )
-                      }
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          placeholder={t("settingsPage.agentAccess.customSensitiveKeysPlaceholder")}
-                          sx={{ ...rowControlSx, ...compactFieldSx }}
-                        />
-                      )}
-                    />
-                  </SettingsRow>
-                  <SettingsRow
-                    itemId="agent-max-sessions"
-                    label={t("settingsPage.agentAccess.maxSessionsLabel")}
-                    description={t("settingsPage.agentAccess.maxSessionsDescription")}
-                  >
-                    <Select
-                      size="small"
-                      value={draft.limits.maxSessions}
-                      onChange={(event) => updateLimit("maxSessions", Number(event.target.value))}
-                      inputProps={{ "aria-label": t("settingsPage.agentAccess.maxSessionsLabel") }}
-                      sx={selectControlSx}
-                    >
-                      {[20, 50, 100].map((value) => (
-                        <MenuItem key={value} value={value}>
-                          {value}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </SettingsRow>
-                  <SettingsRow
-                    itemId="agent-max-body-bytes"
-                    label={t("settingsPage.agentAccess.maxBodyBytesLabel")}
-                    description={t("settingsPage.agentAccess.maxBodyBytesDescription")}
-                  >
-                    <Select
-                      size="small"
-                      value={draft.limits.maxBodyBytes}
-                      onChange={(event) => updateLimit("maxBodyBytes", Number(event.target.value))}
-                      inputProps={{ "aria-label": t("settingsPage.agentAccess.maxBodyBytesLabel") }}
-                      sx={selectControlSx}
-                    >
-                      {[64, 128, 256].map((kib) => (
-                        <MenuItem key={kib} value={kib * 1024}>
-                          {`${kib} KiB`}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </SettingsRow>
-                </SettingsGroup>
-                {draft.permissions.readRawBodies ? (
-                  <Alert severity="warning" variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
-                    {t("settingsPage.agentAccess.rawBodiesWarning")}
+                </SettingsRow>
+                <SettingsRow
+                  itemId="agent-control-certificates"
+                  label={t("settingsPage.agentAccess.manageCertificatesLabel")}
+                  description={t("settingsPage.agentAccess.manageCertificatesDescription")}
+                >
+                  <Switch
+                    size="small"
+                    color="warning"
+                    checked={draft.permissions.manageCertificates}
+                    onChange={(event) =>
+                      updatePermission("manageCertificates", event.target.checked)
+                    }
+                    slotProps={{
+                      input: {
+                        "aria-label": t("settingsPage.agentAccess.manageCertificatesLabel"),
+                      },
+                    }}
+                  />
+                </SettingsRow>
+                <PermissionGroupHeading
+                  group="dangerous"
+                  permissions={draft.permissions}
+                  insideGroup
+                />
+                <SettingsRow
+                  itemId="agent-control-delete-sessions"
+                  label={t("settingsPage.agentAccess.deleteSessionsLabel")}
+                  description={t("settingsPage.agentAccess.deleteSessionsDescription")}
+                >
+                  <Switch
+                    size="small"
+                    color="error"
+                    checked={draft.permissions.deleteSessions}
+                    onChange={(event) => updatePermission("deleteSessions", event.target.checked)}
+                    slotProps={{
+                      input: { "aria-label": t("settingsPage.agentAccess.deleteSessionsLabel") },
+                    }}
+                  />
+                </SettingsRow>
+                <PermissionGroupHeading
+                  group="modifyRequests"
+                  permissions={draft.permissions}
+                  insideGroup
+                />
+                <SettingsRow
+                  itemId="agent-send-requests"
+                  label={t("settingsPage.agentAccess.sendRequestsLabel")}
+                  description={t("settingsPage.agentAccess.sendRequestsDescription")}
+                >
+                  <Switch
+                    size="small"
+                    color="warning"
+                    checked={draft.permissions.sendRequests}
+                    onChange={(event) => updatePermission("sendRequests", event.target.checked)}
+                    slotProps={{
+                      input: { "aria-label": t("settingsPage.agentAccess.sendRequestsLabel") },
+                    }}
+                  />
+                </SettingsRow>
+                <SettingsRow
+                  itemId="agent-manage-rules"
+                  label={t("settingsPage.agentAccess.manageRulesLabel")}
+                  description={t("settingsPage.agentAccess.manageRulesDescription")}
+                >
+                  <Switch
+                    size="small"
+                    color="warning"
+                    checked={draft.permissions.manageRules}
+                    onChange={(event) => updatePermission("manageRules", event.target.checked)}
+                    slotProps={{
+                      input: { "aria-label": t("settingsPage.agentAccess.manageRulesLabel") },
+                    }}
+                  />
+                </SettingsRow>
+                <SettingsRow
+                  itemId="agent-manage-proxied-verification"
+                  label={t("settingsPage.agentAccess.manageProxiedVerificationLabel")}
+                  description={t("settingsPage.agentAccess.manageProxiedVerificationDescription")}
+                >
+                  <Switch
+                    size="small"
+                    color="warning"
+                    checked={draft.permissions.manageProxiedVerification}
+                    onChange={(event) =>
+                      updatePermission("manageProxiedVerification", event.target.checked)
+                    }
+                    slotProps={{
+                      input: {
+                        "aria-label": t("settingsPage.agentAccess.manageProxiedVerificationLabel"),
+                      },
+                    }}
+                  />
+                </SettingsRow>
+                <PermissionGroupHeading
+                  group="agentAutomation"
+                  permissions={draft.permissions}
+                  insideGroup
+                />
+                <SettingsRow
+                  itemId="agent-manage-automation"
+                  label={t("settingsPage.agentAccess.manageAutomationLabel")}
+                  description={t("settingsPage.agentAccess.manageAutomationDescription")}
+                >
+                  <Switch
+                    size="small"
+                    color="warning"
+                    checked={draft.permissions.manageAutomation}
+                    onChange={(event) => updatePermission("manageAutomation", event.target.checked)}
+                    slotProps={{
+                      input: { "aria-label": t("settingsPage.agentAccess.manageAutomationLabel") },
+                    }}
+                  />
+                </SettingsRow>
+                <SettingsRow
+                  itemId="agent-manage-user-automation"
+                  label={t("settingsPage.agentAccess.manageUserAutomationLabel")}
+                  description={t("settingsPage.agentAccess.manageUserAutomationDescription")}
+                >
+                  <Switch
+                    size="small"
+                    color="error"
+                    checked={draft.permissions.manageUserAutomation}
+                    onChange={(event) =>
+                      updatePermission("manageUserAutomation", event.target.checked)
+                    }
+                    slotProps={{
+                      input: {
+                        "aria-label": t("settingsPage.agentAccess.manageUserAutomationLabel"),
+                      },
+                    }}
+                  />
+                </SettingsRow>
+              </SettingsGroup>
+              {draft.permissions.manageAutomation || draft.permissions.manageProxiedVerification ? (
+                <>
+                  <Divider sx={{ mt: 2 }} />
+                  <Box sx={{ pt: 1.5 }}>
+                    <Typography variant="subtitle2">
+                      {t("settingsPage.agentAccess.automationScopeTitle")}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                      {t("settingsPage.agentAccess.automationScopeDescription")}
+                    </Typography>
+                  </Box>
+                  <Alert severity="info" variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
+                    {t("settingsPage.agentAccess.newAutomationPermissionsHint")}
                   </Alert>
-                ) : null}
-              </Box>
-            </Collapse>
-          </Box>
 
-          <SettingsFooter
-            hint={
-              dirty ? (
-                <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
-                  <WarningAmberRoundedIcon color="warning" sx={{ fontSize: 18 }} />
-                  <Typography variant="caption" sx={{ color: "warning.main" }}>
-                    {t("settingsPage.agentAccess.unsavedChangesHint")}
-                  </Typography>
-                </Stack>
-              ) : (
-                t("settingsPage.agentAccess.saveHint")
-              )
-            }
+                  {draft.permissions.manageAutomation ? (
+                    <Box sx={{ mt: 1.5 }}>
+                      <Typography variant="subtitle2">
+                        {t("settingsPage.agentAccess.automationRootsTitle")}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                        {t("settingsPage.agentAccess.automationRootsDescription")}
+                      </Typography>
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        useFlexGap
+                        sx={{ flexWrap: "wrap", mt: 1 }}
+                      >
+                        {draft.automationApprovedRoots.map((path) => {
+                          const status = settings.automationApprovedRootStatuses.find(
+                            (entry) => entry.path === path,
+                          );
+                          const invalid = status ? !status.exists || !status.isDirectory : false;
+                          return (
+                            <Chip
+                              key={path}
+                              color={invalid ? "warning" : "default"}
+                              icon={invalid ? <WarningAmberRoundedIcon /> : undefined}
+                              label={path}
+                              onDelete={() => removeAutomationRoot(path)}
+                              deleteIcon={<DeleteOutlineRoundedIcon />}
+                              sx={{ maxWidth: "100%" }}
+                            />
+                          );
+                        })}
+                      </Stack>
+                      {draft.automationApprovedRoots.length === 0 ? (
+                        <Typography variant="body2" sx={{ color: "text.secondary", mt: 1 }}>
+                          {t("settingsPage.agentAccess.automationRootsEmpty")}
+                        </Typography>
+                      ) : null}
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => void addAutomationRoot()}
+                        disabled={
+                          busy ||
+                          pickingAutomationRoot ||
+                          draft.automationApprovedRoots.length >= 10
+                        }
+                        sx={{ mt: 1 }}
+                      >
+                        {pickingAutomationRoot
+                          ? t("settingsPage.agentAccess.automationRootPickerPending")
+                          : t("settingsPage.agentAccess.automationRootPickerAction")}
+                      </Button>
+                    </Box>
+                  ) : null}
+
+                  {draft.permissions.manageProxiedVerification ? (
+                    <Box sx={{ mt: 2 }}>
+                      <ScopedOriginEditor
+                        title={t("settingsPage.agentAccess.proxiedVerificationOriginsTitle")}
+                        description={t(
+                          "settingsPage.agentAccess.proxiedVerificationOriginsDescription",
+                        )}
+                        values={draft.proxiedVerificationOrigins}
+                        disabled={busy}
+                        placeholder={t("settingsPage.agentAccess.originPlaceholder")}
+                        invalidMessage={t("settingsPage.agentAccess.originInvalid")}
+                        addLabel={t("settingsPage.agentAccess.originAdd")}
+                        emptyLabel={t("settingsPage.agentAccess.originEmpty")}
+                        onAdd={(origin) => addOrigin("proxiedVerificationOrigins", origin)}
+                        onRemove={(origin) => removeOrigin("proxiedVerificationOrigins", origin)}
+                      />
+                    </Box>
+                  ) : null}
+                  {draft.permissions.manageProxiedVerification &&
+                  hasUnmetPermissionDependencies(draft.permissions, "manageProxiedVerification") ? (
+                    <Alert severity="warning" variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
+                      {t("settingsPage.agentAccess.proxiedVerificationRequiresAutomation")}
+                    </Alert>
+                  ) : null}
+
+                  <Divider sx={{ mt: 1 }} />
+                </>
+              ) : null}
+              <Box sx={{ pt: 1.5 }}>
+                <Button
+                  size="small"
+                  color="inherit"
+                  aria-expanded={advancedOpen ? "true" : "false"}
+                  onClick={() => setAdvancedOpen((current) => !current)}
+                  endIcon={
+                    <ExpandMoreRoundedIcon
+                      fontSize="small"
+                      sx={{
+                        transform: advancedOpen ? "rotate(180deg)" : "none",
+                        transition: "transform 150ms ease",
+                      }}
+                    />
+                  }
+                  sx={{ color: "text.primary", minHeight: 32, px: 0.5 }}
+                >
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                    <span>{t("settingsPage.agentAccess.advancedPermissions")}</span>
+                    {draft.permissions.readRawBodies ? (
+                      <Chip
+                        size="small"
+                        color="warning"
+                        variant="outlined"
+                        label={t("settingsPage.agentAccess.rawBodiesEnabled")}
+                        sx={{ height: 22, "& .MuiChip-label": { px: 0.75, fontSize: 11.5 } }}
+                      />
+                    ) : null}
+                  </Stack>
+                </Button>
+                <Typography
+                  variant="caption"
+                  sx={{ color: "text.secondary", display: "block", mt: 0.25, px: 0.5 }}
+                >
+                  {t("settingsPage.agentAccess.advancedPermissionsDescription")}
+                </Typography>
+                <Collapse in={advancedOpen} unmountOnExit>
+                  <Box sx={{ pt: 1.5 }}>
+                    <SettingsGroup>
+                      <SettingsRow
+                        itemId="agent-read-raw-bodies"
+                        label={t("settingsPage.agentAccess.readRawBodiesLabel")}
+                        description={t("settingsPage.agentAccess.readRawBodiesDescription")}
+                      >
+                        <Switch
+                          size="small"
+                          color="warning"
+                          checked={draft.permissions.readRawBodies}
+                          disabled={rawBodiesBlocked}
+                          onChange={(event) =>
+                            updatePermission("readRawBodies", event.target.checked)
+                          }
+                          slotProps={{
+                            input: {
+                              "aria-label": t("settingsPage.agentAccess.readRawBodiesLabel"),
+                            },
+                          }}
+                        />
+                      </SettingsRow>
+                      <SettingsRow
+                        itemId="agent-detect-sensitive-values"
+                        label={t("settingsPage.agentAccess.detectSensitiveValuesLabel")}
+                        description={t("settingsPage.agentAccess.detectSensitiveValuesDescription")}
+                      >
+                        <Switch
+                          size="small"
+                          checked={draft.redaction.detectSensitiveValues}
+                          onChange={(event) =>
+                            updateRedaction("detectSensitiveValues", event.target.checked)
+                          }
+                          slotProps={{
+                            input: {
+                              "aria-label": t(
+                                "settingsPage.agentAccess.detectSensitiveValuesLabel",
+                              ),
+                            },
+                          }}
+                        />
+                      </SettingsRow>
+                      <SettingsRow
+                        itemId="agent-hash-identifiers"
+                        label={t("settingsPage.agentAccess.hashIdentifiersLabel")}
+                        description={t("settingsPage.agentAccess.hashIdentifiersDescription")}
+                      >
+                        <Switch
+                          size="small"
+                          checked={draft.redaction.hashIdentifiers}
+                          disabled={!draft.redaction.detectSensitiveValues}
+                          onChange={(event) =>
+                            updateRedaction("hashIdentifiers", event.target.checked)
+                          }
+                          slotProps={{
+                            input: {
+                              "aria-label": t("settingsPage.agentAccess.hashIdentifiersLabel"),
+                            },
+                          }}
+                        />
+                      </SettingsRow>
+                      <SettingsRow
+                        itemId="agent-custom-sensitive-keys"
+                        label={t("settingsPage.agentAccess.customSensitiveKeysLabel")}
+                        description={t("settingsPage.agentAccess.customSensitiveKeysDescription")}
+                      >
+                        <Autocomplete
+                          multiple
+                          freeSolo
+                          size="small"
+                          options={[] as string[]}
+                          value={draft.redaction.customSensitiveKeys}
+                          disabled={!draft.redaction.detectSensitiveValues}
+                          onChange={(_, value) =>
+                            updateRedaction(
+                              "customSensitiveKeys",
+                              Array.from(
+                                new Set(
+                                  value.map((item) => item.trim().toLowerCase()).filter(Boolean),
+                                ),
+                              ),
+                            )
+                          }
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              placeholder={t(
+                                "settingsPage.agentAccess.customSensitiveKeysPlaceholder",
+                              )}
+                              sx={{ ...rowControlSx, ...compactFieldSx }}
+                            />
+                          )}
+                        />
+                      </SettingsRow>
+                      <SettingsRow
+                        itemId="agent-max-sessions"
+                        label={t("settingsPage.agentAccess.maxSessionsLabel")}
+                        description={t("settingsPage.agentAccess.maxSessionsDescription")}
+                      >
+                        <Select
+                          size="small"
+                          value={draft.limits.maxSessions}
+                          onChange={(event) =>
+                            updateLimit("maxSessions", Number(event.target.value))
+                          }
+                          inputProps={{
+                            "aria-label": t("settingsPage.agentAccess.maxSessionsLabel"),
+                          }}
+                          sx={selectControlSx}
+                        >
+                          {[20, 50, 100].map((value) => (
+                            <MenuItem key={value} value={value}>
+                              {value}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </SettingsRow>
+                      <SettingsRow
+                        itemId="agent-max-body-bytes"
+                        label={t("settingsPage.agentAccess.maxBodyBytesLabel")}
+                        description={t("settingsPage.agentAccess.maxBodyBytesDescription")}
+                      >
+                        <Select
+                          size="small"
+                          value={draft.limits.maxBodyBytes}
+                          onChange={(event) =>
+                            updateLimit("maxBodyBytes", Number(event.target.value))
+                          }
+                          inputProps={{
+                            "aria-label": t("settingsPage.agentAccess.maxBodyBytesLabel"),
+                          }}
+                          sx={selectControlSx}
+                        >
+                          {[64, 128, 256].map((kib) => (
+                            <MenuItem key={kib} value={kib * 1024}>
+                              {`${kib} KiB`}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </SettingsRow>
+                    </SettingsGroup>
+                    {draft.permissions.readRawBodies ? (
+                      <Alert
+                        severity="warning"
+                        variant="outlined"
+                        sx={{ ...compactAlertSx, mt: 1 }}
+                      >
+                        {t("settingsPage.agentAccess.rawBodiesWarning")}
+                      </Alert>
+                    ) : null}
+                  </Box>
+                </Collapse>
+              </Box>
+            </Box>
+          </Collapse>
+
+          <Box
+            sx={{
+              position: "sticky",
+              bottom: 0,
+              zIndex: 2,
+              bgcolor: "background.paper",
+              borderTop: 1,
+              borderColor: "divider",
+            }}
           >
-            {dirty ? (
-              <Button size="small" disabled={busy} onClick={discardDraft}>
-                {t("settingsPage.agentAccess.discardChanges")}
-              </Button>
-            ) : null}
-            <Button
-              size="small"
-              variant="contained"
-              disabled={!dirty || busy}
-              onClick={() => saveDraft("permissions")}
-              sx={{ minHeight: 34, px: 1.75 }}
+            <SettingsFooter
+              hint={
+                dirty ? (
+                  <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+                    <WarningAmberRoundedIcon color="warning" sx={{ fontSize: 18 }} />
+                    <Typography variant="caption" sx={{ color: "warning.main" }}>
+                      {t("settingsPage.agentAccess.unsavedChangesHint")}
+                    </Typography>
+                  </Stack>
+                ) : (
+                  t("settingsPage.agentAccess.saveHint")
+                )
+              }
             >
-              {saveMutation.isPending
-                ? t("settingsPage.agentAccess.saving")
-                : t("settingsPage.agentAccess.saveChanges")}
-            </Button>
-          </SettingsFooter>
+              {dirty ? (
+                <Button size="small" disabled={busy} onClick={() => setChangesOpen(true)}>
+                  {t("settingsPage.agentAccess.viewChanges")}
+                </Button>
+              ) : null}
+              {dirty ? (
+                <Button size="small" disabled={busy} onClick={discardDraft}>
+                  {t("settingsPage.agentAccess.discardChanges")}
+                </Button>
+              ) : null}
+              <Button
+                size="small"
+                variant="contained"
+                disabled={!dirty || busy}
+                onClick={() => saveDraft("permissions")}
+                sx={{ minHeight: 34, px: 1.75 }}
+              >
+                {saveMutation.isPending
+                  ? t("settingsPage.agentAccess.saving")
+                  : t("settingsPage.agentAccess.saveChanges")}
+              </Button>
+            </SettingsFooter>
+          </Box>
           {feedback?.area === "permissions" ? (
             <Box sx={{ pb: 1.5 }}>
               <FeedbackAlert feedback={feedback} />
@@ -1603,7 +1731,217 @@ export function AgentAccessSection() {
           if (pendingRemove) removeMutation.mutate(pendingRemove);
         }}
       />
+
+      <Dialog fullWidth maxWidth="sm" onClose={() => setChangesOpen(false)} open={changesOpen}>
+        <DialogTitle>{t("settingsPage.agentAccess.changesTitle")}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
+            {t("settingsPage.agentAccess.changesDescription")}
+          </Typography>
+          {changeItems.length === 0 ? (
+            <Typography variant="body2">{t("settingsPage.agentAccess.changesEmpty")}</Typography>
+          ) : (
+            <Stack divider={<Divider flexItem />} spacing={0}>
+              {changeItems.map((item) => (
+                <Stack key={item.id} spacing={0.25} sx={{ py: 1 }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500, minWidth: 0 }}>
+                      {item.label}
+                    </Typography>
+                    {item.highRisk ? (
+                      <Chip
+                        size="small"
+                        color={item.risk === "destructive" ? "error" : "warning"}
+                        variant="outlined"
+                        label={t(permissionRiskKey(item.risk ?? "traffic"))}
+                      />
+                    ) : null}
+                  </Stack>
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    {item.before} → {item.after}
+                  </Typography>
+                </Stack>
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setChangesOpen(false)}>{t("common.actions.close")}</Button>
+        </DialogActions>
+      </Dialog>
+
+      <ConfirmDialog
+        confirmColor="warning"
+        confirmLabel={t("settingsPage.agentAccess.highRiskSaveConfirm")}
+        isConfirming={saveMutation.isPending}
+        message={t("settingsPage.agentAccess.highRiskSaveMessage", {
+          permissions: highRiskChangeItems.map((item) => item.label).join(" · "),
+        })}
+        onCancel={() => setPendingHighRiskSave(null)}
+        onConfirm={() => {
+          if (!pendingHighRiskSave) return;
+          saveMutation.mutate(pendingHighRiskSave);
+        }}
+        open={pendingHighRiskSave !== null}
+        title={t("settingsPage.agentAccess.highRiskSaveTitle")}
+      />
+
+      <ConfirmDialog
+        confirmColor="warning"
+        confirmLabel={t("settingsPage.agentAccess.unsavedLeaveConfirm")}
+        isConfirming={false}
+        message={t("settingsPage.agentAccess.unsavedLeaveMessage")}
+        onCancel={unsavedGuard.handleCancel}
+        onConfirm={unsavedGuard.handleConfirm}
+        open={unsavedGuard.dialogOpen}
+        title={t("settingsPage.agentAccess.unsavedLeaveTitle")}
+      />
     </Stack>
+  );
+}
+
+function CapabilitySummary({
+  dirty,
+  enabled,
+  onAdjust,
+  permissions,
+}: {
+  dirty: boolean;
+  enabled: boolean;
+  onAdjust: () => void;
+  permissions: AgentAccessPermissions;
+}) {
+  const { t } = useI18n();
+  const readDefinitions = enabledPermissionDefinitions(permissions, { group: "readData" });
+  const controlDefinitions = (
+    ["controlDesktop", "modifyRequests", "agentAutomation", "dangerous"] as const
+  )
+    .flatMap((group) => enabledPermissionDefinitions(permissions, { group }))
+    .filter((definition) => definition.available);
+
+  return (
+    <Box
+      sx={{
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1.5,
+        p: 1.5,
+      }}
+    >
+      <Stack
+        direction={{ sm: "row", xs: "column" }}
+        spacing={1}
+        sx={{ alignItems: { sm: "center", xs: "stretch" }, justifyContent: "space-between" }}
+      >
+        <Typography variant="subtitle2">
+          {t("settingsPage.agentAccess.capabilitySummaryTitle")}
+        </Typography>
+        <Button size="small" variant="outlined" onClick={onAdjust}>
+          {t("settingsPage.agentAccess.adjustPermissions")}
+        </Button>
+      </Stack>
+      {enabled ? (
+        <Stack spacing={0.75} sx={{ mt: 1 }}>
+          <CapabilitySummaryLine
+            emptyLabel={t("settingsPage.agentAccess.capabilitySummaryNoRead")}
+            label={t("settingsPage.agentAccess.capabilitySummaryReadLabel")}
+            values={permissionLabels(readDefinitions, t)}
+          />
+          <CapabilitySummaryLine
+            emptyLabel={t("settingsPage.agentAccess.capabilitySummaryNoControl")}
+            label={t("settingsPage.agentAccess.capabilitySummaryControlLabel")}
+            values={permissionLabels(controlDefinitions, t)}
+          />
+        </Stack>
+      ) : (
+        <Typography variant="body2" sx={{ color: "text.secondary", mt: 1 }}>
+          {t("settingsPage.agentAccess.capabilitySummaryDisabled")}
+        </Typography>
+      )}
+      {dirty ? (
+        <Typography variant="caption" sx={{ color: "warning.main", display: "block", mt: 1 }}>
+          {t("settingsPage.agentAccess.capabilitySummarySavedOnly")}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
+
+function CapabilitySummaryLine({
+  emptyLabel,
+  label,
+  values,
+}: {
+  emptyLabel: string;
+  label: string;
+  values: string;
+}) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: "baseline" }}>
+      <Typography variant="caption" sx={{ color: "text.secondary", flexShrink: 0 }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: "anywhere" }}>
+        {values || emptyLabel}
+      </Typography>
+    </Stack>
+  );
+}
+
+function permissionLabels(
+  definitions: readonly { labelKey: ReturnType<typeof permissionDefinition>["labelKey"] }[],
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  const visible = definitions.slice(0, 4).map((definition) => t(definition.labelKey));
+  if (definitions.length > visible.length) {
+    visible.push(
+      t("settingsPage.agentAccess.capabilitySummaryMore", {
+        count: definitions.length - visible.length,
+      }),
+    );
+  }
+  return visible.join(" · ");
+}
+
+function PermissionGroupHeading({
+  group,
+  insideGroup = false,
+  permissions,
+}: {
+  group: AgentPermissionGroupId;
+  insideGroup?: boolean;
+  permissions: AgentAccessPermissions;
+}) {
+  const { t } = useI18n();
+  const definition = AGENT_PERMISSION_GROUPS.find((candidate) => candidate.id === group);
+  if (!definition) return null;
+  const count = countEnabledPermissions(permissions, { group, surface: "standard" });
+  const total = availablePermissionDefinitions({ group, surface: "standard" }).length;
+
+  return (
+    <Box sx={{ pt: insideGroup ? 1.5 : 0.25, pb: insideGroup ? 1 : 0, minWidth: 0 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ alignItems: "flex-start", justifyContent: "space-between" }}
+      >
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="subtitle2">{t(definition.labelKey)}</Typography>
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {t(definition.descriptionKey)}
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+          <Chip
+            size="small"
+            variant="outlined"
+            color={definition.risk === "destructive" ? "error" : "default"}
+            label={t(permissionRiskKey(definition.risk))}
+          />
+          <Chip size="small" label={`${count}/${total}`} />
+        </Stack>
+      </Stack>
+    </Box>
   );
 }
 
@@ -1862,6 +2200,152 @@ function normalizeOrigin(value: string): string | null {
   }
 }
 
+function buildAgentAccessChangeItems(
+  saved: AgentAccessDraft,
+  current: AgentAccessDraft,
+  t: ReturnType<typeof useI18n>["t"],
+): AgentAccessChangeItem[] {
+  const items: AgentAccessChangeItem[] = [];
+  if (saved.enabled !== current.enabled) {
+    items.push({
+      id: "enabled",
+      kind: "enabled",
+      label: t("settingsPage.agentAccess.enabledLabel"),
+      before: saved.enabled
+        ? t("settingsPage.agentAccess.changeOn")
+        : t("settingsPage.agentAccess.changeOff"),
+      after: current.enabled
+        ? t("settingsPage.agentAccess.changeOn")
+        : t("settingsPage.agentAccess.changeOff"),
+      highRisk: false,
+    });
+  }
+
+  for (const key of AGENT_PERMISSION_KEYS) {
+    if (saved.permissions[key] === current.permissions[key]) continue;
+    const definition = permissionDefinition(key);
+    items.push({
+      id: `permission:${key}`,
+      kind: "permission",
+      label: t(definition.labelKey),
+      before: saved.permissions[key]
+        ? t("settingsPage.agentAccess.changeOn")
+        : t("settingsPage.agentAccess.changeOff"),
+      after: current.permissions[key]
+        ? t("settingsPage.agentAccess.changeOn")
+        : t("settingsPage.agentAccess.changeOff"),
+      highRisk: definition.confirmOnEnable && !saved.permissions[key] && current.permissions[key],
+      risk: definition.risk,
+    });
+  }
+
+  const limitFields: Array<{ key: keyof AgentAccessLimits; labelKey: TranslationKey }> = [
+    { key: "maxSessions", labelKey: "settingsPage.agentAccess.maxSessionsLabel" },
+    { key: "maxBodyBytes", labelKey: "settingsPage.agentAccess.maxBodyBytesLabel" },
+  ];
+  for (const field of limitFields) {
+    if (saved.limits[field.key] === current.limits[field.key]) continue;
+    items.push({
+      id: `limit:${field.key}`,
+      kind: "policy",
+      label: t(field.labelKey),
+      before: String(saved.limits[field.key]),
+      after: String(current.limits[field.key]),
+      highRisk: false,
+    });
+  }
+
+  const redactionBooleanFields: Array<{
+    key: "detectSensitiveValues" | "hashIdentifiers";
+    labelKey: TranslationKey;
+  }> = [
+    {
+      key: "detectSensitiveValues",
+      labelKey: "settingsPage.agentAccess.detectSensitiveValuesLabel",
+    },
+    { key: "hashIdentifiers", labelKey: "settingsPage.agentAccess.hashIdentifiersLabel" },
+  ];
+  for (const field of redactionBooleanFields) {
+    if (saved.redaction[field.key] === current.redaction[field.key]) continue;
+    items.push({
+      id: `redaction:${field.key}`,
+      kind: "policy",
+      label: t(field.labelKey),
+      before: saved.redaction[field.key]
+        ? t("settingsPage.agentAccess.changeOn")
+        : t("settingsPage.agentAccess.changeOff"),
+      after: current.redaction[field.key]
+        ? t("settingsPage.agentAccess.changeOn")
+        : t("settingsPage.agentAccess.changeOff"),
+      highRisk: false,
+    });
+  }
+  if (
+    saved.redaction.customSensitiveKeys.join("\u0000") !==
+    current.redaction.customSensitiveKeys.join("\u0000")
+  ) {
+    items.push({
+      id: "redaction:customSensitiveKeys",
+      kind: "policy",
+      label: t("settingsPage.agentAccess.customSensitiveKeysLabel"),
+      before: saved.redaction.customSensitiveKeys.join(", ") || "—",
+      after: current.redaction.customSensitiveKeys.join(", ") || "—",
+      highRisk: false,
+    });
+  }
+
+  appendCollectionChanges(
+    items,
+    "automation-root",
+    t("settingsPage.agentAccess.automationRootsTitle"),
+    saved.automationApprovedRoots,
+    current.automationApprovedRoots,
+    t,
+  );
+  appendCollectionChanges(
+    items,
+    "proxied-origin",
+    t("settingsPage.agentAccess.proxiedVerificationOriginsTitle"),
+    saved.proxiedVerificationOrigins,
+    current.proxiedVerificationOrigins,
+    t,
+  );
+
+  return items;
+}
+
+function appendCollectionChanges(
+  items: AgentAccessChangeItem[],
+  idPrefix: string,
+  label: string,
+  before: readonly string[],
+  after: readonly string[],
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  const added = after.filter((value) => !before.includes(value));
+  const removed = before.filter((value) => !after.includes(value));
+  for (const value of added) {
+    items.push({
+      id: `${idPrefix}:added:${value}`,
+      kind: "scope",
+      label: `${label}: ${value}`,
+      before: "—",
+      after: t("settingsPage.agentAccess.changeAdded"),
+      highRisk: false,
+    });
+  }
+  for (const value of removed) {
+    items.push({
+      id: `${idPrefix}:removed:${value}`,
+      kind: "scope",
+      label: `${label}: ${value}`,
+      before: t("settingsPage.agentAccess.changeRemoved"),
+      after: "—",
+      highRisk: false,
+    });
+  }
+}
+
 function draftFromSettings(settings: AgentAccessSettings): AgentAccessDraft {
   return {
     enabled: settings.enabled,
@@ -1880,32 +2364,13 @@ function draftFromSettings(settings: AgentAccessSettings): AgentAccessDraft {
 
 function draftsEqual(current: AgentAccessDraft, saved: AgentAccessDraft) {
   if (current.enabled !== saved.enabled) return false;
-  const permissionKeys: Array<keyof AgentAccessPermissions> = [
-    "readSessions",
-    "readBodies",
-    "readRawBodies",
-    "readWebSocket",
-    "exportSnapshots",
-    "controlCapture",
-    "controlSystemProxy",
-    "manageCertificates",
-    "deleteSessions",
-    "sendRequests",
-    "manageRules",
-    "manageAutomation",
-    "manageUserAutomation",
-    "manageScripts",
-    "manageCrossHostMappings",
-    "manageProxiedVerification",
-    "manageGlobalAutomation",
-  ];
   const limitKeys: Array<keyof AgentAccessLimits> = [
     "maxSessions",
     "maxBodyBytes",
     "maxResponseBytes",
   ];
   return (
-    permissionKeys.every((key) => current.permissions[key] === saved.permissions[key]) &&
+    AGENT_PERMISSION_KEYS.every((key) => current.permissions[key] === saved.permissions[key]) &&
     limitKeys.every((key) => current.limits[key] === saved.limits[key]) &&
     JSON.stringify(current.redaction) === JSON.stringify(saved.redaction) &&
     JSON.stringify(current.automationApprovedRoots) ===

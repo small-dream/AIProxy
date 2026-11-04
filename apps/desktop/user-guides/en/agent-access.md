@@ -98,7 +98,7 @@ When the Agent already knows the target field, use `get_session_body` with `json
 
 ## Control permissions
 
-Control permissions appear below read permissions and start disabled. They are split into base controls and automation controls; an upgrade or the legacy temporary-rule permission never enables a new automation permission implicitly.
+Control permissions appear below read permissions and start disabled; the full matrix is also collapsed by default. The **Current Agent capabilities** summary at the top shows saved permissions only, so draft changes do not take effect until you save. When Local Agent Access is saved as off, the summary states that the Agent cannot read or control traffic instead of listing capabilities. Expanding the matrix groups the capabilities available in this release under **Control the desktop**, **Dangerous operations**, **Modify requests**, and **Agent automation**. An upgrade or the legacy temporary-rule permission never enables a new automation permission implicitly.
 
 Base control permissions:
 
@@ -117,12 +117,13 @@ Automation permissions:
 |---|---|
 | Manage Agent automation | Read, validate, apply, verify, roll back, and clean up Agent-owned automation resources; this does not grant access to your existing rules |
 | Manage my automation | Update, delete, toggle, or roll back resources you own; high risk and must be enabled separately |
-| Manage scripts | Reserved grant; Script writes still return `FEATURE_NOT_AVAILABLE` in this release |
-| Map to other hosts | Reserved grant; Map Remote writes still return `FEATURE_NOT_AVAILABLE` in this release |
 | Verify through AIProxy | Send bounded, idempotent verification requests through the local proxy listener; change state and the origin allowlist are still enforced |
-| Manage global automation | Reserved grant; global scope and Breakpoint writes remain unavailable in this release |
 
-**Enable full control** turns on all twelve permissions. After that, the app does not ask again in-app when the Agent performs these actions; grant it only when you trust both the Agent and the task. Enabling **Manage scripts**, **Map to other hosts**, or **Manage global automation** does not bypass `FEATURE_NOT_AVAILABLE` in this release. The audit log records the action summary, duration, and error code, never credentials, bodies, or rule values.
+The settings page does not render reserved permissions such as `exportSnapshots`, `manageScripts`, `manageCrossHostMappings`, or `manageGlobalAutomation`, and settings search does not return them. Enabling those fields directly in `agent-access.json` does not bypass `FEATURE_NOT_AVAILABLE`. The settings page also no longer offers an **Enable full control** shortcut.
+
+When a save enables a high-risk capability such as changing the system proxy, deleting data, replaying requests, or running automation, a second confirmation lists the newly enabled permissions. After a successful save, the running Agent uses the new permissions on its next tool call. The app does not ask again for each already-authorized action, so enable only what the current task needs. The audit log records the action summary, duration, and error code, never credentials, bodies, or rule values.
+
+Approved Map Local roots appear only when **Manage Agent automation** is enabled; the proxy-verification origin allowlist appears only when **Verify through AIProxy** is enabled. Proxy verification also requires **Manage Agent automation**, and a dependency warning appears when it is missing. When settings search targets a permission, the permission matrix opens automatically; targeting redaction or query limits also opens **Advanced permissions**.
 
 ### Request replay
 

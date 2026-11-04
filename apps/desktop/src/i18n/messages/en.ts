@@ -327,6 +327,24 @@ export const enMessages = {
       auditSummaryEmpty: "No Agent calls recorded yet",
       advancedPermissions: "Advanced permissions",
       advancedPermissionsDescription: "Unredacted body access, redaction policy, and query limits",
+      adjustPermissions: "Adjust permissions",
+      capabilitySummaryControlLabel: "Can control",
+      capabilitySummaryDisabled:
+        "Local Agent access is off, so the Agent cannot read or control traffic.",
+      capabilitySummaryMore: "+{{count}} more",
+      capabilitySummaryNoControl: "No control or automation capabilities",
+      capabilitySummaryNoRead: "No traffic data",
+      capabilitySummaryReadLabel: "Can read",
+      capabilitySummarySavedOnly:
+        "This summary reflects saved settings. Unsaved changes are not active.",
+      capabilitySummaryTitle: "Current Agent capabilities",
+      changeAdded: "Added",
+      changeOff: "Off",
+      changeOn: "On",
+      changeRemoved: "Removed",
+      changesDescription: "These changes take effect only after you save.",
+      changesEmpty: "No pending changes.",
+      changesTitle: "Pending Agent Access changes",
       controlCaptureDescription:
         "Let the Agent change ports and SSL settings, and start or stop capture.",
       controlCaptureLabel: "Control capture and workspace settings",
@@ -343,6 +361,13 @@ export const enMessages = {
       fullControlBadge: "full control",
       fullControlWarning:
         "Full control enables all six base controls and all six automation permissions. The Agent can manage capture and certificates, delete sessions, replay requests, create temporary rules, and run Rewrite / Map Local experiments with recorded evidence. Enable it only when you trust the Agent and task; this release still does not allow Map Remote, Script, DNS, Throttle, or Breakpoint writes, and non-idempotent replays, deletion, and certificate-trust removal still require an explicit request in the current conversation.",
+      hiddenCapabilitiesNote:
+        "Capabilities that are not available in this release are hidden. Enabling them directly in the config file does not bypass FEATURE_NOT_AVAILABLE.",
+      highRiskChangeSummary: "{{count}} high-risk permissions will be enabled",
+      highRiskSaveConfirm: "Save and enable",
+      highRiskSaveMessage:
+        "This save enables: {{permissions}}. These permissions allow actions with real traffic or destructive effects. Save only when the current task needs them.",
+      highRiskSaveTitle: "Enable high-risk Agent permissions?",
       manageCertificatesDescription:
         "Let the Agent generate or rotate the root certificate, open the system installer, and revoke trust. The operating system still asks you for passwords or installation approval.",
       manageCertificatesLabel: "Manage the root certificate",
@@ -370,6 +395,31 @@ export const enMessages = {
       manageGlobalAutomationLabel: "Manage global automation",
       manageGlobalAutomationDescription:
         "Reserved for future global resources such as Breakpoint rules. It does not enable Breakpoint writes in this release.",
+      permissionChangeSummary: "{{count}} permission changes",
+      pendingChangeCount: "{{count}} pending changes",
+      permissionGroupAutomation: "Agent automation",
+      permissionGroupAutomationDescription:
+        "Create, verify, roll back, or clean up Agent-owned experiments and resources.",
+      permissionGroupControlDesktop: "Control the desktop",
+      permissionGroupControlDesktopDescription:
+        "Change capture, the system proxy, or the local root certificate.",
+      permissionGroupDangerous: "Dangerous operations",
+      permissionGroupDangerousDescription: "Actions that delete data or cannot be undone.",
+      permissionGroupModifyRequests: "Modify requests",
+      permissionGroupModifyRequestsDescription:
+        "Send requests upstream, create temporary rules, or run proxy verification.",
+      permissionGroupReadData: "Read data",
+      permissionGroupReadDataDescription:
+        "Traffic metadata, bodies, WebSocket messages, and exports.",
+      permissionMatrixDescription:
+        "Only capabilities available in this release are shown. Open this area only when the task needs more than reading.",
+      permissionMatrixHide: "Hide permission groups",
+      permissionMatrixShow: "View permission groups",
+      permissionMatrixTitle: "Permission groups",
+      permissionRiskDestructive: "Destructive",
+      permissionRiskRead: "Read",
+      permissionRiskSensitive: "Sensitive data",
+      permissionRiskTraffic: "Changes traffic",
       automationScopeTitle: "Automation resource boundaries",
       automationScopeDescription:
         "Map Local can read only roots you approve here with the native folder picker. Proxy verification and cross-host mapping use separate exact-origin allowlists.",
@@ -385,6 +435,8 @@ export const enMessages = {
       proxiedVerificationOriginsTitle: "Proxy verification origins",
       proxiedVerificationOriginsDescription:
         "Only these exact origins can receive controlled proxy verification requests. This release allows GET, HEAD, and OPTIONS with request-rate and response-size limits.",
+      proxiedVerificationRequiresAutomation:
+        "Proxy verification also requires Manage Agent automation, because it verifies an automation change. Enable both capabilities before using proxy verification.",
       crossHostOriginsTitle: "Cross-host mapping origins",
       crossHostOriginsDescription:
         "Separate from proxy verification. When Map Remote becomes available, cross-host targets must also appear here; writes remain unavailable in this release.",
@@ -591,9 +643,13 @@ export const enMessages = {
       testing: "Testing...",
       title: "Agent Access",
       unsavedChangesHint: "You have unsaved changes. They take effect only after saving.",
+      unsavedLeaveConfirm: "Discard and leave",
+      unsavedLeaveMessage: "Agent Access has unsaved changes. Leaving this page will discard them.",
+      unsavedLeaveTitle: "Discard unsaved Agent Access changes?",
       unsavedShort: "Unsaved",
       updateConnection: "Update connection",
       versionUnknown: "Version unavailable",
+      viewChanges: "Review changes",
       viewAuditLog: "View log",
       writeConfigOnly: "Write MCP config only",
     },

@@ -5,6 +5,7 @@ import { radiusTokens } from "@aiproxy/ui-tokens";
 import { getHoverShadow, getSurfaceShadow } from "@/themes/app-theme";
 
 type SectionCardProps = PropsWithChildren<{
+  allowStickyFooter?: boolean;
   compact?: boolean;
   description?: string;
   title: string;
@@ -12,6 +13,7 @@ type SectionCardProps = PropsWithChildren<{
 }>;
 
 export function SectionCard({
+  allowStickyFooter = false,
   children,
   compact = false,
   description,
@@ -27,6 +29,7 @@ export function SectionCard({
         borderRadius: `${radiusTokens.card}px`,
         boxShadow: (theme) => (compact ? "none" : getSurfaceShadow(theme.palette.mode)),
         height: "100%",
+        overflow: allowStickyFooter ? "visible" : undefined,
         transition: "box-shadow 160ms ease, transform 160ms ease",
         "&:hover": {
           boxShadow: (theme) => (compact ? "none" : getHoverShadow(theme.palette.mode)),

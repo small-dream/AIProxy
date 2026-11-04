@@ -1,3 +1,7 @@
+import {
+  availablePermissionDefinitions,
+  type AgentPermissionKey,
+} from "@/features/agent-access/agent-access.permissions";
 import type { TranslationKey } from "@/i18n";
 
 import type { SettingsSectionId } from "./settings-navigation";
@@ -10,6 +14,46 @@ export type SettingsSearchEntry = {
   descriptionKeys: readonly TranslationKey[];
   keywords?: readonly string[];
 };
+
+const AGENT_PERMISSION_SEARCH_KEYWORDS: Partial<Record<AgentPermissionKey, readonly string[]>> = {
+  readSessions: ["session", "traffic", "metadata", "会话", "流量", "元数据"],
+  readBodies: ["body", "response", "request", "响应体", "请求体"],
+  readRawBodies: ["raw", "unredacted", "原始", "未脱敏", "高风险"],
+  readWebSocket: ["websocket", "ws", "消息"],
+  controlCapture: ["capture", "proxy", "start", "stop", "restart", "抓包", "启动", "停止"],
+  controlSystemProxy: ["system proxy", "os proxy", "network", "系统代理", "系统网络"],
+  manageCertificates: [
+    "certificate",
+    "root ca",
+    "trust",
+    "install",
+    "remove",
+    "证书",
+    "根证书",
+    "信任",
+    "安装",
+    "移除",
+  ],
+  deleteSessions: ["delete", "clear", "sessions", "bodies", "删除", "清空", "会话", "响应体"],
+  sendRequests: ["replay", "request", "upstream", "重放", "请求", "上游"],
+  manageRules: ["rule", "rewrite", "map", "temporary", "规则", "改写", "映射", "临时"],
+  manageAutomation: ["automation", "rewrite", "map", "mock", "自动化", "改写", "映射"],
+  manageUserAutomation: ["user", "automation", "rollback", "用户", "自动化", "回滚"],
+  manageProxiedVerification: ["verify", "proxy", "verification", "验证", "代理"],
+};
+
+const AGENT_PERMISSION_SEARCH_ENTRIES: readonly SettingsSearchEntry[] =
+  availablePermissionDefinitions().map((definition) => {
+    const keywords = AGENT_PERMISSION_SEARCH_KEYWORDS[definition.key];
+    return {
+      id: `agent-permission-${definition.key}`,
+      targetId: definition.targetId,
+      sectionId: "agent",
+      labelKey: definition.labelKey,
+      descriptionKeys: [definition.descriptionKey],
+      ...(keywords ? { keywords } : {}),
+    };
+  });
 
 export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   {
@@ -90,7 +134,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["mcp", "agent", "skill", "codex", "claude", "cursor", "代理", "智能体"],
   },
   {
-    id: "agent-redaction",
+    id: "agent-permission-overview",
     targetId: "agent-permissions",
     sectionId: "agent",
     labelKey: "settingsPage.agentAccess.permissionsTitle",
@@ -98,7 +142,8 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["permission", "body", "websocket", "raw", "权限"],
   },
   {
-    id: "agent-permissions",
+    id: "agent-data-redaction",
+    targetId: "agent-detect-sensitive-values",
     sectionId: "agent",
     labelKey: "settingsPage.agentAccess.redactionTitle",
     descriptionKeys: [
@@ -125,6 +170,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
       "正则",
     ],
   },
+  ...AGENT_PERMISSION_SEARCH_ENTRIES,
   {
     id: "agent-cursor",
     sectionId: "agent",
@@ -133,102 +179,8 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["cursor", "mcp.json", "config", "配置"],
   },
   {
-    id: "agent-control-capture",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.controlCaptureLabel",
-    descriptionKeys: ["settingsPage.agentAccess.controlCaptureDescription"],
-    keywords: ["capture", "proxy", "start", "stop", "restart", "抓包", "启动", "停止"],
-  },
-  {
-    id: "agent-control-system-proxy",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.controlSystemProxyLabel",
-    descriptionKeys: ["settingsPage.agentAccess.controlSystemProxyDescription"],
-    keywords: ["system proxy", "os proxy", "network", "系统代理", "系统网络"],
-  },
-  {
-    id: "agent-control-certificates",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.manageCertificatesLabel",
-    descriptionKeys: ["settingsPage.agentAccess.manageCertificatesDescription"],
-    keywords: [
-      "certificate",
-      "root ca",
-      "trust",
-      "install",
-      "remove",
-      "证书",
-      "根证书",
-      "信任",
-      "安装",
-      "移除",
-    ],
-  },
-  {
-    id: "agent-control-delete-sessions",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.deleteSessionsLabel",
-    descriptionKeys: ["settingsPage.agentAccess.deleteSessionsDescription"],
-    keywords: ["delete", "clear", "sessions", "bodies", "删除", "清空", "会话", "响应体"],
-  },
-  {
-    id: "agent-send-requests",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.sendRequestsLabel",
-    descriptionKeys: ["settingsPage.agentAccess.sendRequestsDescription"],
-    keywords: ["replay", "request", "upstream", "重放", "请求", "上游"],
-  },
-  {
-    id: "agent-manage-rules",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.manageRulesLabel",
-    descriptionKeys: ["settingsPage.agentAccess.manageRulesDescription"],
-    keywords: ["rule", "rewrite", "map", "temporary", "规则", "改写", "映射", "临时"],
-  },
-  {
-    id: "agent-manage-automation",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.manageAutomationLabel",
-    descriptionKeys: ["settingsPage.agentAccess.manageAutomationDescription"],
-    keywords: ["automation", "rewrite", "map", "mock", "自动化", "改写", "映射"],
-  },
-  {
-    id: "agent-manage-user-automation",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.manageUserAutomationLabel",
-    descriptionKeys: ["settingsPage.agentAccess.manageUserAutomationDescription"],
-    keywords: ["user", "automation", "rollback", "用户", "自动化", "回滚"],
-  },
-  {
-    id: "agent-manage-scripts",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.manageScriptsLabel",
-    descriptionKeys: ["settingsPage.agentAccess.manageScriptsDescription"],
-    keywords: ["script", "javascript", "typescript", "脚本"],
-  },
-  {
-    id: "agent-manage-cross-host-mappings",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.manageCrossHostMappingsLabel",
-    descriptionKeys: ["settingsPage.agentAccess.manageCrossHostMappingsDescription"],
-    keywords: ["map", "remote", "cross host", "映射", "跨主机"],
-  },
-  {
-    id: "agent-manage-proxied-verification",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.manageProxiedVerificationLabel",
-    descriptionKeys: ["settingsPage.agentAccess.manageProxiedVerificationDescription"],
-    keywords: ["verify", "proxy", "verification", "验证", "代理"],
-  },
-  {
-    id: "agent-manage-global-automation",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.manageGlobalAutomationLabel",
-    descriptionKeys: ["settingsPage.agentAccess.manageGlobalAutomationDescription"],
-    keywords: ["global", "breakpoint", "全局", "断点"],
-  },
-  {
     id: "agent-automation-roots",
+    targetId: "agent-manage-automation",
     sectionId: "agent",
     labelKey: "settingsPage.agentAccess.automationRootsTitle",
     descriptionKeys: ["settingsPage.agentAccess.automationRootsDescription"],
@@ -236,17 +188,11 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   },
   {
     id: "agent-proxied-verification-origins",
+    targetId: "agent-manage-proxied-verification",
     sectionId: "agent",
     labelKey: "settingsPage.agentAccess.proxiedVerificationOriginsTitle",
     descriptionKeys: ["settingsPage.agentAccess.proxiedVerificationOriginsDescription"],
     keywords: ["origin", "allowlist", "verify", "验证", "白名单", "来源"],
-  },
-  {
-    id: "agent-cross-host-origins",
-    sectionId: "agent",
-    labelKey: "settingsPage.agentAccess.crossHostOriginsTitle",
-    descriptionKeys: ["settingsPage.agentAccess.crossHostOriginsDescription"],
-    keywords: ["map remote", "cross host", "origin", "跨主机", "白名单"],
   },
   {
     id: "agent-audit",

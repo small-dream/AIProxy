@@ -995,13 +995,14 @@ Settings Page
 - 「验证连接」按检查项展示结果：每项有 ok / warning / error 三态、图标与 detail；成功项保持低噪音，失败项内联展开原因，不使用全局 toast。
 - 客户端列表顶部固定展示数据流向提示：AIProxy 不上传抓包，但 Agent 读取后内容会发送给模型服务商；读取默认保守，控制权限默认关闭。断开连接必须二次确认，说明配置路径、受管 Skill 路径与备份行为。
 - 「诊断信息」必须保留一条低噪音说明：Agent 可调用 `diagnose_ai_proxy_issue` 定位 AIProxy 自身故障；桌面端必须运行，日志仅来自白名单滚动文件与元数据审计，默认只返回 WARN/ERROR 且限行、限字节、脱敏。该说明不得暗示支持任意日志访问或完整日志导出。
-- 常规权限直接展示；未脱敏 Body、脱敏策略与查询上限放入默认折叠的“高级权限”。高风险权限（`readRawBodies`）使用 warning 色开关与风险说明；`readBodies` 关闭时 raw 开关必须禁用。脱敏策略包含“按格式识别敏感值”“标识符稳定哈希”和自定义敏感字段名；自定义正则只在 `agent-access.json` 维护。审计日志默认折叠为摘要，展开后保留表格、刷新与空状态。
-- 读取权限下方新增独立的“控制权限”分组，分为“基础控制”六项（`controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules`）与“自动化”六项（`manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification`、`manageGlobalAutomation`），全部默认关闭。分组标题行提供“启用完整控制”快捷操作；该操作会把 12 项写入草稿，用户保存前可逐项复核并关闭高风险项，不能把它描述成只开启基础控制。
-- 自动化权限必须显示权限升级提示：新版本新增权限默认关闭，旧 `manageRules` 不会自动开启 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification` 或 `manageGlobalAutomation`。`manageUserAutomation` 使用 error 色；`manageProxiedVerification` 使用 warning 色并说明会通过本地代理发出真实请求；`manageScripts`、`manageCrossHostMappings`、`manageGlobalAutomation` 必须明确首版仍是预留权限，不会开放 Script / Map Remote / 全局资源写入口。
-- 自动化设置区必须展示 Map Local 批准根目录（最多 10 个）、失效路径 warning、系统文件夹选择器、移除操作，以及两个独立的精确 origin 白名单：代理验证 origin 与跨 host 映射 origin。两个白名单不得合并，不允许通配 host；跨 host 白名单在首版只读展示预留语义。
+- 权限信息必须渐进披露：首屏只展示“当前生效能力摘要”和“查看权限分组”；完整权限矩阵默认折叠。摘要只读取已保存权限，存在草稿时必须明确标注“未保存更改尚未生效”；接入开关关闭时不得列出可读取或可控制能力，必须直接说明 Agent 当前不能读取或控制流量。未脱敏 Body、脱敏策略与查询上限嵌套在默认折叠的“高级权限”中；高风险权限（`readRawBodies`）使用 warning 色开关与风险说明，`readBodies` 关闭时 raw 开关必须禁用。
+- 展开权限矩阵后按读取数据、控制桌面、危险操作、修改请求、Agent 自动化分组；每组标题展示风险标签和“已启用/可用总数”。全部可用能力默认关闭，不提供“启用完整控制”一键批量授权。`manageUserAutomation` 使用 error 色；`manageProxiedVerification` 使用 warning 色并说明会通过本地代理发出真实请求。
+- 预留能力 `exportSnapshots`、`manageScripts`、`manageCrossHostMappings`、`manageGlobalAutomation` 不渲染开关，也不进入设置搜索。不要用不可操作的开关或“最接近模式”暗示这些能力已生效。
+- 自动化边界按依赖展示：Map Local 批准根目录（最多 10 个、失效路径 warning、系统文件夹选择器、移除操作）只在 `manageAutomation` 开启时出现；代理验证精确 origin 白名单只在 `manageProxiedVerification` 开启时出现。代理验证未同时开启 `manageAutomation` 时必须显示依赖 warning。白名单不允许通配 host。
 - 自动化分区说明必须明确“Rewrite / Map Local 首版可读写”“Map Remote、DNS、Script、Throttle、Breakpoint 写入返回 `FEATURE_NOT_AVAILABLE`”“代理验证只允许幂等方法与白名单 origin”“删除资源不可恢复”“临时资源会在 TTL 到期或应用重启后撤销”。
 - 已授权控制执行后不弹应用内确认框，但前端必须通过 `agent-control-action` 事件刷新代理、工作区、证书和 Session 查询，并显示包含动作摘要的成功/失败通知；只读 `getStatus` 不产生 toast。自动拉起时前端尚未挂载事件监听器，因此必须读取最近动作回放并按 `eventId` 去重，不能丢失首个动作提示。
-- 顶部开关和权限都写入草稿。出现任何差异时，状态头显示 `未保存`，并同时在状态头与权限区提供 `保存更改` / `放弃`，避免开关被误认为即时生效。
+- 顶部开关和权限都写入草稿。出现任何差异时，状态头显示 `未保存`、待保存项数量与高风险项数量，并同时提供审阅更改、`保存更改` / `放弃`。保存栏在权限区吸底；审阅对话框逐项展示 `已保存值 → 草稿值`。保存新增高风险权限前必须二次确认并列出权限名称；存在未保存更改时离开设置路由必须提示放弃确认。
+- 设置搜索命中权限或高级设置时必须自动展开对应权限矩阵/高级区并滚动到目标项；不得要求用户搜索后再手动寻找折叠入口。
 - 审计表新增“动作”列展示 `actionSummary`；`agentControl=true` 的写控制动作追加 warning 色“控制”Chip，用于区分读取与 Agent 控制；不展示凭据、请求参数或 Body。
 - 所有绝对路径必须单行省略，通过 Tooltip 展示完整值，并提供复制按钮；禁止使用 `word-break: break-all` 在多行中间截断路径。
 

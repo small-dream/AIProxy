@@ -1,5 +1,7 @@
 import type { AgentAccessPermissions, AgentClientInfo } from "@aiproxy/shared-types";
 
+import { AGENT_PERMISSION_KEYS } from "./agent-access.permissions";
+
 export type AgentClientConnectionState = "connected" | "needsUpdate" | "notConnected";
 
 export function getAgentClientConnectionState(info: AgentClientInfo): AgentClientConnectionState {
@@ -129,23 +131,5 @@ export function permissionsEqual(
   current: AgentAccessPermissions,
   next: AgentAccessPermissions,
 ): boolean {
-  return (
-    current.readSessions === next.readSessions &&
-    current.readBodies === next.readBodies &&
-    current.readRawBodies === next.readRawBodies &&
-    current.readWebSocket === next.readWebSocket &&
-    current.exportSnapshots === next.exportSnapshots &&
-    current.controlCapture === next.controlCapture &&
-    current.controlSystemProxy === next.controlSystemProxy &&
-    current.manageCertificates === next.manageCertificates &&
-    current.deleteSessions === next.deleteSessions &&
-    current.sendRequests === next.sendRequests &&
-    current.manageRules === next.manageRules &&
-    current.manageAutomation === next.manageAutomation &&
-    current.manageUserAutomation === next.manageUserAutomation &&
-    current.manageScripts === next.manageScripts &&
-    current.manageCrossHostMappings === next.manageCrossHostMappings &&
-    current.manageProxiedVerification === next.manageProxiedVerification &&
-    current.manageGlobalAutomation === next.manageGlobalAutomation
-  );
+  return AGENT_PERMISSION_KEYS.every((key) => current[key] === next[key]);
 }

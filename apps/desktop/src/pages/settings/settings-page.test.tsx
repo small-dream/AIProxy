@@ -1,24 +1,35 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers/AppProviders";
 import {
   getAgentClientConnectionState,
   shouldConfirmConfigWrite,
 } from "@/features/agent-access/agent-access.helpers";
-import type { AgentClientInfo } from "@aiproxy/shared-types";
+import { AGENT_PERMISSION_KEYS } from "@/features/agent-access/agent-access.permissions";
+import * as commands from "@/services/commands";
+import type { AgentAccessPermissions, AgentClientInfo } from "@aiproxy/shared-types";
 
 import { SettingsPage } from "./SettingsPage";
 
 function renderSettings(initialEntry = "/settings") {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <SettingsPage />
-    </MemoryRouter>,
-    { wrapper: AppProviders },
-  );
+  const router = createMemoryRouter([{ path: "/settings", element: <SettingsPage /> }], {
+    initialEntries: [initialEntry],
+  });
+  return { ...render(<RouterProvider router={router} />, { wrapper: AppProviders }), router };
 }
+
+function permissionsWith(keys: readonly (keyof AgentAccessPermissions)[] = []) {
+  const permissions = Object.fromEntries(
+    AGENT_PERMISSION_KEYS.map((key) => [key, keys.includes(key)]),
+  ) as AgentAccessPermissions;
+  return permissions;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("SettingsPage navigation", () => {
   it("shows the proxy section by default", () => {
@@ -63,6 +74,9 @@ describe("SettingsPage navigation", () => {
     fireEvent.click(screen.getByText("Data redaction"));
 
     expect(await screen.findByText("Read permissions")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("switch", { name: "Detect sensitive values by format" }),
+    ).toBeInTheDocument();
   });
 
   it("finds and jumps to an Agent control permission from settings search", async () => {
@@ -79,6 +93,33 @@ describe("SettingsPage navigation", () => {
       await screen.findByRole("switch", { name: "Control the system proxy" }),
     ).toBeInTheDocument();
     expect(document.getElementById("settings-item-agent-control-system-proxy")).toBeInTheDocument();
+  });
+
+  it("does not block an in-page Agent search when the draft has changes", async () => {
+    renderSettings("/settings?section=agent");
+
+    fireEvent.click(await screen.findByRole("switch", { name: "Enable local Agent access" }));
+    fireEvent.change(screen.getByLabelText("Search settings"), {
+      target: { value: "system proxy" },
+    });
+    fireEvent.click(screen.getAllByText("Control the system proxy").at(-1)!);
+
+    expect(
+      await screen.findByRole("switch", { name: "Control the system proxy" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Discard unsaved Agent Access changes?")).not.toBeInTheDocument();
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+  });
+
+  it("keeps reserved Agent permissions out of settings search", () => {
+    renderSettings();
+
+    const search = screen.getByLabelText("Search settings");
+    fireEvent.change(search, { target: { value: "scripts" } });
+    expect(screen.getByText("No matching settings")).toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "global automation" } });
+    expect(screen.getByText("No matching settings")).toBeInTheDocument();
   });
 
   it("shows a compact Agent client list with manual setup in the overflow menu", async () => {
@@ -142,6 +183,7 @@ describe("SettingsPage navigation", () => {
       "MCP configuration written for Codex. Restart or reload Codex to activate it; the Skill is installed.",
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
     expect(screen.getByRole("switch", { name: "Read bodies" })).toBeChecked();
     expect(screen.queryByText(/Body reading is off/)).not.toBeInTheDocument();
   });
@@ -176,16 +218,150 @@ describe("SettingsPage navigation", () => {
     expect(screen.getAllByText("Not configured")).toHaveLength(3);
   });
 
-  it("keeps advanced Agent permissions collapsed until requested", async () => {
+  it("keeps the Agent permission matrix and advanced settings collapsed until requested", async () => {
     renderSettings("/settings?section=agent");
 
-    expect(await screen.findByText("Read permissions")).toBeInTheDocument();
+    expect(await screen.findByText("Current Agent capabilities")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: "Control the system proxy" }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
+
+    expect(screen.getByText("Read data")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Control the system proxy" })).toBeInTheDocument();
+    expect(screen.queryByText("Manage scripts")).not.toBeInTheDocument();
+    expect(screen.queryByText("Map to other hosts")).not.toBeInTheDocument();
+    expect(screen.queryByText("Manage global automation")).not.toBeInTheDocument();
     expect(screen.queryByText("Read unredacted bodies (high risk)")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Advanced permissions" }));
 
     expect(screen.getByText("Read unredacted bodies (high risk)")).toBeInTheDocument();
     expect(screen.getByText("Body chunk limit")).toBeInTheDocument();
+  });
+
+  it("keeps the capability summary on saved settings while the draft changes", async () => {
+    const saved = await commands.getAgentAccessSettings();
+    vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
+      ...saved,
+      enabled: true,
+      permissions: permissionsWith(["readSessions"]),
+    });
+    renderSettings("/settings?section=agent");
+
+    expect(await screen.findByText("Current Agent capabilities")).toBeInTheDocument();
+    expect(screen.getByText("No control or automation capabilities")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Control the system proxy" }));
+
+    expect(
+      screen.getByText("This summary reflects saved settings. Unsaved changes are not active."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("No control or automation capabilities")).toBeInTheDocument();
+  });
+
+  it("shows resource boundaries only for the permissions they belong to", async () => {
+    renderSettings("/settings?section=agent");
+
+    await screen.findByText("Current Agent capabilities");
+    fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
+
+    expect(screen.queryByText("Approved Map Local roots")).not.toBeInTheDocument();
+    expect(screen.queryByText("Proxy verification origins")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Manage Agent automation" }));
+
+    expect(screen.getByText("Approved Map Local roots")).toBeInTheDocument();
+    expect(screen.queryByText("Proxy verification origins")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Verify through AIProxy" }));
+
+    expect(screen.getByText("Proxy verification origins")).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Proxy verification also requires Manage Agent automation, because it verifies an automation change. Enable both capabilities before using proxy verification.",
+      ),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Manage Agent automation" }));
+
+    expect(
+      screen.getByText(
+        "Proxy verification also requires Manage Agent automation, because it verifies an automation change. Enable both capabilities before using proxy verification.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows field-level pending changes and confirms high-risk permissions on save", async () => {
+    renderSettings("/settings?section=agent");
+
+    await screen.findByText("Current Agent capabilities");
+    fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Control capture and workspace settings" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Review changes" })[0]!);
+
+    expect(screen.getByText("Pending Agent Access changes")).toBeInTheDocument();
+    expect(screen.getByText("Off → On")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Pending Agent Access changes")).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("switch", { name: "Replay captured requests" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Save changes" }).at(-1)!);
+
+    expect(screen.getByText("Enable high-risk Agent permissions?")).toBeInTheDocument();
+    expect(screen.getByText(/This save enables: Replay captured requests/)).toBeInTheDocument();
+  });
+
+  it("closes the high-risk save confirmation and surfaces a save failure", async () => {
+    vi.spyOn(commands, "updateAgentAccessSettings").mockRejectedValueOnce(
+      new Error("Agent settings could not be saved"),
+    );
+    renderSettings("/settings?section=agent");
+
+    await screen.findByText("Current Agent capabilities");
+    fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Control the system proxy" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Save changes" }).at(-1)!);
+    expect(screen.getByText("Enable high-risk Agent permissions?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save and enable" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Enable high-risk Agent permissions?")).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText("Agent settings could not be saved")).toBeInTheDocument();
+  });
+
+  it("keeps the permission card scroll container compatible with the sticky save bar", async () => {
+    renderSettings("/settings?section=agent");
+
+    await screen.findByText("Read permissions");
+    const card = screen.getByText("Read permissions").closest(".MuiCard-root");
+
+    expect(card).not.toBeNull();
+    expect(getComputedStyle(card as Element).overflow).toBe("visible");
+  });
+
+  it("does not claim current capabilities while Agent access is off", async () => {
+    const saved = await commands.getAgentAccessSettings();
+    vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
+      ...saved,
+      enabled: false,
+      permissions: permissionsWith(["readSessions"]),
+    });
+    renderSettings("/settings?section=agent");
+
+    expect(
+      await screen.findByText(
+        "Local Agent access is off, so the Agent cannot read or control traffic.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Can read")).not.toBeInTheDocument();
+    expect(screen.queryByText("Can control")).not.toBeInTheDocument();
   });
 
   it("makes draft changes explicit and supports discarding them", async () => {
@@ -203,6 +379,34 @@ describe("SettingsPage navigation", () => {
 
     expect(screen.queryByText("Unsaved")).not.toBeInTheDocument();
     expect(enabledSwitch).not.toBeChecked();
+  });
+
+  it("intercepts navigation while Agent Access has unsaved changes", async () => {
+    const { router } = renderSettings("/settings?section=agent");
+
+    const enabledSwitch = await screen.findByRole("switch", {
+      name: "Enable local Agent access",
+    });
+    fireEvent.click(enabledSwitch);
+    act(() => void router.navigate("/settings?section=appearance"));
+
+    expect(await screen.findByText("Discard unsaved Agent Access changes?")).toBeInTheDocument();
+    expect(router.state.location.search).toBe("?section=agent");
+  });
+
+  it("leaves the section and discards the draft after confirming", async () => {
+    const { router } = renderSettings("/settings?section=agent");
+
+    fireEvent.click(await screen.findByRole("switch", { name: "Enable local Agent access" }));
+    act(() => void router.navigate("/settings?section=appearance"));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard and leave" }));
+
+    expect(await screen.findByLabelText("Display Language")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Agent Access" }));
+
+    expect(
+      await screen.findByRole("switch", { name: "Enable local Agent access" }),
+    ).not.toBeChecked();
   });
 
   it("keeps the Agent audit log collapsed by default", async () => {
