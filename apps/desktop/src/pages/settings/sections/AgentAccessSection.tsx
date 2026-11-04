@@ -1293,9 +1293,9 @@ export function AgentAccessSection({
                     {t(presetLabelKey(preset))}
                   </MenuItem>
                 ))}
-                <MenuItem value="current" disabled={!customAccess && currentPreset !== "current"}>
-                  {t("settingsPage.agentAccess.presetCustom")}
-                </MenuItem>
+                {customAccess || currentPreset === "current" ? (
+                  <MenuItem value="current">{t("settingsPage.agentAccess.presetCustom")}</MenuItem>
+                ) : null}
               </TextField>
             </SettingsRow>
             <Alert severity="info" variant="outlined" sx={{ ...compactAlertSx, mt: 1.5 }}>

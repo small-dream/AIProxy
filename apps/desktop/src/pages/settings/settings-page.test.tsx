@@ -296,6 +296,20 @@ describe("SettingsPage navigation", () => {
     expect(updateSpy).not.toHaveBeenCalled();
   });
 
+  it("hides the custom preset when there is no custom combination to restore", async () => {
+    const saved = await commands.getAgentAccessSettings();
+    vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
+      ...saved,
+      permissions: permissionsWith(["readSessions"]),
+    });
+    renderSettings("/settings?section=agent");
+
+    fireEvent.mouseDown(await screen.findByRole("combobox", { name: "Permission preset" }));
+
+    expect(await screen.findByRole("option", { name: "Metadata only" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Custom" })).not.toBeInTheDocument();
+  });
+
   it("switches to Custom after a manual permission change", async () => {
     const saved = await commands.getAgentAccessSettings();
     vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
