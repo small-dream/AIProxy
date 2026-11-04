@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import {
+  type AgentGrant,
   isWsConnectionStatusEvent,
   isWsMessage,
   parseAgentControlActionEvent,
@@ -197,6 +198,34 @@ export function onAgentControlAction(
       callback(parsed);
     } else {
       logDevWarn("events", "agent_control_action_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
+    }
+  });
+}
+
+export function onAgentGrantRequested(callback: (grant: AgentGrant) => void): Promise<Unlisten> {
+  if (!isTauriRuntime()) return Promise.resolve(() => {});
+  return listen<unknown>("agent-access-grant-requested", (event) => {
+    const payload = event.payload as AgentGrant | null;
+    if (payload && typeof payload === "object" && typeof payload.id === "string") {
+      callback(payload);
+    } else {
+      logDevWarn("events", "agent_grant_requested_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
+    }
+  });
+}
+
+export function onAgentGrantChanged(callback: (grant: AgentGrant) => void): Promise<Unlisten> {
+  if (!isTauriRuntime()) return Promise.resolve(() => {});
+  return listen<unknown>("agent-access-grant-changed", (event) => {
+    const payload = event.payload as AgentGrant | null;
+    if (payload && typeof payload === "object" && typeof payload.id === "string") {
+      callback(payload);
+    } else {
+      logDevWarn("events", "agent_grant_changed_parse_failed", {
         payload: payloadPreview(event.payload),
       });
     }

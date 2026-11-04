@@ -22,10 +22,13 @@ import {
   Stack,
   Switch,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   coerceAppError,
@@ -34,33 +37,49 @@ import {
   type AgentAccessRedaction,
   type AgentAccessSettings,
   type AgentAccessTestResult,
+  type AgentCapability,
   type AgentClientInfo,
+  type AgentGrant,
   type InstallAgentClientConfigResult,
   type InstallAgentSkillResult,
+  type RevokeAgentControlResult,
   type UpdateAgentAccessSettingsInput,
 } from "@aiproxy/shared-types";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { SectionCard } from "@/components/shared/SectionCard";
 import { AgentAuditTable } from "@/features/agent-access/AgentAuditTable";
+import { AgentCapabilityModeSelect } from "@/features/agent-access/AgentCapabilityModeSelect";
 import { AgentConnectDialog } from "@/features/agent-access/AgentConnectDialog";
 import {
   AgentClientRow,
   type AgentClientPendingAction,
 } from "@/features/agent-access/AgentClientRow";
 import { AgentPathValue } from "@/features/agent-access/AgentPathValue";
+import { AgentGrantList } from "@/features/agent-access/AgentGrantList";
 import {
   AGENT_AUDIT_QUERY_KEY,
+  AGENT_GRANTS_QUERY_KEY,
   AGENT_SETTINGS_QUERY_KEY,
 } from "@/features/agent-access/agent-access-query-keys";
 import {
+  AGENT_PERMISSION_PRESETS,
   permissionsForConnectPreset,
   permissionsEqual,
   permissionsForPreset,
+  presetDescriptionKey,
+  presetLabelKey,
   presetForPermissions,
   shouldConfirmConfigWrite,
   type AgentConnectPreset,
 } from "@/features/agent-access/agent-access.helpers";
+import {
+  applyCapabilityMode,
+  capabilityModeLabelKey,
+  capabilityMode,
+  requiresAccessChangeConfirmation,
+  type AgentCapabilityMode,
+} from "@/features/agent-access/agent-access.grant-policy";
 import {
   AGENT_PERMISSION_GROUPS,
   AGENT_PERMISSION_KEYS,
@@ -72,7 +91,6 @@ import {
   isAgentPermissionMatrixTarget,
   permissionDefinition,
   permissionRiskKey,
-  requiresPermissionConfirmation,
   type AgentPermissionGroupId,
   type AgentPermissionRisk,
 } from "@/features/agent-access/agent-access.permissions";
@@ -81,12 +99,17 @@ import { useI18n, type TranslationKey } from "@/i18n";
 import {
   getAgentAccessSettings,
   getAgentAuditLog,
+  listAgentAccessGrants,
   installAgentClientConfig,
   installAgentSkill,
   pickAutomationApprovedRoot,
   removeAgentClientConfig,
+  revokeAgentAccessGrant,
+  revokeAgentControlPermissions,
   testAgentAccess,
   updateAgentAccessSettings,
+  disableSystemProxy,
+  stopProxy,
 } from "@/services/commands";
 import {
   compactAlertSx,
@@ -179,6 +202,7 @@ export function AgentAccessSection({
   highlightedItemId?: string | null;
 } = {}) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<AgentAccessDraft | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -195,6 +219,9 @@ export function AgentAccessSection({
   const [pickingAutomationRoot, setPickingAutomationRoot] = useState(false);
   const [changesOpen, setChangesOpen] = useState(false);
   const [pendingHighRiskSave, setPendingHighRiskSave] = useState<SaveInput | null>(null);
+  const [revokeControlOpen, setRevokeControlOpen] = useState(false);
+  const [revokeResult, setRevokeResult] = useState<RevokeAgentControlResult | null>(null);
+  const [pendingRevokeGrant, setPendingRevokeGrant] = useState<AgentGrant | null>(null);
 
   const settingsQuery = useQuery({
     queryKey: AGENT_SETTINGS_QUERY_KEY,
@@ -203,6 +230,11 @@ export function AgentAccessSection({
   const auditQuery = useQuery({
     queryKey: AGENT_AUDIT_QUERY_KEY,
     queryFn: () => getAgentAuditLog(50),
+  });
+  const grantsQuery = useQuery({
+    queryKey: AGENT_GRANTS_QUERY_KEY,
+    queryFn: listAgentAccessGrants,
+    refetchInterval: 5_000,
   });
   const savedDraftCandidate = settingsQuery.data ? draftFromSettings(settingsQuery.data) : null;
   const agentSettingsReady = Boolean(settingsQuery.data && draft);
@@ -368,6 +400,90 @@ export function AgentAccessSection({
     meta: { suppressGlobalErrorNotification: true },
   });
 
+  const revokeGrantMutation = useMutation({
+    mutationFn: (grant: AgentGrant) => revokeAgentAccessGrant({ grantId: grant.id }),
+    onSuccess: () => {
+      setPendingRevokeGrant(null);
+      void queryClient.invalidateQueries({ queryKey: AGENT_GRANTS_QUERY_KEY });
+    },
+    onError: (error) => {
+      setPendingRevokeGrant(null);
+      setFeedback({
+        area: "permissions",
+        severity: "error",
+        message: coerceAppError(error).message,
+      });
+    },
+    meta: { suppressGlobalErrorNotification: true },
+  });
+
+  const revokeControlMutation = useMutation({
+    mutationFn: async () => {
+      const result = await revokeAgentControlPermissions();
+      const settings = await getAgentAccessSettings();
+      return { result, settings };
+    },
+    onSuccess: ({ result, settings }) => {
+      setRevokeControlOpen(false);
+      setRevokeResult(result);
+      setPendingHighRiskSave(null);
+      queryClient.setQueryData(AGENT_SETTINGS_QUERY_KEY, settings);
+      setDraft(draftFromSettings(settings));
+      void queryClient.invalidateQueries({ queryKey: AGENT_GRANTS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: AGENT_AUDIT_QUERY_KEY });
+      setFeedback({
+        area: "permissions",
+        severity: "success",
+        message: t("settingsPage.agentAccess.revokeResultTitle"),
+      });
+    },
+    onError: (error) => {
+      setFeedback({
+        area: "permissions",
+        severity: "error",
+        message: coerceAppError(error).message,
+      });
+    },
+    meta: { suppressGlobalErrorNotification: true },
+  });
+
+  const residualCleanupMutation = useMutation({
+    mutationFn: async (kind: "stopCapture" | "restoreProxy") => {
+      if (kind === "restoreProxy") {
+        await disableSystemProxy();
+        return kind;
+      }
+      await stopProxy({
+        workspaceId: revokeResult?.activeEffects.workspaceId ?? "default",
+      });
+      return kind;
+    },
+    onSuccess: (kind) => {
+      setRevokeResult((current) =>
+        current
+          ? {
+              ...current,
+              activeEffects: {
+                ...current.activeEffects,
+                ...(kind === "restoreProxy"
+                  ? { systemProxyEnabled: false }
+                  : { captureRunning: false }),
+              },
+            }
+          : current,
+      );
+      void queryClient.invalidateQueries({ queryKey: AGENT_SETTINGS_QUERY_KEY });
+    },
+    onError: (error) => {
+      setFeedback({
+        area: "permissions",
+        severity: "error",
+        message: coerceAppError(error).message,
+      });
+    },
+    meta: { suppressGlobalErrorNotification: true },
+  });
+
   const connectMutation = useMutation({
     mutationFn: async (input: ConnectInput): Promise<ConnectResult> => {
       if (!draft) throw new Error(t("common.errors.generic"));
@@ -383,6 +499,7 @@ export function AgentAccessSection({
             automationApprovedRoots: draft.automationApprovedRoots,
             proxiedVerificationOrigins: draft.proxiedVerificationOrigins,
             automationCrossHostOrigins: draft.automationCrossHostOrigins,
+            grantRequestPolicy: draft.grantRequestPolicy,
           });
         } catch (error) {
           throw new Error(coerceAppError(error).message || t("common.errors.generic"), {
@@ -578,6 +695,10 @@ export function AgentAccessSection({
   const connectedClientCount = settings.clients.filter((client) => client.configInstalled).length;
   const bodyDisabled = !settings.permissions.readBodies;
   const rawBodiesBlocked = hasUnmetPermissionDependencies(draft.permissions, "readRawBodies");
+  const currentPreset = presetForPermissions(draft.permissions);
+  const visibleGrants = (grantsQuery.data?.grants ?? []).filter((grant) =>
+    ["pending", "approved", "executing"].includes(grant.status),
+  );
   const changeItems = buildAgentAccessChangeItems(savedDraft, draft, t);
   const highRiskChangeItems = changeItems.filter((item) => item.highRisk);
   const busy =
@@ -600,15 +721,25 @@ export function AgentAccessSection({
     removeMutation,
   );
 
-  function updatePermission(key: keyof AgentAccessPermissions, value: boolean) {
+  function updateCapabilityMode(key: keyof AgentAccessPermissions, mode: AgentCapabilityMode) {
     setDraft((current) => {
       if (!current) return current;
-      const permissions = { ...current.permissions, [key]: value };
-      if (key === "readBodies" && !value) {
-        permissions.readRawBodies = false;
-      }
-      return { ...current, permissions };
+      return {
+        ...current,
+        ...applyCapabilityMode(current.permissions, current.grantRequestPolicy, key, mode),
+      };
     });
+  }
+
+  function applyPreset(preset: (typeof AGENT_PERMISSION_PRESETS)[number]) {
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            permissions: permissionsForPreset(preset),
+          }
+        : current,
+    );
   }
 
   function updateLimit(key: keyof AgentAccessLimits, value: number) {
@@ -692,7 +823,14 @@ export function AgentAccessSection({
 
   function saveDraft(area: SaveInput["area"]) {
     if (!draft || !dirty || busy) return;
-    if (requiresPermissionConfirmation(savedDraft.permissions, draft.permissions)) {
+    if (
+      requiresAccessChangeConfirmation(
+        savedDraft.permissions,
+        savedDraft.grantRequestPolicy,
+        draft.permissions,
+        draft.grantRequestPolicy,
+      )
+    ) {
       setPendingHighRiskSave({ area, draft });
       return;
     }
@@ -811,7 +949,10 @@ export function AgentAccessSection({
               dirty={dirty}
               enabled={settings.enabled}
               onAdjust={openPermissionDetails}
+              onRevokeControl={() => setRevokeControlOpen(true)}
               permissions={settings.permissions}
+              grantRequestPolicy={settings.grantRequestPolicy}
+              revokeBusy={revokeControlMutation.isPending}
             />
 
             {!draft.enabled ? (
@@ -966,6 +1107,47 @@ export function AgentAccessSection({
         </SectionCard>
       </Box>
 
+      {revokeResult ? (
+        <RevokeResultCard
+          result={revokeResult}
+          cleanupPending={residualCleanupMutation.isPending}
+          onClose={() => setRevokeResult(null)}
+          onManageCertificates={() => navigate("/certificates")}
+          onRestoreProxy={() => residualCleanupMutation.mutate("restoreProxy")}
+          onStopCapture={() => residualCleanupMutation.mutate("stopCapture")}
+          onViewRules={() => navigate("/rules")}
+        />
+      ) : null}
+
+      {visibleGrants.length > 0 ? (
+        <SectionCard
+          compact
+          title={t("settingsPage.agentAccess.grantsTitle")}
+          description={t("settingsPage.agentAccess.grantsDescription")}
+          toolbar={
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={revokeGrantMutation.isPending || grantsQuery.isFetching}
+              onClick={() => void grantsQuery.refetch()}
+            >
+              {grantsQuery.isFetching
+                ? t("settingsPage.agentAccess.grantsRefreshing")
+                : t("settingsPage.agentAccess.grantsRefresh")}
+            </Button>
+          }
+        >
+          <AgentGrantList
+            busy={revokeGrantMutation.isPending}
+            data={grantsQuery.data}
+            loading={grantsQuery.isFetching}
+            onRefresh={() => void grantsQuery.refetch()}
+            onRevoke={setPendingRevokeGrant}
+            showHeader={false}
+          />
+        </SectionCard>
+      ) : null}
+
       <SectionCard
         compact
         title={t("settingsPage.agentAccess.clientsTitle")}
@@ -1015,6 +1197,52 @@ export function AgentAccessSection({
           title={t("settingsPage.agentAccess.permissionsTitle")}
           description={t("settingsPage.agentAccess.permissionsDescription")}
         >
+          <Box sx={{ pb: 2 }}>
+            <Typography variant="subtitle2">{t("settingsPage.agentAccess.presetTitle")}</Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {t("settingsPage.agentAccess.presetDescription")}
+            </Typography>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={currentPreset === "current" ? null : currentPreset}
+              onChange={(_, value: AgentConnectPreset | null) => {
+                if (value && value !== "current") applyPreset(value);
+              }}
+              aria-label={t("settingsPage.agentAccess.presetTitle")}
+              sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 1 }}
+            >
+              {AGENT_PERMISSION_PRESETS.map((preset) => (
+                <ToggleButton
+                  key={preset}
+                  value={preset}
+                  disabled={busy}
+                  sx={{ px: 1.25, py: 0.5, textTransform: "none" }}
+                >
+                  {t(presetLabelKey(preset))}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", mt: 1 }}>
+              <Chip
+                size="small"
+                variant="outlined"
+                label={
+                  currentPreset === "current"
+                    ? t("settingsPage.agentAccess.presetCustom")
+                    : t(presetLabelKey(currentPreset))
+                }
+              />
+              <Typography variant="caption" sx={{ color: "text.secondary", minWidth: 0 }}>
+                {currentPreset === "current"
+                  ? t("settingsPage.agentAccess.presetCustomDescription")
+                  : t(presetDescriptionKey(currentPreset))}
+              </Typography>
+            </Stack>
+            <Alert severity="info" variant="outlined" sx={{ ...compactAlertSx, mt: 1.5 }}>
+              {t("settingsPage.agentAccess.capabilityModeDescription")}
+            </Alert>
+          </Box>
           <Stack
             direction={{ sm: "row", xs: "column" }}
             spacing={1}
@@ -1062,13 +1290,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.readSessionsLabel")}
                   description={t("settingsPage.agentAccess.readSessionsDescription")}
                 >
-                  <Switch
-                    size="small"
-                    checked={draft.permissions.readSessions}
-                    onChange={(event) => updatePermission("readSessions", event.target.checked)}
-                    slotProps={{
-                      input: { "aria-label": t("settingsPage.agentAccess.readSessionsLabel") },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="readSessions"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "readSessions",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("readSessions", mode)}
                   />
                 </SettingsRow>
                 <SettingsRow
@@ -1076,13 +1305,10 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.readBodiesLabel")}
                   description={t("settingsPage.agentAccess.readBodiesDescription")}
                 >
-                  <Switch
-                    size="small"
-                    checked={draft.permissions.readBodies}
-                    onChange={(event) => updatePermission("readBodies", event.target.checked)}
-                    slotProps={{
-                      input: { "aria-label": t("settingsPage.agentAccess.readBodiesLabel") },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="readBodies"
+                    mode={capabilityMode(draft.permissions, draft.grantRequestPolicy, "readBodies")}
+                    onChange={(mode) => updateCapabilityMode("readBodies", mode)}
                   />
                 </SettingsRow>
                 <SettingsRow
@@ -1090,13 +1316,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.readWebSocketLabel")}
                   description={t("settingsPage.agentAccess.readWebSocketDescription")}
                 >
-                  <Switch
-                    size="small"
-                    checked={draft.permissions.readWebSocket}
-                    onChange={(event) => updatePermission("readWebSocket", event.target.checked)}
-                    slotProps={{
-                      input: { "aria-label": t("settingsPage.agentAccess.readWebSocketLabel") },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="readWebSocket"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "readWebSocket",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("readWebSocket", mode)}
                   />
                 </SettingsRow>
               </SettingsGroup>
@@ -1123,13 +1350,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.controlCaptureLabel")}
                   description={t("settingsPage.agentAccess.controlCaptureDescription")}
                 >
-                  <Switch
-                    size="small"
-                    checked={draft.permissions.controlCapture}
-                    onChange={(event) => updatePermission("controlCapture", event.target.checked)}
-                    slotProps={{
-                      input: { "aria-label": t("settingsPage.agentAccess.controlCaptureLabel") },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="controlCapture"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "controlCapture",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("controlCapture", mode)}
                   />
                 </SettingsRow>
                 <SettingsRow
@@ -1137,18 +1365,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.controlSystemProxyLabel")}
                   description={t("settingsPage.agentAccess.controlSystemProxyDescription")}
                 >
-                  <Switch
-                    size="small"
-                    color="warning"
-                    checked={draft.permissions.controlSystemProxy}
-                    onChange={(event) =>
-                      updatePermission("controlSystemProxy", event.target.checked)
-                    }
-                    slotProps={{
-                      input: {
-                        "aria-label": t("settingsPage.agentAccess.controlSystemProxyLabel"),
-                      },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="controlSystemProxy"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "controlSystemProxy",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("controlSystemProxy", mode)}
                   />
                 </SettingsRow>
                 <SettingsRow
@@ -1156,18 +1380,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.manageCertificatesLabel")}
                   description={t("settingsPage.agentAccess.manageCertificatesDescription")}
                 >
-                  <Switch
-                    size="small"
-                    color="warning"
-                    checked={draft.permissions.manageCertificates}
-                    onChange={(event) =>
-                      updatePermission("manageCertificates", event.target.checked)
-                    }
-                    slotProps={{
-                      input: {
-                        "aria-label": t("settingsPage.agentAccess.manageCertificatesLabel"),
-                      },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="manageCertificates"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "manageCertificates",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("manageCertificates", mode)}
                   />
                 </SettingsRow>
                 <PermissionGroupHeading
@@ -1180,14 +1400,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.deleteSessionsLabel")}
                   description={t("settingsPage.agentAccess.deleteSessionsDescription")}
                 >
-                  <Switch
-                    size="small"
-                    color="error"
-                    checked={draft.permissions.deleteSessions}
-                    onChange={(event) => updatePermission("deleteSessions", event.target.checked)}
-                    slotProps={{
-                      input: { "aria-label": t("settingsPage.agentAccess.deleteSessionsLabel") },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="deleteSessions"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "deleteSessions",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("deleteSessions", mode)}
                   />
                 </SettingsRow>
                 <PermissionGroupHeading
@@ -1200,14 +1420,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.sendRequestsLabel")}
                   description={t("settingsPage.agentAccess.sendRequestsDescription")}
                 >
-                  <Switch
-                    size="small"
-                    color="warning"
-                    checked={draft.permissions.sendRequests}
-                    onChange={(event) => updatePermission("sendRequests", event.target.checked)}
-                    slotProps={{
-                      input: { "aria-label": t("settingsPage.agentAccess.sendRequestsLabel") },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="sendRequests"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "sendRequests",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("sendRequests", mode)}
                   />
                 </SettingsRow>
                 <SettingsRow
@@ -1215,14 +1435,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.manageRulesLabel")}
                   description={t("settingsPage.agentAccess.manageRulesDescription")}
                 >
-                  <Switch
-                    size="small"
-                    color="warning"
-                    checked={draft.permissions.manageRules}
-                    onChange={(event) => updatePermission("manageRules", event.target.checked)}
-                    slotProps={{
-                      input: { "aria-label": t("settingsPage.agentAccess.manageRulesLabel") },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="manageRules"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "manageRules",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("manageRules", mode)}
                   />
                 </SettingsRow>
                 <SettingsRow
@@ -1230,18 +1450,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.manageProxiedVerificationLabel")}
                   description={t("settingsPage.agentAccess.manageProxiedVerificationDescription")}
                 >
-                  <Switch
-                    size="small"
-                    color="warning"
-                    checked={draft.permissions.manageProxiedVerification}
-                    onChange={(event) =>
-                      updatePermission("manageProxiedVerification", event.target.checked)
-                    }
-                    slotProps={{
-                      input: {
-                        "aria-label": t("settingsPage.agentAccess.manageProxiedVerificationLabel"),
-                      },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="manageProxiedVerification"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "manageProxiedVerification",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("manageProxiedVerification", mode)}
                   />
                 </SettingsRow>
                 <PermissionGroupHeading
@@ -1254,14 +1470,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.manageAutomationLabel")}
                   description={t("settingsPage.agentAccess.manageAutomationDescription")}
                 >
-                  <Switch
-                    size="small"
-                    color="warning"
-                    checked={draft.permissions.manageAutomation}
-                    onChange={(event) => updatePermission("manageAutomation", event.target.checked)}
-                    slotProps={{
-                      input: { "aria-label": t("settingsPage.agentAccess.manageAutomationLabel") },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="manageAutomation"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "manageAutomation",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("manageAutomation", mode)}
                   />
                 </SettingsRow>
                 <SettingsRow
@@ -1269,18 +1485,14 @@ export function AgentAccessSection({
                   label={t("settingsPage.agentAccess.manageUserAutomationLabel")}
                   description={t("settingsPage.agentAccess.manageUserAutomationDescription")}
                 >
-                  <Switch
-                    size="small"
-                    color="error"
-                    checked={draft.permissions.manageUserAutomation}
-                    onChange={(event) =>
-                      updatePermission("manageUserAutomation", event.target.checked)
-                    }
-                    slotProps={{
-                      input: {
-                        "aria-label": t("settingsPage.agentAccess.manageUserAutomationLabel"),
-                      },
-                    }}
+                  <AgentCapabilityModeSelect
+                    capability="manageUserAutomation"
+                    mode={capabilityMode(
+                      draft.permissions,
+                      draft.grantRequestPolicy,
+                      "manageUserAutomation",
+                    )}
+                    onChange={(mode) => updateCapabilityMode("manageUserAutomation", mode)}
                   />
                 </SettingsRow>
               </SettingsGroup>
@@ -1426,19 +1638,15 @@ export function AgentAccessSection({
                         label={t("settingsPage.agentAccess.readRawBodiesLabel")}
                         description={t("settingsPage.agentAccess.readRawBodiesDescription")}
                       >
-                        <Switch
-                          size="small"
-                          color="warning"
-                          checked={draft.permissions.readRawBodies}
+                        <AgentCapabilityModeSelect
+                          capability="readRawBodies"
                           disabled={rawBodiesBlocked}
-                          onChange={(event) =>
-                            updatePermission("readRawBodies", event.target.checked)
-                          }
-                          slotProps={{
-                            input: {
-                              "aria-label": t("settingsPage.agentAccess.readRawBodiesLabel"),
-                            },
-                          }}
+                          mode={capabilityMode(
+                            draft.permissions,
+                            draft.grantRequestPolicy,
+                            "readRawBodies",
+                          )}
+                          onChange={(mode) => updateCapabilityMode("readRawBodies", mode)}
                         />
                       </SettingsRow>
                       <SettingsRow
@@ -1732,6 +1940,35 @@ export function AgentAccessSection({
         }}
       />
 
+      <ConfirmDialog
+        confirmColor="error"
+        confirmLabel={t("settingsPage.agentAccess.immediateRevokeConfirm")}
+        isConfirming={revokeControlMutation.isPending}
+        message={t("settingsPage.agentAccess.immediateRevokeMessage")}
+        onCancel={() => setRevokeControlOpen(false)}
+        onConfirm={() => revokeControlMutation.mutate()}
+        open={revokeControlOpen}
+        title={t("settingsPage.agentAccess.immediateRevokeTitle")}
+      />
+
+      <ConfirmDialog
+        confirmColor="error"
+        confirmLabel={t("settingsPage.agentAccess.grantRevoke")}
+        isConfirming={revokeGrantMutation.isPending}
+        message={t("settingsPage.agentAccess.grantRevokeMessage", {
+          capability: pendingRevokeGrant
+            ? t(permissionDefinition(pendingRevokeGrant.capability).labelKey)
+            : "",
+          client: pendingRevokeGrant?.clientName ?? "",
+        })}
+        onCancel={() => setPendingRevokeGrant(null)}
+        onConfirm={() => {
+          if (pendingRevokeGrant) revokeGrantMutation.mutate(pendingRevokeGrant);
+        }}
+        open={pendingRevokeGrant !== null}
+        title={t("settingsPage.agentAccess.grantRevokeTitle")}
+      />
+
       <Dialog fullWidth maxWidth="sm" onClose={() => setChangesOpen(false)} open={changesOpen}>
         <DialogTitle>{t("settingsPage.agentAccess.changesTitle")}</DialogTitle>
         <DialogContent>
@@ -1800,16 +2037,161 @@ export function AgentAccessSection({
   );
 }
 
+function RevokeResultCard({
+  cleanupPending,
+  onClose,
+  onManageCertificates,
+  onRestoreProxy,
+  onStopCapture,
+  onViewRules,
+  result,
+}: {
+  cleanupPending: boolean;
+  onClose: () => void;
+  onManageCertificates: () => void;
+  onRestoreProxy: () => void;
+  onStopCapture: () => void;
+  onViewRules: () => void;
+  result: RevokeAgentControlResult;
+}) {
+  const { t } = useI18n();
+  const effects: string[] = [];
+  if (result.activeEffects.captureRunning) {
+    effects.push(
+      t("settingsPage.agentAccess.revokeEffectCapture", {
+        workspace: result.activeEffects.workspaceId ?? "default",
+      }),
+    );
+  }
+  if (result.activeEffects.systemProxyEnabled) {
+    effects.push(t("settingsPage.agentAccess.revokeEffectProxy"));
+  }
+  if (result.activeEffects.certificateTrusted) {
+    effects.push(t("settingsPage.agentAccess.revokeEffectCertificate"));
+  }
+  if (
+    result.activeEffects.agentRuleCount > 0 ||
+    result.activeEffects.agentAutomationResourceCount > 0
+  ) {
+    effects.push(
+      t("settingsPage.agentAccess.revokeEffectResources", {
+        rules: result.activeEffects.agentRuleCount,
+        automation: result.activeEffects.agentAutomationResourceCount,
+      }),
+    );
+  }
+
+  return (
+    <SectionCard
+      compact
+      title={t("settingsPage.agentAccess.revokeResultTitle")}
+      description={t("settingsPage.agentAccess.immediateRevokeMessage")}
+      toolbar={
+        <Button size="small" onClick={onClose}>
+          {t("common.actions.close")}
+        </Button>
+      }
+    >
+      <Stack spacing={1.5}>
+        <Stack direction={{ sm: "row", xs: "column" }} spacing={1.5}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="subtitle2">
+              {t("settingsPage.agentAccess.revokeResultRevoked")}
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {capabilityNames(result.revokedCapabilities, t)}
+            </Typography>
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="subtitle2">
+              {t("settingsPage.agentAccess.revokeResultRetained")}
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {capabilityNames(result.retainedReadCapabilities, t)}
+            </Typography>
+          </Box>
+        </Stack>
+        <Alert severity={effects.length > 0 ? "warning" : "success"} variant="outlined">
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+            {t("settingsPage.agentAccess.revokeEffectsTitle")}
+          </Typography>
+          <Stack spacing={0.25}>
+            {(effects.length > 0 ? effects : [t("settingsPage.agentAccess.revokeEffectNone")]).map(
+              (effect) => (
+                <Typography key={effect} variant="body2">
+                  {effect}
+                </Typography>
+              ),
+            )}
+          </Stack>
+        </Alert>
+        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
+          {result.activeEffects.captureRunning ? (
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={cleanupPending}
+              onClick={onStopCapture}
+            >
+              {t("settingsPage.agentAccess.revokeStopCapture")}
+            </Button>
+          ) : null}
+          {result.activeEffects.systemProxyEnabled ? (
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={cleanupPending}
+              onClick={onRestoreProxy}
+            >
+              {t("settingsPage.agentAccess.revokeRestoreProxy")}
+            </Button>
+          ) : null}
+          {result.activeEffects.certificateTrusted ? (
+            <Button size="small" variant="outlined" onClick={onManageCertificates}>
+              {t("settingsPage.agentAccess.revokeViewCertificate")}
+            </Button>
+          ) : null}
+          {result.activeEffects.agentRuleCount > 0 ||
+          result.activeEffects.agentAutomationResourceCount > 0 ? (
+            <Button size="small" variant="outlined" onClick={onViewRules}>
+              {t("settingsPage.agentAccess.revokeViewAutomation")}
+            </Button>
+          ) : null}
+        </Stack>
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          {result.grantsCleared
+            ? t("settingsPage.agentAccess.revokeGrantsCleared")
+            : t("settingsPage.agentAccess.revokeGrantsNotCleared")}
+        </Typography>
+      </Stack>
+    </SectionCard>
+  );
+}
+
+function capabilityNames(
+  capabilities: readonly AgentCapability[],
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  if (capabilities.length === 0) return "—";
+  return capabilities.map((capability) => t(permissionDefinition(capability).labelKey)).join(" · ");
+}
+
 function CapabilitySummary({
   dirty,
   enabled,
+  grantRequestPolicy,
   onAdjust,
+  onRevokeControl,
   permissions,
+  revokeBusy,
 }: {
   dirty: boolean;
   enabled: boolean;
+  grantRequestPolicy: UpdateAgentAccessSettingsInput["grantRequestPolicy"];
   onAdjust: () => void;
+  onRevokeControl: () => void;
   permissions: AgentAccessPermissions;
+  revokeBusy: boolean;
 }) {
   const { t } = useI18n();
   const readDefinitions = enabledPermissionDefinitions(permissions, { group: "readData" });
@@ -1818,6 +2200,9 @@ function CapabilitySummary({
   )
     .flatMap((group) => enabledPermissionDefinitions(permissions, { group }))
     .filter((definition) => definition.available);
+  const requestDefinitions = availablePermissionDefinitions().filter(
+    (definition) => !permissions[definition.key] && grantRequestPolicy[definition.key] === "ask",
+  );
 
   return (
     <Box
@@ -1836,9 +2221,22 @@ function CapabilitySummary({
         <Typography variant="subtitle2">
           {t("settingsPage.agentAccess.capabilitySummaryTitle")}
         </Typography>
-        <Button size="small" variant="outlined" onClick={onAdjust}>
-          {t("settingsPage.agentAccess.adjustPermissions")}
-        </Button>
+        <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: "wrap" }}>
+          <Button size="small" variant="outlined" onClick={onAdjust}>
+            {t("settingsPage.agentAccess.adjustPermissions")}
+          </Button>
+          <Button
+            size="small"
+            color="error"
+            variant="outlined"
+            disabled={revokeBusy}
+            onClick={onRevokeControl}
+          >
+            {revokeBusy
+              ? t("settingsPage.agentAccess.saving")
+              : t("settingsPage.agentAccess.immediateRevoke")}
+          </Button>
+        </Stack>
       </Stack>
       {enabled ? (
         <Stack spacing={0.75} sx={{ mt: 1 }}>
@@ -1851,6 +2249,11 @@ function CapabilitySummary({
             emptyLabel={t("settingsPage.agentAccess.capabilitySummaryNoControl")}
             label={t("settingsPage.agentAccess.capabilitySummaryControlLabel")}
             values={permissionLabels(controlDefinitions, t)}
+          />
+          <CapabilitySummaryLine
+            emptyLabel={t("settingsPage.agentAccess.capabilitySummaryNoRequest")}
+            label={t("settingsPage.agentAccess.capabilitySummaryRequestLabel")}
+            values={permissionLabels(requestDefinitions, t)}
           />
         </Stack>
       ) : (
@@ -2222,21 +2625,30 @@ function buildAgentAccessChangeItems(
   }
 
   for (const key of AGENT_PERMISSION_KEYS) {
-    if (saved.permissions[key] === current.permissions[key]) continue;
     const definition = permissionDefinition(key);
-    items.push({
-      id: `permission:${key}`,
-      kind: "permission",
-      label: t(definition.labelKey),
-      before: saved.permissions[key]
-        ? t("settingsPage.agentAccess.changeOn")
-        : t("settingsPage.agentAccess.changeOff"),
-      after: current.permissions[key]
-        ? t("settingsPage.agentAccess.changeOn")
-        : t("settingsPage.agentAccess.changeOff"),
-      highRisk: definition.confirmOnEnable && !saved.permissions[key] && current.permissions[key],
-      risk: definition.risk,
-    });
+    const beforeMode = capabilityMode(saved.permissions, saved.grantRequestPolicy, key);
+    const afterMode = capabilityMode(current.permissions, current.grantRequestPolicy, key);
+    if (saved.permissions[key] !== current.permissions[key]) {
+      items.push({
+        id: `permission:${key}`,
+        kind: "permission",
+        label: t(definition.labelKey),
+        before: t(capabilityModeLabelKey(beforeMode)),
+        after: t(capabilityModeLabelKey(afterMode)),
+        highRisk: definition.confirmOnEnable && !saved.permissions[key] && current.permissions[key],
+        risk: definition.risk,
+      });
+    } else if (beforeMode !== afterMode) {
+      items.push({
+        id: `grant-policy:${key}`,
+        kind: "policy",
+        label: t(definition.labelKey),
+        before: t(capabilityModeLabelKey(beforeMode)),
+        after: t(capabilityModeLabelKey(afterMode)),
+        highRisk: definition.confirmOnEnable && beforeMode === "deny",
+        risk: definition.risk,
+      });
+    }
   }
 
   const limitFields: Array<{ key: keyof AgentAccessLimits; labelKey: TranslationKey }> = [
@@ -2350,6 +2762,7 @@ function draftFromSettings(settings: AgentAccessSettings): AgentAccessDraft {
   return {
     enabled: settings.enabled,
     permissions: { ...settings.permissions },
+    grantRequestPolicy: { ...settings.grantRequestPolicy },
     limits: { ...settings.limits },
     redaction: {
       ...settings.redaction,
@@ -2371,6 +2784,9 @@ function draftsEqual(current: AgentAccessDraft, saved: AgentAccessDraft) {
   ];
   return (
     AGENT_PERMISSION_KEYS.every((key) => current.permissions[key] === saved.permissions[key]) &&
+    AGENT_PERMISSION_KEYS.every(
+      (key) => current.grantRequestPolicy[key] === saved.grantRequestPolicy[key],
+    ) &&
     limitKeys.every((key) => current.limits[key] === saved.limits[key]) &&
     JSON.stringify(current.redaction) === JSON.stringify(saved.redaction) &&
     JSON.stringify(current.automationApprovedRoots) ===

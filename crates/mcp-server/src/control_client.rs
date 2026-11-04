@@ -1,13 +1,17 @@
 use std::io::BufReader;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use aiproxy_agent_control::{
-    read_descriptor, read_json_line, token_matches, write_json_line_with_limit, ControlDescriptor,
-    ControlError, ControlOperation, ControlPermission, ControlRequest, ControlResponse,
-    CONTROL_MAX_REQUEST_BYTES, CONTROL_MAX_RESPONSE_BYTES, CONTROL_PROTOCOL_VERSION,
-    CONTROL_WRITE_TIMEOUT_SECS,
+    capability_action_fingerprint, operation_action_fingerprint, read_descriptor, read_json_line,
+    token_matches, write_json_line_with_limit, AgentCapability, AgentGrant,
+    AgentGrantApprovalOption, AgentGrantCleanupPolicy, AgentGrantRequest, AgentGrantRequestPolicy,
+    AgentGrantResourcePolicy, AgentGrantScope, AgentGrantStatus, AutomationResourceLifecycle,
+    ConsumeAgentGrantParams, ControlDescriptor, ControlError, ControlOperation, ControlPermission,
+    ControlRequest, ControlResponse, CONTROL_MAX_REQUEST_BYTES, CONTROL_MAX_RESPONSE_BYTES,
+    CONTROL_PROTOCOL_VERSION, CONTROL_WRITE_TIMEOUT_SECS,
 };
 use interprocess::local_socket::{prelude::*, Stream};
 use serde_json::Value;
@@ -21,6 +25,19 @@ const APP_LAUNCH_POLL_INTERVAL: Duration = Duration::from_millis(150);
 // Status reads enrich other tools but must never make a read-only MCP call
 // wait for the full write timeout when the desktop process is unresponsive.
 const CONTROL_STATUS_TIMEOUT_SECS: u64 = 5;
+const GRANT_APPROVAL_TIMEOUT_SECS: u64 = 40;
+
+static AGENT_INSTANCE_ID: OnceLock<String> = OnceLock::new();
+
+pub fn initialize_agent_instance_id() -> String {
+    AGENT_INSTANCE_ID
+        .get_or_init(|| format!("mcp_{}", uuid::Uuid::new_v4().simple()))
+        .clone()
+}
+
+fn agent_instance_id() -> String {
+    initialize_agent_instance_id()
+}
 
 /// MCP client identity forwarded with control writes so the desktop can write
 /// the authoritative audit entry even when a local process talks to IPC
@@ -76,6 +93,349 @@ pub fn permission_label(permission: ControlPermission) -> &'static str {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct ControlAuth {
+    grant_ids: Vec<String>,
+    action_fingerprint: Option<String>,
+}
+
+async fn prepare_control_auth(
+    paths: &AppPaths,
+    descriptor: &ControlDescriptor,
+    operation: &ControlOperation,
+    caller: ControlCaller<'_>,
+) -> Result<ControlAuth, ToolError> {
+    let config = crate::config::read_config(&paths.config_path)
+        .map_err(|error| ToolError::new("AGENT_ACCESS_DISABLED", error.message()))?;
+    if !config.enabled {
+        return Err(ToolError::disabled());
+    }
+    let missing = operation
+        .required_permissions()
+        .into_iter()
+        .filter(|permission| !operation_has_permission(&config, *permission))
+        .collect::<Vec<_>>();
+    let mut grant_ids = Vec::new();
+    for permission in missing {
+        let capability = capability_for_permission(permission);
+        if config.grant_request_policy.get(&capability) != Some(&AgentGrantRequestPolicy::Ask) {
+            return Err(ToolError::new(
+                "CONTROL_PERMISSION_DENIED",
+                format!(
+                    "Agent control permission {} is disabled and is not allowed to request temporary approval.",
+                    permission_label(permission)
+                ),
+            ));
+        }
+        let request = AgentGrantRequest {
+            capability,
+            action_fingerprint: operation_action_fingerprint(operation),
+            action_summary: operation.action_summary(),
+            scope: operation_scope(operation),
+            reason: format!(
+                "The Agent needs temporary {} access for this specific action.",
+                permission_label(permission)
+            ),
+            approval_options: approval_options(operation, operation_non_idempotent(operation)),
+            expires_in_seconds: 30,
+            non_idempotent: operation_non_idempotent(operation),
+            resource_policy: operation_resource_policy(operation),
+        };
+        let grant = request_grant_with_descriptor(descriptor, request, caller).await?;
+        grant_ids.push(grant.id);
+    }
+    Ok(ControlAuth {
+        grant_ids,
+        action_fingerprint: Some(operation_action_fingerprint(operation)),
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct CapabilityGrantRequest {
+    pub capability: AgentCapability,
+    pub action_summary: String,
+    pub scope: AgentGrantScope,
+    pub reason: String,
+    pub non_idempotent: bool,
+    pub resource_policy: Option<AgentGrantResourcePolicy>,
+}
+
+pub async fn request_capability_grant(
+    paths: &AppPaths,
+    request: CapabilityGrantRequest,
+    caller: ControlCaller<'_>,
+) -> Result<AgentGrant, ToolError> {
+    let descriptor = resolve_descriptor(paths, true).await?;
+    let request = AgentGrantRequest {
+        capability: request.capability,
+        action_fingerprint: capability_action_fingerprint(request.capability, &request.scope),
+        action_summary: request.action_summary,
+        scope: request.scope,
+        reason: request.reason,
+        approval_options: capability_approval_options(request.capability, request.non_idempotent),
+        expires_in_seconds: 30,
+        non_idempotent: request.non_idempotent,
+        resource_policy: request.resource_policy,
+    };
+    request_grant_with_descriptor(&descriptor, request, caller).await
+}
+
+pub async fn consume_capability_grant(
+    paths: &AppPaths,
+    grant: &AgentGrant,
+    caller: ControlCaller<'_>,
+) -> Result<AgentGrant, ToolError> {
+    let descriptor = resolve_descriptor(paths, false).await?;
+    let value = call_once(
+        ControlOperation::ConsumeAgentGrant(ConsumeAgentGrantParams {
+            grant_id: grant.id.clone(),
+            capability: grant.capability,
+            action_fingerprint: grant.action_fingerprint.clone(),
+        }),
+        descriptor,
+        CONTROL_STATUS_TIMEOUT_SECS,
+        caller,
+        &ControlAuth::default(),
+    )
+    .await?;
+    let value = value.get("grant").cloned().ok_or_else(|| {
+        ToolError::new(
+            "GRANT_CONSUME_FAILED",
+            "AIProxy did not return the consumed temporary approval.",
+        )
+    })?;
+    serde_json::from_value(value).map_err(|error| {
+        ToolError::new(
+            "GRANT_CONSUME_FAILED",
+            format!("Parse AIProxy temporary approval: {error}"),
+        )
+    })
+}
+
+async fn resolve_descriptor(
+    paths: &AppPaths,
+    allow_launch: bool,
+) -> Result<ControlDescriptor, ToolError> {
+    match read_descriptor(&paths.data_dir).ok() {
+        Some(descriptor) => {
+            validate_descriptor(&descriptor)?;
+            Ok(descriptor)
+        }
+        None if allow_launch => {
+            if desktop_is_already_running(paths) {
+                return Err(already_running_without_control_error());
+            }
+            launch_desktop(paths).await
+        }
+        None => Err(ToolError::new(
+            "CONTROL_UNAVAILABLE",
+            "AIProxy is not running or its local Agent control channel is unavailable. Start AIProxy, then retry.",
+        )),
+    }
+}
+
+async fn request_grant_with_descriptor(
+    descriptor: &ControlDescriptor,
+    request: AgentGrantRequest,
+    caller: ControlCaller<'_>,
+) -> Result<AgentGrant, ToolError> {
+    let value = call_once(
+        ControlOperation::RequestAgentGrant(request),
+        descriptor.clone(),
+        GRANT_APPROVAL_TIMEOUT_SECS,
+        caller,
+        &ControlAuth::default(),
+    )
+    .await?;
+    let grant: AgentGrant = value
+        .get("grant")
+        .cloned()
+        .ok_or_else(|| {
+            ToolError::new(
+                "GRANT_REQUEST_FAILED",
+                "AIProxy did not return the temporary approval details.",
+            )
+        })
+        .and_then(|value| {
+            serde_json::from_value(value).map_err(|error| {
+                ToolError::new(
+                    "GRANT_REQUEST_FAILED",
+                    format!("Parse AIProxy temporary approval: {error}"),
+                )
+            })
+        })?;
+    match grant.status {
+        AgentGrantStatus::Approved | AgentGrantStatus::Executing => Ok(grant),
+        AgentGrantStatus::Denied => Err(ToolError::new(
+            "APPROVAL_DENIED",
+            "The user denied this temporary Agent permission request.",
+        )),
+        AgentGrantStatus::Expired => Err(ToolError::new(
+            "APPROVAL_TIMEOUT",
+            "The temporary Agent permission request expired before it was approved. Ask the user to approve it again.",
+        )),
+        AgentGrantStatus::Cancelled | AgentGrantStatus::Revoked => Err(ToolError::new(
+            "APPROVAL_CANCELLED",
+            "The temporary Agent permission request was cancelled.",
+        )),
+        other => Err(ToolError::new(
+            "APPROVAL_REQUIRED",
+            format!("The temporary Agent permission request ended with status {other:?}."),
+        )
+        .with_details(serde_json::json!({
+            "requestId": grant.request_id,
+            "agentInstanceId": grant.agent_instance_id,
+            "actionFingerprint": grant.action_fingerprint,
+            "status": other,
+        }))),
+    }
+}
+
+pub fn capability_for_permission(permission: ControlPermission) -> AgentCapability {
+    match permission {
+        ControlPermission::ControlCapture => AgentCapability::ControlCapture,
+        ControlPermission::ControlSystemProxy => AgentCapability::ControlSystemProxy,
+        ControlPermission::ManageCertificates => AgentCapability::ManageCertificates,
+        ControlPermission::DeleteSessions => AgentCapability::DeleteSessions,
+        ControlPermission::SendRequests => AgentCapability::SendRequests,
+        ControlPermission::ManageRules => AgentCapability::ManageRules,
+        ControlPermission::ManageAutomation => AgentCapability::ManageAutomation,
+        ControlPermission::ManageUserAutomation => AgentCapability::ManageUserAutomation,
+        ControlPermission::ManageScripts => AgentCapability::ManageScripts,
+        ControlPermission::ManageCrossHostMappings => AgentCapability::ManageCrossHostMappings,
+        ControlPermission::ManageProxiedVerification => AgentCapability::ManageProxiedVerification,
+        ControlPermission::ManageGlobalAutomation => AgentCapability::ManageGlobalAutomation,
+    }
+}
+
+fn approval_options(
+    operation: &ControlOperation,
+    non_idempotent: bool,
+) -> Vec<AgentGrantApprovalOption> {
+    let repeatable = !non_idempotent
+        && operation
+            .required_permissions()
+            .into_iter()
+            .all(|permission| capability_allows_repeat(capability_for_permission(permission)));
+    if repeatable {
+        vec![
+            AgentGrantApprovalOption::Once,
+            AgentGrantApprovalOption::FifteenMinutes,
+        ]
+    } else {
+        vec![AgentGrantApprovalOption::Once]
+    }
+}
+
+fn capability_approval_options(
+    capability: AgentCapability,
+    non_idempotent: bool,
+) -> Vec<AgentGrantApprovalOption> {
+    if !non_idempotent && capability_allows_repeat(capability) {
+        vec![
+            AgentGrantApprovalOption::Once,
+            AgentGrantApprovalOption::FifteenMinutes,
+        ]
+    } else {
+        vec![AgentGrantApprovalOption::Once]
+    }
+}
+
+fn capability_allows_repeat(capability: AgentCapability) -> bool {
+    !matches!(
+        capability,
+        AgentCapability::ReadRawBodies
+            | AgentCapability::ControlSystemProxy
+            | AgentCapability::ManageCertificates
+            | AgentCapability::DeleteSessions
+            | AgentCapability::ManageUserAutomation
+            | AgentCapability::ManageScripts
+            | AgentCapability::ManageCrossHostMappings
+            | AgentCapability::ManageGlobalAutomation
+    )
+}
+
+fn operation_non_idempotent(operation: &ControlOperation) -> bool {
+    match operation {
+        ControlOperation::ReplaySession(params) => params
+            .method
+            .as_deref()
+            .map(|method| {
+                !matches!(
+                    method.to_ascii_uppercase().as_str(),
+                    "GET" | "HEAD" | "OPTIONS"
+                )
+            })
+            .unwrap_or(true),
+        ControlOperation::DeleteSessions(_)
+        | ControlOperation::ClearSessions
+        | ControlOperation::RemoveCertificateTrust
+        | ControlOperation::ApplyAutomationPlan(_)
+        | ControlOperation::RollbackAutomationChange(_)
+        | ControlOperation::ClearAgentAutomation(_) => true,
+        _ => false,
+    }
+}
+
+fn operation_scope(operation: &ControlOperation) -> AgentGrantScope {
+    match operation {
+        ControlOperation::DeleteSessions(params) => AgentGrantScope {
+            session_ids: params.session_ids.clone(),
+            ..AgentGrantScope::default()
+        },
+        ControlOperation::ReplaySession(params) => AgentGrantScope {
+            session_ids: vec![params.session_id.clone()],
+            methods: params.method.clone().into_iter().collect(),
+            ..AgentGrantScope::default()
+        },
+        ControlOperation::ConfigureWorkspace(params) => AgentGrantScope {
+            workspace_id: params.workspace_id.clone(),
+            ..AgentGrantScope::default()
+        },
+        ControlOperation::StartCapture(params) | ControlOperation::StopCapture(params) => {
+            AgentGrantScope {
+                workspace_id: params.workspace_id.clone(),
+                ..AgentGrantScope::default()
+            }
+        }
+        ControlOperation::ApplyAutomationPlan(params) => AgentGrantScope {
+            workspace_id: params.plan.workspace_id.clone(),
+            ..AgentGrantScope::default()
+        },
+        ControlOperation::ClearAgentAutomation(params) => AgentGrantScope {
+            workspace_id: params.workspace_id.clone(),
+            ..AgentGrantScope::default()
+        },
+        ControlOperation::VerifyAutomationChange(params) => AgentGrantScope {
+            session_ids: params
+                .baseline_session_ids
+                .iter()
+                .chain(params.external_session_ids.iter())
+                .cloned()
+                .collect(),
+            ..AgentGrantScope::default()
+        },
+        _ => AgentGrantScope::default(),
+    }
+}
+
+fn operation_resource_policy(operation: &ControlOperation) -> Option<AgentGrantResourcePolicy> {
+    let plan = match operation {
+        ControlOperation::ApplyAutomationPlan(params) => Some(&params.plan),
+        ControlOperation::ValidateAutomationPlan(params) => Some(&params.plan),
+        _ => None,
+    }?;
+    Some(AgentGrantResourcePolicy {
+        lifecycle: if plan.lifecycle == "ephemeral" {
+            AutomationResourceLifecycle::Ephemeral
+        } else {
+            AutomationResourceLifecycle::Persistent
+        },
+        ttl_seconds: plan.ttl_seconds,
+        cleanup: AgentGrantCleanupPolicy::AgentOwnedOnly,
+    })
+}
+
 pub async fn call_control(
     paths: &AppPaths,
     operation: ControlOperation,
@@ -100,11 +460,14 @@ pub async fn call_control(
     };
     validate_descriptor(&descriptor)?;
 
+    let auth = prepare_control_auth(paths, &descriptor, &operation, caller).await?;
+
     let first = call_once(
         operation.clone(),
         descriptor.clone(),
         CONTROL_WRITE_TIMEOUT_SECS,
         caller,
+        &auth,
     )
     .await;
     match first {
@@ -118,7 +481,14 @@ pub async fn call_control(
                 return Err(already_running_without_control_error());
             }
             let descriptor = launch_desktop(paths).await?;
-            call_once(operation, descriptor, CONTROL_WRITE_TIMEOUT_SECS, caller).await
+            call_once(
+                operation,
+                descriptor,
+                CONTROL_WRITE_TIMEOUT_SECS,
+                caller,
+                &auth,
+            )
+            .await
         }
         Err(error) => Err(error),
     }
@@ -140,6 +510,7 @@ pub async fn try_control(
         descriptor,
         CONTROL_STATUS_TIMEOUT_SECS,
         ControlCaller::default(),
+        &ControlAuth::default(),
     )
     .await
 }
@@ -149,6 +520,7 @@ async fn call_once(
     descriptor: ControlDescriptor,
     timeout_secs: u64,
     caller: ControlCaller<'_>,
+    auth: &ControlAuth,
 ) -> Result<Value, ToolError> {
     let request_id = uuid::Uuid::new_v4().to_string();
     let request = ControlRequest {
@@ -157,6 +529,9 @@ async fn call_once(
         token: descriptor.token,
         client_name: Some(caller.name.to_string()),
         client_version: Some(caller.version.to_string()),
+        agent_instance_id: Some(agent_instance_id()),
+        grant_ids: auth.grant_ids.clone(),
+        action_fingerprint: auth.action_fingerprint.clone(),
         operation,
     };
     let is_write = request.operation.is_write();
@@ -471,6 +846,21 @@ mod tests {
     #[cfg(unix)]
     use aiproxy_agent_control::write_json_line;
 
+    fn write_enabled_access_config(
+        paths: &AppPaths,
+        permissions: crate::config::AgentAccessPermissions,
+    ) {
+        crate::config::write_config(
+            &paths.config_path,
+            &AgentAccessConfig {
+                enabled: true,
+                permissions,
+                ..AgentAccessConfig::default()
+            },
+        )
+        .unwrap();
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn control_round_trip_uses_the_descriptor_and_token() {
@@ -526,6 +916,7 @@ mod tests {
             config_path: directory.path().join("agent-access.json"),
             audit_path: directory.path().join("agent-audit.jsonl"),
         };
+        write_enabled_access_config(&paths, Default::default());
         let value = call_control(
             &paths,
             ControlOperation::GetStatus,
@@ -629,6 +1020,13 @@ mod tests {
             config_path: directory.path().join("agent-access.json"),
             audit_path: directory.path().join("agent-audit.jsonl"),
         };
+        write_enabled_access_config(
+            &paths,
+            crate::config::AgentAccessPermissions {
+                delete_sessions: true,
+                ..Default::default()
+            },
+        );
         let error = call_control(
             &paths,
             ControlOperation::ClearSessions,
@@ -688,6 +1086,13 @@ mod tests {
             config_path: directory.path().join("agent-access.json"),
             audit_path: directory.path().join("agent-audit.jsonl"),
         };
+        write_enabled_access_config(
+            &paths,
+            crate::config::AgentAccessPermissions {
+                delete_sessions: true,
+                ..Default::default()
+            },
+        );
         let error = call_control(
             &paths,
             ControlOperation::ClearSessions,

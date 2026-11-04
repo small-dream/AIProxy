@@ -4,9 +4,10 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 
 use aiproxy_agent_control::{
-    ApplyAutomationPlanParams, AutomationPlan, ClearAgentAutomationParams,
-    GetAutomationChangeParams, GetAutomationResourceParams, ListAutomationResourcesParams,
-    RollbackAutomationChangeParams, ValidateAutomationPlanParams, VerifyAutomationChangeParams,
+    AgentCapability, AgentGrantRequestPolicy, ApplyAutomationPlanParams, AutomationPlan,
+    ClearAgentAutomationParams, GetAutomationChangeParams, GetAutomationResourceParams,
+    ListAutomationResourcesParams, RollbackAutomationChangeParams, ValidateAutomationPlanParams,
+    VerifyAutomationChangeParams,
 };
 use aiproxy_db::sessions::{
     insert_ws_message, upsert_session, SessionDetailRow, SessionSummaryRow, WsMessageRow,
@@ -16,7 +17,7 @@ use aiproxy_mcp::config::{
     AgentAccessRedaction, AppPaths,
 };
 use aiproxy_mcp::control_client::ControlCaller;
-use aiproxy_mcp::protocol::MCP_TOOL_SCHEMA_VERSION;
+use aiproxy_mcp::protocol::{ToolError, ToolMeta, MCP_TOOL_SCHEMA_VERSION};
 use aiproxy_mcp::tools::agent::{
     create_agent_rule, list_agent_rules, remove_agent_rules, replay_session,
     AgentRuleActionRequest, CreateAgentRuleRequest, RemoveAgentRulesRequest, ReplaySessionRequest,
@@ -27,19 +28,57 @@ use aiproxy_mcp::tools::automation::{
     verify_automation_change,
 };
 use aiproxy_mcp::tools::body::{
-    get_session_body, get_session_fields, BodyPart, BodyRedactionMode, GetSessionBodyRequest,
-    GetSessionFieldsRequest,
+    get_session_body as get_session_body_with_caller,
+    get_session_fields as get_session_fields_with_caller, BodyPart, BodyRedactionMode,
+    GetSessionBodyRequest, GetSessionFieldsRequest,
 };
-use aiproxy_mcp::tools::compare::{compare_sessions, CompareSessionsRequest, DiffMode};
+use aiproxy_mcp::tools::compare::{
+    compare_sessions as compare_sessions_with_caller, CompareSessionsRequest, DiffMode,
+};
 use aiproxy_mcp::tools::diagnostics::{diagnose_issue, DiagnoseIssueRequest};
 use aiproxy_mcp::tools::insights::{get_insights, GetInsightsRequest, GroupBy};
 use aiproxy_mcp::tools::sessions::{
     get_session, search, wait_for_sessions, GetSessionRequest, RedactionMode,
     SearchSessionsRequest, SessionInclude, WaitForSessionsRequest,
 };
-use aiproxy_mcp::tools::websocket::{get_messages, GetWebSocketMessagesRequest};
+use aiproxy_mcp::tools::websocket::{
+    get_messages as get_messages_with_caller, GetWebSocketMessagesRequest,
+};
 use aiproxy_mcp::AppContext;
 use serde_json::{json, Value};
+
+const TEST_CALLER: ControlCaller<'static> = ControlCaller {
+    name: "test-agent",
+    version: "1.0",
+};
+
+async fn get_session_body(
+    state: &AppContext,
+    request: GetSessionBodyRequest,
+) -> Result<(Value, ToolMeta), ToolError> {
+    get_session_body_with_caller(state, request, TEST_CALLER).await
+}
+
+async fn get_session_fields(
+    state: &AppContext,
+    request: GetSessionFieldsRequest,
+) -> Result<(Value, ToolMeta), ToolError> {
+    get_session_fields_with_caller(state, request, TEST_CALLER).await
+}
+
+async fn compare_sessions(
+    state: &AppContext,
+    request: CompareSessionsRequest,
+) -> Result<(Value, ToolMeta), ToolError> {
+    compare_sessions_with_caller(state, request, TEST_CALLER).await
+}
+
+async fn get_messages(
+    state: &AppContext,
+    request: GetWebSocketMessagesRequest,
+) -> Result<(Value, ToolMeta), ToolError> {
+    get_messages_with_caller(state, request, TEST_CALLER).await
+}
 
 fn temp_data_dir(name: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()
@@ -206,6 +245,11 @@ fn create_fixture(name: &str) -> (PathBuf, AppContext) {
 #[tokio::test]
 async fn agent_write_tools_fail_closed_when_permissions_are_disabled() {
     let (directory, context) = create_fixture("agent_permissions");
+    let mut config = context.config().unwrap();
+    for policy in config.grant_request_policy.values_mut() {
+        *policy = AgentGrantRequestPolicy::Deny;
+    }
+    write_config(&context.paths.config_path, &config).unwrap();
     let caller = ControlCaller {
         name: "test-agent",
         version: "1.0",
@@ -417,6 +461,12 @@ fn insert_inline_body_session(directory: &Path, id: &str, body: &str, mime_type:
 #[tokio::test]
 async fn search_get_body_and_compare_are_redacted_by_default() {
     let (directory, context) = create_fixture("redaction");
+    let mut config = context.config().unwrap();
+    config.grant_request_policy.insert(
+        AgentCapability::ReadRawBodies,
+        AgentGrantRequestPolicy::Deny,
+    );
+    write_config(&context.paths.config_path, &config).unwrap();
 
     let (search_data, search_meta) = search(
         &context,

@@ -2331,14 +2331,15 @@ type ShowLogFileOutput = string; // 日志文件的绝对路径
 - 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
 - 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
 
-## 6.14 Agent Access / MCP Commands — `已实现（读取 + 受控操作 + 受控诊断 + 自动化实验，工具契约 3.3）`
+## 6.14 Agent Access / MCP Commands — `已实现（读取 + 受控操作 + 限时授权 + 受控诊断 + 自动化实验，工具契约 3.3）`
 
 Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量，并按权限分组执行桌面控制。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
 
 - `agent-access.json`：权限与限制，Unix `0600`，Windows 仅当前用户 ACL。
 - `agent-audit.jsonl`：仅记录工具名、动作摘要、Agent 控制标记、客户端、耗时、字节数、脱敏/截断状态和错误码；不记录载荷。
+- `agent-grants.json`：进程级临时授权存储；Unix `0600`，Windows 仅当前用户 ACL。应用启动时清空，授权不跨重启恢复。
 - `agent-status.json`：桌面端心跳（`appRunning`、`capturing`、`proxyPort`、`workspaceId`、`captureStartedAt`、`updatedAt`），每 30 秒刷新，不含流量数据；sidecar 用它生成 `meta.captureStatus`。
-- `agent-control.json`：桌面端 Agent 控制描述文件，包含协议版本、本地端点、随机 token、PID、应用版本与启动时间；Unix `0600`，Windows 仅当前用户 ACL，应用退出时删除。
+- `agent-control.json`：桌面端 Agent 控制描述文件，包含控制协议版本 v2、本地端点、随机 token、PID、应用版本与启动时间；Unix `0600`，Windows 仅当前用户 ACL，应用退出时删除。
 - Unix 控制端点为 `<data-dir>/agent-control.sock`（`0600`）；Windows 使用当前用户 ACL 的 Named Pipe。两种平台都不开放 TCP 端口。
 
 ### `get_agent_access_settings`
@@ -2381,6 +2382,10 @@ type AgentAccessSettings = {
   automationApprovedRoots: string[];
   proxiedVerificationOrigins: string[];
   automationCrossHostOrigins: string[];
+  grantRequestPolicy: Record<
+    AgentCapability,
+    "deny" | "ask"
+  >;
   automationApprovedRootStatuses: Array<{
     path: string;
     exists: boolean;
@@ -2417,8 +2422,9 @@ type AgentClientInfo = {
 说明：
 
 - 配置缺失时返回默认值（关闭、读取会话开启，所有控制与自动化权限关闭），不视为命令失败。
-- 内存配置契约版本为 `4`。为兼容旧只读 sidecar，磁盘文件仍使用 v2 信封；新增控制与自动化权限为 additive 字段，旧 sidecar 会忽略，新 desktop / sidecar 读取后在内存归一化为 v4。
-- 读取旧配置时会把缺失的控制与自动化权限补齐为 `false`，不产生隐式提权；旧 `manageRules` 不推导 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification` 或 `manageGlobalAutomation`。`get_agent_access_settings.version` 返回归一化后的 `4`。
+- 内存配置契约版本为 `5`。为兼容旧只读 sidecar，磁盘文件仍使用 v2 信封；新增控制、自动化权限与 `grantRequestPolicy` 为 additive 字段，旧 sidecar 会忽略，新 desktop / sidecar 读取后在内存归一化为 v5。
+- 读取旧配置时会把缺失的控制与自动化权限补齐为 `false`，不产生隐式提权；旧 `manageRules` 不推导 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification` 或 `manageGlobalAutomation`。`get_agent_access_settings.version` 返回归一化后的 `5`。
+- `grantRequestPolicy` 为每项能力保存 `deny` 或 `ask`。UI 统一表达为 `禁止 / 请求时询问 / 始终允许`，其中 `始终允许` 映射到静态权限 `true`；高风险能力默认 `deny`。缺失策略按保守默认补齐，不改变已有静态权限。
 - `automationApprovedRoots` 最多 10 个，只能通过 `pick_automation_approved_root` 的原生文件夹选择器添加；`automationApprovedRootStatuses` 返回路径当前是否存在且为目录，失效路径不会被静默删除。
 - `proxiedVerificationOrigins` 与 `automationCrossHostOrigins` 是两个独立的精确 origin 白名单；只接受 `http` / `https`，保存时规范化、排序、去重，每次最多 50 个。首版 `automationCrossHostOrigins` 仅预留给后续 Map Remote 写入。
 - `clients` 生成可复制片段；实际写入由 `install_agent_client_config` 完成。
@@ -2440,12 +2446,119 @@ type UpdateAgentAccessSettingsInput = {
   automationApprovedRoots: string[];
   proxiedVerificationOrigins: string[];
   automationCrossHostOrigins: string[];
+  grantRequestPolicy: AgentAccessSettings["grantRequestPolicy"];
 };
 ```
 
 响应：`AgentAccessSettings`。
 
-说明：服务端会归一化权限（关闭 `readBodies` 时强制关闭 `readRawBodies`）、脱敏规则、限制值、批准根目录与 origin 白名单；写入使用临时文件原子替换。配置升级只显示“新权限未启用”提示，不会自动勾选任何新增权限。
+说明：服务端会归一化权限（关闭 `readBodies` 时强制关闭 `readRawBodies`）、脱敏规则、限制值、批准根目录、origin 白名单与 `grantRequestPolicy`；写入使用临时文件原子替换。配置升级只显示“新权限未启用”提示，不会自动勾选任何新增权限。普通权限编辑只写草稿；立即收回控制使用独立命令。
+
+### `list_agent_access_grants`
+
+请求：无参数。
+
+响应：
+
+```ts
+type AgentAccessGrantList = {
+  grants: AgentGrant[];
+  pendingCount: number;
+  storePath: string;
+};
+
+type AgentCapability =
+  | "readSessions" | "readBodies" | "readRawBodies" | "readWebSocket"
+  | "exportSnapshots" | "controlCapture" | "controlSystemProxy"
+  | "manageCertificates" | "deleteSessions" | "sendRequests" | "manageRules"
+  | "manageAutomation" | "manageUserAutomation" | "manageScripts"
+  | "manageCrossHostMappings" | "manageProxiedVerification" | "manageGlobalAutomation";
+
+type AgentGrant = {
+  id: string;
+  requestId: string;
+  capability: AgentCapability;
+  clientName: string;
+  clientVersion: string;
+  agentInstanceId: string;
+  actionFingerprint: string;
+  actionSummary: string;
+  scope: {
+    sessionIds?: string[];
+    connectionIds?: string[];
+    host?: string | null;
+    pathPrefix?: string | null;
+    methods?: string[];
+    workspaceId?: string | null;
+    automationRoots?: string[];
+    origins?: string[];
+  };
+  reason: string;
+  createdAt: string;
+  approvedAt?: string | null;
+  expiresAt: string;
+  maxUses: number;
+  remainingUses: number;
+  resourcePolicy?: {
+    lifecycle: "ephemeral" | "persistent";
+    ttlSeconds?: number | null;
+    cleanup: "agentOwnedOnly" | "manual";
+  } | null;
+  status:
+    | "pending" | "approved" | "executing" | "succeeded" | "failed"
+    | "unknown" | "expired" | "revoked" | "denied" | "cancelled";
+  approvalOption: "once" | "fifteenMinutes";
+  nonIdempotent: boolean;
+  approvalOptions: Array<"once" | "fifteenMinutes">;
+};
+```
+
+说明：列表按创建顺序返回，最多保留 200 条；查询时会刷新已过期的 pending / approved / executing 状态。授权只对当前桌面进程与发出请求的 sidecar 实例有效。
+
+### `approve_agent_access_grant`
+
+请求：
+
+```ts
+type ApproveAgentAccessGrantInput = {
+  requestId: string;
+  option: "once" | "fifteenMinutes";
+};
+```
+
+响应：`AgentGrant`。`once` 在批准后 60 秒内允许 1 次；`fifteenMinutes` 在 15 分钟内最多 50 次。非幂等动作和高风险能力只允许 `once`。批准会唤醒正在等待的 sidecar，原工具调用继续执行。
+
+### `deny_agent_access_grant`
+
+请求：`{ requestId: string }`。响应：`AgentGrant`。拒绝后同一 sidecar、客户端、能力与动作指纹在 60 秒冷却期内不会再次弹卡。
+
+### `revoke_agent_access_grant`
+
+请求：`{ grantId: string }`。响应：`AgentGrant`。撤销立即阻止后续调用，但不会撤销已经执行的动作、已发出的请求或已创建的资源。
+
+### `revoke_agent_control_permissions`
+
+请求：无参数。
+
+响应：
+
+```ts
+type RevokeAgentControlResult = {
+  revokedCapabilities: AgentCapability[];
+  retainedReadCapabilities: AgentCapability[];
+  activeEffects: {
+    captureRunning: boolean;
+    systemProxyEnabled: boolean;
+    workspaceId?: string | null;
+    certificateTrusted: boolean;
+    agentRuleCount: number;
+    agentAutomationResourceCount: number;
+  };
+  grantsCleared: boolean;
+};
+```
+
+说明：命令立即落盘关闭全部控制与自动化权限，保留读取权限，把所有控制类能力的 `grantRequestPolicy` 改为 `deny`，并清除全部临时授权。它不会自动停止抓包、恢复系统代理、撤销证书信任或删除 Agent 规则与自动化资源；UI 必须展示 `activeEffects` 并提供对应清理入口。若权限已保存但 grant 文件清理失败，返回 `grantsCleared=false`，不得报告完全成功。
 
 ### `pick_automation_approved_root`
 
@@ -2936,10 +3049,16 @@ type AutomationPlan = {
 控制调用规则：
 
 - sidecar 仅在描述文件缺失或连接阶段失败且心跳表明桌面端未运行时自动拉起；若 AIProxy 已在运行但控制通道不可用（例如旧版本或控制服务启动失败），返回带升级/重启提示的 `CONTROL_UNAVAILABLE`，避免单实例插件只聚焦旧实例后无意义等待。通道已建立后若写请求超时或连接中断，不会自动重试，避免非幂等操作重复执行。读取状态不会启动应用。自动拉起参数为 `--agent-launched`，单实例插件聚焦已有窗口；`launchSource=agent` 时前端跳过旧配置自动启抓。
-- sidecar 与桌面端都校验 Agent Access 启用、权限分组、token、参数和审计可写性；直接连接 IPC 不能绕过 sidecar 权限。写请求在等待串行锁期间会重新读取权限与审计状态，因此排队期间撤销授权会使该请求在执行前被拒绝。
+- 控制协议为 v2。`ControlRequest` additive 携带 `clientName`、`clientVersion`、`agentInstanceId`、`grantIds` 与 `actionFingerprint`；新增 `RequestAgentGrant` / `ConsumeAgentGrant` 操作。桌面端与 sidecar 必须同步升级，协议不一致返回 `CONTROL_UNAVAILABLE`。
+- sidecar 与桌面端都校验 Agent Access 启用、权限分组、token、参数和审计可写性；直接连接 IPC 不能绕过 sidecar 权限。sidecar 请求控制操作时，如缺少静态权限但对应能力策略为 `ask`，会先创建 pending grant 并等待桌面审批；批准后继续原调用。
+- 桌面端再次验证授权绑定：`agentInstanceId`、客户端名称与版本、能力、动作指纹、状态和剩余次数必须全部匹配。控制动作指纹由完整操作 DTO 计算，任何参数变化都会返回 `APPROVAL_FINGERPRINT_MISMATCH` 或要求重新审批。
+- 写请求在等待串行锁期间会重新读取权限、授权与审计状态，因此排队期间撤销权限或授权会使该请求在执行前被拒绝。
+- 授权消费采用原子预占：先扣减额度并置为 `executing`，成功后才执行动作。一次性授权不能被并发请求使用两次；可重复授权在成功或普通失败后恢复为 `approved`，额度耗尽后进入 `expired`。
+- 授权等待上限 30 秒，sidecar 请求超时为 40 秒；拒绝后同一授权键冷却 60 秒。pending 合并、拒绝冷却与实例绑定都只在当前桌面进程内有效。
 - 写操作超时 60 秒并返回 `CONTROL_TIMEOUT`，所有 Agent 写请求串行执行；系统代理和 Session 生命周期继续使用桌面端现有锁。只读状态探测使用 5 秒短超时，避免控制通道异常拖慢 `get_app_status` / `list_workspaces`；`get_app_status` 会把探测超时降级为 `CONTROL_TIMEOUT` 状态，而不是让整个只读调用失败。超时或已发送请求后的连接中断都不自动重试，调用方应先通过 `get_app_status` 确认当前状态。
 - 控制帧硬上限为请求 4 MiB、响应 1 MiB；请求上限覆盖 500+500 条、每条最长 1 KiB 的 SSL proxying 规则。超过硬上限返回 `INVALID_ARGUMENT` / `RESULT_TOO_LARGE`，不会截断后执行。
 - 审计在执行前确认可写，失败返回 `AUDIT_UNAVAILABLE` 且不执行。控制动作由桌面端作为权威写入点：请求携带 MCP 客户端名称与版本，动作结束后无论成功或失败都记录工具、动作摘要、真实客户端身份、耗时和错误码，不记录凭据或 Body。因此直接连接本地 IPC 的已授权请求同样会留下动作记录；sidecar 不重复写入已由桌面端执行的控制动作，仅审计只读工具和未进入桌面控制通道的本地失败。
+- 动作可能已经完成但审计写入失败、响应无法写回或授权状态无法确定时，授权标记为 `unknown`。调用方必须说明“可能已产生副作用”，先检查上游/应用状态，不能把 `unknown` 当作成功或失败，也不能自动重试非幂等动作。
 - 3.2 错误码仍保留：`RATE_LIMITED`（重放并发/频率超限，`retryable=true`）、`RULE_LIMIT_EXCEEDED`（临时规则达到 20 条）、`RULE_READ_ONLY`（从规则页修改 Agent 规则）、`REPLAY_FAILED`（未形成新会话的重放失败）。
 - 3.3 自动化新增错误码：
   - `FEATURE_NOT_AVAILABLE`：首版未开放的资源类型、Map Remote、Script、DNS、Throttle、Breakpoint、global scope 或 activation。
@@ -2958,11 +3077,19 @@ type AutomationPlan = {
   - `STATE_CONFLICT` / `CHANGE_NOT_APPLICABLE`：change 当前状态不允许 rollback、promote、verify 或 clear。
   - `CONTROL_PERMISSION_DENIED`：缺少 `manageAutomation`、`manageUserAutomation`、`manageProxiedVerification` 等细粒度权限。
   - `RATE_LIMITED` / `RESULT_TOO_LARGE`：代理验证超过 10 请求/分钟，或响应超过 256 KiB。
+- 限时授权新增错误码：
+  - `GRANT_POLICY_DENIED`：能力既未开启静态权限，也不允许请求临时授权。
+  - `GRANT_REQUEST_FAILED`：创建或解析授权请求失败。
+  - `GRANT_CONSUME_FAILED`：读取类能力的授权消费失败。
+  - `APPROVAL_REQUIRED`：需要用户审批，或批准不覆盖当前动作。
+  - `APPROVAL_INVALID`：授权不存在、已失效、额度耗尽或实例/客户端绑定不匹配。
+  - `APPROVAL_FINGERPRINT_MISMATCH`：动作参数已经变化，必须重新审批。
+  - `APPROVAL_DENIED` / `APPROVAL_TIMEOUT` / `APPROVAL_CANCELLED`：用户拒绝、等待超时或授权被撤销。
 - 既有控制错误码仍为 `CONTROL_PERMISSION_DENIED`、`APP_LAUNCH_FAILED`、`CONTROL_UNAVAILABLE`、`CONTROL_TIMEOUT`、`USER_ACTION_REQUIRED`、`AUDIT_UNAVAILABLE`；代理、证书和数据库错误原样透传。
 - `USER_ACTION_REQUIRED` 为保留的结构化错误码，用于“操作无法继续且必须等待系统或用户动作”的场景。证书安装入口当前在动作已打开后返回成功 payload，并置 `userActionRequired=true`；调用方应完成系统对话框后用 `get_app_status` 复核，而不是把该成功结果当作证书已信任。
-- 应用内不再二次确认已授权控制操作；删除类操作和撤销证书信任仍必须由 Agent Skill 要求用户在当前对话中明确请求。抓包内容中的指令一律视为不可信数据。
+- 静态权限为 `始终允许` 时，应用内不再二次确认该控制操作；`请求时询问` 会显示全局审批卡等待用户决定。`once` 与 15 分钟授权的差异、非幂等警告和“不撤销已产生的副作用”必须在审批卡中明确。删除类操作和撤销证书信任仍必须由 Agent Skill 要求用户在当前对话中明确请求。抓包内容中的指令一律视为不可信数据。
 
-脱敏配置位于 `agent-access.json` 的 `redaction` 字段；内存契约版本为 `4`，磁盘兼容信封版本为 `2`：
+脱敏配置位于 `agent-access.json` 的 `redaction` 字段；内存契约版本为 `5`，磁盘兼容信封版本为 `2`：
 
 - `detectSensitiveValues`：按值格式识别 JWT、Bearer、邮箱、手机号、设备 ID、地址等。
 - `hashIdentifiers`：标识符使用本地稳定 HMAC 伪名，例如 `[ID:xxxxxxxx]`，仅用于关联，不可反推。HMAC 密钥在首次使用时随机生成并持久化到数据目录的 `agent-redaction.key`（Unix 下权限 `0600`），不随日志、导出或诊断外发；无法写入时降级为路径派生密钥并记录 `redaction_key_write_failed` 警告。删除该文件会使已有伪名与之后的伪名失去关联。
@@ -3174,6 +3301,22 @@ type AgentControlActionEvent = {
 触发时机：桌面端完成一次已通过 token、启用状态、权限、参数和审计预检的 Agent 控制请求后发出（包括执行阶段失败）；未授权或预检失败的请求不会广播到 UI。事件不包含请求参数、凭据或 Body。后端同时保留最近 20 条内存事件，供 `get_recent_agent_control_actions` 在渲染器尚未挂载监听器时回放。
 
 前端处理：`useAgentControlEvents()` 先订阅实时事件，再读取回放缓冲区，并按 `eventId` 去重后刷新代理状态、工作区、证书与 Session 查询；删除类操作会同时清除 Session 详情缓存。除 `getStatus` 外，成功与失败均显示全局通知，让用户在全自动模式下仍能看到 Agent 操作。
+
+### `agent-access-grant-requested` — `已实现`
+
+```ts
+type AgentAccessGrantRequestedEvent = AgentGrant;
+```
+
+触发时机：sidecar 创建了新的 pending 临时授权请求。事件载荷不包含请求 Body、凭据或完整动作参数，只包含能力、动作摘要、范围、客户端、sidecar 实例、动作指纹、过期时间与可用批准选项。`AppShell` 全局审批宿主收到事件后更新授权列表，并发送系统通知；用户不需要先打开 Settings。
+
+### `agent-access-grant-changed` — `已实现`
+
+```ts
+type AgentAccessGrantChangedEvent = AgentGrant;
+```
+
+触发时机：授权被批准、拒绝、撤销、执行完成、失败、结果未知或等待超时。审批宿主按 `id` 更新缓存与当前对话框；设置页授权列表可刷新或单条撤销。事件不携带请求参数、响应 Body 或凭据。
 
 ### `automation-changed` — `已实现`
 

@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use url::form_urlencoded;
 
 use crate::context::AppContext;
+use crate::control_client::ControlCaller;
 use crate::protocol::{ToolError, ToolMeta};
 use crate::redaction::Redactor;
 
@@ -138,22 +139,43 @@ struct BodySizes {
 pub async fn get_session_body(
     state: &AppContext,
     request: GetSessionBodyRequest,
+    caller: ControlCaller<'_>,
 ) -> Result<(Value, ToolMeta), ToolError> {
-    let config = state.config()?;
     require_session_details(state)?;
-    if !config.permissions.read_bodies {
-        return Err(ToolError::permission_denied(
-            "Body reading is disabled. Enable readBodies in AIProxy Settings > Agent Access.",
-        ));
-    }
+    let scope = aiproxy_agent_control::AgentGrantScope {
+        session_ids: vec![request.session_id.clone()],
+        ..aiproxy_agent_control::AgentGrantScope::default()
+    };
+    let config = state
+        .ensure_capability(
+            aiproxy_agent_control::AgentCapability::ReadBodies,
+            format!(
+                "Read the {} body for session {}",
+                part_label(request.part),
+                request.session_id
+            ),
+            scope.clone(),
+            "Reading this response field requires temporary body access.".to_string(),
+            caller,
+        )
+        .await?;
     if matches!(
         request.redaction_mode,
         BodyRedactionMode::Raw | BodyRedactionMode::Base64
-    ) && !config.permissions.read_raw_bodies
-    {
-        return Err(ToolError::permission_denied(
-            "Raw or base64 body reading requires the readRawBodies permission. Enable it in AIProxy Settings > Agent Access.",
-        ));
+    ) {
+        state
+            .ensure_capability(
+                aiproxy_agent_control::AgentCapability::ReadRawBodies,
+                format!(
+                    "Read the unredacted {} body for session {}",
+                    part_label(request.part),
+                    request.session_id
+                ),
+                scope,
+                "Raw body access can expose credentials and personal data.".to_string(),
+                caller,
+            )
+            .await?;
     }
     let form_requested = request.include_form_params || !request.form_param_names.is_empty();
     if request.redaction_mode == BodyRedactionMode::Metadata
@@ -315,18 +337,38 @@ pub async fn get_session_body(
 pub async fn get_session_fields(
     state: &AppContext,
     request: GetSessionFieldsRequest,
+    caller: ControlCaller<'_>,
 ) -> Result<(Value, ToolMeta), ToolError> {
-    let config = state.config()?;
     require_session_details(state)?;
-    if !config.permissions.read_bodies {
-        return Err(ToolError::permission_denied(
-            "Body reading is disabled. Enable readBodies in AIProxy Settings > Agent Access.",
-        ));
-    }
-    if request.redaction_mode == BodyRedactionMode::Raw && !config.permissions.read_raw_bodies {
-        return Err(ToolError::permission_denied(
-            "Raw field extraction requires the readRawBodies permission. Enable it in AIProxy Settings > Agent Access.",
-        ));
+    let scope = aiproxy_agent_control::AgentGrantScope {
+        session_ids: request.session_ids.clone(),
+        ..aiproxy_agent_control::AgentGrantScope::default()
+    };
+    let config = state
+        .ensure_capability(
+            aiproxy_agent_control::AgentCapability::ReadBodies,
+            format!(
+                "Extract fields from {} session bodies",
+                request.session_ids.len()
+            ),
+            scope.clone(),
+            "Field extraction reads persisted request or response bodies.".to_string(),
+            caller,
+        )
+        .await?;
+    if request.redaction_mode == BodyRedactionMode::Raw {
+        state
+            .ensure_capability(
+                aiproxy_agent_control::AgentCapability::ReadRawBodies,
+                format!(
+                    "Extract unredacted fields from {} session bodies",
+                    request.session_ids.len()
+                ),
+                scope,
+                "Raw field extraction can expose credentials and personal data.".to_string(),
+                caller,
+            )
+            .await?;
     }
     if !matches!(
         request.redaction_mode,

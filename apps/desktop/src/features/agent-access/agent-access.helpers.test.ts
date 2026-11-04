@@ -1,97 +1,66 @@
 import { describe, expect, it } from "vitest";
 
+import type { AgentAccessPermissions } from "@aiproxy/shared-types";
+
 import {
   permissionsForConnectPreset,
   permissionsEqual,
   permissionsForPreset,
   presetForPermissions,
+  type AgentPermissionPreset,
 } from "./agent-access.helpers";
+import { AGENT_PERMISSION_KEYS } from "./agent-access.permissions";
+
+function expectOnlyEnabled(
+  permissions: AgentAccessPermissions,
+  enabled: readonly (keyof AgentAccessPermissions)[],
+) {
+  for (const key of AGENT_PERMISSION_KEYS) {
+    expect(permissions[key], key).toBe(enabled.includes(key));
+  }
+}
 
 describe("Agent permission presets", () => {
-  it("maps each preset to a concrete scope", () => {
-    expect(permissionsForPreset("metadata")).toEqual({
-      readSessions: true,
-      readBodies: false,
-      readRawBodies: false,
-      readWebSocket: false,
-      exportSnapshots: false,
-      controlCapture: false,
-      controlSystemProxy: false,
-      manageCertificates: false,
-      deleteSessions: false,
-      sendRequests: false,
-      manageRules: false,
-      manageAutomation: false,
-      manageUserAutomation: false,
-      manageScripts: false,
-      manageCrossHostMappings: false,
-      manageProxiedVerification: false,
-      manageGlobalAutomation: false,
-    });
-    expect(permissionsForPreset("bodies")).toEqual({
-      readSessions: true,
-      readBodies: true,
-      readRawBodies: false,
-      readWebSocket: true,
-      exportSnapshots: false,
-      controlCapture: false,
-      controlSystemProxy: false,
-      manageCertificates: false,
-      deleteSessions: false,
-      sendRequests: false,
-      manageRules: false,
-      manageAutomation: false,
-      manageUserAutomation: false,
-      manageScripts: false,
-      manageCrossHostMappings: false,
-      manageProxiedVerification: false,
-      manageGlobalAutomation: false,
-    });
-    expect(permissionsForPreset("raw")).toEqual({
-      readSessions: true,
-      readBodies: true,
-      readRawBodies: true,
-      readWebSocket: true,
-      exportSnapshots: false,
-      controlCapture: false,
-      controlSystemProxy: false,
-      manageCertificates: false,
-      deleteSessions: false,
-      sendRequests: false,
-      manageRules: false,
-      manageAutomation: false,
-      manageUserAutomation: false,
-      manageScripts: false,
-      manageCrossHostMappings: false,
-      manageProxiedVerification: false,
-      manageGlobalAutomation: false,
-    });
-    expect(permissionsForPreset("full")).toEqual({
-      readSessions: true,
-      readBodies: true,
-      readRawBodies: false,
-      readWebSocket: true,
-      exportSnapshots: false,
-      controlCapture: true,
-      controlSystemProxy: true,
-      manageCertificates: true,
-      deleteSessions: true,
-      sendRequests: true,
-      manageRules: true,
-      manageAutomation: true,
-      manageUserAutomation: true,
-      manageScripts: true,
-      manageCrossHostMappings: true,
-      manageProxiedVerification: true,
-      manageGlobalAutomation: true,
-    });
+  it("maps each preset to a concrete, minimal scope", () => {
+    expectOnlyEnabled(permissionsForPreset("metadata"), ["readSessions"]);
+    expectOnlyEnabled(permissionsForPreset("readOnly"), ["readSessions", "readBodies"]);
+    expectOnlyEnabled(permissionsForPreset("debugReplay"), [
+      "readSessions",
+      "readBodies",
+      "sendRequests",
+    ]);
+    expectOnlyEnabled(permissionsForPreset("automationExperiment"), [
+      "readSessions",
+      "readBodies",
+      "manageAutomation",
+    ]);
+  });
+
+  it("does not bundle unrelated control or optional capabilities into a preset", () => {
+    const debugReplay = permissionsForPreset("debugReplay");
+    expect(debugReplay.manageAutomation).toBe(false);
+    expect(debugReplay.controlCapture).toBe(false);
+    expect(debugReplay.controlSystemProxy).toBe(false);
+
+    const automation = permissionsForPreset("automationExperiment");
+    expect(automation.controlCapture).toBe(false);
+    expect(automation.controlSystemProxy).toBe(false);
+    expect(automation.manageCertificates).toBe(false);
+    expect(automation.manageUserAutomation).toBe(false);
+    expect(automation.manageProxiedVerification).toBe(false);
+    expect(automation.readRawBodies).toBe(false);
+    expect(automation.readWebSocket).toBe(false);
   });
 
   it("infers an exact preset or preserves custom permissions", () => {
-    expect(presetForPermissions(permissionsForPreset("metadata"))).toBe("metadata");
-    expect(presetForPermissions(permissionsForPreset("bodies"))).toBe("bodies");
-    expect(presetForPermissions(permissionsForPreset("raw"))).toBe("raw");
-    expect(presetForPermissions(permissionsForPreset("full"))).toBe("full");
+    for (const preset of [
+      "metadata",
+      "readOnly",
+      "debugReplay",
+      "automationExperiment",
+    ] as const satisfies readonly AgentPermissionPreset[]) {
+      expect(presetForPermissions(permissionsForPreset(preset))).toBe(preset);
+    }
     expect(
       presetForPermissions({
         ...permissionsForPreset("metadata"),
@@ -100,7 +69,7 @@ describe("Agent permission presets", () => {
     ).toBe("current");
     expect(
       presetForPermissions({
-        ...permissionsForPreset("bodies"),
+        ...permissionsForPreset("readOnly"),
         controlCapture: true,
       }),
     ).toBe("current");
@@ -108,7 +77,7 @@ describe("Agent permission presets", () => {
 
   it("keeps the exact custom permission mix when reconnecting", () => {
     const current = {
-      ...permissionsForPreset("bodies"),
+      ...permissionsForPreset("readOnly"),
       controlCapture: true,
       deleteSessions: true,
     };
@@ -119,20 +88,10 @@ describe("Agent permission presets", () => {
   });
 
   it("compares every permission flag", () => {
-    const base = permissionsForPreset("bodies");
+    const base = permissionsForPreset("readOnly");
     expect(permissionsEqual(base, { ...base })).toBe(true);
-    expect(permissionsEqual(base, { ...base, readRawBodies: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, readWebSocket: false })).toBe(false);
-    expect(permissionsEqual(base, { ...base, exportSnapshots: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, controlCapture: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, deleteSessions: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, sendRequests: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, manageRules: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, manageAutomation: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, manageUserAutomation: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, manageScripts: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, manageCrossHostMappings: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, manageProxiedVerification: true })).toBe(false);
-    expect(permissionsEqual(base, { ...base, manageGlobalAutomation: true })).toBe(false);
+    for (const key of AGENT_PERMISSION_KEYS) {
+      expect(permissionsEqual(base, { ...base, [key]: !base[key] }), key).toBe(false);
+    }
   });
 });

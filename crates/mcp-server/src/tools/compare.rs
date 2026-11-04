@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::context::AppContext;
+use crate::control_client::ControlCaller;
 use crate::protocol::{ToolError, ToolMeta};
 use crate::redaction::{HeaderEntry, Redactor};
 
@@ -67,17 +68,33 @@ struct SessionSnapshot {
 pub async fn compare_sessions(
     state: &AppContext,
     request: CompareSessionsRequest,
+    caller: ControlCaller<'_>,
 ) -> Result<(Value, ToolMeta), ToolError> {
-    let config = state.config()?;
+    let mut config = state.config()?;
     if !config.permissions.read_sessions {
         return Err(ToolError::permission_denied(
             "Session reading is disabled. Enable readSessions in AIProxy Settings > Agent Access.",
         ));
     }
-    if request.include_body && !config.permissions.read_bodies {
-        return Err(ToolError::permission_denied(
-            "Comparing response bodies requires the readBodies permission. Enable it in AIProxy Settings > Agent Access.",
-        ));
+    if request.include_body {
+        config = state
+            .ensure_capability(
+                aiproxy_agent_control::AgentCapability::ReadBodies,
+                format!(
+                    "Compare bodies for sessions {} and {}",
+                    request.left_session_id, request.right_session_id
+                ),
+                aiproxy_agent_control::AgentGrantScope {
+                    session_ids: vec![
+                        request.left_session_id.clone(),
+                        request.right_session_id.clone(),
+                    ],
+                    ..aiproxy_agent_control::AgentGrantScope::default()
+                },
+                "Comparing response bodies requires temporary body access.".to_string(),
+                caller,
+            )
+            .await?;
     }
     if !state
         .capabilities()
@@ -98,10 +115,25 @@ pub async fn compare_sessions(
     }
     let json_paths = parse_json_paths(&request.json_paths)?;
     let raw = request.redaction_mode == RedactionMode::Raw;
-    if raw && !config.permissions.read_raw_bodies {
-        return Err(ToolError::permission_denied(
-            "Raw comparison requires the readRawBodies permission. Enable it in AIProxy Settings > Agent Access.",
-        ));
+    if raw {
+        state
+            .ensure_capability(
+                aiproxy_agent_control::AgentCapability::ReadRawBodies,
+                format!(
+                    "Compare unredacted sessions {} and {}",
+                    request.left_session_id, request.right_session_id
+                ),
+                aiproxy_agent_control::AgentGrantScope {
+                    session_ids: vec![
+                        request.left_session_id.clone(),
+                        request.right_session_id.clone(),
+                    ],
+                    ..aiproxy_agent_control::AgentGrantScope::default()
+                },
+                "Raw comparison can expose credentials and personal data.".to_string(),
+                caller,
+            )
+            .await?;
     }
     let redactor = Redactor::from_config(&config, &state.paths.data_dir)
         .map_err(|message| ToolError::new("INVALID_REDACTION_CONFIG", message))?;

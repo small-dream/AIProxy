@@ -10,7 +10,8 @@ use serde_json::{json, Value};
 use crate::config::AgentAccessConfig;
 use crate::context::AppContext;
 use crate::control_client::{
-    call_control, operation_has_permission, permission_label, try_control, ControlCaller,
+    call_control, capability_for_permission, operation_has_permission, permission_label,
+    try_control, ControlCaller,
 };
 use crate::protocol::{ToolError, ToolMeta};
 use crate::status::read_capture_status;
@@ -291,11 +292,15 @@ pub(crate) fn ensure_permission(
     operation: &ControlOperation,
 ) -> Result<(), ToolError> {
     for permission in operation.required_permissions() {
-        if !operation_has_permission(config, permission) {
+        let can_request = config
+            .grant_request_policy
+            .get(&capability_for_permission(permission))
+            == Some(&aiproxy_agent_control::AgentGrantRequestPolicy::Ask);
+        if !operation_has_permission(config, permission) && !can_request {
             return Err(ToolError::new(
                 "CONTROL_PERMISSION_DENIED",
                 format!(
-                    "Agent control permission {} is disabled. Enable it in AIProxy Settings > Agent Access > Control permissions.",
+                    "Agent control permission {} is disabled and is not allowed to request temporary approval. Enable it or allow requests in AIProxy Settings > Agent Access.",
                     permission_label(permission)
                 ),
             ));

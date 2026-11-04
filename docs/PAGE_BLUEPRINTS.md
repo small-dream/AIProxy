@@ -1158,13 +1158,13 @@ type SettingsPageState = {
 };
 ```
 
-### 8.4.1 Agent Access Section — `已实现（读取 + 受控操作 + 自动化实验 · 紧凑版）`
+### 8.4.1 Agent Access Section — `已实现（读取 + 受控操作 + 限时授权 + 自动化实验 · 紧凑版）`
 
 页面目标：
 
 - 以低噪音状态头展示 sidecar、版本与连接状态
-- 让用户显式开启会话、Body、WebSocket 与未脱敏 Body 权限
-- 让用户按分组开启基础控制权限与自动化权限；新增自动化权限默认关闭，旧 `manageRules` 不自动迁移
+- 让用户用统一三态控制会话、Body、WebSocket、控制与自动化能力；高风险能力默认禁止，旧 `manageRules` 不自动迁移
+- 让 Agent 在具体动作发生时请求限时授权，并让用户随时查看、撤销或立即收回控制
 - 让用户管理 Map Local 批准根目录与两个独立的精确 origin 白名单
 - 让用户配置格式识别、稳定哈希和自定义敏感字段
 - 为 Codex、Claude Code、Cursor 提供一键连接（写 MCP 配置 + 安装 Skill）与断开
@@ -1199,6 +1199,7 @@ AgentAccessSection
 │  │  ├─ Dangerous operations (delete sessions)
 │  │  ├─ Modify requests (replay / temporary rules / proxy verification)
 │  │  └─ Agent automation (Agent automation / user automation)
+│  │     └─ CapabilityModeSelect per capability: deny / ask / always
 │  ├─ Advanced permissions (nested collapse)
 │  │  ├─ Raw body access
 │  │  ├─ Sensitive-value detection
@@ -1211,11 +1212,14 @@ AgentAccessSection
 │  │  ├─ Proxied verification origins (only when manageProxiedVerification is on)
 │  │  └─ Dependency warning when proxy verification is on without manageAutomation
 │  └─ Sticky Save / Discard / Review changes
+├─ GrantsCard (pending + active grants, refresh + single revoke)
+├─ RevokeControlConfirmDialog
+├─ RevokeResultCard (residual effects + stop capture / restore proxy / certificates / rules)
 ├─ AgentAuditTable (collapsed summary by default)
 ├─ SecurityNote
 ├─ AgentConnectDialog
 │  ├─ target path + backup note
-│  ├─ PresetPicker (metadata / bodies / raw / full control)
+│  ├─ PresetPicker (metadata / read-only / debugReplay / automationExperiment / current)
 │  └─ data-flow notice
 ├─ ConfirmDialog (config overwrite)
 ├─ ConfirmDialog (custom Skill overwrite)
@@ -1223,26 +1227,33 @@ AgentAccessSection
 ├─ ConfirmDialog (high-risk permission save)
 ├─ ConfirmDialog (unsaved route leave)
 └─ ConfirmDialog (disconnect)
+
+AppShell
+└─ AgentGrantApprovalHost (global pending dialog + system notification)
 ```
 
 关键交互：
 
-1. 顶部启用开关和权限开关先写入本地草稿；只有 `Save changes` 才持久化。草稿与已保存值不一致时，状态头显示 `Unsaved`，并在状态头展示待保存项数量与高风险项数量；状态头与权限区同时提供审阅更改、保存和放弃。`CapabilitySummary` 始终读取已保存权限，并明确提示未保存更改尚未生效；已保存的接入开关关闭时不展示“可以读取/可以控制”，而是说明 Agent 当前不能读取或控制流量。关闭 `readBodies` 会立即在草稿中关闭 `readRawBodies`。存在未保存更改时离开设置路由必须二次确认。
+1. 顶部启用开关和权限选择器先写入本地草稿；只有 `Save changes` 才持久化。草稿与已保存值不一致时，状态头显示 `Unsaved`，并在状态头展示待保存项数量与高风险项数量；状态头与权限区同时提供审阅更改、保存和放弃。`CapabilitySummary` 始终读取已保存权限，并明确提示未保存更改尚未生效；已保存的接入开关关闭时不展示“可以读取/可以控制”，而是说明 Agent 当前不能读取或控制流量。关闭 `readBodies` 会立即在草稿中关闭 `readRawBodies`。存在未保存更改时离开设置路由必须二次确认。
+1.1 每项能力使用同一个 `禁止 / 请求时询问 / 始终允许` 选择器。`请求时询问` 表示静态权限关闭时可为具体动作弹出限时授权；高风险能力默认禁止，从禁止切到询问或始终允许都必须进入高风险确认。UI 不展示两套独立矩阵，也不提供“完整控制”快捷项。
 2. 「验证连接」位于默认折叠的诊断区。它先运行 `aiproxy-mcp --doctor`，再执行真实 MCP 会话（initialize → tools/list → search_sessions），按 sidecar、诊断、数据库、schema、启用状态、Body 权限、握手、工具数、会话数、客户端连接、控制通道与控制权限逐项展示 ok / warning / error；失败项内联展示 detail，并提供「复制诊断」导出完整 JSON，不使用全局 toast。`sessions` 项同时展示最新会话时间；控制权限全关时只为 warning。
 3. 诊断区在路径与验证操作之间展示低噪音说明：可让 Agent 调用 `diagnose_ai_proxy_issue`，获得 AIProxy 自身的状态、白名单脱敏日志摘要、元数据审计错误、可能原因和解决步骤。文案必须说明桌面端需运行，日志受限且不是完整日志导出；不得提供“打开日志目录”“任意文件读取”作为该工具的入口。
-4. 客户端主操作是“连接”，始终先打开 `AgentConnectDialog`：选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据 / 完整控制），确认后先保存对应权限，再写 MCP 配置并安装 Skill。模板会给出将授予的权限摘要；连接后仍可在「读取权限」和「控制权限」中调整。若当前保存的是自定义组合，对话框额外提供并默认选中「保留当前权限」，确保重新连接不会重置部分控制权限，也不会把读取范围回退到最近似的模板。
+4. 客户端主操作是“连接”，始终先打开 `AgentConnectDialog`：选择任务预设（仅元数据 / 只读分析 / 调试与重放 / 自动化实验），确认后先保存对应权限，再写 MCP 配置并安装 Skill。模板会给出将授予的权限摘要；连接后仍可在权限分组中调整。若当前保存的是自定义组合，对话框额外提供并默认选中「保留当前权限」，确保重新连接不会重置部分控制权限，也不会把读取范围回退到最近似的模板。四类预设都精确显示为完整权限组合，匹配不到时显示“自定义”。
 5. 目标文件不存在时直接创建；覆盖已有文件前在连接对话框中展示目标路径与备份说明。Skill 命中非 AIProxy 管理的同名文件时再次确认覆盖。
 6. 连接流程必须处理部分成功：配置已写入但 Skill 安装失败或用户取消覆盖时，界面明确提示配置已生效、Skill 未完成，并保持该客户端为 `需更新`。
 7. 更多菜单提供“仅写入 MCP 配置”“仅安装 Skill”“手动配置”“断开连接”。手动配置展开后展示单行路径、Skill 路径与版本、配置片段与复制操作；路径禁止跨行断词。断开仅在客户端已有配置或 Skill 时出现。
 8. 客户端状态基于“aiproxy 条目是否存在 + Skill 内容是否为当前版本”，不使用“配置文件是否存在”判断；状态文案为 `已配置` / `需更新` / `未配置`。手动配置区展示已安装 Skill 版本与内置版本。桌面端启动时自动升级带 AIProxy 管理标记的 Skill，缺失文件不创建、自定义 Skill 不覆盖、安装版本高于内置版本时不降级；升级后由客户端重新加载或重启读取。
 9. 断开连接需二次确认：说明将移除的配置路径、将删除的受管 Skill 路径与备份行为；自定义 Skill 保留并提示。移除后状态回到 `未配置`。
 10. 客户端列表顶部固定展示数据流向说明：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；读取默认保守，控制权限默认关闭。已连接且 Body 关闭时追加 `BodyDisabledNotice`，说明 Agent 无法分析响应体。
-11. 权限矩阵默认折叠，首屏只展示能力摘要和“查看权限分组”。展开后仅渲染本版可用能力，并按读取数据、控制桌面、危险操作、修改请求、Agent 自动化分组；每组显示风险标签与“已启用/可用总数”。不再提供“启用完整控制”快捷操作。`sendRequests` 明确说明会发出真实外部请求，`manageRules` 明确说明只创建内存临时规则但仍会影响经过代理的匹配流量；`manageUserAutomation` 使用 error 色并说明可修改用户资源；`manageProxiedVerification` 说明会通过本地代理发出受控请求。预留能力 `exportSnapshots`、`manageScripts`、`manageCrossHostMappings`、`manageGlobalAutomation` 不渲染开关，也不出现在设置搜索中。开启高风险能力后保存必须二次确认；删除类操作、撤销证书信任、非幂等重放、用户资源修改/删除和规则提升仍由 Agent Skill 要求当前对话的明确用户请求。
+11. 权限矩阵默认折叠，首屏只展示能力摘要和“查看权限分组”。展开后仅渲染本版可用能力，并按读取数据、控制桌面、危险操作、修改请求、Agent 自动化分组；每组显示风险标签与“已启用/可用总数”。不再提供“启用完整控制”快捷操作。`sendRequests` 明确说明会发出真实外部请求，`manageRules` 明确说明只创建内存临时规则但仍会影响经过代理的匹配流量；`manageUserAutomation` 使用 error 色并说明可修改用户资源；`manageProxiedVerification` 说明会通过本地代理发出受控请求。预留能力 `exportSnapshots`、`manageScripts`、`manageCrossHostMappings`、`manageGlobalAutomation` 不渲染选择器，也不出现在设置搜索中。开启高风险能力的询问或始终允许状态都必须二次确认；删除类操作、撤销证书信任、非幂等重放、用户资源修改/删除和规则提升仍由 Agent Skill 要求当前对话的明确用户请求。
 11.1 新增权限迁移提示必须常驻：升级不会把 `manageRules` 迁移为任何自动化权限，也不会自动勾选新字段。用户必须显式开启并保存 `manageAutomation` 才能使用 8 个自动化工具。
 11.2 Map Local 批准根目录最多 10 个，只能通过系统文件夹选择器添加，并且只在 `manageAutomation` 开启时展示；每一项显示单行路径与移除按钮，路径不存在或不是目录时显示 warning，且不会自动删除。代理验证 origin 白名单只在 `manageProxiedVerification` 开启时展示，只接受规范化后的精确 `http` / `https` origin，不支持通配 host。代理验证还需要 `manageAutomation`；缺少时在权限矩阵内显示依赖 warning。
 11.3 自动化边界区必须说明首版仅开放 Rewrite 与 Map Local；`offline` / `proxy` / `external` 证据的差异由 Rules 页 Agent 实验展示，Settings 不重复渲染验证结果。
 11.4 设置搜索命中具体权限时必须自动展开权限矩阵；命中未脱敏 Body、脱敏策略或查询上限时必须同时展开“高级权限”并滚动到目标项。搜索不得命中隐藏的预留能力。
 11.5 保存前可打开字段级变更摘要，逐项展示 `已保存值 → 草稿值`；高风险权限启用项在摘要中使用对应风险标签，保存确认必须列出本次将开启的高风险权限名称。
+11.6 待审批授权由 `AppShell` 全局对话框承载，系统通知只负责提醒；用户批准或拒绝后，原 sidecar 调用继续或结束，不能让用户回到聊天再重复“我批准了”。审批卡展示客户端、能力、动作摘要、范围、原因、一次性/15 分钟选项、动作指纹和资源生命周期提示。非幂等动作只显示“允许一次”并展示真实副作用警告。
+11.7 `GrantsCard` 展示 pending、approved 与 executing 授权，支持刷新与单条撤销；撤销确认必须说明已执行动作和副作用不会回滚。授权到期只阻止后续调用，不自动清理已有抓包、系统代理、证书或 Agent 资源。
+11.8 “立即收回控制”必须二次确认，成功后显示已收回能力、保留读取能力、仍生效的抓包/系统代理/证书/Agent 资源，以及停止抓包、恢复系统代理、管理证书和查看 Agent 资源的收尾入口。该操作清除全部临时授权；若清理失败，显示 `grantsCleared=false` 并提示重启。
 12. 审计表默认只显示最近调用数量摘要；展开后按时间倒序展示明细，新增动作摘要列与 `agentControl` 写控制标记，刷新时重新读取 JSONL。
 13. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor 窗口；Claude Code 目标为 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`），连接后需重新启动 Claude Code。
 14. `AppShell` 订阅 `agent-control-action` 并读取最近 20 条回放缓冲区：按 `eventId` 去重后刷新代理、工作区、证书、Session 与规则查询；删除类动作清除详情缓存；除 `getStatus` 外显示动作成功/失败通知，确保自动拉起后的首个 Agent 动作也可见。
@@ -1260,6 +1271,16 @@ type AgentAccessSectionState = {
     automationApprovedRoots: string[];
     proxiedVerificationOrigins: string[];
     automationCrossHostOrigins: string[];
+    grantRequestPolicy: AgentGrantRequestPolicyMap;
+  };
+  grants: {
+    items: AgentGrant[];
+    pendingCount: number;
+    selectedGrant: AgentGrant | null;
+  };
+  revokeControl: {
+    confirmOpen: boolean;
+    result: RevokeAgentControlResult | null;
   };
   feedback: {
     area: "client" | "diagnostics" | "permissions" | "settings";

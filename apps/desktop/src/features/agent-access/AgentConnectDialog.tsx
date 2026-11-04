@@ -18,13 +18,13 @@ import type { AgentAccessPermissions, AgentClientInfo } from "@aiproxy/shared-ty
 import { useI18n } from "@/i18n";
 
 import {
+  AGENT_PERMISSION_PRESETS,
   permissionsForConnectPreset,
+  presetDescriptionKey,
+  presetLabelKey,
   presetForPermissions,
   type AgentConnectPreset,
-  type AgentPermissionPreset,
 } from "./agent-access.helpers";
-
-const PRESETS: AgentPermissionPreset[] = ["metadata", "bodies", "raw", "full"];
 
 type AgentConnectDialogProps = {
   busy: boolean;
@@ -60,8 +60,8 @@ export function AgentConnectDialog({
   const selectedPermissions = permissionsForConnectPreset(preset, currentPermissions);
   const hasCustomPermissions = presetForPermissions(currentPermissions) === "current";
   const visiblePresets = hasCustomPermissions
-    ? (["current", ...PRESETS] as AgentConnectPreset[])
-    : PRESETS;
+    ? (["current", ...AGENT_PERMISSION_PRESETS] as AgentConnectPreset[])
+    : [...AGENT_PERMISSION_PRESETS];
 
   return (
     <Dialog fullWidth maxWidth="sm" onClose={onCancel} open={open}>
@@ -99,9 +99,9 @@ export function AgentConnectDialog({
                   control={<Radio size="small" />}
                   label={
                     <Box>
-                      <Typography variant="body2">{presetLabel(option, t)}</Typography>
+                      <Typography variant="body2">{t(presetLabelKey(option))}</Typography>
                       <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                        {presetDescription(option, t)}
+                        {t(presetDescriptionKey(option))}
                       </Typography>
                     </Box>
                   }
@@ -124,16 +124,11 @@ export function AgentConnectDialog({
               {t("settingsPage.agentAccess.rawBodiesWarning")}
             </Alert>
           ) : null}
-          {selectedPermissions.controlCapture &&
-          selectedPermissions.controlSystemProxy &&
-          selectedPermissions.manageCertificates &&
-          selectedPermissions.deleteSessions ? (
-            <Alert severity="warning" variant="outlined" sx={{ py: 0.5 }}>
-              {t("settingsPage.agentAccess.fullControlWarning")}
-            </Alert>
-          ) : null}
           <Alert severity="info" variant="outlined" sx={{ py: 0.5 }}>
             {t("settingsPage.agentAccess.connectDataFlowNote")}
+          </Alert>
+          <Alert severity="info" variant="outlined" sx={{ py: 0.5 }}>
+            {t("settingsPage.agentAccess.connectPresetGlobalHint")}
           </Alert>
           {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
         </Stack>
@@ -148,36 +143,6 @@ export function AgentConnectDialog({
       </DialogActions>
     </Dialog>
   );
-}
-
-function presetLabel(preset: AgentConnectPreset, t: ReturnType<typeof useI18n>["t"]) {
-  switch (preset) {
-    case "metadata":
-      return t("settingsPage.agentAccess.presetMetadata");
-    case "bodies":
-      return t("settingsPage.agentAccess.presetBodies");
-    case "raw":
-      return t("settingsPage.agentAccess.presetRaw");
-    case "full":
-      return t("settingsPage.agentAccess.presetFull");
-    case "current":
-      return t("settingsPage.agentAccess.presetCurrent");
-  }
-}
-
-function presetDescription(preset: AgentConnectPreset, t: ReturnType<typeof useI18n>["t"]) {
-  switch (preset) {
-    case "metadata":
-      return t("settingsPage.agentAccess.presetMetadataDescription");
-    case "bodies":
-      return t("settingsPage.agentAccess.presetBodiesDescription");
-    case "raw":
-      return t("settingsPage.agentAccess.presetRawDescription");
-    case "full":
-      return t("settingsPage.agentAccess.presetFullDescription");
-    case "current":
-      return t("settingsPage.agentAccess.presetCurrentDescription");
-  }
 }
 
 function permissionsSummary(
@@ -201,12 +166,6 @@ function permissionsSummary(
     permissions.manageCertificates,
     permissions.deleteSessions,
   ].filter(Boolean).length;
-  if (controlPermissionCount > 0) {
-    parts.push(
-      controlPermissionCount === 4
-        ? t("settingsPage.agentAccess.fullControlBadge")
-        : t("settingsPage.agentAccess.controlPermissionsTitle"),
-    );
-  }
+  if (controlPermissionCount > 0) parts.push(t("settingsPage.agentAccess.controlPermissionsTitle"));
   return parts.join(" · ");
 }

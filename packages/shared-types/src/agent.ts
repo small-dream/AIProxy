@@ -20,6 +20,113 @@ export type AgentAccessPermissions = {
   manageGlobalAutomation: boolean;
 };
 
+export type AgentCapability = keyof AgentAccessPermissions;
+export type AgentGrantRequestPolicy = "deny" | "ask";
+export type AgentGrantRequestPolicyMap = Record<AgentCapability, AgentGrantRequestPolicy>;
+export type AgentGrantStatus =
+  | "pending"
+  | "approved"
+  | "executing"
+  | "succeeded"
+  | "failed"
+  | "unknown"
+  | "expired"
+  | "revoked"
+  | "denied"
+  | "cancelled";
+export type AgentGrantApprovalOption = "once" | "fifteenMinutes";
+
+export type AgentGrantScope = {
+  sessionIds?: string[];
+  connectionIds?: string[];
+  host?: string | null;
+  pathPrefix?: string | null;
+  methods?: string[];
+  workspaceId?: string | null;
+  automationRoots?: string[];
+  origins?: string[];
+};
+
+export type AgentGrantResourcePolicy = {
+  lifecycle: "ephemeral" | "persistent";
+  ttlSeconds?: number | null;
+  cleanup: "agentOwnedOnly" | "manual";
+};
+
+export type AgentGrantRequest = {
+  capability: AgentCapability;
+  actionFingerprint: string;
+  actionSummary: string;
+  scope: AgentGrantScope;
+  reason: string;
+  approvalOptions: AgentGrantApprovalOption[];
+  expiresInSeconds: number;
+  nonIdempotent: boolean;
+  resourcePolicy?: AgentGrantResourcePolicy | null;
+};
+
+export type AgentGrant = {
+  id: string;
+  requestId: string;
+  capability: AgentCapability;
+  clientName: string;
+  clientVersion: string;
+  agentInstanceId: string;
+  actionFingerprint: string;
+  actionSummary: string;
+  scope: AgentGrantScope;
+  reason: string;
+  createdAt: string;
+  approvedAt?: string | null;
+  expiresAt: string;
+  maxUses: number;
+  remainingUses: number;
+  resourcePolicy?: AgentGrantResourcePolicy | null;
+  status: AgentGrantStatus;
+  approvalOption: AgentGrantApprovalOption;
+  nonIdempotent: boolean;
+  approvalOptions: AgentGrantApprovalOption[];
+};
+
+export type AgentAccessGrantList = {
+  grants: AgentGrant[];
+  pendingCount: number;
+  storePath: string;
+};
+
+export type ApproveAgentAccessGrantInput = {
+  requestId: string;
+  option: AgentGrantApprovalOption;
+};
+
+export type AgentAccessGrantInput = {
+  requestId: string;
+};
+
+export type RevokeAgentAccessGrantInput = {
+  grantId: string;
+};
+
+export type AgentAccessGrantChangedEvent = {
+  grant: AgentGrant;
+};
+
+export type AgentAccessResidualEffects = {
+  captureRunning: boolean;
+  systemProxyEnabled: boolean;
+  workspaceId?: string | null;
+  certificateTrusted: boolean;
+  agentRuleCount: number;
+  agentAutomationResourceCount: number;
+};
+
+export type RevokeAgentControlResult = {
+  revokedCapabilities: AgentCapability[];
+  retainedReadCapabilities: AgentCapability[];
+  activeEffects: AgentAccessResidualEffects;
+  grantsCleared: boolean;
+};
+
 export type AgentAccessLimits = {
   maxSessions: number;
   maxBodyBytes: number;
@@ -65,6 +172,7 @@ export type AgentAccessSettings = {
   automationApprovedRoots: string[];
   proxiedVerificationOrigins: string[];
   automationCrossHostOrigins: string[];
+  grantRequestPolicy: AgentGrantRequestPolicyMap;
   automationApprovedRootStatuses: AutomationApprovedRootStatus[];
   updatedAt?: string | null;
   dataDir: string;
@@ -87,6 +195,7 @@ export type UpdateAgentAccessSettingsInput = {
   automationApprovedRoots: string[];
   proxiedVerificationOrigins: string[];
   automationCrossHostOrigins: string[];
+  grantRequestPolicy: AgentGrantRequestPolicyMap;
 };
 
 export type AutomationApprovedRootStatus = {

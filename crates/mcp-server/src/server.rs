@@ -187,7 +187,17 @@ impl AiProxyMcpServer {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         let started = Instant::now();
-        match get_session_body(&self.state, request).await {
+        let (client_name, client_version) = client_identity(&context);
+        match get_session_body(
+            &self.state,
+            request,
+            ControlCaller {
+                name: &client_name,
+                version: &client_version,
+            },
+        )
+        .await
+        {
             Ok((data, meta)) => finish_success(
                 &self.state,
                 &context,
@@ -214,7 +224,17 @@ impl AiProxyMcpServer {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         let started = Instant::now();
-        match get_session_fields(&self.state, request).await {
+        let (client_name, client_version) = client_identity(&context);
+        match get_session_fields(
+            &self.state,
+            request,
+            ControlCaller {
+                name: &client_name,
+                version: &client_version,
+            },
+        )
+        .await
+        {
             Ok((data, meta)) => finish_success(
                 &self.state,
                 &context,
@@ -275,7 +295,17 @@ impl AiProxyMcpServer {
         context: RequestContext<RoleServer>,
     ) -> CallToolResult {
         let started = Instant::now();
-        match get_messages(&self.state, request).await {
+        let (client_name, client_version) = client_identity(&context);
+        match get_messages(
+            &self.state,
+            request,
+            ControlCaller {
+                name: &client_name,
+                version: &client_version,
+            },
+        )
+        .await
+        {
             Ok((data, meta)) => finish_success(
                 &self.state,
                 &context,
@@ -336,7 +366,17 @@ impl AiProxyMcpServer {
     ) -> CallToolResult {
         let started = Instant::now();
         let sensitive = request.include_body || request.redaction_mode == RedactionMode::Raw;
-        match compare_sessions(&self.state, request).await {
+        let (client_name, client_version) = client_identity(&context);
+        match compare_sessions(
+            &self.state,
+            request,
+            ControlCaller {
+                name: &client_name,
+                version: &client_version,
+            },
+        )
+        .await
+        {
             Ok((data, meta)) => finish_success(
                 &self.state,
                 &context,

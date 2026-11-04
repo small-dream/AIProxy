@@ -21,57 +21,56 @@ const INFO: AgentClientInfo = {
 };
 
 describe("AgentConnectDialog", () => {
-  it("offers full control and reports preset changes", () => {
+  it("offers scenario presets and reports preset changes", () => {
     const onChangePreset = vi.fn();
     render(
       <AppProviders>
         <AgentConnectDialog
           busy={false}
           clientLabel="Codex"
-          currentPermissions={permissionsForPreset("bodies")}
+          currentPermissions={permissionsForPreset("readOnly")}
           info={INFO}
           onCancel={vi.fn()}
           onChangePreset={onChangePreset}
           onConfirm={vi.fn()}
           open
-          preset="bodies"
+          preset="readOnly"
         />
       </AppProviders>,
     );
 
-    expect(screen.getByRole("radio", { name: /full control/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: /full control/i }));
-    expect(onChangePreset).toHaveBeenCalledWith("full");
+    expect(screen.getByRole("radio", { name: /^read-only analysis/i })).toBeChecked();
+    expect(screen.queryByRole("radio", { name: /full control/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /^debug and replay/i }));
+    expect(onChangePreset).toHaveBeenCalledWith("debugReplay");
   });
 
-  it("warns clearly when full control is selected", () => {
+  it("makes the automation experiment boundary explicit", () => {
     render(
       <AppProviders>
         <AgentConnectDialog
           busy={false}
           clientLabel="Codex"
-          currentPermissions={permissionsForPreset("full")}
+          currentPermissions={permissionsForPreset("automationExperiment")}
           info={INFO}
           onCancel={vi.fn()}
           onChangePreset={vi.fn()}
           onConfirm={vi.fn()}
           open
-          preset="full"
+          preset="automationExperiment"
         />
       </AppProviders>,
     );
 
     expect(
-      screen.getByText(
-        /Full control enables all six base controls and all six automation permissions/i,
-      ),
+      screen.getByText(/capture, system proxy, and map local roots stay explicitly off/i),
     ).toBeVisible();
-    expect(screen.getByText(/full control/i, { selector: "span" })).toBeVisible();
+    expect(screen.getByText(/permissions are global to aiproxy/i)).toBeVisible();
   });
 
   it("preserves partial control permissions by default on reconnect", () => {
     const currentPermissions = {
-      ...permissionsForPreset("bodies"),
+      ...permissionsForPreset("readOnly"),
       controlCapture: true,
       deleteSessions: true,
     };
@@ -91,7 +90,7 @@ describe("AgentConnectDialog", () => {
       </AppProviders>,
     );
 
-    expect(screen.getByRole("radio", { name: /keep current permissions/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /^keep current permissions/i })).toBeChecked();
     expect(screen.getByText(/control permissions/i)).toBeVisible();
   });
 

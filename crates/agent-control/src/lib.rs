@@ -6,10 +6,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod automation;
+mod grant;
 
 pub use automation::*;
+pub use grant::*;
 
-pub const CONTROL_PROTOCOL_VERSION: u16 = 1;
+pub const CONTROL_PROTOCOL_VERSION: u16 = 2;
 pub const CONTROL_DESCRIPTOR_FILE: &str = "agent-control.json";
 // A configure_workspace request may legitimately carry 500 include rules and
 // 500 exclude rules, each up to 1 KiB. Keep a hard bound without rejecting a
@@ -45,6 +47,14 @@ pub struct ControlRequest {
     pub client_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_version: Option<String>,
+    /// Stable for one sidecar process. A restart invalidates all earlier grants.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_instance_id: Option<String>,
+    /// Grants approved in the desktop UI for this exact action fingerprint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grant_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_fingerprint: Option<String>,
     pub operation: ControlOperation,
 }
 
@@ -74,12 +84,17 @@ pub enum ControlOperation {
     GetAutomationChange(GetAutomationChangeParams),
     RollbackAutomationChange(RollbackAutomationChangeParams),
     ClearAgentAutomation(ClearAgentAutomationParams),
+    RequestAgentGrant(AgentGrantRequest),
+    ConsumeAgentGrant(ConsumeAgentGrantParams),
 }
 
 impl ControlOperation {
     pub fn required_permissions(&self) -> Vec<ControlPermission> {
         match self {
-            Self::GetStatus | Self::ReadDiagnosticLogs(_) => Vec::new(),
+            Self::GetStatus
+            | Self::ReadDiagnosticLogs(_)
+            | Self::RequestAgentGrant(_)
+            | Self::ConsumeAgentGrant(_) => Vec::new(),
             Self::ConfigureWorkspace(_) | Self::StartCapture(_) | Self::StopCapture(_) => {
                 vec![ControlPermission::ControlCapture]
             }
@@ -125,6 +140,8 @@ impl ControlOperation {
                 | Self::GetAutomationResource(_)
                 | Self::ValidateAutomationPlan(_)
                 | Self::GetAutomationChange(_)
+                | Self::RequestAgentGrant(_)
+                | Self::ConsumeAgentGrant(_)
         )
     }
 
@@ -153,6 +170,8 @@ impl ControlOperation {
             Self::GetAutomationChange(_) => "getAutomationChange",
             Self::RollbackAutomationChange(_) => "rollbackAutomationChange",
             Self::ClearAgentAutomation(_) => "clearAgentAutomation",
+            Self::RequestAgentGrant(_) => "requestAgentGrant",
+            Self::ConsumeAgentGrant(_) => "consumeAgentGrant",
         }
     }
 
@@ -184,6 +203,8 @@ impl ControlOperation {
             Self::GetAutomationChange(_) => "get_automation_change",
             Self::RollbackAutomationChange(_) => "rollback_automation_change",
             Self::ClearAgentAutomation(_) => "clear_agent_automation",
+            Self::RequestAgentGrant(_) => "request_agent_grant",
+            Self::ConsumeAgentGrant(_) => "consume_agent_grant",
         }
     }
 
@@ -280,6 +301,14 @@ impl ControlOperation {
                 "Clear Agent-owned {} automation resources in {}",
                 params.lifecycle, params.scope
             ),
+            Self::RequestAgentGrant(params) => format!(
+                "Request {} approval for {}",
+                params.capability.as_str(),
+                params.action_summary
+            ),
+            Self::ConsumeAgentGrant(params) => {
+                format!("Consume one approval for {}", params.capability.as_str())
+            }
         }
     }
 }
@@ -873,6 +902,9 @@ mod tests {
             token: "a".repeat(64),
             client_name: Some("codex".to_string()),
             client_version: Some("1.0".to_string()),
+            agent_instance_id: None,
+            grant_ids: Vec::new(),
+            action_fingerprint: None,
             operation: ControlOperation::ConfigureWorkspace(ConfigureWorkspaceParams {
                 workspace_id: Some("default".to_string()),
                 proxy_port: Some(8899),

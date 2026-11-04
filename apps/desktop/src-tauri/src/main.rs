@@ -24,6 +24,7 @@ extern crate rust_i18n;
 rust_i18n::i18n!("locales", fallback = "en");
 
 mod agent_control;
+mod agent_grants;
 mod agent_replay;
 mod agent_rules;
 mod agent_status;
@@ -211,6 +212,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             agent_control::get_recent_agent_control_actions,
             agent_control::clear_agent_rules,
+            agent_grants::list_agent_access_grants,
+            agent_grants::approve_agent_access_grant,
+            agent_grants::deny_agent_access_grant,
+            agent_grants::revoke_agent_access_grant,
             commands::get_bootstrap_status,
             commands::list_sessions,
             commands::get_session_detail,
@@ -307,6 +312,7 @@ pub fn run() {
             commands::test_ai_connection,
             commands::get_agent_access_settings,
             commands::update_agent_access_settings,
+            commands::revoke_agent_control_permissions,
             commands::pick_automation_approved_root,
             commands::list_automation_changes,
             commands::get_automation_change,
@@ -325,6 +331,17 @@ pub fn run() {
         ])
         .setup(|app| {
             let app_state = initialize_app_state().map_err(std::io::Error::other)?;
+            if let Err(error) = aiproxy_db::connection::resolve_db_dir()
+                .map_err(|error| error.to_string())
+                .and_then(|data_dir| agent_grants::initialize(&data_dir))
+            {
+                tracing::warn!(
+                    component = "desktop.agent_grants",
+                    event = "grant_store_initialize_failed",
+                    error = %error,
+                    "grant_store_initialize_failed"
+                );
+            }
             let _ = app.manage(Arc::new(app_state));
             let state = app.state::<Arc<AppState>>();
             state.set_app_handle(app.handle().clone());
@@ -425,6 +442,14 @@ fn run_heavy_shutdown_cleanup(app_handle: &tauri::AppHandle) {
     }
 
     agent_control::shutdown();
+    if let Err(error) = agent_grants::clear() {
+        tracing::warn!(
+            component = "desktop.agent_grants",
+            event = "grant_store_clear_failed",
+            error = %error,
+            "grant_store_clear_failed"
+        );
+    }
     let app_state = app_handle.state::<Arc<AppState>>();
     agent_status::write_shutdown(&app_state);
     let workspace_id = app_state

@@ -1,14 +1,15 @@
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
+use aiproxy_agent_control::{AgentCapability, AgentGrantRequestPolicy};
 use serde::{Deserialize, Serialize};
 
-pub const AGENT_ACCESS_CONFIG_VERSION: u32 = 4;
+pub const AGENT_ACCESS_CONFIG_VERSION: u32 = 5;
 const MIN_SUPPORTED_CONFIG_VERSION: u32 = 2;
 // Control permissions are additive and older readers ignore unknown fields.
 // Keep the on-disk envelope at the oldest supported version so an older
 // read-only sidecar can still read the same configuration after this app is
-// upgraded. Readers normalize the in-memory contract to version 4.
+// upgraded. Readers normalize the in-memory contract to the current version.
 const BACKWARD_COMPATIBLE_DISK_VERSION: u32 = MIN_SUPPORTED_CONFIG_VERSION;
 pub const DEFAULT_MAX_SESSIONS: usize = 100;
 pub const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
@@ -113,6 +114,30 @@ impl Default for AgentAccessPermissions {
     }
 }
 
+impl AgentAccessPermissions {
+    pub fn allows(self, capability: AgentCapability) -> bool {
+        match capability {
+            AgentCapability::ReadSessions => self.read_sessions,
+            AgentCapability::ReadBodies => self.read_bodies,
+            AgentCapability::ReadRawBodies => self.read_raw_bodies,
+            AgentCapability::ReadWebSocket => self.read_web_socket,
+            AgentCapability::ExportSnapshots => self.export_snapshots,
+            AgentCapability::ControlCapture => self.control_capture,
+            AgentCapability::ControlSystemProxy => self.control_system_proxy,
+            AgentCapability::ManageCertificates => self.manage_certificates,
+            AgentCapability::DeleteSessions => self.delete_sessions,
+            AgentCapability::SendRequests => self.send_requests,
+            AgentCapability::ManageRules => self.manage_rules,
+            AgentCapability::ManageAutomation => self.manage_automation,
+            AgentCapability::ManageUserAutomation => self.manage_user_automation,
+            AgentCapability::ManageScripts => self.manage_scripts,
+            AgentCapability::ManageCrossHostMappings => self.manage_cross_host_mappings,
+            AgentCapability::ManageProxiedVerification => self.manage_proxied_verification,
+            AgentCapability::ManageGlobalAutomation => self.manage_global_automation,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentAccessLimits {
@@ -185,6 +210,10 @@ pub struct AgentAccessConfig {
     /// Exact origins the user approved for future cross-host Map Remote rules.
     #[serde(default)]
     pub automation_cross_host_origins: Vec<String>,
+    /// Whether a capability that is not permanently enabled may request a
+    /// short-lived desktop approval. `deny` keeps the capability hard-closed.
+    #[serde(default = "default_grant_request_policy")]
+    pub grant_request_policy: std::collections::BTreeMap<AgentCapability, AgentGrantRequestPolicy>,
     pub updated_at: Option<String>,
 }
 
@@ -200,9 +229,49 @@ impl Default for AgentAccessConfig {
             automation_approved_roots: Vec::new(),
             proxied_verification_origins: Vec::new(),
             automation_cross_host_origins: Vec::new(),
+            grant_request_policy: default_grant_request_policy(),
             updated_at: None,
         }
     }
+}
+
+fn default_grant_request_policy(
+) -> std::collections::BTreeMap<AgentCapability, AgentGrantRequestPolicy> {
+    const CAPABILITIES: [AgentCapability; 17] = [
+        AgentCapability::ReadSessions,
+        AgentCapability::ReadBodies,
+        AgentCapability::ReadRawBodies,
+        AgentCapability::ReadWebSocket,
+        AgentCapability::ExportSnapshots,
+        AgentCapability::ControlCapture,
+        AgentCapability::ControlSystemProxy,
+        AgentCapability::ManageCertificates,
+        AgentCapability::DeleteSessions,
+        AgentCapability::SendRequests,
+        AgentCapability::ManageRules,
+        AgentCapability::ManageAutomation,
+        AgentCapability::ManageUserAutomation,
+        AgentCapability::ManageScripts,
+        AgentCapability::ManageCrossHostMappings,
+        AgentCapability::ManageProxiedVerification,
+        AgentCapability::ManageGlobalAutomation,
+    ];
+    CAPABILITIES
+        .into_iter()
+        .map(|capability| {
+            let policy = match capability {
+                AgentCapability::ControlSystemProxy
+                | AgentCapability::ManageCertificates
+                | AgentCapability::DeleteSessions
+                | AgentCapability::ManageScripts
+                | AgentCapability::ManageCrossHostMappings
+                | AgentCapability::ManageUserAutomation
+                | AgentCapability::ManageGlobalAutomation => AgentGrantRequestPolicy::Deny,
+                _ => AgentGrantRequestPolicy::Ask,
+            };
+            (capability, policy)
+        })
+        .collect()
 }
 
 impl AgentAccessConfig {
@@ -251,6 +320,11 @@ impl AgentAccessConfig {
             .collect();
         self.proxied_verification_origins = normalize_origins(self.proxied_verification_origins);
         self.automation_cross_host_origins = normalize_origins(self.automation_cross_host_origins);
+        for (capability, policy) in default_grant_request_policy() {
+            self.grant_request_policy
+                .entry(capability)
+                .or_insert(policy);
+        }
         self
     }
 }
@@ -592,5 +666,28 @@ mod tests {
         assert!(!loaded.permissions.manage_cross_host_mappings);
         assert!(!loaded.permissions.manage_proxied_verification);
         assert!(!loaded.permissions.manage_global_automation);
+    }
+
+    #[test]
+    fn default_grant_requests_are_denied_for_destructive_capabilities() {
+        let policy = AgentAccessConfig::default().grant_request_policy;
+        for capability in [
+            AgentCapability::ControlSystemProxy,
+            AgentCapability::ManageCertificates,
+            AgentCapability::DeleteSessions,
+            AgentCapability::ManageScripts,
+            AgentCapability::ManageCrossHostMappings,
+            AgentCapability::ManageUserAutomation,
+            AgentCapability::ManageGlobalAutomation,
+        ] {
+            assert_eq!(
+                policy.get(&capability),
+                Some(&AgentGrantRequestPolicy::Deny)
+            );
+        }
+        assert_eq!(
+            policy.get(&AgentCapability::ReadBodies),
+            Some(&AgentGrantRequestPolicy::Ask)
+        );
     }
 }

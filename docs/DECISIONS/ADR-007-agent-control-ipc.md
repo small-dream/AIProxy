@@ -1,6 +1,6 @@
 # ADR-007：Agent 控制通过受权限约束的本地 IPC 执行
 
-- 状态：`Accepted`（控制权限与工具范围已由 ADR-009 扩展）
+- 状态：`Accepted`（控制权限与工具范围已由 ADR-009 扩展；授权确认语义已由 ADR-011 修订为禁止 / 请求时询问 / 始终允许三态）
 - 日期：`2026-10-26`
 - 关联文档：`docs/PRD.md`、`docs/ARCHITECTURE.md`、`docs/API_SPEC.md`、`docs/DECISIONS/ADR-006-local-mcp-agent-access.md`
 

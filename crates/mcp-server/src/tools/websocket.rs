@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::context::AppContext;
+use crate::control_client::ControlCaller;
 use crate::protocol::{ToolError, ToolMeta};
 use crate::redaction::Redactor;
 
@@ -29,13 +30,20 @@ pub struct GetWebSocketMessagesRequest {
 pub async fn get_messages(
     state: &AppContext,
     request: GetWebSocketMessagesRequest,
+    caller: ControlCaller<'_>,
 ) -> Result<(Value, ToolMeta), ToolError> {
-    let config = state.config()?;
-    if !config.permissions.read_web_socket {
-        return Err(ToolError::permission_denied(
-            "WebSocket reading is disabled. Enable readWebSocket in AIProxy Settings > Agent Access.",
-        ));
-    }
+    let config = state
+        .ensure_capability(
+            aiproxy_agent_control::AgentCapability::ReadWebSocket,
+            format!("Read WebSocket messages for session {}", request.session_id),
+            aiproxy_agent_control::AgentGrantScope {
+                session_ids: vec![request.session_id.clone()],
+                ..aiproxy_agent_control::AgentGrantScope::default()
+            },
+            "Reading WebSocket payloads requires temporary message access.".to_string(),
+            caller,
+        )
+        .await?;
     if !state
         .capabilities()
         .is_some_and(|capabilities| capabilities.websocket_messages)

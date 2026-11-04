@@ -12,8 +12,10 @@ use crate::config::{
     read_config, AgentAccessConfig, AppPaths, ConfigReadError, DEFAULT_MAX_BODY_BYTES,
     DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_MAX_SESSIONS,
 };
+use crate::control_client::{request_capability_grant, CapabilityGrantRequest, ControlCaller};
 use crate::protocol::ToolError;
 use crate::status::read_capture_status;
+use aiproxy_agent_control::{AgentCapability, AgentGrantRequestPolicy, AgentGrantScope};
 
 pub const TOOL_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -90,6 +92,7 @@ fn probe_schema(db_path: &Path) -> SchemaProbe {
 
 impl AppContext {
     pub fn new(paths: AppPaths) -> Self {
+        let _ = crate::control_client::initialize_agent_instance_id();
         let schema = Arc::new(Mutex::new(probe_schema(&paths.db_path)));
 
         Self {
@@ -139,6 +142,45 @@ impl AppContext {
         if !config.enabled {
             return Err(ToolError::disabled());
         }
+        Ok(config)
+    }
+
+    pub async fn ensure_capability(
+        &self,
+        capability: AgentCapability,
+        action_summary: String,
+        scope: AgentGrantScope,
+        reason: String,
+        caller: ControlCaller<'_>,
+    ) -> Result<AgentAccessConfig, ToolError> {
+        let config = self.config()?;
+        if config.permissions.allows(capability) {
+            return Ok(config);
+        }
+        if config.grant_request_policy.get(&capability) != Some(&AgentGrantRequestPolicy::Ask) {
+            return Err(ToolError::permission_denied(format!(
+                "{} is disabled and is not allowed to request temporary approval. Enable it in AIProxy Settings > Agent Access.",
+                capability.as_str()
+            ))
+            .with_details(json!({
+                "capability": capability,
+                "approvalRequired": false,
+            })));
+        }
+        let grant = request_capability_grant(
+            &self.paths,
+            CapabilityGrantRequest {
+                capability,
+                action_summary,
+                scope,
+                reason,
+                non_idempotent: false,
+                resource_policy: None,
+            },
+            caller,
+        )
+        .await?;
+        crate::control_client::consume_capability_grant(&self.paths, &grant, caller).await?;
         Ok(config)
     }
 

@@ -424,7 +424,10 @@ flowchart LR
 - 12 个控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`replay_session`、`create_agent_rule`、`remove_agent_rules`
 - 8 个自动化工具：`list_automation_resources`、`get_automation_resource`、`validate_automation_plan`、`apply_automation_plan`、`verify_automation_change`、`get_automation_change`、`rollback_automation_change`、`clear_agent_automation`
 - 权限分为旧控制权限 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules`，以及新增自动化权限 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification`、`manageGlobalAutomation`；全部默认关闭
-- 新权限与旧授权隔离：升级不会把 `manageRules` 推导为任何新权限；配置内存契约版本为 `4`，磁盘兼容信封仍为 `2`，缺失字段按 `false` 归一化
+- 新权限与旧授权隔离：升级不会把 `manageRules` 推导为任何新权限；配置内存契约版本为 `5`，磁盘兼容信封仍为 `2`，缺失字段按 `false` 归一化
+- 每项能力统一为 `禁止 / 请求时询问 / 始终允许` 三态。高风险能力默认禁止；`请求时询问` 只在具体动作上申请限时授权，不能绕过静态权限、根目录、origin、TTL 或频率限制
+- 限时授权绑定 sidecar 实例、客户端名称/版本、能力与动作指纹；一次性授权 60 秒内允许 1 次，可重复授权 15 分钟内最多 50 次，非幂等与高风险动作只允许一次。应用重启后临时授权全部失效
+- 支持全局审批对话框与系统通知、待审批/有效授权列表、单条撤销；立即收回控制会关闭全部控制与自动化权限、清除临时授权并返回仍在生效的抓包、系统代理、证书和 Agent 资源
 - `replay_session` 直连原始上游 host，严格锁定 host，串行发送且每分钟最多 10 次；它不经过抓包端口，也不执行用户或 Agent 规则。重放结果作为 `timingSource=agentReplay` 的新会话持久化，失败时返回结构化原因
 - 自动化计划先 `validate` 再 `apply`，使用 `expectedPlanHash`、`expectedScopeHash` 与安装实例级幂等键；计划最多 100 项、序列化不超过 3 MiB、scope 首版仅支持 workspace
 - 首版写能力仅覆盖 Rewrite 与 Map Local：可创建、更新、删除常驻资源，也可创建只读临时资源；Map Remote、DNS、Script、Throttle、Breakpoint 与 Throttle 激活返回 `FEATURE_NOT_AVAILABLE`
@@ -452,12 +455,12 @@ flowchart LR
 - 验证连接同时检查控制通道协议版本、启用中的控制权限分组和工具数量
 - 支持从客户端移除 `aiproxy` 条目并删除 AIProxy 安装的 Skill；原配置先备份，自定义 Skill 不删除
 - Codex / Claude Code / Cursor 三客户端配置指引；均使用用户级全局配置，Claude Code 写入 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`）
-- 连接前选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据 / 完整控制），并在 Body 关闭时提示 Agent 无法分析响应体
+- 连接前选择任务预设（仅元数据 / 只读分析 / 调试与重放 / 自动化实验），预设只填写权限草稿且必须精确匹配；Body 关闭时提示 Agent 无法分析响应体
 - MCP 结果 `meta` 返回 `latestSessionAt`、`captureStatus` 与 `captureUpdatedAt`，让 Agent 能说明“数据截止 12:03”而不是假装实时
-- Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化；当前 Skill 版本为 `3.4`
+- Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化；当前 Skill 版本为 `3.5`
 - AIProxy 管理的旧 Skill 在应用启动时自动升级；缺失文件不创建、自定义 Skill 不覆盖，旧版应用不会降级更新版 Skill
 - 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
-- 明确数据流向：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；应用内不再二次确认已授权控制操作，但删除类和撤销证书信任仍要求当前对话明确请求
+- 明确数据流向：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；`始终允许` 的控制操作不弹应用内确认，`请求时询问` 的控制必须先通过全局审批卡；删除类和撤销证书信任仍要求当前对话明确请求
 
 非目标（本版本）：
 

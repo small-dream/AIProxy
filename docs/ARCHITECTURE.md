@@ -388,13 +388,20 @@ TLS 证书缓存机制：
 - 通过 `aiproxy-mcp` stdio sidecar 向 Codex、Claude Code、Cursor 暴露 33 个工具（schema `3.3`）：10 个读取工具、2 个只读诊断工具、1 个 legacy 临时规则读取工具、12 个控制工具与 8 个自动化工具
 - 复用 `aiproxy-db` 的会话检索、详情、Body、WebSocket、Insights 与规则 trace 查询
 - 在 sidecar 内强制执行 Agent Access 权限、统一脱敏、字段提取、返回上限、cursor 分页与审计
-- 新增共享 crate `aiproxy-agent-control`，定义控制协议 v1、请求/响应信封、操作 DTO、权限、错误码和描述文件格式
+- 新增共享 crate `aiproxy-agent-control`，定义控制协议 v2、请求/响应信封、操作 DTO、临时授权模型、权限、错误码和描述文件格式
 - 桌面端 `agent_control` 模块启动本地控制服务，复用现有代理、证书、工作区与 Session 内部实现；不复制业务逻辑
-- sidecar 与桌面端双重校验 Agent Access 启用状态、权限分组、token、参数与审计可写性；写操作串行执行并设置 60 秒超时
+- sidecar 与桌面端双重校验 Agent Access 启用状态、权限分组、token、参数、短期授权与审计可写性；写操作串行执行并设置 60 秒超时
 - 控制权限分为旧控制组（抓包、系统代理、证书、Session 删除、重放、legacy 临时规则）与默认关闭的自动化组（`manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification`、`manageGlobalAutomation`）；旧 `manageRules` 不推导任何新权限
+- 每项能力在 UI 中统一映射为 `禁止 / 请求时询问 / 始终允许`。`请求时询问` 由 `grantRequestPolicy=ask` 表示；高风险能力默认 `deny`，从禁止进入询问或始终允许都需要高风险二次确认
+- 临时授权由桌面端 `agent_grants` 模块保存到 `<data-dir>/agent-grants.json`，只对当前桌面进程有效。授权绑定 sidecar 的 `agentInstanceId`、MCP 客户端名称与版本、能力、动作指纹，应用重启后清空
+- 控制动作指纹来自完整 `ControlOperation` DTO，参数变化必须重新审批；读取能力按能力 + 范围生成指纹。同一 sidecar 被多个对话共享时，它们共享同一份限时授权，本版不宣称对话级隔离
+- pending 授权合并、审批等待 30 秒、拒绝冷却 60 秒；一次性授权在 60 秒内允许 1 次，可重复授权在 15 分钟内最多 50 次。非幂等与高风险能力只允许一次
+- 授权消费先原子预占额度并置为 `executing`，预占成功后动作才执行；并发调用不能重复使用同一次额度。响应丢失、审计失败或结果无法确定时标记为 `unknown`，不得自动重试
 - 写操作在应用未运行时以 `--agent-launched` 拉起并聚焦主窗口；单实例插件聚焦已有实例，前端根据 `launchSource=agent` 跳过自动启抓
 - 桌面端写 `agent-status.json` 心跳（抓包状态、端口、工作区），sidecar 据此在 `meta.captureStatus` / `meta.captureUpdatedAt` 中报告新鲜度，并从数据库读取 `meta.latestSessionAt`
 - 由桌面端 Settings > Agent Access 管理读取权限、控制权限、诊断与真实 MCP 握手验证、权限模板、脱敏策略、客户端片段、一键写入/断开与 Skill 安装
+- 全局 `AgentGrantApprovalHost` 挂载在 `AppShell`，负责待审批对话框与系统通知；Settings 的“待审批与限时授权”列表负责管理、刷新与单条撤销。审批不要求用户先进入 Settings
+- `revoke_agent_control_permissions` 立即关闭全部控制与自动化权限、把控制类策略改为 `deny`、清除全部临时授权，并保留读取能力；同时返回仍在运行的抓包、系统代理、证书、Agent 规则与自动化资源，供 UI 提供独立收尾入口
 - `diagnose_ai_proxy_issue` 汇总状态、受限应用日志和元数据审计错误，返回 `findings[]`、`nextActions[]` 与 `evidence.evidenceStatus`；用于 AIProxy 自身故障，不替代会话读取工具
 - `replay_session` 通过 `aiproxy-agent-control` 调用桌面端现有的 `send_direct_request_bytes`，从已持久化会话恢复方法、URL、Headers 与二进制请求 Body；严格锁定原始 host，不经过代理监听端口、用户规则或 Agent 规则。为控制外部副作用，桌面端串行执行并限制为每分钟 10 次
 - 自动化写入由 `apps/desktop/src-tauri/src/automation.rs` 的 `AutomationService`（以 `AppState` 方法暴露）协调：先 validate，再准备托管资产与目标规则，最后在同一 SQLite 事务写入业务数据、ownership、change items 与 change set，随后发布统一运行时并记录 `active`
@@ -423,9 +430,11 @@ TLS 证书缓存机制：
 - Unix：`<data-dir>/agent-control.sock`，权限 `0600`；Windows：仅当前用户 ACL 的 Named Pipe。两种平台均不开放 TCP 端口。
 - 描述文件：`<data-dir>/agent-control.json`，包含协议版本、端点、随机 token、PID、应用版本与启动时间；Unix `0600`，应用退出时删除。
 - 只读 `get_app_status` 不自动启动应用；写工具在控制通道不可用时自动拉起桌面端。控制通道不可用时，只读工具仍按原有数据库/心跳路径工作。
-- additive 操作 `readDiagnosticLogs` 复用控制协议 v1，不新增权限。桌面端只读取当前日志前缀下最近 15 个日滚动文件与 `agent-audit.jsonl`，单次最多 120 行 / 64 KiB / 40 条审计；sidecar 再执行脱敏与单行截断，不开放任意路径。
-- additive 写操作 `replaySession`、`createAgentRule`、`listAgentRules`、`removeAgentRules` 同样复用协议 v1，分别要求 `sendRequests` 与 `manageRules`；自动化操作 `listAutomationResources`、`getAutomationResource`、`validateAutomationPlan`、`applyAutomationPlan`、`verifyAutomationChange`、`getAutomationChange`、`rollbackAutomationChange`、`clearAgentAutomation` 复用协议 v1 并要求 `manageAutomation`，目标资源与代理验证在桌面端继续做细粒度权限检查。未知操作统一返回带升级/重启提示的 `CONTROL_UNAVAILABLE`。
+- 控制协议 v2 在 `ControlRequest` additive 增加 `clientName`、`clientVersion`、`agentInstanceId`、`grantIds` 与 `actionFingerprint`，并新增 `RequestAgentGrant` / `ConsumeAgentGrant`。桌面端与 sidecar 必须同步升级；未知操作和版本不一致返回带升级/重启提示的 `CONTROL_UNAVAILABLE`。
+- additive 操作 `readDiagnosticLogs` 复用控制协议 v2，不新增权限。桌面端只读取当前日志前缀下最近 15 个日滚动文件与 `agent-audit.jsonl`，单次最多 120 行 / 64 KiB / 40 条审计；sidecar 再执行脱敏与单行截断，不开放任意路径。
+- additive 写操作 `replaySession`、`createAgentRule`、`listAgentRules`、`removeAgentRules` 同样复用协议 v2，分别要求 `sendRequests` 与 `manageRules`；自动化操作 `listAutomationResources`、`getAutomationResource`、`validateAutomationPlan`、`applyAutomationPlan`、`verifyAutomationChange`、`getAutomationChange`、`rollbackAutomationChange`、`clearAgentAutomation` 复用协议 v2 并要求 `manageAutomation`，目标资源与代理验证在桌面端继续做细粒度权限检查。
 - 审计日志在动作前确认可写，失败返回 `AUDIT_UNAVAILABLE` 且不执行；控制动作由桌面端作为权威写入点，成功与失败都记录工具、动作摘要、真实客户端身份、耗时和错误码，不记录凭据或 Body。sidecar 不重复记录已由桌面端执行的控制动作。
+- 撤回权限或授权只停止后续调用，不撤销已经执行的副作用。抓包、系统代理、证书信任、legacy Agent 规则和 Agent 自动化资源必须分别停止、恢复或清理；15 分钟授权到期也不会自动删除已经创建的持久资源。
 
 客户端接入：
 
@@ -435,7 +444,7 @@ TLS 证书缓存机制：
 
 应用在用户确认后合并写入客户端配置、先备份原文件，并在启动时自动升级带管理标记的 Skill；缺失文件不创建、自定义 Skill 不覆盖，安装版本高于内置版本时也不会降级。应用支持从客户端移除 `aiproxy` 条目与受管 Skill，复制片段保留为兜底。Sidecar 通过 Tauri `externalBin` 与桌面安装包一起分发。
 
-详细契约见 `docs/MCP_AGENT_SKILL_ARCHITECTURE.md`、`docs/DECISIONS/ADR-006-local-mcp-agent-access.md`、`docs/DECISIONS/ADR-007-agent-control-ipc.md`、`docs/DECISIONS/ADR-008-bounded-diagnostic-log-access.md`、`docs/DECISIONS/ADR-009-agent-replay-and-temporary-rules.md`、`docs/DECISIONS/ADR-010-automation-runtime-and-evidence.md` 与 `docs/API_SPEC.md` 6.14。
+详细契约见 `docs/MCP_AGENT_SKILL_ARCHITECTURE.md`、`docs/DECISIONS/ADR-006-local-mcp-agent-access.md`、`docs/DECISIONS/ADR-007-agent-control-ipc.md`、`docs/DECISIONS/ADR-008-bounded-diagnostic-log-access.md`、`docs/DECISIONS/ADR-009-agent-replay-and-temporary-rules.md`、`docs/DECISIONS/ADR-010-automation-runtime-and-evidence.md`、`docs/DECISIONS/ADR-011-agent-access-limited-grants.md` 与 `docs/API_SPEC.md` 6.14。
 
 ## 7. 前后端交互设计
 

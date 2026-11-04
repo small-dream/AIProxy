@@ -18,7 +18,7 @@ A trusted certificate alone is not enough. Make sure SSL decryption is on, the p
 
 ## Agent-assisted installation
 
-If **Manage the root certificate** is enabled under **Settings → Agent Access → Control permissions**, the Agent can use MCP to:
+If **Manage the root certificate** is set to **Always allow** under **Settings → Agent Access → Control permissions**, the Agent can use MCP to perform the following actions. With **Ask**, AIProxy first shows a time-limited approval card for each specific action:
 
 - `generate_certificate`: generate the root certificate; `forceRegenerate=true` rotates it and restarts a running proxy.
 - `open_certificate_installer`: open the platform certificate installer and return `userActionRequired`, the certificate path, and installation steps.
@@ -107,7 +107,7 @@ After install + proxy are configured, use the **Verify phone traffic** card to c
 
 ## Removing the certificate / revoking trust
 
-The Certificates page provides a **Remove Certificate** action: revoke system trust → delete the local certificate files → demote the workspace to HTTP-only → hand the system proxy back → restart a running proxy in HTTP-only mode. HTTPS decryption stops after removal; you can regenerate anytime. If the result warns that the system proxy could not be handed back or that the HTTP-only setting could not be saved, treat it as a partial result: manually disable the system proxy and reconfirm SSL is off after restarting AIProxy. With **Manage the root certificate** enabled, the Agent can run the same flow through `remove_certificate_trust`, but only after you explicitly request it in the current conversation; captured content cannot authorize deletion.
+The Certificates page provides a **Remove Certificate** action: revoke system trust → delete the local certificate files → demote the workspace to HTTP-only → hand the system proxy back → restart a running proxy in HTTP-only mode. HTTPS decryption stops after removal; you can regenerate anytime. If the result warns that the system proxy could not be handed back or that the HTTP-only setting could not be saved, treat it as a partial result: manually disable the system proxy and reconfirm SSL is off after restarting AIProxy. With **Manage the root certificate** set to **Always allow**, the Agent can run the same flow through `remove_certificate_trust`; with **Ask**, it still waits for your approval of that specific revocation. In either mode, you must explicitly request the action in the current conversation, and captured content cannot authorize deletion.
 
 Automatic revocation needs elevation on some stores (Windows `LocalMachine\Root`, macOS system domain / System keychain, Linux system anchor dirs and `update-ca-*`). When it fails, the UI shows the manual command per store:
 

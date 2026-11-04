@@ -6,7 +6,7 @@
 - 文档状态：`Current v3.3（读取 + 受控操作 + 复现闭环 + 自动化实验；v1 只读基线保留为历史背景）`
 
 > 历史说明：本文最初记录 v1 只读架构。v3.0 通过 ADR-007 引入受权限约束的本地 IPC 控制，v3.1 通过 ADR-008 引入受限诊断，v3.2 通过 ADR-009 引入直连重放、结构化失败原因与内存临时 Agent 规则，v3.3 通过 ADR-010 引入数据库权威自动化状态、统一运行时快照、资源级回滚与三级证据。当前工具契约、权限与错误码以 `docs/API_SPEC.md`、ADR-007、ADR-008、ADR-009 与 `docs/DECISIONS/ADR-010-automation-runtime-and-evidence.md` 为准；下文的“只读”“写操作后置”等描述仅保留为历史基线。
-> 实现说明：2026-10-18 已落地 schema 2.1、字段提取、批量字段读取、结构化比较与可配置脱敏；2026-10-29 已落地 schema 3.1、受控诊断工具与白名单日志读取；2026-10-30 已落地 schema 3.2、`wait_for_sessions`、cURL 导出、失败原因、请求重放、临时 Agent 规则，以及 Skill 3.3 的大 JSON 流式按需提取；2026-11-04 已落地 schema 3.3、8 个自动化工具、Rewrite + Map Local 实验闭环、资源级回滚与 Skill 3.4。实际模块、命令、客户端路径与验证结果见文末「实现状态」。
+> 实现说明：2026-10-18 已落地 schema 2.1、字段提取、批量字段读取、结构化比较与可配置脱敏；2026-10-29 已落地 schema 3.1、受控诊断工具与白名单日志读取；2026-10-30 已落地 schema 3.2、`wait_for_sessions`、cURL 导出、失败原因、请求重放、临时 Agent 规则，以及 Skill 3.3 的大 JSON 流式按需提取；2026-11-04 已落地 schema 3.3、8 个自动化工具、Rewrite + Map Local 实验闭环、资源级回滚，以及加入三态权限与限时授权语义的 Skill 3.5。实际模块、命令、客户端路径与验证结果见文末「实现状态」。
 - 更新日期：`2026-11-04`
 - 适用范围：AIProxy Desktop、Rust 核心、`aiproxy-mcp` sidecar、Codex / Claude Code / Cursor 等 Agent 客户端
 - 配套产品规划：`docs/MCP_AGENT_SKILL_PLAN.md`
@@ -933,7 +933,7 @@ Skill 不存放用户数据、API key 或抓包样本；示例只使用合成的
 ---
 name: aiproxy
 description: Analyze captured HTTP/WebSocket traffic and diagnose AIProxy failures through MCP. Use when the user mentions AIProxy, packet capture, proxy traffic, failing requests, latency regressions, header/body differences, Timing, WebSocket, AB experiment cohorts, setup/certificate/control-channel failures, or asks for evidence by sessionId. 当用户提到 AIProxy、抓包、网络请求、接口调试、Timing、WebSocket、AB 实验分组，或需要以 sessionId 为证据分析流量、排查 AIProxy 设置与连接故障时使用。
-version: 3.4
+version: 3.5
 mcpSchemaMin: 3.3
 ---
 

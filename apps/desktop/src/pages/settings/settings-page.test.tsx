@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +25,11 @@ function permissionsWith(keys: readonly (keyof AgentAccessPermissions)[] = []) {
     AGENT_PERMISSION_KEYS.map((key) => [key, keys.includes(key)]),
   ) as AgentAccessPermissions;
   return permissions;
+}
+
+async function chooseCapabilityMode(label: string, option: string) {
+  fireEvent.mouseDown(screen.getByRole("combobox", { name: `${label} permission policy` }));
+  fireEvent.click(await screen.findByRole("option", { name: option }));
 }
 
 afterEach(() => {
@@ -90,7 +95,9 @@ describe("SettingsPage navigation", () => {
     fireEvent.click(results.at(-1)!);
 
     expect(
-      await screen.findByRole("switch", { name: "Control the system proxy" }),
+      await screen.findByRole("combobox", {
+        name: "Control the system proxy permission policy",
+      }),
     ).toBeInTheDocument();
     expect(document.getElementById("settings-item-agent-control-system-proxy")).toBeInTheDocument();
   });
@@ -105,7 +112,9 @@ describe("SettingsPage navigation", () => {
     fireEvent.click(screen.getAllByText("Control the system proxy").at(-1)!);
 
     expect(
-      await screen.findByRole("switch", { name: "Control the system proxy" }),
+      await screen.findByRole("combobox", {
+        name: "Control the system proxy permission policy",
+      }),
     ).toBeInTheDocument();
     expect(screen.queryByText("Discard unsaved Agent Access changes?")).not.toBeInTheDocument();
     expect(screen.getByText("Unsaved")).toBeInTheDocument();
@@ -145,7 +154,7 @@ describe("SettingsPage navigation", () => {
     fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
 
     expect(await screen.findByText("Connect Codex")).toBeInTheDocument();
-    expect(screen.getByText("Metadata only")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByText("Metadata only")).toBeInTheDocument();
     expect(screen.queryByText("Write MCP configuration?")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Connect and write" }));
     expect(
@@ -176,7 +185,11 @@ describe("SettingsPage navigation", () => {
     renderSettings("/settings?section=agent");
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
-    fireEvent.click(await screen.findByRole("radio", { name: /Include response bodies/ }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("radio", {
+        name: /Read-only analysis/,
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Connect and write" }));
 
     await screen.findByText(
@@ -184,7 +197,9 @@ describe("SettingsPage navigation", () => {
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
-    expect(screen.getByRole("switch", { name: "Read bodies" })).toBeChecked();
+    expect(
+      screen.getByRole("combobox", { name: "Read bodies permission policy" }),
+    ).toHaveTextContent("Always allow");
     expect(screen.queryByText(/Body reading is off/)).not.toBeInTheDocument();
   });
 
@@ -223,13 +238,17 @@ describe("SettingsPage navigation", () => {
 
     expect(await screen.findByText("Current Agent capabilities")).toBeInTheDocument();
     expect(
-      screen.queryByRole("switch", { name: "Control the system proxy" }),
+      screen.queryByRole("combobox", {
+        name: "Control the system proxy permission policy",
+      }),
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
 
     expect(screen.getByText("Read data")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Control the system proxy" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Control the system proxy permission policy" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Manage scripts")).not.toBeInTheDocument();
     expect(screen.queryByText("Map to other hosts")).not.toBeInTheDocument();
     expect(screen.queryByText("Manage global automation")).not.toBeInTheDocument();
@@ -254,7 +273,7 @@ describe("SettingsPage navigation", () => {
     expect(screen.getByText("No control or automation capabilities")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
-    fireEvent.click(screen.getByRole("switch", { name: "Control the system proxy" }));
+    await chooseCapabilityMode("Control the system proxy", "Always allow");
 
     expect(
       screen.getByText("This summary reflects saved settings. Unsaved changes are not active."),
@@ -271,12 +290,12 @@ describe("SettingsPage navigation", () => {
     expect(screen.queryByText("Approved Map Local roots")).not.toBeInTheDocument();
     expect(screen.queryByText("Proxy verification origins")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("switch", { name: "Manage Agent automation" }));
+    await chooseCapabilityMode("Manage Agent automation", "Always allow");
 
     expect(screen.getByText("Approved Map Local roots")).toBeInTheDocument();
     expect(screen.queryByText("Proxy verification origins")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("switch", { name: "Verify through AIProxy" }));
+    await chooseCapabilityMode("Verify through AIProxy", "Always allow");
 
     expect(screen.getByText("Proxy verification origins")).toBeInTheDocument();
     expect(
@@ -285,7 +304,7 @@ describe("SettingsPage navigation", () => {
       ),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("switch", { name: "Manage Agent automation" }));
+    await chooseCapabilityMode("Manage Agent automation", "Blocked");
 
     expect(
       screen.getByText(
@@ -299,17 +318,23 @@ describe("SettingsPage navigation", () => {
 
     await screen.findByText("Current Agent capabilities");
     fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
-    fireEvent.click(screen.getByRole("switch", { name: "Control capture and workspace settings" }));
+    await chooseCapabilityMode("Control capture and workspace settings", "Always allow");
     fireEvent.click(screen.getAllByRole("button", { name: "Review changes" })[0]!);
 
     expect(screen.getByText("Pending Agent Access changes")).toBeInTheDocument();
-    expect(screen.getByText("Off → On")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("dialog")).getByText(
+        (_, element) =>
+          element?.tagName === "SPAN" &&
+          element.textContent === "Ask when requested → Always allow",
+      ),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() =>
       expect(screen.queryByText("Pending Agent Access changes")).not.toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByRole("switch", { name: "Replay captured requests" }));
+    await chooseCapabilityMode("Replay captured requests", "Always allow");
     fireEvent.click(screen.getAllByRole("button", { name: "Save changes" }).at(-1)!);
 
     expect(screen.getByText("Enable high-risk Agent permissions?")).toBeInTheDocument();
@@ -324,7 +349,7 @@ describe("SettingsPage navigation", () => {
 
     await screen.findByText("Current Agent capabilities");
     fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
-    fireEvent.click(screen.getByRole("switch", { name: "Control the system proxy" }));
+    await chooseCapabilityMode("Control the system proxy", "Always allow");
     fireEvent.click(screen.getAllByRole("button", { name: "Save changes" }).at(-1)!);
     expect(screen.getByText("Enable high-risk Agent permissions?")).toBeInTheDocument();
 

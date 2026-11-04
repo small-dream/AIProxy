@@ -26,6 +26,7 @@ import {
 } from "@/components/layout/hooks";
 import { getErrorMessage, isMacPlatform, isTauriRuntime } from "@/components/layout/hooks/helpers";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { AgentGrantApprovalHost } from "@/features/agent-access/AgentGrantApprovalHost";
 import { useBreakpointEvents } from "@/features/breakpoints/use-breakpoint-events";
 import { useBreakpointStore } from "@/features/breakpoints/breakpoint.store";
 import { BreakpointInterceptPanel } from "@/features/breakpoints/components/BreakpointInterceptPanel";
@@ -317,6 +318,8 @@ export function AppShell() {
           void handleAdbPickerConfirm(deviceSerial);
         }}
       />
+
+      <AgentGrantApprovalHost />
 
       <AppShellDialogs
         isBusy={isBusy}

@@ -333,8 +333,10 @@ export const enMessages = {
         "Local Agent access is off, so the Agent cannot read or control traffic.",
       capabilitySummaryMore: "+{{count}} more",
       capabilitySummaryNoControl: "No control or automation capabilities",
+      capabilitySummaryNoRequest: "No temporary approval prompts",
       capabilitySummaryNoRead: "No traffic data",
       capabilitySummaryReadLabel: "Can read",
+      capabilitySummaryRequestLabel: "Can request temporary access",
       capabilitySummarySavedOnly:
         "This summary reflects saved settings. Unsaved changes are not active.",
       capabilitySummaryTitle: "Current Agent capabilities",
@@ -349,7 +351,7 @@ export const enMessages = {
         "Let the Agent change ports and SSL settings, and start or stop capture.",
       controlCaptureLabel: "Control capture and workspace settings",
       controlPermissionsDescription:
-        "When enabled, the Agent performs these actions without another in-app confirmation. Grant only the groups this task needs.",
+        "Choose Blocked, Ask, or Always allow for each capability; only Always allow runs silently. Grant only what this task needs.",
       controlPermissionsTitle: "Control permissions",
       controlSystemProxyDescription:
         "Let the Agent take over or release the system proxy. High-risk actions must be explicitly requested in the current conversation.",
@@ -357,10 +359,6 @@ export const enMessages = {
       deleteSessionsDescription:
         "Let the Agent clear all sessions or delete sessions and bodies by ID. Deletion cannot be undone.",
       deleteSessionsLabel: "Delete sessions",
-      enableFullControl: "Enable full control",
-      fullControlBadge: "full control",
-      fullControlWarning:
-        "Full control enables all six base controls and all six automation permissions. The Agent can manage capture and certificates, delete sessions, replay requests, create temporary rules, and run Rewrite / Map Local experiments with recorded evidence. Enable it only when you trust the Agent and task; this release still does not allow Map Remote, Script, DNS, Throttle, or Breakpoint writes, and non-idempotent replays, deletion, and certificate-trust removal still require an explicit request in the current conversation.",
       hiddenCapabilitiesNote:
         "Capabilities that are not available in this release are hidden. Enabling them directly in the config file does not bypass FEATURE_NOT_AVAILABLE.",
       highRiskChangeSummary: "{{count}} high-risk permissions will be enabled",
@@ -499,7 +497,7 @@ export const enMessages = {
       connect: "Connect",
       connecting: "Connecting...",
       bodyDisabledAfterConnect:
-        "The client is connected, but Body reading is off: the Agent only sees metadata and cannot analyze response payloads. Turn it on under Read permissions, or reconnect with “Include response bodies”.",
+        "The client is connected, but Body reading is off: the Agent only sees metadata and cannot analyze response payloads. Set it to “Always allow” or “Ask” under Read permissions, or reconnect with “Read-only analysis”.",
       connectDataFlowNote:
         "After connecting, anything the Agent reads is sent to the model provider. Enable only the scope this task needs.",
       connectDialogBackup: "The target file already exists and is backed up first.",
@@ -508,6 +506,8 @@ export const enMessages = {
       connectDialogPath: "Writes to: {{path}}",
       connectDialogScopeHint:
         "Grants: {{permissions}}. You can adjust each permission group after connecting.",
+      connectPresetGlobalHint:
+        "Permissions are global to AIProxy. Choosing a mode here affects every connected client, not only this one.",
       connectDialogScopeTitle: "What the Agent can access and control",
       connectDialogTitle: "Connect {{client}}",
       connectSuccess:
@@ -582,26 +582,111 @@ export const enMessages = {
       overwriteTitle: "Overwrite custom Skill?",
       permissionsDescription: "Control what the Agent can read. Changes take effect after saving.",
       permissionsTitle: "Read permissions",
+      capabilityModeAria: "{{capability}} permission policy",
+      capabilityModeAlways: "Always allow",
+      capabilityModeAsk: "Ask when requested",
+      capabilityModeDeny: "Blocked",
+      capabilityModeDescription:
+        "Every capability uses the same three states: Always allow runs without a prompt; Ask when requested shows a time-limited approval for a concrete action; Blocked rejects it outright.",
       rawBodiesWarning:
         "Raw body access exposes unredacted credentials and personal data to the Agent. Keep it off unless the task explicitly requires it.",
       rawBodiesEnabled: "Unredacted access on",
       redactionTitle: "Data redaction",
       reconnect: "Reconnect",
-      presetBodies: "Include response bodies",
-      presetBodiesDescription:
-        "Also allows redacted request/response bodies and WebSocket messages.",
+      presetTitle: "Task mode",
+      presetDescription:
+        "A mode only fills the permission draft and still requires Save. It is shown only on an exact match; otherwise the current mix is Custom.",
+      presetCustom: "Custom",
+      presetCustomDescription:
+        "The current permissions do not exactly match any preset. Adjust the capabilities below.",
       presetCurrent: "Keep current permissions",
       presetCurrentDescription:
         "Preserves the exact permission mix saved in Settings, including any custom or partial control grants.",
-      presetFull: "Full control (high risk)",
-      presetFullDescription:
-        "Allow redacted bodies and WebSockets plus capture, system proxy, root certificate, and session deletion control. Unredacted bodies remain off.",
       presetMetadata: "Metadata only",
       presetMetadataDescription:
         "Session summaries, headers, query, timing, and rule traces. No bodies.",
-      presetRaw: "Include raw data (high risk)",
-      presetRawDescription:
-        "Also allows unredacted bodies, which can expose credentials and personal data. Use only when the task requires it.",
+      presetReadOnly: "Read-only analysis",
+      presetReadOnlyDescription:
+        "Read session metadata and redacted bodies to inspect response fields and errors.",
+      presetDebugReplay: "Debug and replay",
+      presetDebugReplayDescription:
+        "Adds replay to the original host on top of read-only analysis. Non-idempotent requests still require one approval per action.",
+      presetAutomationExperiment: "Automation experiment",
+      presetAutomationExperimentDescription:
+        "Allow Agent-owned Rewrite and Map Local resources to be created, verified, and rolled back. Capture, system proxy, and Map Local roots stay explicitly off.",
+      grantActionLabel: "What the Agent wants to do",
+      grantAllowFifteenMinutes: "Allow for 15 minutes",
+      grantAllowOnce: "Allow once",
+      grantDeny: "Deny",
+      grantDialogTitle: "{{client}} requests temporary permission",
+      grantExpiresAt: "Valid until {{time}} · {{uses}} uses left",
+      grantFingerprint: "This approval applies only to action fingerprint {{fingerprint}}",
+      grantNonIdempotentBadge: "May cause real side effects",
+      grantNonIdempotentWarning:
+        "This is a non-idempotent action. The approval permits one execution only. If the result is unknown, check the upstream state before retrying.",
+      grantNotificationBody:
+        "The Agent requests temporary permission: {{capability}}. Return to AIProxy to review it.",
+      grantNotificationTitle: "{{client}} is waiting for approval",
+      grantPendingSince: "Waiting for approval · {{time}}",
+      grantPermissionDurationHint:
+        "The grant is bound to this MCP instance, client, and action fingerprint. Any parameter change requires a new approval. Grants are cleared when AIProxy exits.",
+      grantReasonLabel: "Reason",
+      grantRemainingRequests: "{{count}} pending requests",
+      grantResourceEphemeral: "ephemeral",
+      grantResourcePersistent: "persistent",
+      grantResourcePolicy:
+        "This action creates {{lifecycle}} automation resources with a {{ttl}} second TTL. Revoking permission does not delete resources that already exist; review them on the Rules page.",
+      grantRevoke: "Revoke",
+      grantRevokeConfirm: "Revoke grant",
+      grantRevokeMessage:
+        "The temporary {{capability}} grant for {{client}} stops immediately. Actions that already ran and their side effects are not undone.",
+      grantRevokeTitle: "Revoke this temporary grant?",
+      grantScopeLabel: "Scope",
+      grantScopeOrigins: "{{count}} origins",
+      grantScopeRoots: "{{count}} roots",
+      grantScopeSessions: "{{count}} sessions",
+      grantScopeUnspecified: "No additional scope",
+      grantScopeWorkspace: "Workspace {{workspace}}",
+      grantsDescription:
+        "Pending requests and unexpired temporary grants appear here. Approval prompts are global and do not require opening this page.",
+      grantsEmpty: "There are no pending requests or active temporary grants.",
+      grantsRefresh: "Refresh",
+      grantsRefreshing: "Refreshing...",
+      grantsTitle: "Pending approvals and temporary grants",
+      grantStatusApproved: "Approved",
+      grantStatusCancelled: "Cancelled",
+      grantStatusDenied: "Denied",
+      grantStatusExecuting: "Executing",
+      grantStatusExpired: "Expired",
+      grantStatusFailed: "Failed",
+      grantStatusPending: "Pending",
+      grantStatusRevoked: "Revoked",
+      grantStatusSucceeded: "Succeeded",
+      grantStatusUnknown: "Result unknown",
+      immediateRevoke: "Revoke control now",
+      immediateRevokeConfirm: "Revoke now",
+      immediateRevokeMessage:
+        "This immediately turns off every control and automation permission and clears all temporary grants while keeping read access. Revoking permission does not undo side effects: capture, system proxy, certificate trust, and Agent-created resources must be handled separately.",
+      immediateRevokeTitle: "Revoke Agent control permissions now?",
+      revokeDone: "Done",
+      revokeEffectCapture: "Capture is running in workspace {{workspace}}",
+      revokeEffectCertificate: "The root certificate is still trusted",
+      revokeEffectNone: "No residual side effects were detected.",
+      revokeEffectProxy: "AIProxy still owns the system proxy",
+      revokeEffectResources:
+        "{{rules}} Agent rules and {{automation}} Agent automation resources still exist",
+      revokeEffectsTitle: "Still active and needs separate cleanup",
+      revokeResultRetained: "Read capabilities retained",
+      revokeResultRevoked: "Capabilities revoked",
+      revokeResultTitle: "Control permissions revoked",
+      revokeViewAutomation: "Review Agent resources",
+      revokeViewCertificate: "Manage certificates",
+      revokeRestoreProxy: "Restore system proxy",
+      revokeStopCapture: "Stop capture",
+      revokeGrantsCleared: "All temporary grants were cleared.",
+      revokeGrantsNotCleared:
+        "Permissions were revoked, but the temporary grant store could not be cleared. Restart AIProxy.",
+      revokeSummaryAction: "Revoke control now",
       readBodiesDescription: "Allow bounded request and response body reads, redacted by default.",
       readBodiesLabel: "Read bodies",
       readRawBodiesDescription:

@@ -2,16 +2,23 @@ import { invoke } from "@tauri-apps/api/core";
 
 import {
   coerceAppError,
+  type AgentAccessGrantInput,
+  type AgentAccessGrantList,
   type AgentAccessSettings,
   type AgentAccessTestResult,
   type AgentAuditLog,
   type AgentClient,
+  type AgentGrant,
+  type AgentGrantRequestPolicyMap,
+  type ApproveAgentAccessGrantInput,
   type InstallAgentClientConfigInput,
   type InstallAgentClientConfigResult,
   type InstallAgentSkillInput,
   type InstallAgentSkillResult,
   type RemoveAgentClientConfigInput,
   type RemoveAgentClientConfigResult,
+  type RevokeAgentAccessGrantInput,
+  type RevokeAgentControlResult,
   type UpdateAgentAccessSettingsInput,
 } from "@aiproxy/shared-types";
 
@@ -39,6 +46,29 @@ const defaultPermissions = {
   manageGlobalAutomation: false,
 };
 
+const defaultGrantRequestPolicy = Object.fromEntries(
+  Object.keys(defaultPermissions).map((capability) => [
+    capability,
+    [
+      "controlSystemProxy",
+      "manageCertificates",
+      "deleteSessions",
+      "manageScripts",
+      "manageCrossHostMappings",
+      "manageUserAutomation",
+      "manageGlobalAutomation",
+    ].includes(capability)
+      ? "deny"
+      : "ask",
+  ]),
+) as AgentGrantRequestPolicyMap;
+
+const fallbackGrants: AgentAccessGrantList = {
+  grants: [],
+  pendingCount: 0,
+  storePath: "<path-to-aiproxy-data>/agent-grants.json",
+};
+
 const fallbackClients: AgentAccessSettings["clients"] = [
   {
     client: "codex",
@@ -49,7 +79,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "3.4",
+    bundledSkillVersion: "3.5",
     configFormat: "toml",
     configSnippet:
       '[mcp_servers.aiproxy]\ncommand = "<path-to-aiproxy-mcp>"\nargs = ["--data-dir", "<path-to-aiproxy-data>"]\n',
@@ -63,7 +93,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "3.4",
+    bundledSkillVersion: "3.5",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {
@@ -88,7 +118,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "3.4",
+    bundledSkillVersion: "3.5",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {
@@ -106,7 +136,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
 ];
 
 let fallbackSettings: AgentAccessSettings = {
-  version: 4,
+  version: 5,
   enabled: false,
   transport: "stdio",
   permissions: defaultPermissions,
@@ -134,6 +164,7 @@ let fallbackSettings: AgentAccessSettings = {
   automationApprovedRoots: [],
   proxiedVerificationOrigins: [],
   automationCrossHostOrigins: [],
+  grantRequestPolicy: defaultGrantRequestPolicy,
   automationApprovedRootStatuses: [],
   clients: fallbackClients,
 };
@@ -161,6 +192,7 @@ export async function updateAgentAccessSettings(
       permissions: input.permissions,
       limits: input.limits,
       redaction: input.redaction,
+      grantRequestPolicy: input.grantRequestPolicy,
       updatedAt: new Date().toISOString(),
     };
     return fallbackSettings;
@@ -176,6 +208,74 @@ export async function updateAgentAccessSettings(
     return await invoke<AgentAccessSettings>("update_agent_access_settings", { input });
   } catch (error) {
     reportCommandFailure("update_agent_access_settings", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function listAgentAccessGrants(): Promise<AgentAccessGrantList> {
+  if (!isTauriRuntime()) return fallbackGrants;
+  try {
+    return await invoke<AgentAccessGrantList>("list_agent_access_grants");
+  } catch (error) {
+    reportCommandFailure("list_agent_access_grants", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function approveAgentAccessGrant(
+  input: ApproveAgentAccessGrantInput,
+): Promise<AgentGrant> {
+  if (!isTauriRuntime()) throw new Error("Agent approvals require the desktop runtime.");
+  try {
+    return await invoke<AgentGrant>("approve_agent_access_grant", { input });
+  } catch (error) {
+    reportCommandFailure("approve_agent_access_grant", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function denyAgentAccessGrant(input: AgentAccessGrantInput): Promise<AgentGrant> {
+  if (!isTauriRuntime()) throw new Error("Agent approvals require the desktop runtime.");
+  try {
+    return await invoke<AgentGrant>("deny_agent_access_grant", { input });
+  } catch (error) {
+    reportCommandFailure("deny_agent_access_grant", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function revokeAgentAccessGrant(
+  input: RevokeAgentAccessGrantInput,
+): Promise<AgentGrant> {
+  if (!isTauriRuntime()) throw new Error("Agent approvals require the desktop runtime.");
+  try {
+    return await invoke<AgentGrant>("revoke_agent_access_grant", { input });
+  } catch (error) {
+    reportCommandFailure("revoke_agent_access_grant", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function revokeAgentControlPermissions(): Promise<RevokeAgentControlResult> {
+  if (!isTauriRuntime()) {
+    return {
+      revokedCapabilities: [],
+      retainedReadCapabilities: [],
+      activeEffects: {
+        captureRunning: false,
+        systemProxyEnabled: false,
+        workspaceId: null,
+        certificateTrusted: false,
+        agentRuleCount: 0,
+        agentAutomationResourceCount: 0,
+      },
+      grantsCleared: true,
+    };
+  }
+  try {
+    return await invoke<RevokeAgentControlResult>("revoke_agent_control_permissions");
+  } catch (error) {
+    reportCommandFailure("revoke_agent_control_permissions", error);
     throw coerceAppError(error);
   }
 }

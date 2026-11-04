@@ -5,6 +5,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::certificates::get_certificate_status_impl;
+use aiproxy_agent_control::{
+    AgentCapability, AgentGrantRequestPolicy, ListAutomationResourcesParams,
+};
 use aiproxy_mcp::config::{
     read_config, write_config, AgentAccessConfig, AgentAccessLimits, AgentAccessPermissions,
     AgentAccessRedaction, AppPaths, ConfigReadError, AGENT_ACCESS_CONFIG_VERSION,
@@ -14,7 +18,7 @@ use serde_json::{json, Value};
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 
 const SKILL_MARKER: &str = "<!-- aiproxy-managed-skill: v1 -->";
-const AGENT_SKILL_VERSION: &str = "3.4";
+const AGENT_SKILL_VERSION: &str = "3.5";
 const SKILL_CONTENT: &str = include_str!("../../resources/agent-skill/aiproxy/SKILL.md");
 const MAX_AUDIT_ENTRIES: usize = 200;
 
@@ -54,6 +58,7 @@ pub struct AgentAccessSettings {
     pub automation_approved_roots: Vec<String>,
     pub proxied_verification_origins: Vec<String>,
     pub automation_cross_host_origins: Vec<String>,
+    pub grant_request_policy: std::collections::BTreeMap<AgentCapability, AgentGrantRequestPolicy>,
     pub automation_approved_root_statuses: Vec<AutomationApprovedRootStatus>,
     pub updated_at: Option<String>,
     pub data_dir: String,
@@ -76,6 +81,26 @@ pub struct AutomationApprovedRootStatus {
     pub is_directory: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentAccessResidualEffects {
+    pub capture_running: bool,
+    pub system_proxy_enabled: bool,
+    pub workspace_id: Option<String>,
+    pub certificate_trusted: bool,
+    pub agent_rule_count: usize,
+    pub agent_automation_resource_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokeAgentControlResult {
+    pub revoked_capabilities: Vec<AgentCapability>,
+    pub retained_read_capabilities: Vec<AgentCapability>,
+    pub active_effects: AgentAccessResidualEffects,
+    pub grants_cleared: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateAgentAccessSettingsInput {
@@ -89,6 +114,7 @@ pub struct UpdateAgentAccessSettingsInput {
     pub proxied_verification_origins: Vec<String>,
     #[serde(default)]
     pub automation_cross_host_origins: Vec<String>,
+    pub grant_request_policy: std::collections::BTreeMap<AgentCapability, AgentGrantRequestPolicy>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -229,6 +255,7 @@ pub async fn update_agent_access_settings(
         config.automation_approved_roots = input.automation_approved_roots;
         config.proxied_verification_origins = input.proxied_verification_origins;
         config.automation_cross_host_origins = input.automation_cross_host_origins;
+        config.grant_request_policy = input.grant_request_policy;
         config.updated_at = Some(chrono::Utc::now().to_rfc3339());
         write_config(&paths.config_path, &config).map_err(|error| {
             tracing::error!(
@@ -254,6 +281,218 @@ pub async fn update_agent_access_settings(
         build_settings()
     })
     .await
+}
+
+#[tauri::command]
+pub async fn revoke_agent_control_permissions(
+    state: State<'_, Arc<AppState>>,
+) -> Result<RevokeAgentControlResult, String> {
+    let state = Arc::clone(state.inner());
+    run_blocking_command("revoke_agent_control_permissions", move || {
+        let paths = resolved_paths()?;
+        let mut config = read_existing_config(&paths);
+        let mut revoked_capabilities = Vec::new();
+        let mut retained_read_capabilities = Vec::new();
+
+        for (enabled, capability, read_only) in [
+            (
+                config.permissions.read_sessions,
+                AgentCapability::ReadSessions,
+                true,
+            ),
+            (
+                config.permissions.read_bodies,
+                AgentCapability::ReadBodies,
+                true,
+            ),
+            (
+                config.permissions.read_raw_bodies,
+                AgentCapability::ReadRawBodies,
+                true,
+            ),
+            (
+                config.permissions.read_web_socket,
+                AgentCapability::ReadWebSocket,
+                true,
+            ),
+            (
+                config.permissions.export_snapshots,
+                AgentCapability::ExportSnapshots,
+                true,
+            ),
+            (
+                config.permissions.control_capture,
+                AgentCapability::ControlCapture,
+                false,
+            ),
+            (
+                config.permissions.control_system_proxy,
+                AgentCapability::ControlSystemProxy,
+                false,
+            ),
+            (
+                config.permissions.manage_certificates,
+                AgentCapability::ManageCertificates,
+                false,
+            ),
+            (
+                config.permissions.delete_sessions,
+                AgentCapability::DeleteSessions,
+                false,
+            ),
+            (
+                config.permissions.send_requests,
+                AgentCapability::SendRequests,
+                false,
+            ),
+            (
+                config.permissions.manage_rules,
+                AgentCapability::ManageRules,
+                false,
+            ),
+            (
+                config.permissions.manage_automation,
+                AgentCapability::ManageAutomation,
+                false,
+            ),
+            (
+                config.permissions.manage_user_automation,
+                AgentCapability::ManageUserAutomation,
+                false,
+            ),
+            (
+                config.permissions.manage_scripts,
+                AgentCapability::ManageScripts,
+                false,
+            ),
+            (
+                config.permissions.manage_cross_host_mappings,
+                AgentCapability::ManageCrossHostMappings,
+                false,
+            ),
+            (
+                config.permissions.manage_proxied_verification,
+                AgentCapability::ManageProxiedVerification,
+                false,
+            ),
+            (
+                config.permissions.manage_global_automation,
+                AgentCapability::ManageGlobalAutomation,
+                false,
+            ),
+        ] {
+            if !enabled {
+                continue;
+            }
+            if read_only {
+                retained_read_capabilities.push(capability);
+            } else {
+                revoked_capabilities.push(capability);
+            }
+        }
+
+        config.permissions.control_capture = false;
+        config.permissions.control_system_proxy = false;
+        config.permissions.manage_certificates = false;
+        config.permissions.delete_sessions = false;
+        config.permissions.send_requests = false;
+        config.permissions.manage_rules = false;
+        config.permissions.manage_automation = false;
+        config.permissions.manage_user_automation = false;
+        config.permissions.manage_scripts = false;
+        config.permissions.manage_cross_host_mappings = false;
+        config.permissions.manage_proxied_verification = false;
+        config.permissions.manage_global_automation = false;
+        for capability in [
+            AgentCapability::ControlCapture,
+            AgentCapability::ControlSystemProxy,
+            AgentCapability::ManageCertificates,
+            AgentCapability::DeleteSessions,
+            AgentCapability::SendRequests,
+            AgentCapability::ManageRules,
+            AgentCapability::ManageAutomation,
+            AgentCapability::ManageUserAutomation,
+            AgentCapability::ManageScripts,
+            AgentCapability::ManageCrossHostMappings,
+            AgentCapability::ManageProxiedVerification,
+            AgentCapability::ManageGlobalAutomation,
+        ] {
+            // Immediate revoke must not leave a control capability in "ask" mode,
+            // otherwise the UI would show it as blocked while the Agent could
+            // still raise a temporary approval prompt.
+            config
+                .grant_request_policy
+                .insert(capability, AgentGrantRequestPolicy::Deny);
+        }
+        config.version = AGENT_ACCESS_CONFIG_VERSION;
+        config.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        write_config(&paths.config_path, &config).map_err(|error| {
+            app_error(
+                ERR_INTERNAL,
+                format!("revoke Agent control permissions: {error}"),
+            )
+        })?;
+
+        let bootstrap = state.read_status();
+        let certificate_trusted =
+            get_certificate_status_impl(Arc::clone(&state)).is_ok_and(|status| status.trusted);
+        let agent_automation_resource_count = count_agent_automation_resources(&state);
+        let agent_rule_count = state.read_agent_rule_registry().list().len();
+        let grants_cleared = crate::agent_grants::clear().is_ok();
+
+        tracing::info!(
+            component = "desktop.agent_access",
+            event = "agent_control_permissions_revoked",
+            revoked = ?revoked_capabilities,
+            grants_cleared,
+            capture_running = bootstrap.running,
+            system_proxy_enabled = bootstrap.system_proxy_enabled,
+            "agent_control_permissions_revoked"
+        );
+
+        Ok(RevokeAgentControlResult {
+            revoked_capabilities,
+            retained_read_capabilities,
+            active_effects: AgentAccessResidualEffects {
+                capture_running: bootstrap.running,
+                system_proxy_enabled: bootstrap.system_proxy_enabled,
+                workspace_id: bootstrap.active_workspace_id,
+                certificate_trusted,
+                agent_rule_count,
+                agent_automation_resource_count,
+            },
+            grants_cleared,
+        })
+    })
+    .await
+}
+
+fn count_agent_automation_resources(state: &AppState) -> usize {
+    let mut cursor = None;
+    let mut count = 0usize;
+    for _ in 0..100 {
+        let page = match state.list_automation_resources(ListAutomationResourcesParams {
+            scope: None,
+            workspace_id: None,
+            kind: None,
+            lifecycle: None,
+            cursor: cursor.clone(),
+            limit: 100,
+        }) {
+            Ok(page) => page,
+            Err(_) => return count,
+        };
+        count += page
+            .items
+            .iter()
+            .filter(|resource| resource.owner == "agent")
+            .count();
+        match page.next_cursor {
+            Some(next) if Some(next.clone()) != cursor => cursor = Some(next),
+            _ => break,
+        }
+    }
+    count
 }
 
 #[tauri::command]
@@ -1058,6 +1297,7 @@ fn build_settings() -> Result<AgentAccessSettings, String> {
         automation_approved_roots: config.automation_approved_roots,
         proxied_verification_origins: config.proxied_verification_origins,
         automation_cross_host_origins: config.automation_cross_host_origins,
+        grant_request_policy: config.grant_request_policy,
         automation_approved_root_statuses,
         updated_at: config.updated_at,
         data_dir: paths.data_dir.display().to_string(),
