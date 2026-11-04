@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-agent-control"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "schemars 1.2.1",
  "serde",
@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-db"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "dirs",
@@ -56,7 +56,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-desktop"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aiproxy-agent-control",
  "aiproxy-db",
@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-mcp"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aiproxy-agent-control",
  "aiproxy-db",
@@ -126,7 +126,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-proxy-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aiproxy-rule-engine",
  "aiproxy-sys-util",
@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-rule-engine"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "deno_ast",
@@ -180,11 +180,11 @@ dependencies = [
 
 [[package]]
 name = "aiproxy-sys-util"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "aiproxy-tls-manager"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "aiproxy-sys-util",
  "base64 0.22.1",
