@@ -94,7 +94,7 @@ impl Default for AgentAccessPermissions {
     fn default() -> Self {
         Self {
             read_sessions: true,
-            read_bodies: false,
+            read_bodies: true,
             read_raw_bodies: false,
             read_web_socket: false,
             export_snapshots: false,
@@ -501,6 +501,17 @@ fn restrict_windows_acl(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_permissions_start_with_redacted_body_analysis() {
+        let permissions = AgentAccessPermissions::default();
+        assert!(permissions.read_sessions);
+        assert!(permissions.read_bodies);
+        assert!(!permissions.read_raw_bodies);
+        assert!(!permissions.control_capture);
+        assert!(!permissions.control_system_proxy);
+        assert!(!permissions.delete_sessions);
+    }
 
     #[test]
     fn raw_body_requires_body_permission() {

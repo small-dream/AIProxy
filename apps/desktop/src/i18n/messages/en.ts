@@ -325,6 +325,11 @@ export const enMessages = {
       auditTruncated: "Showing the most recent entries only.",
       auditSummary: "{{count}} recent tool calls",
       auditSummaryEmpty: "No Agent calls recorded yet",
+      bulkGrantAction: "Batch grant...",
+      bulkGrantConfirm: "Enable all available",
+      bulkGrantMessage:
+        "This sets {{count}} currently available capabilities to Always allow: {{permissions}}. It only fills the draft; you must still save, and the high-risk confirmation appears again when you do.",
+      bulkGrantTitle: "Enable all available capabilities?",
       advancedPermissions: "Advanced permissions",
       advancedPermissionsDescription: "Unredacted body access, redaction policy, and query limits",
       adjustPermissions: "Adjust permissions",
@@ -593,21 +598,21 @@ export const enMessages = {
       rawBodiesEnabled: "Unredacted access on",
       redactionTitle: "Data redaction",
       reconnect: "Reconnect",
-      presetTitle: "Task mode",
+      presetTitle: "Permission preset",
       presetDescription:
-        "A mode only fills the permission draft and still requires Save. It is shown only on an exact match; otherwise the current mix is Custom.",
+        "Selecting a preset only fills the permission draft and does not save automatically. Changing any permission switches to Custom; after selecting another preset, choose Custom to restore the previous combination.",
       presetCustom: "Custom",
       presetCustomDescription:
-        "The current permissions do not exactly match any preset. Adjust the capabilities below.",
+        "The current combination is custom. Keep adjusting the capabilities below, or select another preset and choose Custom again to return to this combination.",
       presetCurrent: "Keep current permissions",
       presetCurrentDescription:
         "Preserves the exact permission mix saved in Settings, including any custom or partial control grants.",
       presetMetadata: "Metadata only",
       presetMetadataDescription:
         "Session summaries, headers, query, timing, and rule traces. No bodies.",
-      presetReadOnly: "Read-only analysis",
+      presetReadOnly: "Read-only analysis (recommended)",
       presetReadOnlyDescription:
-        "Read session metadata and redacted bodies to inspect response fields and errors.",
+        "Recommended default: read session metadata and redacted bodies to inspect response fields and errors.",
       presetDebugReplay: "Debug and replay",
       presetDebugReplayDescription:
         "Adds replay to the original host on top of read-only analysis. Non-idempotent requests still require one approval per action.",

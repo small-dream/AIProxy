@@ -32,6 +32,11 @@ async function chooseCapabilityMode(label: string, option: string) {
   fireEvent.click(await screen.findByRole("option", { name: option }));
 }
 
+async function choosePermissionPreset(option: string) {
+  fireEvent.mouseDown(screen.getByRole("combobox", { name: "Permission preset" }));
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -148,13 +153,17 @@ describe("SettingsPage navigation", () => {
     expect(screen.getAllByText("Copy MCP config")).toHaveLength(1);
   });
 
-  it("writes the Codex MCP config through the one-click flow", async () => {
+  it("writes the Codex MCP config through the default read-only flow", async () => {
     renderSettings("/settings?section=agent");
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
 
     expect(await screen.findByText("Connect Codex")).toBeInTheDocument();
-    expect(within(screen.getByRole("dialog")).getByText("Metadata only")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("dialog")).getByRole("radio", {
+        name: /^Read-only analysis \(recommended\)/i,
+      }),
+    ).toBeChecked();
     expect(screen.queryByText("Write MCP configuration?")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Connect and write" }));
     expect(
@@ -162,7 +171,7 @@ describe("SettingsPage navigation", () => {
         "MCP configuration written for Codex. Restart or reload Codex to activate it; the Skill is installed.",
       ),
     ).toBeInTheDocument();
-    expect(await screen.findByText(/Body reading is off/)).toBeInTheDocument();
+    expect(screen.queryByText(/Body reading is off/)).not.toBeInTheDocument();
     expect(await screen.findAllByText("Configured")).toHaveLength(1);
   });
 
@@ -182,9 +191,17 @@ describe("SettingsPage navigation", () => {
   });
 
   it("applies a permission preset when connecting and clears the body warning", async () => {
+    const saved = await commands.getAgentAccessSettings();
+    vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
+      ...saved,
+      permissions: permissionsWith(["readSessions"]),
+    });
     renderSettings("/settings?section=agent");
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
+    expect(
+      within(await screen.findByRole("dialog")).getByRole("radio", { name: /^Metadata only/i }),
+    ).toBeChecked();
     fireEvent.click(
       within(await screen.findByRole("dialog")).getByRole("radio", {
         name: /Read-only analysis/,
@@ -258,6 +275,105 @@ describe("SettingsPage navigation", () => {
 
     expect(screen.getByText("Read unredacted bodies (high risk)")).toBeInTheDocument();
     expect(screen.getByText("Body chunk limit")).toBeInTheDocument();
+  });
+
+  it("shows the current permission preset in a select and only updates the draft", async () => {
+    const saved = await commands.getAgentAccessSettings();
+    vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
+      ...saved,
+      permissions: permissionsWith(["readSessions"]),
+    });
+    const updateSpy = vi.spyOn(commands, "updateAgentAccessSettings");
+    renderSettings("/settings?section=agent");
+
+    const presetSelect = await screen.findByRole("combobox", { name: "Permission preset" });
+    expect(presetSelect).toHaveTextContent("Metadata only");
+
+    await choosePermissionPreset("Read-only analysis (recommended)");
+
+    expect(presetSelect).toHaveTextContent("Read-only analysis (recommended)");
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("switches to Custom after a manual permission change", async () => {
+    const saved = await commands.getAgentAccessSettings();
+    vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
+      ...saved,
+      permissions: permissionsWith(["readSessions"]),
+    });
+    renderSettings("/settings?section=agent");
+
+    const presetSelect = await screen.findByRole("combobox", { name: "Permission preset" });
+    expect(presetSelect).toHaveTextContent("Metadata only");
+    fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
+    await chooseCapabilityMode("Read WebSocket messages", "Always allow");
+
+    expect(presetSelect).toHaveTextContent("Custom");
+  });
+
+  it("restores the previous custom permissions and policies after selecting another preset", async () => {
+    const saved = await commands.getAgentAccessSettings();
+    vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
+      ...saved,
+      permissions: permissionsWith(["readSessions", "readWebSocket"]),
+      grantRequestPolicy: {
+        ...saved.grantRequestPolicy,
+        deleteSessions: "deny",
+      },
+    });
+    renderSettings("/settings?section=agent");
+
+    const presetSelect = await screen.findByRole("combobox", { name: "Permission preset" });
+    expect(presetSelect).toHaveTextContent("Custom");
+
+    await choosePermissionPreset("Metadata only");
+    fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
+    expect(
+      screen.getByRole("combobox", { name: "Read WebSocket messages permission policy" }),
+    ).toHaveTextContent("Ask when requested");
+
+    await chooseCapabilityMode("Delete sessions", "Ask when requested");
+    expect(
+      screen.getByRole("combobox", { name: "Delete sessions permission policy" }),
+    ).toHaveTextContent("Ask when requested");
+
+    await choosePermissionPreset("Custom");
+
+    expect(presetSelect).toHaveTextContent("Custom");
+    expect(
+      screen.getByRole("combobox", { name: "Read WebSocket messages permission policy" }),
+    ).toHaveTextContent("Always allow");
+    expect(
+      screen.getByRole("combobox", { name: "Delete sessions permission policy" }),
+    ).toHaveTextContent("Blocked");
+  });
+
+  it("batch-enables only available capabilities and keeps the high-risk save gate", async () => {
+    const updateSpy = vi.spyOn(commands, "updateAgentAccessSettings");
+    renderSettings("/settings?section=agent");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Batch grant..." }));
+    const confirm = screen.getByRole("dialog");
+    expect(within(confirm).getByText("Enable all available capabilities?")).toBeInTheDocument();
+    expect(within(confirm).queryByText(/Manage scripts/)).not.toBeInTheDocument();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Enable all available" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Read bodies permission policy" }),
+    ).toHaveTextContent("Always allow");
+    fireEvent.click(await screen.findByRole("button", { name: /Advanced permissions/ }));
+    expect(
+      screen.getByRole("combobox", {
+        name: "Read unredacted bodies (high risk) permission policy",
+      }),
+    ).toHaveTextContent("Always allow");
+    expect(updateSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Save changes" }).at(-1)!);
+    expect(screen.getByText("Enable high-risk Agent permissions?")).toBeInTheDocument();
   });
 
   it("keeps the capability summary on saved settings while the draft changes", async () => {

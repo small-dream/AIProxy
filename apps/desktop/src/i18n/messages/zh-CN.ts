@@ -323,6 +323,11 @@ export const zhCNMessages: Messages = {
       auditTruncated: "仅显示最近的部分记录。",
       auditSummary: "最近 {{count}} 次工具调用",
       auditSummaryEmpty: "尚无 Agent 调用记录",
+      bulkGrantAction: "批量授权…",
+      bulkGrantConfirm: "启用全部可用能力",
+      bulkGrantMessage:
+        "这会把 {{count}} 项当前可用能力设为“始终允许”：{{permissions}}。改动只会写入草稿，仍需保存才会生效；保存时还会再次确认高风险权限。",
+      bulkGrantTitle: "启用全部可用能力？",
       advancedPermissions: "高级权限",
       advancedPermissionsDescription: "未脱敏 Body 读取、脱敏策略与查询上限",
       adjustPermissions: "调整权限",
@@ -576,17 +581,19 @@ export const zhCNMessages: Messages = {
       rawBodiesEnabled: "未脱敏读取已开启",
       redactionTitle: "数据脱敏",
       reconnect: "重新连接",
-      presetTitle: "任务模式",
+      presetTitle: "权限预设",
       presetDescription:
-        "模式只是填写权限草稿的快捷方式，仍需保存；可精确匹配时显示模式名，否则显示“自定义”。",
+        "预设只填写权限草稿，不会自动保存。手动修改任一权限后会切到“自定义”；套用其他预设后，可选择“自定义”恢复刚才的组合。",
       presetCustom: "自定义",
-      presetCustomDescription: "当前权限与任何预设都不完全一致。请按需调整下列权限。",
+      presetCustomDescription:
+        "当前为自定义权限组合。继续调整下列权限，或选择其他预设后再返回“自定义”。",
       presetCurrent: "保留当前权限",
       presetCurrentDescription: "保留设置中已保存的完整权限组合，包括自定义或部分开启的控制权限。",
       presetMetadata: "仅元数据",
       presetMetadataDescription: "会话摘要、Header、Query、Timing 与规则命中；不读取 Body。",
-      presetReadOnly: "只读分析",
-      presetReadOnlyDescription: "读取会话元数据与脱敏后的 Body，用于分析响应字段和错误。",
+      presetReadOnly: "只读分析（推荐）",
+      presetReadOnlyDescription:
+        "默认推荐：读取会话元数据与脱敏后的 Body，用于分析响应字段和错误。",
       presetDebugReplay: "调试与重放",
       presetDebugReplayDescription:
         "在只读分析基础上允许向原始 host 重放请求；非幂等请求仍需逐次审批。",

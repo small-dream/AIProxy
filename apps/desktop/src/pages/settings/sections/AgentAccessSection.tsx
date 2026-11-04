@@ -22,8 +22,6 @@ import {
   Stack,
   Switch,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -123,6 +121,7 @@ import {
 
 type AgentAccessDraft = UpdateAgentAccessSettingsInput;
 type FeedbackArea = "client" | "diagnostics" | "permissions" | "settings";
+type PermissionDraftSnapshot = Pick<AgentAccessDraft, "permissions" | "grantRequestPolicy">;
 
 type SaveInput = {
   area: Extract<FeedbackArea, "permissions" | "settings">;
@@ -205,6 +204,7 @@ export function AgentAccessSection({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<AgentAccessDraft | null>(null);
+  const [customAccess, setCustomAccess] = useState<PermissionDraftSnapshot | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [pendingSkillOverwrite, setPendingSkillOverwrite] = useState<PendingSkillOverwrite | null>(
     null,
@@ -219,6 +219,7 @@ export function AgentAccessSection({
   const [pickingAutomationRoot, setPickingAutomationRoot] = useState(false);
   const [changesOpen, setChangesOpen] = useState(false);
   const [pendingHighRiskSave, setPendingHighRiskSave] = useState<SaveInput | null>(null);
+  const [bulkGrantOpen, setBulkGrantOpen] = useState(false);
   const [revokeControlOpen, setRevokeControlOpen] = useState(false);
   const [revokeResult, setRevokeResult] = useState<RevokeAgentControlResult | null>(null);
   const [pendingRevokeGrant, setPendingRevokeGrant] = useState<AgentGrant | null>(null);
@@ -249,6 +250,14 @@ export function AgentAccessSection({
   }, [settingsQuery.data]);
 
   useEffect(() => {
+    if (!draft || presetForPermissions(draft.permissions) !== "current") return;
+    const next = draftAccessSnapshot(draft);
+    setCustomAccess((current) =>
+      current && permissionDraftSnapshotsEqual(current, next) ? current : next,
+    );
+  }, [draft]);
+
+  useEffect(() => {
     if (!highlightedItemId || !isAgentPermissionMatrixTarget(highlightedItemId)) return;
     setPermissionsOpen(true);
     if (isAgentAdvancedPermissionTarget(highlightedItemId)) setAdvancedOpen(true);
@@ -276,6 +285,16 @@ export function AgentAccessSection({
     );
   }
 
+  function replaceDraftFromSettings(settings: AgentAccessSettings) {
+    const nextDraft = draftFromSettings(settings);
+    setDraft(nextDraft);
+    setCustomAccess(
+      presetForPermissions(nextDraft.permissions) === "current"
+        ? draftAccessSnapshot(nextDraft)
+        : null,
+    );
+  }
+
   function applyConfigResult(result: InstallAgentClientConfigResult) {
     updateClientCache(result.client, (info) => ({
       ...info,
@@ -298,7 +317,7 @@ export function AgentAccessSection({
     mutationFn: (input: SaveInput) => updateAgentAccessSettings(input.draft),
     onSuccess: (settings, input) => {
       queryClient.setQueryData(AGENT_SETTINGS_QUERY_KEY, settings);
-      setDraft(draftFromSettings(settings));
+      replaceDraftFromSettings(settings);
       setPendingHighRiskSave(null);
       setFeedback({
         area: input.area,
@@ -428,7 +447,7 @@ export function AgentAccessSection({
       setRevokeResult(result);
       setPendingHighRiskSave(null);
       queryClient.setQueryData(AGENT_SETTINGS_QUERY_KEY, settings);
-      setDraft(draftFromSettings(settings));
+      replaceDraftFromSettings(settings);
       void queryClient.invalidateQueries({ queryKey: AGENT_GRANTS_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: AGENT_AUDIT_QUERY_KEY });
       setFeedback({
@@ -547,7 +566,7 @@ export function AgentAccessSection({
       setConnectError(null);
       if (result.settings) {
         queryClient.setQueryData(AGENT_SETTINGS_QUERY_KEY, result.settings);
-        setDraft(draftFromSettings(result.settings));
+        replaceDraftFromSettings(result.settings);
       }
 
       const outcome = result.outcome;
@@ -732,6 +751,9 @@ export function AgentAccessSection({
   }
 
   function applyPreset(preset: (typeof AGENT_PERMISSION_PRESETS)[number]) {
+    if (draft && currentPreset === "current") {
+      setCustomAccess(draftAccessSnapshot(draft));
+    }
     setDraft((current) =>
       current
         ? {
@@ -740,6 +762,35 @@ export function AgentAccessSection({
           }
         : current,
     );
+  }
+
+  function restoreCustomAccess() {
+    if (!customAccess) return;
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            permissions: { ...customAccess.permissions },
+            grantRequestPolicy: { ...customAccess.grantRequestPolicy },
+          }
+        : current,
+    );
+  }
+
+  function enableAllAvailablePermissions() {
+    setDraft((current) => {
+      if (!current) return current;
+      let permissions = { ...current.permissions };
+      let grantRequestPolicy = { ...current.grantRequestPolicy };
+      for (const definition of availablePermissionDefinitions()) {
+        const next = applyCapabilityMode(permissions, grantRequestPolicy, definition.key, "always");
+        permissions = next.permissions;
+        grantRequestPolicy = next.grantRequestPolicy;
+      }
+      return { ...current, permissions, grantRequestPolicy };
+    });
+    setBulkGrantOpen(false);
+    setPermissionsOpen(true);
   }
 
   function updateLimit(key: keyof AgentAccessLimits, value: number) {
@@ -818,7 +869,7 @@ export function AgentAccessSection({
   }
 
   function discardDraft() {
-    setDraft(draftFromSettings(settings));
+    replaceDraftFromSettings(settings);
   }
 
   function saveDraft(area: SaveInput["area"]) {
@@ -1202,43 +1253,40 @@ export function AgentAccessSection({
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               {t("settingsPage.agentAccess.presetDescription")}
             </Typography>
-            <ToggleButtonGroup
-              exclusive
+            <TextField
+              select
               size="small"
-              value={currentPreset === "current" ? null : currentPreset}
-              onChange={(_, value: AgentConnectPreset | null) => {
-                if (value && value !== "current") applyPreset(value);
+              value={currentPreset}
+              disabled={busy}
+              onChange={(event) => {
+                const value = event.target.value as AgentConnectPreset;
+                if (value === "current") {
+                  restoreCustomAccess();
+                  return;
+                }
+                applyPreset(value);
               }}
-              aria-label={t("settingsPage.agentAccess.presetTitle")}
-              sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 1 }}
+              slotProps={{
+                select: {
+                  inputProps: { "aria-label": t("settingsPage.agentAccess.presetTitle") },
+                },
+              }}
+              sx={{ ...selectControlSx, mt: 1.5 }}
             >
               {AGENT_PERMISSION_PRESETS.map((preset) => (
-                <ToggleButton
-                  key={preset}
-                  value={preset}
-                  disabled={busy}
-                  sx={{ px: 1.25, py: 0.5, textTransform: "none" }}
-                >
+                <MenuItem key={preset} value={preset}>
                   {t(presetLabelKey(preset))}
-                </ToggleButton>
+                </MenuItem>
               ))}
-            </ToggleButtonGroup>
-            <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", mt: 1 }}>
-              <Chip
-                size="small"
-                variant="outlined"
-                label={
-                  currentPreset === "current"
-                    ? t("settingsPage.agentAccess.presetCustom")
-                    : t(presetLabelKey(currentPreset))
-                }
-              />
-              <Typography variant="caption" sx={{ color: "text.secondary", minWidth: 0 }}>
-                {currentPreset === "current"
-                  ? t("settingsPage.agentAccess.presetCustomDescription")
-                  : t(presetDescriptionKey(currentPreset))}
-              </Typography>
-            </Stack>
+              <MenuItem value="current" disabled={!customAccess && currentPreset !== "current"}>
+                {t("settingsPage.agentAccess.presetCustom")}
+              </MenuItem>
+            </TextField>
+            <Typography variant="caption" sx={{ color: "text.secondary", minWidth: 0, mt: 1 }}>
+              {currentPreset === "current"
+                ? t("settingsPage.agentAccess.presetCustomDescription")
+                : t(presetDescriptionKey(currentPreset))}
+            </Typography>
             <Alert severity="info" variant="outlined" sx={{ ...compactAlertSx, mt: 1.5 }}>
               {t("settingsPage.agentAccess.capabilityModeDescription")}
             </Alert>
@@ -1260,26 +1308,37 @@ export function AgentAccessSection({
                 {t("settingsPage.agentAccess.permissionMatrixDescription")}
               </Typography>
             </Box>
-            <Button
-              size="small"
-              variant="outlined"
-              aria-expanded={permissionsOpen ? "true" : "false"}
-              aria-controls="agent-permission-groups"
-              onClick={() => setPermissionsOpen((current) => !current)}
-              endIcon={
-                <ExpandMoreRoundedIcon
-                  fontSize="small"
-                  sx={{
-                    transform: permissionsOpen ? "rotate(180deg)" : "none",
-                    transition: "transform 150ms ease",
-                  }}
-                />
-              }
-            >
-              {permissionsOpen
-                ? t("settingsPage.agentAccess.permissionMatrixHide")
-                : t("settingsPage.agentAccess.permissionMatrixShow")}
-            </Button>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }}>
+              <Button
+                size="small"
+                color="warning"
+                variant="outlined"
+                disabled={busy}
+                onClick={() => setBulkGrantOpen(true)}
+              >
+                {t("settingsPage.agentAccess.bulkGrantAction")}
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                aria-expanded={permissionsOpen ? "true" : "false"}
+                aria-controls="agent-permission-groups"
+                onClick={() => setPermissionsOpen((current) => !current)}
+                endIcon={
+                  <ExpandMoreRoundedIcon
+                    fontSize="small"
+                    sx={{
+                      transform: permissionsOpen ? "rotate(180deg)" : "none",
+                      transition: "transform 150ms ease",
+                    }}
+                  />
+                }
+              >
+                {permissionsOpen
+                  ? t("settingsPage.agentAccess.permissionMatrixHide")
+                  : t("settingsPage.agentAccess.permissionMatrixShow")}
+              </Button>
+            </Stack>
           </Stack>
           <Collapse id="agent-permission-groups" in={permissionsOpen} unmountOnExit>
             <Box>
@@ -1873,7 +1932,7 @@ export function AgentAccessSection({
       <AgentConnectDialog
         busy={connectMutation.isPending}
         clientLabel={pendingConnect ? clientName(pendingConnect.info.client, t) : ""}
-        currentPermissions={draft?.permissions ?? permissionsForPreset("metadata")}
+        currentPermissions={draft?.permissions ?? permissionsForPreset("readOnly")}
         errorMessage={connectError}
         info={pendingConnect?.info ?? null}
         onCancel={() => {
@@ -1893,7 +1952,7 @@ export function AgentAccessSection({
           });
         }}
         open={pendingConnect !== null}
-        preset={pendingConnect?.preset ?? "metadata"}
+        preset={pendingConnect?.preset ?? "readOnly"}
       />
 
       <ConfirmDialog
@@ -2006,6 +2065,21 @@ export function AgentAccessSection({
           <Button onClick={() => setChangesOpen(false)}>{t("common.actions.close")}</Button>
         </DialogActions>
       </Dialog>
+
+      <ConfirmDialog
+        confirmColor="warning"
+        confirmLabel={t("settingsPage.agentAccess.bulkGrantConfirm")}
+        message={t("settingsPage.agentAccess.bulkGrantMessage", {
+          count: availablePermissionDefinitions().length,
+          permissions: availablePermissionDefinitions()
+            .map((definition) => t(definition.labelKey))
+            .join(" · "),
+        })}
+        onCancel={() => setBulkGrantOpen(false)}
+        onConfirm={enableAllAvailablePermissions}
+        open={bulkGrantOpen}
+        title={t("settingsPage.agentAccess.bulkGrantTitle")}
+      />
 
       <ConfirmDialog
         confirmColor="warning"
@@ -2773,6 +2847,25 @@ function draftFromSettings(settings: AgentAccessSettings): AgentAccessDraft {
     proxiedVerificationOrigins: [...settings.proxiedVerificationOrigins],
     automationCrossHostOrigins: [...settings.automationCrossHostOrigins],
   };
+}
+
+function draftAccessSnapshot(draft: AgentAccessDraft): PermissionDraftSnapshot {
+  return {
+    permissions: { ...draft.permissions },
+    grantRequestPolicy: { ...draft.grantRequestPolicy },
+  };
+}
+
+function permissionDraftSnapshotsEqual(
+  current: PermissionDraftSnapshot,
+  next: PermissionDraftSnapshot,
+) {
+  return (
+    permissionsEqual(current.permissions, next.permissions) &&
+    AGENT_PERMISSION_KEYS.every(
+      (key) => current.grantRequestPolicy[key] === next.grantRequestPolicy[key],
+    )
+  );
 }
 
 function draftsEqual(current: AgentAccessDraft, saved: AgentAccessDraft) {

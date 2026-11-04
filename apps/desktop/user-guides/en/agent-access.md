@@ -38,24 +38,28 @@ For the complete local log, use **Help → Show log file**.
 1. Open **Settings → Agent Access**.
 2. Enable **Local Agent Access**, then click **Save changes**.
 3. Under **Connect an Agent client**, choose Codex, Claude Code, or Cursor and click **Connect**.
-4. Select one of the four task presets (**Metadata only**, **Read-only analysis**, **Debug and replay**, or **Automation experiment**), and review the target configuration path and backup note. If a custom permission mix is already saved, the dialog also offers **Keep current permissions** and selects it by default.
+4. Select one of the four permission presets (**Metadata only**, **Read-only analysis (recommended)**, **Debug and replay**, or **Automation experiment**). New configurations select **Read-only analysis (recommended)** by default; review the target configuration path and backup note. If a custom permission mix is already saved, the dialog also offers **Keep current permissions** and selects it by default.
 5. Click **Connect and write**. AIProxy saves the permissions, writes the MCP configuration, and installs the current AIProxy Skill.
 6. Restart or reload the client as prompted so it discovers the new MCP server.
 
 > A successful connection means the configuration and Skill were written; it does not mean the client completed a handshake. Expand **Diagnostics** and click **Verify connection** to check the sidecar, database schema, MCP handshake, and tool call.
 
-## Task presets
+## Permission presets
 
 | Preset | Use it for | Data scope |
 |---|---|---|
 | Metadata only | Locating requests, status codes, hosts, timing, or rule hits | Session summaries, headers, query, cookies, timing, and rule traces; no bodies |
-| Read-only analysis | Inspecting JSON fields or error responses | Adds redacted request/response bodies to metadata; WebSocket, raw bodies, and control permissions stay off |
+| Read-only analysis (recommended) | Inspecting JSON fields or error responses; default for new configurations | Adds redacted request/response bodies to metadata; WebSocket, raw bodies, and control permissions stay off |
 | Debug and replay | Asking the Agent to resend a captured request | Adds replay to read-only analysis; non-idempotent requests still require approval for each action |
 | Automation experiment | Creating, verifying, and rolling back Agent-owned Rewrite / Map Local resources | Adds Agent automation to read-only analysis; capture, the system proxy, and Map Local roots stay off by default |
 
-You can adjust access later in the permission groups. Capabilities that support temporary grants use one three-state selector: **Blocked**, **Ask**, or **Always allow**. **Blocked** rejects the action; **Ask** shows a time-limited approval card for a specific action; only **Always allow** executes without a prompt. **Read session metadata** is the exception: it offers only **Blocked / Always allow** because it has no separate temporary-grant consumption path. Turning off **Read bodies** also turns off **Read unredacted bodies**. WebSocket, unredacted bodies, proxy verification, and temporary rules are never enabled implicitly by a task preset; select them separately under advanced permissions.
+You can adjust access later in the permission groups. Capabilities that support temporary grants use one three-state selector: **Blocked**, **Ask**, or **Always allow**. **Blocked** rejects the action; **Ask** shows a time-limited approval card for a specific action; only **Always allow** executes without a prompt. **Read session metadata** is the exception: it offers only **Blocked / Always allow** because it has no separate temporary-grant consumption path. Turning off **Read bodies** also turns off **Read unredacted bodies**. WebSocket, unredacted bodies, proxy verification, and temporary rules are never enabled implicitly by a permission preset; select them separately under advanced permissions.
 
 When reconnecting, **Keep current permissions** preserves the exact saved read and control scope whenever it does not match a preset (for example, only some control permissions are enabled). Choosing any other preset applies that complete preset. A preset name is shown only on an exact match; any other saved combination is shown as **Custom**.
+
+In Settings, **Permission preset** is a dropdown that shows the current preset or **Custom**. Changing any permission switches to **Custom**; after selecting another preset, choose **Custom** again to restore the previous permission switches and request policies. A preset only fills the local draft and still requires **Save changes**.
+
+To grant many capabilities at once, choose **Batch grant...** beside the permission groups. The confirmation lists every capability available in this release, including high-risk items such as unredacted bodies, the system proxy, certificates, and session deletion. Confirming only fills the draft; nothing takes effect until you save, and the separate high-risk confirmation still appears at that point. Capabilities reserved for later releases are never included.
 
 ## First-time setup and full flow
 
@@ -259,7 +263,7 @@ After connecting, describe the debugging goal directly, for example:
 - "Create three mutually exclusive Map Local responses for `/api/items` that return normal data, empty data, and a business error. Verify status codes and JSON fields through the controlled proxy, and report the evidence level and limitations."
 - "Turn the previous Rewrite experiment into a persistent rule, verify it, then roll it back and confirm that Rules → Agent Experiments has no residual resources."
 
-If the Agent says it cannot see response bodies, confirm that you connected with **Read-only analysis**, or set **Read bodies** to **Always allow** under **Read permissions** and save. With **Ask**, the Agent requests approval for the specific session.
+If the Agent says it cannot see response bodies, confirm that you connected with **Read-only analysis (recommended)**, or set **Read bodies** to **Always allow** under **Read permissions** and save. With **Ask**, the Agent requests approval for the specific session.
 
 ## Common error codes
 
@@ -314,7 +318,7 @@ Restart or reload the client first, then run **Verify connection**. If the hands
 
 ### Q: The Agent sees status codes but no response content.
 
-Body access is probably off. Set **Read bodies** to **Always allow** under **Settings → Agent Access → Read permissions** and save, or reconnect with **Read-only analysis**. With **Ask**, approve the specific session when prompted.
+Body access is probably off. Set **Read bodies** to **Always allow** under **Settings → Agent Access → Read permissions** and save, or reconnect with **Read-only analysis (recommended)**. With **Ask**, approve the specific session when prompted.
 
 ### Q: Why does the Skill say "Update needed"?
 

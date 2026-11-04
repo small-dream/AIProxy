@@ -1193,6 +1193,8 @@ AgentAccessSection
 │     ├─ primary Connect / Update / Reconnect
 │     └─ overflow menu (config only / Skill only / manual setup / disconnect)
 ├─ PermissionsCard
+│  ├─ Permission preset select (metadata / readOnly / debugReplay / automationExperiment / custom)
+│  ├─ Batch grant action + confirmation list
 │  ├─ Permission matrix (collapsed by default)
 │  │  ├─ Read data (metadata / bodies / WebSocket)
 │  │  ├─ Control the desktop (capture / system proxy / certificate)
@@ -1236,9 +1238,10 @@ AppShell
 
 1. 顶部启用开关和权限选择器先写入本地草稿；只有 `Save changes` 才持久化。草稿与已保存值不一致时，状态头显示 `Unsaved`，并在状态头展示待保存项数量与高风险项数量；状态头与权限区同时提供审阅更改、保存和放弃。`CapabilitySummary` 始终读取已保存权限，并明确提示未保存更改尚未生效；已保存的接入开关关闭时不展示“可以读取/可以控制”，而是说明 Agent 当前不能读取或控制流量。关闭 `readBodies` 会立即在草稿中关闭 `readRawBodies`。存在未保存更改时离开设置路由必须二次确认。
 1.1 可请求临时授权的能力使用同一个 `禁止 / 请求时询问 / 始终允许` 选择器；`readSessions` 没有独立 grant 消费链路，只提供 `禁止 / 始终允许`。`请求时询问` 表示静态权限关闭时可为具体动作弹出限时授权；高风险能力默认禁止，从禁止切到询问或始终允许都必须进入高风险确认。UI 不展示两套独立矩阵，也不提供“完整控制”快捷项。
+1.2 设置页的权限预设使用下拉框，当前值精确显示为某个预设或“自定义”；新配置默认“只读分析（推荐）”。手动修改任一权限后自动切到“自定义”；选择其他预设后仍可返回“自定义”，恢复最近一次自定义的权限开关与请求授权策略。预设只填写草稿，不得自动保存。需要快速授权大量能力时使用“批量授权…”：确认框列出全部本版可用能力，只写入草稿，保存阶段仍执行高风险确认。
 2. 「验证连接」位于默认折叠的诊断区。它先运行 `aiproxy-mcp --doctor`，再执行真实 MCP 会话（initialize → tools/list → search_sessions），按 sidecar、诊断、数据库、schema、启用状态、Body 权限、握手、工具数、会话数、客户端连接、控制通道与控制权限逐项展示 ok / warning / error；失败项内联展示 detail，并提供「复制诊断」导出完整 JSON，不使用全局 toast。`sessions` 项同时展示最新会话时间；控制权限全关时只为 warning。
 3. 诊断区在路径与验证操作之间展示低噪音说明：可让 Agent 调用 `diagnose_ai_proxy_issue`，获得 AIProxy 自身的状态、白名单脱敏日志摘要、元数据审计错误、可能原因和解决步骤。文案必须说明桌面端需运行，日志受限且不是完整日志导出；不得提供“打开日志目录”“任意文件读取”作为该工具的入口。
-4. 客户端主操作是“连接”，始终先打开 `AgentConnectDialog`：选择任务预设（仅元数据 / 只读分析 / 调试与重放 / 自动化实验），确认后先保存对应权限，再写 MCP 配置并安装 Skill。模板会给出将授予的权限摘要；连接后仍可在权限分组中调整。若当前保存的是自定义组合，对话框额外提供并默认选中「保留当前权限」，确保重新连接不会重置部分控制权限，也不会把读取范围回退到最近似的模板。四类预设都精确显示为完整权限组合，匹配不到时显示“自定义”。
+4. 客户端主操作是“连接”，始终先打开 `AgentConnectDialog`：选择权限预设（仅元数据 / 只读分析（推荐）/ 调试与重放 / 自动化实验），新配置默认选中只读分析（推荐）；确认后先保存对应权限，再写 MCP 配置并安装 Skill。模板会给出将授予的权限摘要；连接后仍可在权限分组中调整。若当前保存的是自定义组合，对话框额外提供并默认选中「保留当前权限」，确保重新连接不会重置部分控制权限，也不会把读取范围回退到最近似的模板。四类预设都精确显示为完整权限组合，匹配不到时显示“自定义”。
 5. 目标文件不存在时直接创建；覆盖已有文件前在连接对话框中展示目标路径与备份说明。Skill 命中非 AIProxy 管理的同名文件时再次确认覆盖。
 6. 连接流程必须处理部分成功：配置已写入但 Skill 安装失败或用户取消覆盖时，界面明确提示配置已生效、Skill 未完成，并保持该客户端为 `需更新`。
 7. 更多菜单提供“仅写入 MCP 配置”“仅安装 Skill”“手动配置”“断开连接”。手动配置展开后展示单行路径、Skill 路径与版本、配置片段与复制操作；路径禁止跨行断词。断开仅在客户端已有配置或 Skill 时出现。

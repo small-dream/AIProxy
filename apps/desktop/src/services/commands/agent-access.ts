@@ -28,7 +28,7 @@ import { isTauriRuntime, reportCommandFailure } from "./runtime";
 
 const defaultPermissions = {
   readSessions: true,
-  readBodies: false,
+  readBodies: true,
   readRawBodies: false,
   readWebSocket: false,
   exportSnapshots: false,

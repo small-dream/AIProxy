@@ -455,7 +455,7 @@ flowchart LR
 - 验证连接同时检查控制通道协议版本、启用中的控制权限分组和工具数量
 - 支持从客户端移除 `aiproxy` 条目并删除 AIProxy 安装的 Skill；原配置先备份，自定义 Skill 不删除
 - Codex / Claude Code / Cursor 三客户端配置指引；均使用用户级全局配置，Claude Code 写入 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`）
-- 连接前选择任务预设（仅元数据 / 只读分析 / 调试与重放 / 自动化实验），预设只填写权限草稿且必须精确匹配；Body 关闭时提示 Agent 无法分析响应体
+- 连接前选择权限预设（仅元数据 / 只读分析（推荐）/ 调试与重放 / 自动化实验），新配置默认“只读分析（推荐）”；预设只填写权限草稿且必须精确匹配，Body 关闭时提示 Agent 无法分析响应体
 - MCP 结果 `meta` 返回 `latestSessionAt`、`captureStatus` 与 `captureUpdatedAt`，让 Agent 能说明“数据截止 12:03”而不是假装实时
 - Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化；当前 Skill 版本为 `3.5`
 - AIProxy 管理的旧 Skill 在应用启动时自动升级；缺失文件不创建、自定义 Skill 不覆盖，旧版应用不会降级更新版 Skill
