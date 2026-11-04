@@ -1249,44 +1249,55 @@ export function AgentAccessSection({
           description={t("settingsPage.agentAccess.permissionsDescription")}
         >
           <Box sx={{ pb: 2 }}>
-            <Typography variant="subtitle2">{t("settingsPage.agentAccess.presetTitle")}</Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              {t("settingsPage.agentAccess.presetDescription")}
-            </Typography>
-            <TextField
-              select
-              size="small"
-              value={currentPreset}
-              disabled={busy}
-              onChange={(event) => {
-                const value = event.target.value as AgentConnectPreset;
-                if (value === "current") {
-                  restoreCustomAccess();
-                  return;
-                }
-                applyPreset(value);
-              }}
-              slotProps={{
-                select: {
-                  inputProps: { "aria-label": t("settingsPage.agentAccess.presetTitle") },
-                },
-              }}
-              sx={{ ...selectControlSx, mt: 1.5 }}
+            <SettingsRow
+              label={t("settingsPage.agentAccess.presetTitle")}
+              description={t("settingsPage.agentAccess.presetDescription")}
+              hint={
+                <Typography
+                  variant="caption"
+                  sx={{
+                    display: "block",
+                    color: "text.secondary",
+                    lineHeight: 1.5,
+                    mt: 0.5,
+                  }}
+                >
+                  {currentPreset === "current"
+                    ? t("settingsPage.agentAccess.presetCustomDescription")
+                    : t(presetDescriptionKey(currentPreset))}
+                </Typography>
+              }
             >
-              {AGENT_PERMISSION_PRESETS.map((preset) => (
-                <MenuItem key={preset} value={preset}>
-                  {t(presetLabelKey(preset))}
+              <TextField
+                select
+                size="small"
+                value={currentPreset}
+                disabled={busy}
+                onChange={(event) => {
+                  const value = event.target.value as AgentConnectPreset;
+                  if (value === "current") {
+                    restoreCustomAccess();
+                    return;
+                  }
+                  applyPreset(value);
+                }}
+                slotProps={{
+                  select: {
+                    inputProps: { "aria-label": t("settingsPage.agentAccess.presetTitle") },
+                  },
+                }}
+                sx={selectControlSx}
+              >
+                {AGENT_PERMISSION_PRESETS.map((preset) => (
+                  <MenuItem key={preset} value={preset}>
+                    {t(presetLabelKey(preset))}
+                  </MenuItem>
+                ))}
+                <MenuItem value="current" disabled={!customAccess && currentPreset !== "current"}>
+                  {t("settingsPage.agentAccess.presetCustom")}
                 </MenuItem>
-              ))}
-              <MenuItem value="current" disabled={!customAccess && currentPreset !== "current"}>
-                {t("settingsPage.agentAccess.presetCustom")}
-              </MenuItem>
-            </TextField>
-            <Typography variant="caption" sx={{ color: "text.secondary", minWidth: 0, mt: 1 }}>
-              {currentPreset === "current"
-                ? t("settingsPage.agentAccess.presetCustomDescription")
-                : t(presetDescriptionKey(currentPreset))}
-            </Typography>
+              </TextField>
+            </SettingsRow>
             <Alert severity="info" variant="outlined" sx={{ ...compactAlertSx, mt: 1.5 }}>
               {t("settingsPage.agentAccess.capabilityModeDescription")}
             </Alert>
