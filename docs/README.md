@@ -19,6 +19,7 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [MCP_AGENT_SKILL_ARCHITECTURE.md](./MCP_AGENT_SKILL_ARCHITECTURE.md) | MCP transport, tools, permissions, and client integration architecture |
 | [MCP_AGENT_AUTOMATION_CONTROL_PLAN.md](./MCP_AGENT_AUTOMATION_CONTROL_PLAN.md) | Implemented first-release Agent automation record (Rewrite + Map Local) with experiment evidence, runtime snapshots, and resource-level rollback |
 | [MCP_LARGE_JSON_FIELD_EXTRACTION_PLAN.md](./MCP_LARGE_JSON_FIELD_EXTRACTION_PLAN.md) | Streaming JSON field extraction plan for large MCP responses and token-efficient Agent access |
+| [AGENT_ACCESS_PERMISSION_UX_PLAN.md](./AGENT_ACCESS_PERMISSION_UX_PLAN.md) | Agent Access permission information architecture, limited grants, and phased UX rollout plan |
 | [UI_UX_REVIEW_2026-08-16.md](./UI_UX_REVIEW_2026-08-16.md) | UI/UX review snapshot — P0 fixed, P1/P2 backlog pending |
 
 ### UI & Design
