@@ -429,6 +429,7 @@ Sidecar 在权限不足时返回结构化错误：
   "scope": {
     "sessionId": "sess_01J...",
     "host": "api.example.com",
+    "pathPrefix": "/orders",
     "method": "POST"
   },
   "reason": "需要重新发送这条请求以对比服务端响应",
@@ -455,6 +456,8 @@ Sidecar 在权限不足时返回结构化错误：
 - 同一 `agentInstanceId + capability + actionFingerprint` 的重复请求合并为一个 pending，避免授权疲劳。
 - 高风险操作（删除、修改用户资源、撤销证书信任、系统代理）只允许“允许一次”；永久允许必须在高级设置中单独开启。
 - 如果用户批准后操作参数发生变化，指纹失效，必须重新审批。
+- 审批卡显示的范围必须来自解析后的真实目标：重放先按 `sessionId` 读取会话摘要，再展示实际 host、path 和最终方法；会话不存在时返回 `SESSION_NOT_FOUND`，不创建审批卡。
+- 一个动作缺少多个能力时，按缺失能力分别申请 grant；桌面端逐能力校验，不能因兄弟能力的 grant 而把整个动作判为不匹配。
 
 ### 7.4 读取权限的限时授权
 
@@ -465,6 +468,8 @@ Sidecar 在权限不足时返回结构化错误：
 3. 都没有且 `grantRequestPolicy=ask` → 创建 pending 请求，通过审批通道通知桌面端，并在同一个工具调用内等待批准（默认最多 30 秒）。
 4. 用户批准后，sidecar 继续原工具调用并返回真实结果；Agent 不需要回到聊天里再发一次“已批准”。
 5. 拒绝、取消或超时返回结构化错误；不能把“最近一次授权”自动套用到新请求。
+
+`readSessions` 是例外：它没有独立的 grant 消费链路，不提供 `grantRequestPolicy=ask`。用户需要读取会话元数据时必须直接设为“始终允许”，避免出现批准后仍无法读取的假入口。
 
 审批通道要求：
 
@@ -537,6 +542,7 @@ Sidecar 在权限不足时返回结构化错误：
 规则：
 
 - `始终允许` 和 `请求时询问` 互斥；用户不能看到“关闭但仍可永久调用”的矛盾状态。
+- `readSessions` 只提供 `禁止 / 始终允许` 两态；后端会把旧配置中的 `ask` 归一化为 `deny`。
 - 高风险能力（删除、系统代理、证书信任、修改用户资源）默认 `禁止`；开启 `请求时询问` 也必须进入高级设置，且授权卡只提供一次批准。
 - 高风险能力的 `始终允许` 必须单独确认，不能通过预设或批量勾选静默开启。
 - 限时授权只能授予 `请求时询问` 的能力，不能突破用户配置的根目录、origin、TTL 等范围上限。
@@ -621,7 +627,7 @@ pending
 
 - 不出现 `manageUserAutomation`、`readRawBodies` 等字段名作为主标签。
 - 每个权限必须包含“能做什么”和“可能造成什么影响”。
-- 使用 `禁止`、`请求时询问`、`始终允许` 三态；授权卡使用 `允许一次`、`允许 15 分钟`（仅幂等读取/只读请求）、`拒绝`，不使用模糊的“确定”。
+- 可请求临时授权的能力使用 `禁止`、`请求时询问`、`始终允许` 三态；`readSessions` 只使用 `禁止 / 始终允许`。授权卡使用 `允许一次`、`允许 15 分钟`（仅幂等读取/只读请求）、`拒绝`，不使用模糊的“确定”。
 - 不把未开放能力写成“已预留可开启”。应写“当前版本不开放，开关不会绕过 `FEATURE_NOT_AVAILABLE`”或直接不展示。
 - 高风险操作必须写明“不可恢复”或“会产生真实外部请求”。
 - 不使用“完全控制”作为模式名；高级区使用“批量选择当前可用能力”，并展示逐项 diff。
@@ -681,6 +687,10 @@ type AgentGrantStore = {
 - 审计新增 `grantId`、`grantSource`、`grantScope`、`grantExpiresAt`。
 - 审批必须支持 sidecar 等待桌面端决定；不能要求 Agent 通过自然语言转述“用户已批准”。
 - 重放授权必须校验 `actionFingerprint`；不能只校验 host、方法或 sessionId。
+- 重放请求 card 的范围来自先读取的 session summary；实际 host、path 与最终方法必须进入 `scope`，会话不存在时不创建 pending。
+- 多能力动作按缺失能力各创建一个 grant；桌面端按能力匹配，不让其他能力的 grant 使校验整体失败。
+- `ConsumeAgentGrant` 必须再次检查当前请求策略；`ask` 改为 `deny` 或接入关闭后，既有 grant 也不能继续消费。
+- `readSessions` 不接入临时授权；UI 只显示两态，配置归一化时把旧 `ask` 强制改为 `deny`。
 - 自动化授权必须包含 `resourcePolicy`，并区分 `ephemeral` / `persistent` 与清理责任。
 
 ### 9.4 兼容与迁移
@@ -762,7 +772,7 @@ type AgentGrantStore = {
 任务：
 
 1. 设计并实现 grant store，绑定 `agentInstanceId`、client name/version、capability、scope 和 fingerprint。
-2. MCP 权限检查接入 grant；静态权限与 `grantRequestPolicy` 三态统一映射。
+2. MCP 权限检查接入 grant；可临时授权能力映射三态，`readSessions` 只映射 `禁止 / 始终允许`。
 3. 新增审批 IPC：sidecar 创建 pending、桌面端批准/拒绝、sidecar 在同一工具调用中继续或返回错误。
 4. 全局待授权入口：AppShell 提示、系统通知、设置页历史；不要求用户先进入 Settings。
 5. 审批状态机：pending / approved / executing / succeeded / failed / unknown / denied / expired / revoked / cancelled。

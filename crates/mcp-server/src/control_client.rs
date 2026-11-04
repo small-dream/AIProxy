@@ -17,6 +17,7 @@ use interprocess::local_socket::{prelude::*, Stream};
 use serde_json::Value;
 
 use crate::config::{AgentAccessConfig, AppPaths};
+use crate::context::TOOL_TIMEOUT;
 use crate::protocol::ToolError;
 use crate::status::read_capture_status;
 
@@ -115,6 +116,10 @@ async fn prepare_control_auth(
         .into_iter()
         .filter(|permission| !operation_has_permission(&config, *permission))
         .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return Ok(ControlAuth::default());
+    }
+    let scope = operation_grant_scope(paths, operation).await?;
     let mut grant_ids = Vec::new();
     for permission in missing {
         let capability = capability_for_permission(permission);
@@ -131,7 +136,7 @@ async fn prepare_control_auth(
             capability,
             action_fingerprint: operation_action_fingerprint(operation),
             action_summary: operation.action_summary(),
-            scope: operation_scope(operation),
+            scope: scope.clone(),
             reason: format!(
                 "The Agent needs temporary {} access for this specific action.",
                 permission_label(permission)
@@ -383,11 +388,6 @@ fn operation_scope(operation: &ControlOperation) -> AgentGrantScope {
             session_ids: params.session_ids.clone(),
             ..AgentGrantScope::default()
         },
-        ControlOperation::ReplaySession(params) => AgentGrantScope {
-            session_ids: vec![params.session_id.clone()],
-            methods: params.method.clone().into_iter().collect(),
-            ..AgentGrantScope::default()
-        },
         ControlOperation::ConfigureWorkspace(params) => AgentGrantScope {
             workspace_id: params.workspace_id.clone(),
             ..AgentGrantScope::default()
@@ -416,6 +416,71 @@ fn operation_scope(operation: &ControlOperation) -> AgentGrantScope {
             ..AgentGrantScope::default()
         },
         _ => AgentGrantScope::default(),
+    }
+}
+
+async fn operation_grant_scope(
+    paths: &AppPaths,
+    operation: &ControlOperation,
+) -> Result<AgentGrantScope, ToolError> {
+    match operation {
+        ControlOperation::ReplaySession(params) => replay_session_grant_scope(paths, params).await,
+        _ => Ok(operation_scope(operation)),
+    }
+}
+
+async fn replay_session_grant_scope(
+    paths: &AppPaths,
+    params: &aiproxy_agent_control::ReplaySessionParams,
+) -> Result<AgentGrantScope, ToolError> {
+    let db_path = paths.db_path.clone();
+    let session_id = params.session_id.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        let connection = aiproxy_db::connection::open_read_only_database(&db_path)?;
+        aiproxy_db::sessions::load_session_summary(&connection, &session_id)
+    });
+    match tokio::time::timeout(TOOL_TIMEOUT, task).await {
+        Ok(Ok(Ok(Some(summary)))) => Ok(replay_scope_with_target(
+            params,
+            &summary.method,
+            &summary.host,
+            &summary.path,
+        )),
+        Ok(Ok(Ok(None))) => Err(ToolError::new(
+            "SESSION_NOT_FOUND",
+            format!("Session not found: {}", params.session_id.trim()),
+        )),
+        Ok(Ok(Err(error))) => Err(crate::protocol::map_db_error(error, false)),
+        Ok(Err(error)) => Err(ToolError::new(
+            "INTERNAL_ERROR",
+            format!("Resolve replay target for approval: {error}"),
+        )),
+        Err(_) => Err(ToolError::new(
+            "TOOL_TIMEOUT",
+            "Resolving the replay target for approval timed out. Retry the replay.",
+        )
+        .retryable(true)),
+    }
+}
+
+fn replay_scope_with_target(
+    params: &aiproxy_agent_control::ReplaySessionParams,
+    captured_method: &str,
+    host: &str,
+    path: &str,
+) -> AgentGrantScope {
+    let method = params
+        .method
+        .as_deref()
+        .unwrap_or(captured_method)
+        .trim()
+        .to_ascii_uppercase();
+    AgentGrantScope {
+        session_ids: vec![params.session_id.clone()],
+        host: (!host.trim().is_empty()).then(|| host.trim().to_string()),
+        path_prefix: (!path.trim().is_empty()).then(|| path.trim().to_string()),
+        methods: (!method.is_empty()).then_some(method).into_iter().collect(),
+        ..AgentGrantScope::default()
     }
 }
 
@@ -1154,5 +1219,25 @@ mod tests {
             control_io_error("Connect to the AIProxy control channel", refused, 60).retryable(true);
         assert_eq!(refused.code, "CONTROL_UNAVAILABLE");
         assert!(refused.retryable);
+    }
+
+    #[test]
+    fn replay_approval_scope_includes_the_resolved_target_and_method() {
+        let params = aiproxy_agent_control::ReplaySessionParams {
+            session_id: "session-1".to_string(),
+            method: None,
+            set_headers: Vec::new(),
+            remove_headers: Vec::new(),
+            set_query_params: Vec::new(),
+            body: None,
+            json_set: std::collections::BTreeMap::new(),
+        };
+
+        let scope = replay_scope_with_target(&params, "post", "api.example.com", "/v1/orders");
+
+        assert_eq!(scope.session_ids, vec!["session-1".to_string()]);
+        assert_eq!(scope.methods, vec!["POST".to_string()]);
+        assert_eq!(scope.host.as_deref(), Some("api.example.com"));
+        assert_eq!(scope.path_prefix.as_deref(), Some("/v1/orders"));
     }
 }

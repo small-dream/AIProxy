@@ -425,9 +425,9 @@ flowchart LR
 - 8 个自动化工具：`list_automation_resources`、`get_automation_resource`、`validate_automation_plan`、`apply_automation_plan`、`verify_automation_change`、`get_automation_change`、`rollback_automation_change`、`clear_agent_automation`
 - 权限分为旧控制权限 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules`，以及新增自动化权限 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification`、`manageGlobalAutomation`；全部默认关闭
 - 新权限与旧授权隔离：升级不会把 `manageRules` 推导为任何新权限；配置内存契约版本为 `5`，磁盘兼容信封仍为 `2`，缺失字段按 `false` 归一化
-- 每项能力统一为 `禁止 / 请求时询问 / 始终允许` 三态。高风险能力默认禁止；`请求时询问` 只在具体动作上申请限时授权，不能绕过静态权限、根目录、origin、TTL 或频率限制
+- 可请求临时授权的能力使用 `禁止 / 请求时询问 / 始终允许` 三态；`readSessions` 没有独立 grant 消费链路，只提供 `禁止 / 始终允许`，旧配置中的 `ask` 会归一化为 `deny`。高风险能力默认禁止；`请求时询问` 只在具体动作上申请限时授权，不能绕过静态权限、根目录、origin、TTL 或频率限制
 - 限时授权绑定 sidecar 实例、客户端名称/版本、能力与动作指纹；一次性授权 60 秒内允许 1 次，可重复授权 15 分钟内最多 50 次，非幂等与高风险动作只允许一次。应用重启后临时授权全部失效
-- 支持全局审批对话框与系统通知、待审批/有效授权列表、单条撤销；立即收回控制会关闭全部控制与自动化权限、清除临时授权并返回仍在生效的抓包、系统代理、证书和 Agent 资源
+- 支持全局审批对话框与系统通知、待审批/有效授权列表、单条撤销；多能力动作按缺失能力分别绑定授权，重放审批展示解析后的实际 host、path 和最终方法；立即收回控制会关闭全部控制与自动化权限、清除临时授权并返回仍在生效的抓包、系统代理、证书和 Agent 资源
 - `replay_session` 直连原始上游 host，严格锁定 host，串行发送且每分钟最多 10 次；它不经过抓包端口，也不执行用户或 Agent 规则。重放结果作为 `timingSource=agentReplay` 的新会话持久化，失败时返回结构化原因
 - 自动化计划先 `validate` 再 `apply`，使用 `expectedPlanHash`、`expectedScopeHash` 与安装实例级幂等键；计划最多 100 项、序列化不超过 3 MiB、scope 首版仅支持 workspace
 - 首版写能力仅覆盖 Rewrite 与 Map Local：可创建、更新、删除常驻资源，也可创建只读临时资源；Map Remote、DNS、Script、Throttle、Breakpoint 与 Throttle 激活返回 `FEATURE_NOT_AVAILABLE`

@@ -260,7 +260,8 @@ fn default_grant_request_policy(
         .into_iter()
         .map(|capability| {
             let policy = match capability {
-                AgentCapability::ControlSystemProxy
+                AgentCapability::ReadSessions
+                | AgentCapability::ControlSystemProxy
                 | AgentCapability::ManageCertificates
                 | AgentCapability::DeleteSessions
                 | AgentCapability::ManageScripts
@@ -325,6 +326,11 @@ impl AgentAccessConfig {
                 .entry(capability)
                 .or_insert(policy);
         }
+        // Session metadata is the gate for every read tool and has no
+        // grant-consume path. Keep legacy configs deterministic instead of
+        // exposing an "ask" state that can never be satisfied.
+        self.grant_request_policy
+            .insert(AgentCapability::ReadSessions, AgentGrantRequestPolicy::Deny);
         self
     }
 }
@@ -672,6 +678,7 @@ mod tests {
     fn default_grant_requests_are_denied_for_destructive_capabilities() {
         let policy = AgentAccessConfig::default().grant_request_policy;
         for capability in [
+            AgentCapability::ReadSessions,
             AgentCapability::ControlSystemProxy,
             AgentCapability::ManageCertificates,
             AgentCapability::DeleteSessions,
@@ -688,6 +695,23 @@ mod tests {
         assert_eq!(
             policy.get(&AgentCapability::ReadBodies),
             Some(&AgentGrantRequestPolicy::Ask)
+        );
+    }
+
+    #[test]
+    fn legacy_read_session_ask_policy_is_normalized_to_deny() {
+        let mut config = AgentAccessConfig::default();
+        config
+            .grant_request_policy
+            .insert(AgentCapability::ReadSessions, AgentGrantRequestPolicy::Ask);
+
+        let config = config.normalized();
+
+        assert_eq!(
+            config
+                .grant_request_policy
+                .get(&AgentCapability::ReadSessions),
+            Some(&AgentGrantRequestPolicy::Deny)
         );
     }
 }

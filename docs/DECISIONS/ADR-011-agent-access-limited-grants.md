@@ -21,7 +21,7 @@
 
 ### 1. 三种用户可见状态
 
-每项能力统一表达为：
+除 `readSessions` 外，可请求临时授权的每项能力统一表达为：
 
 - `禁止`：直接拒绝，不允许发起审批。
 - `请求时询问`：静态权限关闭时，Agent 可为具体动作请求限时授权；静态权限开启后不再弹卡。
@@ -29,7 +29,9 @@
 
 后端继续保留布尔权限与 `grantRequestPolicy` 两个兼容字段，但 UI 不得把它们呈现成两套矩阵。高风险能力默认 `禁止`；从 `禁止` 改为 `请求时询问` 或 `始终允许` 都必须经过高风险二次确认。
 
-默认 `禁止` 的能力为：`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`manageScripts`、`manageCrossHostMappings`、`manageUserAutomation`、`manageGlobalAutomation`。其余可用能力默认 `请求时询问`。
+`readSessions` 是所有读取工具的入口，但没有独立的 grant 消费链路，因此只提供 `禁止 / 始终允许`。其 `grantRequestPolicy` 始终归一化为 `deny`，旧配置中的 `ask` 不会产生可执行的审批流程。
+
+`grantRequestPolicy` 默认 `deny` 的能力为：`readSessions`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`manageScripts`、`manageCrossHostMappings`、`manageUserAutomation`、`manageGlobalAutomation`。其余可请求临时授权的可用能力默认 `ask`。
 
 ### 2. 授权身份和动作绑定
 
@@ -41,6 +43,10 @@
 - 动作指纹。
 
 控制操作的指纹来自完整操作 DTO 的确定性序列化。控制类请求还在 `ControlRequest.actionFingerprint` 中携带该指纹，桌面端会重新计算并比较；参数变化、目标 Session 变化或请求方法变化均不能复用旧批准。
+
+一个控制动作缺少多个静态权限时，sidecar 为每个缺失能力分别申请并绑定一个 grant；桌面端按能力逐个验证，不能因为请求同时携带其他能力的 grant 而使整个动作失败。已经由静态权限覆盖的能力不申请 grant。
+
+重放需要临时授权时，sidecar 必须先按 `sessionId` 读取会话摘要，把解析后的实际 `host`、`path` 和最终方法写入审批范围；会话不存在时返回 `SESSION_NOT_FOUND`，不得只凭 `sessionId` 弹卡。完整动作指纹仍覆盖最终 URL、Header、Query 与 Body 覆盖结果。
 
 读取类能力使用能力与授权范围生成指纹，例如 Body 读取至少绑定 Session ID；同一 sidecar 进程被多个对话共享时，它们共享同一份限时授权，这是本版明确接受的限制，不宣称对话级隔离。
 
@@ -84,8 +90,9 @@
 
 ### 7. 双端复核
 
-- sidecar 在发起控制请求前读取配置，决定直接执行、请求授权或拒绝。
+- sidecar 在发起控制请求前读取配置，只为缺失的静态权限请求授权，已开启的能力直接执行。
 - 桌面端在 IPC 边界重新校验 Agent Access 启用状态、token、协议版本、权限、请求策略、授权实例/客户端/能力/指纹、剩余次数和审计可写性。
+- `ConsumeAgentGrant` 在消费前重新校验当前请求策略；把能力改为 `deny`、关闭接入或把 `readSessions` 归一化为 `deny` 后，既有授权也不能继续使用。
 - 等待桌面写锁期间会再次执行预检；排队期间撤销权限会使请求在执行前失败。
 - 控制协议升级为 v2，新增 `RequestAgentGrant` 与 `ConsumeAgentGrant`；桌面端和 sidecar 必须同步升级。
 
@@ -107,6 +114,7 @@
 - 用户可以在具体动作发生时批准一次或 15 分钟，而不必预先长期开启高风险权限。
 - 授权与 sidecar 进程同寿命，应用重启后必须重新批准；这是安全选择，也会带来跨重启重新审批的成本。
 - 自动化资源生命周期与授权有效期分离。15 分钟授权到期不会删除此前创建的持久资源，临时资源的 TTL 也不会因为授权仍有效而延长。
+- `readSessions` 不提供临时授权，用户需要读取会话元数据时必须直接开启静态权限；这样避免显示一个永远无法批准成功的 `请求时询问` 状态。
 - 同一 sidecar 被多个对话共享时，同一动作范围内的授权可被共享；若要支持对话级隔离，需要 MCP 客户端提供稳定 conversation/task ID。
 - 直接连接本地 IPC 的同用户进程仍受桌面端双重校验和授权指纹约束，但本机同用户进程的信任边界仍高于跨用户隔离。
 

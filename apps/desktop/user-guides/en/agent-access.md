@@ -53,7 +53,7 @@ For the complete local log, use **Help → Show log file**.
 | Debug and replay | Asking the Agent to resend a captured request | Adds replay to read-only analysis; non-idempotent requests still require approval for each action |
 | Automation experiment | Creating, verifying, and rolling back Agent-owned Rewrite / Map Local resources | Adds Agent automation to read-only analysis; capture, the system proxy, and Map Local roots stay off by default |
 
-You can adjust access later in the permission groups. Every capability uses one three-state selector: **Blocked**, **Ask**, or **Always allow**. **Blocked** rejects the action; **Ask** shows a time-limited approval card for a specific action; only **Always allow** executes without a prompt. Turning off **Read bodies** also turns off **Read unredacted bodies**. WebSocket, unredacted bodies, proxy verification, and temporary rules are never enabled implicitly by a task preset; select them separately under advanced permissions.
+You can adjust access later in the permission groups. Capabilities that support temporary grants use one three-state selector: **Blocked**, **Ask**, or **Always allow**. **Blocked** rejects the action; **Ask** shows a time-limited approval card for a specific action; only **Always allow** executes without a prompt. **Read session metadata** is the exception: it offers only **Blocked / Always allow** because it has no separate temporary-grant consumption path. Turning off **Read bodies** also turns off **Read unredacted bodies**. WebSocket, unredacted bodies, proxy verification, and temporary rules are never enabled implicitly by a task preset; select them separately under advanced permissions.
 
 When reconnecting, **Keep current permissions** preserves the exact saved read and control scope whenever it does not match a preset (for example, only some control permissions are enabled). Choosing any other preset applies that complete preset. A preset name is shown only on an exact match; any other saved combination is shown as **Custom**.
 
@@ -75,7 +75,7 @@ If Agent session cleanup returns `BODY_DELETE_FAILED`, the database rows were de
 
 Common permissions include:
 
-- **Read session metadata**: session summaries, headers, query, cookies, timing, and rule traces.
+- **Read session metadata**: session summaries, headers, query, cookies, timing, and rule traces. This capability supports only **Blocked / Always allow**; after blocking it, enable it directly rather than requesting a temporary grant.
 - **Read bodies**: scoped request and response body access, redacted by default.
 - **Read WebSocket messages**: cursor-based message history; binary payloads remain metadata-only.
 
@@ -98,7 +98,7 @@ When the Agent already knows the target field, use `get_session_body` with `json
 
 ## Control permissions
 
-Control permissions appear below read permissions and are collapsed by default. The **Current Agent capabilities** summary at the top shows saved permissions only, so draft changes do not take effect until you save. When Local Agent Access is saved as off, the summary states that the Agent cannot read or control traffic instead of listing capabilities. Expanding the matrix groups the capabilities available in this release under **Control the desktop**, **Dangerous operations**, **Modify requests**, and **Agent automation**. Every capability uses **Blocked / Ask / Always allow**; the system proxy, root certificate, session deletion, scripts, cross-host mappings, user automation, and global automation default to **Blocked**. An upgrade or the legacy temporary-rule permission never enables a new automation permission implicitly.
+Control permissions appear below read permissions and are collapsed by default. The **Current Agent capabilities** summary at the top shows saved permissions only, so draft changes do not take effect until you save. When Local Agent Access is saved as off, the summary states that the Agent cannot read or control traffic instead of listing capabilities. Expanding the matrix groups the capabilities available in this release under **Control the desktop**, **Dangerous operations**, **Modify requests**, and **Agent automation**. Capabilities that support temporary grants use **Blocked / Ask / Always allow**; **Read session metadata** offers only **Blocked / Always allow**. The system proxy, root certificate, session deletion, scripts, cross-host mappings, user automation, and global automation default to **Blocked**. An upgrade or the legacy temporary-rule permission never enables a new automation permission implicitly.
 
 Base control permissions:
 
@@ -127,7 +127,7 @@ Approved Map Local roots appear only when **Manage Agent automation** is enabled
 
 ### Temporary grants
 
-When a capability is **Ask** and the permanent permission is off, AIProxy shows a global approval card and sends a system notification. The card identifies the client, capability, action summary, scope, reason, action fingerprint, and available choices:
+When a capability is **Ask** and the permanent permission is off, AIProxy shows a global approval card and sends a system notification. The card identifies the client, capability, action summary, scope, reason, action fingerprint, and available choices. Replay approvals show the resolved host, path, and final method instead of only a session ID:
 
 - **Allow once** permits exactly one execution within 60 seconds.
 - **Allow for 15 minutes** permits up to 50 executions within 15 minutes; it is offered only for repeatable, non-high-risk actions.
@@ -146,6 +146,8 @@ To stop further Agent control immediately, use **Revoke control now**. It closes
 ### Request replay
 
 `replay_session` restores the method, URL, headers, and request body (including binary payloads) from a saved session, then sends it through the desktop app directly to the **original host**. It creates a real outbound request and may trigger side effects such as placing an order, sending a message, or deleting data. Non-idempotent methods (POST / PUT / PATCH / DELETE and similar) must be explicitly requested by you in the current conversation; the Agent must not replay because captured content suggested it.
+
+If replay needs temporary approval, AIProxy resolves the session first and shows the actual host, path, and final method. A missing session returns `SESSION_NOT_FOUND` instead of opening an approval card with only the session ID.
 
 Two limits matter:
 
@@ -268,7 +270,7 @@ If the Agent says it cannot see response bodies, confirm that you connected with
 | `RULE_LIMIT_EXCEEDED` | The 20-rule limit for temporary Agent rules was reached. List and remove rules you no longer need first. |
 | `RULE_READ_ONLY` | An Agent rule was edited, toggled, or reordered from the Rules page. Remove and recreate it, or duplicate it as a normal rule before editing. |
 | `CONTROL_PERMISSION_DENIED` | The required control permission is off. Enable it under **Settings → Agent Access → Control permissions** and save. |
-| `GRANT_POLICY_DENIED` | The capability is **Blocked**, so no temporary grant can be requested. Change it to **Ask** or **Always allow** and save first. |
+| `GRANT_POLICY_DENIED` | The capability is **Blocked**, so no temporary grant can be requested. For capabilities that support approval, change it to **Ask** or **Always allow**; **Read session metadata** can only be changed to **Always allow**. Save, then retry. |
 | `APPROVAL_REQUIRED` / `APPROVAL_INVALID` | This action needs approval, or the grant no longer matches the sidecar instance, client, capability, fingerprint, or remaining quota. Start the specific action again and wait for approval. |
 | `APPROVAL_FINGERPRINT_MISMATCH` | The action parameters changed, so the previous approval cannot be reused. Ask the user to approve the current action again. |
 | `APPROVAL_DENIED` / `APPROVAL_TIMEOUT` / `APPROVAL_CANCELLED` | The user denied the action, the 30-second approval window expired, or the grant was revoked. Do not retry in a loop; let the user decide again. |

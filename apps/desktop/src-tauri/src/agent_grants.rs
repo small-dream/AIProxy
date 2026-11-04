@@ -312,18 +312,42 @@ pub fn authorize(
     capability: AgentCapability,
     fingerprint: &str,
     grant_ids: &[String],
-) -> Result<Vec<String>, String> {
+) -> Result<String, String> {
     let mut guard = store().lock().unwrap_or_else(|error| error.into_inner());
     refresh_expired(&mut guard.grants);
-    let mut matched = Vec::new();
+    authorized_grant_id(
+        &guard.grants,
+        agent_instance_id,
+        client_name,
+        client_version,
+        capability,
+        fingerprint,
+        grant_ids,
+    )
+}
+
+fn authorized_grant_id(
+    grants: &[AgentGrant],
+    agent_instance_id: &str,
+    client_name: &str,
+    client_version: &str,
+    capability: AgentCapability,
+    fingerprint: &str,
+    grant_ids: &[String],
+) -> Result<String, String> {
     for id in grant_ids {
-        let Some(grant) = guard.grants.iter_mut().find(|grant| grant.id == *id) else {
+        let Some(grant) = grants.iter().find(|grant| grant.id == *id) else {
             return Err("The approved Agent grant no longer exists".to_string());
         };
+        // A multi-permission action carries one grant per capability. Ignore
+        // grants for other capabilities so each required permission can find
+        // its own exact match without invalidating the sibling grant.
+        if grant.capability != capability {
+            continue;
+        }
         if grant.agent_instance_id != agent_instance_id
             || grant.client_name != client_name
             || grant.client_version != client_version
-            || grant.capability != capability
             || grant.action_fingerprint != fingerprint
             || grant.remaining_uses == 0
             || !matches!(
@@ -333,9 +357,9 @@ pub fn authorize(
         {
             return Err("The approved Agent grant does not match this action".to_string());
         }
-        matched.push(grant.id.clone());
+        return Ok(grant.id.clone());
     }
-    Ok(matched)
+    Err("The approved Agent grant does not cover this capability".to_string())
 }
 
 pub fn mark_executing(grant_ids: &[String]) -> Result<(), String> {
@@ -714,6 +738,44 @@ mod tests {
         );
         assert_ne!(first, second);
         assert_ne!(first, third);
+    }
+
+    #[test]
+    fn authorization_selects_one_grant_per_capability() {
+        let mut read = test_grant(AgentGrantStatus::Approved, 2);
+        read.id = "grant_read".to_string();
+        read.request_id = read.id.clone();
+
+        let mut automation = test_grant(AgentGrantStatus::Approved, 2);
+        automation.id = "grant_automation".to_string();
+        automation.request_id = automation.id.clone();
+        automation.capability = AgentCapability::ManageAutomation;
+
+        let grants = vec![read, automation];
+        let ids = vec!["grant_read".to_string(), "grant_automation".to_string()];
+        let read_id = authorized_grant_id(
+            &grants,
+            "mcp_1",
+            "Codex",
+            "1.0",
+            AgentCapability::ReadBodies,
+            "sha256:a",
+            &ids,
+        )
+        .unwrap();
+        let automation_id = authorized_grant_id(
+            &grants,
+            "mcp_1",
+            "Codex",
+            "1.0",
+            AgentCapability::ManageAutomation,
+            "sha256:a",
+            &ids,
+        )
+        .unwrap();
+
+        assert_eq!(read_id, "grant_read");
+        assert_eq!(automation_id, "grant_automation");
     }
 
     #[test]

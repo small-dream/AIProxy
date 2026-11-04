@@ -11,6 +11,7 @@ import { AGENT_PERMISSION_KEYS, permissionDefinition } from "./agent-access.perm
 export type AgentCapabilityMode = "deny" | "ask" | "always";
 
 const DENY_BY_DEFAULT: ReadonlySet<AgentCapability> = new Set([
+  "readSessions",
   "controlSystemProxy",
   "manageCertificates",
   "deleteSessions",
@@ -19,6 +20,10 @@ const DENY_BY_DEFAULT: ReadonlySet<AgentCapability> = new Set([
   "manageUserAutomation",
   "manageGlobalAutomation",
 ]);
+
+export function capabilitySupportsTemporaryApproval(capability: AgentCapability): boolean {
+  return capability !== "readSessions";
+}
 
 export function defaultGrantRequestPolicy(): AgentGrantRequestPolicyMap {
   return Object.fromEntries(
@@ -35,7 +40,9 @@ export function capabilityMode(
   capability: AgentCapability,
 ): AgentCapabilityMode {
   if (permissions[capability]) return "always";
-  return policy[capability] === "ask" ? "ask" : "deny";
+  return policy[capability] === "ask" && capabilitySupportsTemporaryApproval(capability)
+    ? "ask"
+    : "deny";
 }
 
 export function applyCapabilityMode(
@@ -49,7 +56,10 @@ export function applyCapabilityMode(
     nextPermissions.readRawBodies = false;
   }
   const nextPolicy = { ...policy };
-  if (mode !== "always") nextPolicy[capability] = mode;
+  if (mode !== "always") {
+    nextPolicy[capability] =
+      mode === "ask" && !capabilitySupportsTemporaryApproval(capability) ? "deny" : mode;
+  }
   return { permissions: nextPermissions, grantRequestPolicy: nextPolicy };
 }
 

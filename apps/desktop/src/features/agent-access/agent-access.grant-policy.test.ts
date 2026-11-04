@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyCapabilityMode,
   capabilityMode,
+  capabilitySupportsTemporaryApproval,
   defaultGrantRequestPolicy,
   requiresAccessChangeConfirmation,
 } from "./agent-access.grant-policy";
@@ -11,6 +12,7 @@ import { permissionsForPreset } from "./agent-access.helpers";
 describe("Agent capability mode policy", () => {
   it("defaults destructive controls to blocked and other capabilities to ask", () => {
     const policy = defaultGrantRequestPolicy();
+    expect(policy.readSessions).toBe("deny");
     expect(policy.controlSystemProxy).toBe("deny");
     expect(policy.manageCertificates).toBe("deny");
     expect(policy.deleteSessions).toBe("deny");
@@ -20,6 +22,18 @@ describe("Agent capability mode policy", () => {
     expect(policy.manageGlobalAutomation).toBe("deny");
     expect(policy.readBodies).toBe("ask");
     expect(policy.sendRequests).toBe("ask");
+  });
+
+  it("does not expose an unexecutable ask mode for session metadata", () => {
+    const permissions = permissionsForPreset("metadata");
+    const policy = { ...defaultGrantRequestPolicy(), readSessions: "ask" as const };
+    const denied = { ...permissions, readSessions: false };
+
+    expect(capabilitySupportsTemporaryApproval("readSessions")).toBe(false);
+    expect(capabilityMode(denied, policy, "readSessions")).toBe("deny");
+    expect(
+      applyCapabilityMode(denied, policy, "readSessions", "ask").grantRequestPolicy.readSessions,
+    ).toBe("deny");
   });
 
   it("maps the three UI states to one mutually exclusive backend state", () => {

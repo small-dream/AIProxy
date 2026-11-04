@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -416,6 +416,18 @@ struct ControlExecution {
     notify_ui: bool,
 }
 
+#[derive(Debug, Default)]
+struct AuthorizedGrants {
+    grant_ids: Vec<String>,
+    capabilities: BTreeSet<AgentCapability>,
+}
+
+#[derive(Debug)]
+struct Preflight {
+    config: AgentAccessConfig,
+    grants: AuthorizedGrants,
+}
+
 fn remember_control_action(event: &Value) {
     let mut actions = RECENT_CONTROL_ACTIONS
         .get_or_init(|| Mutex::new(VecDeque::new()))
@@ -540,65 +552,26 @@ fn execute_request(
             notify_ui: false,
         };
     }
-    if let Err(error) = preflight_request(token, data_dir, &request) {
-        return ControlExecution {
-            result: Err(error),
-            notify_ui: false,
-        };
-    }
-
     let result = if request.operation.is_write() {
-        let created_by = audit_identity(request.client_name.as_deref());
-        let client_version = audit_identity(request.client_version.as_deref());
+        if let Err(error) = preflight_request(token, data_dir, &request) {
+            return ControlExecution {
+                result: Err(error),
+                notify_ui: false,
+            };
+        }
         let guard = tauri::async_runtime::block_on(write_lock.lock());
         // A request can wait behind another long write. Re-read the live
         // permissions and audit availability after acquiring the lock so a
         // revocation that happened while queued still stops this action.
         let result = match preflight_request(token, data_dir, &request) {
-            Ok(config) => {
-                if !request.grant_ids.is_empty() {
-                    if let Err(error) = agent_grants::mark_executing(&request.grant_ids) {
-                        return ControlExecution {
-                            result: Err(ControlError::new("APPROVAL_INVALID", error)),
-                            notify_ui: false,
-                        };
-                    }
-                }
-                let state = Arc::clone(app.state::<Arc<AppState>>().inner());
-                tauri::async_runtime::block_on(dispatch(
-                    state,
-                    data_dir.to_path_buf(),
-                    request.operation,
-                    (&created_by, &client_version),
-                    automation_permissions(&config),
-                ))
-            }
+            Ok(preflight) => execute_authorized_request(app, data_dir, request, preflight),
             Err(error) => Err(error),
         };
         drop(guard);
         result
     } else {
-        let created_by = audit_identity(request.client_name.as_deref());
-        let client_version = audit_identity(request.client_version.as_deref());
-        let state = Arc::clone(app.state::<Arc<AppState>>().inner());
         match preflight_request(token, data_dir, &request) {
-            Ok(config) => {
-                if !request.grant_ids.is_empty() {
-                    if let Err(error) = agent_grants::mark_executing(&request.grant_ids) {
-                        return ControlExecution {
-                            result: Err(ControlError::new("APPROVAL_INVALID", error)),
-                            notify_ui: false,
-                        };
-                    }
-                }
-                tauri::async_runtime::block_on(dispatch(
-                    state,
-                    data_dir.to_path_buf(),
-                    request.operation,
-                    (&created_by, &client_version),
-                    automation_permissions(&config),
-                ))
-            }
+            Ok(preflight) => execute_authorized_request(app, data_dir, request, preflight),
             Err(error) => Err(error),
         }
     };
@@ -608,6 +581,28 @@ fn execute_request(
     }
 }
 
+fn execute_authorized_request(
+    app: &AppHandle,
+    data_dir: &Path,
+    request: ControlRequest,
+    preflight: Preflight,
+) -> Result<Value, ControlError> {
+    if !preflight.grants.grant_ids.is_empty() {
+        agent_grants::mark_executing(&preflight.grants.grant_ids)
+            .map_err(|error| ControlError::new("APPROVAL_INVALID", error))?;
+    }
+    let created_by = audit_identity(request.client_name.as_deref());
+    let client_version = audit_identity(request.client_version.as_deref());
+    let state = Arc::clone(app.state::<Arc<AppState>>().inner());
+    tauri::async_runtime::block_on(dispatch(
+        state,
+        data_dir.to_path_buf(),
+        request.operation,
+        (&created_by, &client_version),
+        automation_permissions(&preflight.config, &preflight.grants.capabilities),
+    ))
+}
+
 /// Validate everything that can deny a control action before any side effect
 /// runs. Keeping this separate from `dispatch` makes the security boundary
 /// testable without constructing a Tauri application.
@@ -615,7 +610,7 @@ fn preflight_request(
     token: &str,
     data_dir: &Path,
     request: &ControlRequest,
-) -> Result<AgentAccessConfig, ControlError> {
+) -> Result<Preflight, ControlError> {
     if request.protocol_version != CONTROL_PROTOCOL_VERSION {
         return Err(ControlError::new(
             "CONTROL_UNAVAILABLE",
@@ -653,10 +648,20 @@ fn preflight_request(
     }
     if let ControlOperation::RequestAgentGrant(params) = &request.operation {
         ensure_grant_request_allowed(&config, params.capability)?;
-        return Ok(config);
+        return Ok(Preflight {
+            config,
+            grants: AuthorizedGrants::default(),
+        });
+    }
+    if let ControlOperation::ConsumeAgentGrant(params) = &request.operation {
+        ensure_grant_request_allowed(&config, params.capability)?;
+        return Ok(Preflight {
+            config,
+            grants: AuthorizedGrants::default(),
+        });
     }
     ensure_permission(&config, &request.operation)?;
-    ensure_approved_grants(&config, request)?;
+    let grants = ensure_approved_grants(&config, request)?;
     validate_operation(&request.operation)?;
 
     if request.operation.is_write() {
@@ -670,7 +675,7 @@ fn preflight_request(
             )
         })?;
     }
-    Ok(config)
+    Ok(Preflight { config, grants })
 }
 
 fn ensure_grant_request_allowed(
@@ -693,7 +698,7 @@ fn ensure_grant_request_allowed(
 fn ensure_approved_grants(
     config: &AgentAccessConfig,
     request: &ControlRequest,
-) -> Result<(), ControlError> {
+) -> Result<AuthorizedGrants, ControlError> {
     let missing = request
         .operation
         .required_permissions()
@@ -701,7 +706,7 @@ fn ensure_approved_grants(
         .filter(|permission| !control_permission_enabled(config, *permission))
         .collect::<Vec<_>>();
     if missing.is_empty() {
-        return Ok(());
+        return Ok(AuthorizedGrants::default());
     }
     if request.grant_ids.is_empty() {
         return Err(ControlError::new(
@@ -729,10 +734,11 @@ fn ensure_approved_grants(
             "The approved Agent request no longer matches the action parameters. Ask the user to approve the changed action again.",
         ));
     }
+    let mut authorized = AuthorizedGrants::default();
     for permission in missing {
         let capability = capability_for_control_permission(permission);
         ensure_grant_request_allowed(config, capability)?;
-        let matched = agent_grants::authorize(
+        let grant_id = agent_grants::authorize(
             agent_instance_id,
             &client_name,
             &client_version,
@@ -741,27 +747,32 @@ fn ensure_approved_grants(
             &request.grant_ids,
         )
         .map_err(|error| ControlError::new("APPROVAL_INVALID", error))?;
-        if matched.is_empty() {
-            return Err(ControlError::new(
-                "APPROVAL_REQUIRED",
-                format!(
-                    "The approved Agent grant does not cover {} for this exact action.",
-                    capability.as_str()
-                ),
-            ));
+        if !authorized.grant_ids.contains(&grant_id) {
+            authorized.grant_ids.push(grant_id);
         }
+        authorized.capabilities.insert(capability);
     }
-    Ok(())
+    Ok(authorized)
 }
 
-fn automation_permissions(config: &AgentAccessConfig) -> AutomationPermissions {
+fn automation_permissions(
+    config: &AgentAccessConfig,
+    temporary_capabilities: &BTreeSet<AgentCapability>,
+) -> AutomationPermissions {
+    let temporarily_enabled = |capability| temporary_capabilities.contains(&capability);
     AutomationPermissions {
-        manage_automation: config.permissions.manage_automation,
-        manage_user_automation: config.permissions.manage_user_automation,
-        manage_scripts: config.permissions.manage_scripts,
-        manage_cross_host_mappings: config.permissions.manage_cross_host_mappings,
-        manage_proxied_verification: config.permissions.manage_proxied_verification,
-        manage_global_automation: config.permissions.manage_global_automation,
+        manage_automation: config.permissions.manage_automation
+            || temporarily_enabled(AgentCapability::ManageAutomation),
+        manage_user_automation: config.permissions.manage_user_automation
+            || temporarily_enabled(AgentCapability::ManageUserAutomation),
+        manage_scripts: config.permissions.manage_scripts
+            || temporarily_enabled(AgentCapability::ManageScripts),
+        manage_cross_host_mappings: config.permissions.manage_cross_host_mappings
+            || temporarily_enabled(AgentCapability::ManageCrossHostMappings),
+        manage_proxied_verification: config.permissions.manage_proxied_verification
+            || temporarily_enabled(AgentCapability::ManageProxiedVerification),
+        manage_global_automation: config.permissions.manage_global_automation
+            || temporarily_enabled(AgentCapability::ManageGlobalAutomation),
         automation_approved_roots: config.automation_approved_roots.clone(),
         proxied_verification_origins: config.proxied_verification_origins.clone(),
     }
@@ -1783,6 +1794,48 @@ mod tests {
 
         preflight_request(TOKEN, directory.path(), &request).unwrap();
         assert!(directory.path().join("agent-audit.jsonl").is_file());
+    }
+
+    #[test]
+    fn temporary_capabilities_are_forwarded_to_the_automation_domain() {
+        let config = AgentAccessConfig::default();
+        let mut temporary = BTreeSet::new();
+        temporary.insert(AgentCapability::ManageAutomation);
+        temporary.insert(AgentCapability::ManageProxiedVerification);
+
+        let permissions = automation_permissions(&config, &temporary);
+
+        assert!(permissions.manage_automation);
+        assert!(permissions.manage_proxied_verification);
+        assert!(!permissions.manage_user_automation);
+    }
+
+    #[test]
+    fn consuming_a_grant_rechecks_the_current_request_policy() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = AgentAccessConfig {
+            enabled: true,
+            ..AgentAccessConfig::default()
+        };
+        config
+            .grant_request_policy
+            .insert(AgentCapability::ReadBodies, AgentGrantRequestPolicy::Deny);
+        write_config(&directory.path().join("agent-access.json"), &config).unwrap();
+        let mut request = control_request(ControlOperation::ConsumeAgentGrant(
+            aiproxy_agent_control::ConsumeAgentGrantParams {
+                grant_id: "grant_1".to_string(),
+                capability: AgentCapability::ReadBodies,
+                action_fingerprint: "sha256:a".to_string(),
+            },
+        ));
+        request.agent_instance_id = Some("mcp_1".to_string());
+
+        assert_eq!(
+            preflight_request(TOKEN, directory.path(), &request)
+                .unwrap_err()
+                .code,
+            "GRANT_POLICY_DENIED"
+        );
     }
 
     #[test]

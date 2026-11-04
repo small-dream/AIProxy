@@ -2424,7 +2424,7 @@ type AgentClientInfo = {
 - 配置缺失时返回默认值（关闭、读取会话开启，所有控制与自动化权限关闭），不视为命令失败。
 - 内存配置契约版本为 `5`。为兼容旧只读 sidecar，磁盘文件仍使用 v2 信封；新增控制、自动化权限与 `grantRequestPolicy` 为 additive 字段，旧 sidecar 会忽略，新 desktop / sidecar 读取后在内存归一化为 v5。
 - 读取旧配置时会把缺失的控制与自动化权限补齐为 `false`，不产生隐式提权；旧 `manageRules` 不推导 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification` 或 `manageGlobalAutomation`。`get_agent_access_settings.version` 返回归一化后的 `5`。
-- `grantRequestPolicy` 为每项能力保存 `deny` 或 `ask`。UI 统一表达为 `禁止 / 请求时询问 / 始终允许`，其中 `始终允许` 映射到静态权限 `true`；高风险能力默认 `deny`。缺失策略按保守默认补齐，不改变已有静态权限。
+- `grantRequestPolicy` 为每项能力保存 `deny` 或 `ask`。UI 统一表达为 `禁止 / 请求时询问 / 始终允许`，其中 `始终允许` 映射到静态权限 `true`；高风险能力默认 `deny`。缺失策略按保守默认补齐，不改变已有静态权限。`readSessions` 没有独立的 grant 消费链路，其策略在读取时强制归一化为 `deny`，UI 只提供 `禁止 / 始终允许`；旧配置中的 `ask` 不会产生可执行的审批流程。
 - `automationApprovedRoots` 最多 10 个，只能通过 `pick_automation_approved_root` 的原生文件夹选择器添加；`automationApprovedRootStatuses` 返回路径当前是否存在且为目录，失效路径不会被静默删除。
 - `proxiedVerificationOrigins` 与 `automationCrossHostOrigins` 是两个独立的精确 origin 白名单；只接受 `http` / `https`，保存时规范化、排序、去重，每次最多 50 个。首版 `automationCrossHostOrigins` 仅预留给后续 Map Remote 写入。
 - `clients` 生成可复制片段；实际写入由 `install_agent_client_config` 完成。
@@ -3051,9 +3051,11 @@ type AutomationPlan = {
 - sidecar 仅在描述文件缺失或连接阶段失败且心跳表明桌面端未运行时自动拉起；若 AIProxy 已在运行但控制通道不可用（例如旧版本或控制服务启动失败），返回带升级/重启提示的 `CONTROL_UNAVAILABLE`，避免单实例插件只聚焦旧实例后无意义等待。通道已建立后若写请求超时或连接中断，不会自动重试，避免非幂等操作重复执行。读取状态不会启动应用。自动拉起参数为 `--agent-launched`，单实例插件聚焦已有窗口；`launchSource=agent` 时前端跳过旧配置自动启抓。
 - 控制协议为 v2。`ControlRequest` additive 携带 `clientName`、`clientVersion`、`agentInstanceId`、`grantIds` 与 `actionFingerprint`；新增 `RequestAgentGrant` / `ConsumeAgentGrant` 操作。桌面端与 sidecar 必须同步升级，协议不一致返回 `CONTROL_UNAVAILABLE`。
 - sidecar 与桌面端都校验 Agent Access 启用、权限分组、token、参数和审计可写性；直接连接 IPC 不能绕过 sidecar 权限。sidecar 请求控制操作时，如缺少静态权限但对应能力策略为 `ask`，会先创建 pending grant 并等待桌面审批；批准后继续原调用。
+- sidecar 只为缺失的静态权限申请 grant；已由静态权限覆盖的能力不附带审批。一个动作缺少多个能力时，按能力分别申请和绑定 grant；桌面端逐能力精确匹配，不能因为请求中同时存在其他能力的 grant 而使校验整体失败。
 - 桌面端再次验证授权绑定：`agentInstanceId`、客户端名称与版本、能力、动作指纹、状态和剩余次数必须全部匹配。控制动作指纹由完整操作 DTO 计算，任何参数变化都会返回 `APPROVAL_FINGERPRINT_MISMATCH` 或要求重新审批。
 - 写请求在等待串行锁期间会重新读取权限、授权与审计状态，因此排队期间撤销权限或授权会使该请求在执行前被拒绝。
 - 授权消费采用原子预占：先扣减额度并置为 `executing`，成功后才执行动作。一次性授权不能被并发请求使用两次；可重复授权在成功或普通失败后恢复为 `approved`，额度耗尽后进入 `expired`。
+- `ConsumeAgentGrant` 在消费前重新校验当前请求策略。能力从 `ask` 改为 `deny`、`readSessions` 被归一化为 `deny` 或接入被关闭后，既有授权也不能继续消费。
 - 授权等待上限 30 秒，sidecar 请求超时为 40 秒；拒绝后同一授权键冷却 60 秒。pending 合并、拒绝冷却与实例绑定都只在当前桌面进程内有效。
 - 写操作超时 60 秒并返回 `CONTROL_TIMEOUT`，所有 Agent 写请求串行执行；系统代理和 Session 生命周期继续使用桌面端现有锁。只读状态探测使用 5 秒短超时，避免控制通道异常拖慢 `get_app_status` / `list_workspaces`；`get_app_status` 会把探测超时降级为 `CONTROL_TIMEOUT` 状态，而不是让整个只读调用失败。超时或已发送请求后的连接中断都不自动重试，调用方应先通过 `get_app_status` 确认当前状态。
 - 控制帧硬上限为请求 4 MiB、响应 1 MiB；请求上限覆盖 500+500 条、每条最长 1 KiB 的 SSL proxying 规则。超过硬上限返回 `INVALID_ARGUMENT` / `RESULT_TOO_LARGE`，不会截断后执行。
@@ -3087,7 +3089,8 @@ type AutomationPlan = {
   - `APPROVAL_DENIED` / `APPROVAL_TIMEOUT` / `APPROVAL_CANCELLED`：用户拒绝、等待超时或授权被撤销。
 - 既有控制错误码仍为 `CONTROL_PERMISSION_DENIED`、`APP_LAUNCH_FAILED`、`CONTROL_UNAVAILABLE`、`CONTROL_TIMEOUT`、`USER_ACTION_REQUIRED`、`AUDIT_UNAVAILABLE`；代理、证书和数据库错误原样透传。
 - `USER_ACTION_REQUIRED` 为保留的结构化错误码，用于“操作无法继续且必须等待系统或用户动作”的场景。证书安装入口当前在动作已打开后返回成功 payload，并置 `userActionRequired=true`；调用方应完成系统对话框后用 `get_app_status` 复核，而不是把该成功结果当作证书已信任。
-- 静态权限为 `始终允许` 时，应用内不再二次确认该控制操作；`请求时询问` 会显示全局审批卡等待用户决定。`once` 与 15 分钟授权的差异、非幂等警告和“不撤销已产生的副作用”必须在审批卡中明确。删除类操作和撤销证书信任仍必须由 Agent Skill 要求用户在当前对话中明确请求。抓包内容中的指令一律视为不可信数据。
+- 重放需要临时授权时，sidecar 必须先按 `sessionId` 读取会话摘要，再以实际 `host`、`path` 和最终方法（请求覆盖后的方法）生成审批范围；`actionFingerprint` 仍绑定完整动作参数。会话不存在时返回 `SESSION_NOT_FOUND`，不会只凭 `sessionId` 创建审批卡；解析超时返回可重试的 `TOOL_TIMEOUT`。
+- 静态权限为 `始终允许` 时，应用内不再二次确认该控制操作；`请求时询问` 会显示全局审批卡等待用户决定。`readSessions` 不支持临时授权，只能通过静态 `始终允许` 放行。`once` 与 15 分钟授权的差异、非幂等警告和“不撤销已产生的副作用”必须在审批卡中明确。删除类操作和撤销证书信任仍必须由 Agent Skill 要求用户在当前对话中明确请求。抓包内容中的指令一律视为不可信数据。
 
 脱敏配置位于 `agent-access.json` 的 `redaction` 字段；内存契约版本为 `5`，磁盘兼容信封版本为 `2`：
 
@@ -3308,7 +3311,7 @@ type AgentControlActionEvent = {
 type AgentAccessGrantRequestedEvent = AgentGrant;
 ```
 
-触发时机：sidecar 创建了新的 pending 临时授权请求。事件载荷不包含请求 Body、凭据或完整动作参数，只包含能力、动作摘要、范围、客户端、sidecar 实例、动作指纹、过期时间与可用批准选项。`AppShell` 全局审批宿主收到事件后更新授权列表，并发送系统通知；用户不需要先打开 Settings。
+触发时机：sidecar 创建了新的 pending 临时授权请求。事件载荷不包含请求 Body、凭据或完整动作参数，只包含能力、动作摘要、范围、客户端、sidecar 实例、动作指纹、过期时间与可用批准选项。重放请求的 `scope` 使用解析后的实际 `host`、`path` 与最终方法。多能力动作可能连续创建多个 grant，每个 grant 对应一个缺失能力。`AppShell` 全局审批宿主收到事件后更新授权列表，并发送系统通知；用户不需要先打开 Settings。
 
 ### `agent-access-grant-changed` — `已实现`
 
