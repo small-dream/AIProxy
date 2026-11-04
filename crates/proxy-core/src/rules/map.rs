@@ -223,12 +223,24 @@ fn apply_local_map_rule(
     ))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn apply_map_rules(
     map_manager: &Option<Arc<MapManager>>,
     workspace_id: &str,
     request: &mut ParsedProxyRequest,
 ) -> Result<(Option<UpstreamResponse>, Vec<MapTrace>), String> {
-    let Some(rule) = active_map_rule_for_request(map_manager, workspace_id, request) else {
+    let Some(manager) = map_manager else {
+        return Ok((None, Vec::new()));
+    };
+    apply_map_rules_with_snapshot(&manager.runtime_snapshot(), workspace_id, request)
+}
+
+pub(crate) fn apply_map_rules_with_snapshot(
+    snapshot: &RuntimeRuleSnapshot,
+    workspace_id: &str,
+    request: &mut ParsedProxyRequest,
+) -> Result<(Option<UpstreamResponse>, Vec<MapTrace>), String> {
+    let Some(rule) = active_map_rule_for_snapshot(snapshot, workspace_id, request) else {
         return Ok((None, Vec::new()));
     };
 

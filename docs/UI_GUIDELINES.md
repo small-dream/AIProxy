@@ -624,8 +624,8 @@ Rules Page 是全产品的规则配置中心，统一管理 Breakpoint、Rewrite
 
 当前实现补充：
 
-- 顶部使用 `Tabs` 固定承载规则类型切换（`Breakpoint / Rewrite / Mapping / Script` 四个一级 tab；`Mapping` 内部再分段切换 Map Local / Map Remote / DNS）
-- 四个一级 tab 统一使用“左侧创建入口 + 规则列表，右侧身份行 + 匹配/动作区 + 吸底操作栏”的内联工作台流（Breakpoint 于 2026-09 从新增对话框迁入，见下文更新记录）
+- 顶部使用 `Tabs` 固定承载规则类型切换（`Breakpoint / Rewrite / Mapping / Script / Agent 实验` 五个一级 tab；`Mapping` 内部再分段切换 Map Local / Map Remote / DNS）
+- 前四个规则 tab 统一使用“左侧创建入口 + 规则列表，右侧身份行 + 匹配/动作区 + 吸底操作栏”的内联工作台流（Breakpoint 于 2026-09 从新增对话框迁入，见下文更新记录）；`Agent 实验` 使用只读的 change set 工作台，不复用规则编辑表单
 - Rewrite 的右侧编辑区为 When / Then / Test 三段 + 吸底操作栏
 - Map / DNS 的右侧编辑区为身份行 + Source & Target / Host & IP + 吸底操作栏
 - Script 的右侧编辑区为身份行 + 匹配条件 + 单文件 TypeScript 脚本编辑器，编辑器需展示运行阶段（请求 / 响应）与匹配条件；保存失败必须在面板内显式提示，不允许静默失败
@@ -758,6 +758,17 @@ Rules Page
 - 规则列表上方出现 warning Alert 汇总临时规则数量与「清除全部 Agent 规则」入口。清除必须二次确认，明确“只删除临时 Agent 规则，不影响用户规则”；成功后显示移除数量，失败保留 Alert 并展示 mutation error。
 - Agent 规则只读是前后端双重约束：即使绕过 UI 调用保存/批量更新，也必须返回 `RULE_READ_ONLY`；错误文案说明“复制为普通规则后再保存”。
 - `agent-control-action` 事件刷新规则查询时不得清空用户当前草稿；仅刷新已保存规则列表与 Agent 通知计数。
+
+### 2026-11 更新（Agent 实验与自动化证据）
+
+- Rules 页新增第五个一级 tab「Agent 实验」。该 tab 使用左侧 change set 列表 + 右侧详情，不复用 Rewrite / Map 编辑器；左侧显示 `changeId`、状态、`persistent` / `ephemeral`、资源数量、`runtimeGeneration` 与创建时间，右侧显示 scope、workspace、实验、清理状态与完整资源变更。
+- 常驻 Agent 资源与临时 Agent 资源在 Rewrite / Map 列表中都必须只读，并分别显示「Agent · 常驻」「Agent · 临时」chip、作用域 chip、实验状态与到期时间（如有）。用户不能在规则编辑器中修改、启停、拖拽或批量选择；必须先在「Agent 实验」中回滚，或将其转为用户规则后再编辑。
+- change 详情必须显示每个资源的 `operation`、`versionBefore` / `versionAfter`、before / after 快照、依赖和 `rollbackScopeHash`。快照中的 Authorization、Cookie、password、secret、token、apiKey 等敏感键必须在 UI 再次脱敏；长字符串截断后提供明确省略标记，不展示原始凭据。
+- 验证记录按 `offline`（离线变换）、`proxy`（受控代理）、`external`（真实客户端）分组。每条记录必须显示证据等级、`runtimeGeneration`、请求引用、命中规则、最终 URL、HTTP 状态、断言实际值 / 期望值与结果、证据会话、冲突诊断和 `limitations`。禁止把低级证据展示成“已完全验证”。
+- 冲突解释必须区分 `not_matched`（未命中）、`shadowed`（被更高优先级规则覆盖）、`rule_failed`（规则执行失败）、`upstream_failed`（上游失败）与 `assertion_failed`（规则命中但断言不满足）；有候选规则时展示最终命中的规则与候选优先级。
+- 回滚、提升、清理都必须二次确认。回滚只对 `active` 的常驻 change 启用；提升后显示“已转为用户规则”且不再允许回滚；清理临时资源只影响当前 scope 的 Agent 自有临时资源，不得删除用户规则或常驻 Agent 资源。
+- `ROLLBACK_CONFLICT` 必须在详情内解释“目标或依赖已被后续修改”，并提供重新读取 change / 资源版本的入口；不得使用全局 toast 代替页面内错误。`RUNTIME_PUBLISH_FAILED` / `ACTIVATION_RECORD_FAILED` 必须提示用户先检查 change 与当前运行时状态，不能宣称完全成功或完全失败。
+- `automation-changed` 到达时定向刷新 Rewrite / Map / DNS / Script / Breakpoint / Throttle / Agent 设置 / 审计 / change 查询。刷新不得清空当前编辑器草稿、搜索词、选中的 change 或验证分组展开状态。
 
 ### 2026-09 更新（Breakpoint 迁入内联工作台）
 
@@ -985,7 +996,10 @@ Settings Page
 - 客户端列表顶部固定展示数据流向提示：AIProxy 不上传抓包，但 Agent 读取后内容会发送给模型服务商；读取默认保守，控制权限默认关闭。断开连接必须二次确认，说明配置路径、受管 Skill 路径与备份行为。
 - 「诊断信息」必须保留一条低噪音说明：Agent 可调用 `diagnose_ai_proxy_issue` 定位 AIProxy 自身故障；桌面端必须运行，日志仅来自白名单滚动文件与元数据审计，默认只返回 WARN/ERROR 且限行、限字节、脱敏。该说明不得暗示支持任意日志访问或完整日志导出。
 - 常规权限直接展示；未脱敏 Body、脱敏策略与查询上限放入默认折叠的“高级权限”。高风险权限（`readRawBodies`）使用 warning 色开关与风险说明；`readBodies` 关闭时 raw 开关必须禁用。脱敏策略包含“按格式识别敏感值”“标识符稳定哈希”和自定义敏感字段名；自定义正则只在 `agent-access.json` 维护。审计日志默认折叠为摘要，展开后保留表格、刷新与空状态。
-- 读取权限下方新增独立的“控制权限”分组，包含 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules` 六项，默认全部关闭。分组标题行提供“启用完整控制”快捷操作；六项分别使用 Switch，系统代理、证书、删除、重放与规则使用 warning 色。组内说明必须明确“开启后应用内不再二次确认”“删除不可恢复”“重放会发出真实外部请求且不经过规则”“临时规则仍会影响经过代理的匹配流量”“系统仍可能要求密码或安装确认”。
+- 读取权限下方新增独立的“控制权限”分组，分为“基础控制”六项（`controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules`）与“自动化”六项（`manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification`、`manageGlobalAutomation`），全部默认关闭。分组标题行提供“启用完整控制”快捷操作；该操作会把 12 项写入草稿，用户保存前可逐项复核并关闭高风险项，不能把它描述成只开启基础控制。
+- 自动化权限必须显示权限升级提示：新版本新增权限默认关闭，旧 `manageRules` 不会自动开启 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification` 或 `manageGlobalAutomation`。`manageUserAutomation` 使用 error 色；`manageProxiedVerification` 使用 warning 色并说明会通过本地代理发出真实请求；`manageScripts`、`manageCrossHostMappings`、`manageGlobalAutomation` 必须明确首版仍是预留权限，不会开放 Script / Map Remote / 全局资源写入口。
+- 自动化设置区必须展示 Map Local 批准根目录（最多 10 个）、失效路径 warning、系统文件夹选择器、移除操作，以及两个独立的精确 origin 白名单：代理验证 origin 与跨 host 映射 origin。两个白名单不得合并，不允许通配 host；跨 host 白名单在首版只读展示预留语义。
+- 自动化分区说明必须明确“Rewrite / Map Local 首版可读写”“Map Remote、DNS、Script、Throttle、Breakpoint 写入返回 `FEATURE_NOT_AVAILABLE`”“代理验证只允许幂等方法与白名单 origin”“删除资源不可恢复”“临时资源会在 TTL 到期或应用重启后撤销”。
 - 已授权控制执行后不弹应用内确认框，但前端必须通过 `agent-control-action` 事件刷新代理、工作区、证书和 Session 查询，并显示包含动作摘要的成功/失败通知；只读 `getStatus` 不产生 toast。自动拉起时前端尚未挂载事件监听器，因此必须读取最近动作回放并按 `eventId` 去重，不能丢失首个动作提示。
 - 顶部开关和权限都写入草稿。出现任何差异时，状态头显示 `未保存`，并同时在状态头与权限区提供 `保存更改` / `放弃`，避免开关被误认为即时生效。
 - 审计表新增“动作”列展示 `actionSummary`；`agentControl=true` 的写控制动作追加 warning 色“控制”Chip，用于区分读取与 Agent 控制；不展示凭据、请求参数或 Body。

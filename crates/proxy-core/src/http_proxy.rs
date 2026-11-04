@@ -2,13 +2,13 @@ use super::*;
 use crate::connection::{ConnectionContext, ConnectionMode};
 use crate::MAX_CAPTURED_BODY_BYTES;
 use crate::{
-    apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
-    apply_response_rewrite_rules, apply_response_script_rules, build_cookie_entries,
-    build_header_entries_from_map, build_pending_session_detail, build_query_params,
-    build_raw_http_head, build_request_path, build_session_detail, evaluate_response_throttle,
-    intercept_request_stage, intercept_response_stage, throttle_response_body,
-    throttle_selection_matches_stage, BreakpointActionKind, ParsedProxyRequest, ProxySessionDetail,
-    ProxyTimingBreakdown, RequestRuntimeOutcome, UpstreamResponse,
+    apply_request_script_rules, apply_request_throttle, apply_response_script_rules,
+    build_cookie_entries, build_header_entries_from_map, build_pending_session_detail,
+    build_query_params, build_raw_http_head, build_request_path, build_session_detail,
+    evaluate_response_throttle, intercept_request_stage, intercept_response_stage,
+    throttle_response_body, throttle_selection_matches_stage, BreakpointActionKind,
+    ParsedProxyRequest, ProxySessionDetail, ProxyTimingBreakdown, RequestRuntimeOutcome,
+    UpstreamResponse,
 };
 use http_body_util::BodyExt;
 use std::future::Future;
@@ -380,6 +380,7 @@ async fn stage_parse_request(
 
 /// Return value for [`stage_apply_request_rules`].
 struct RequestRulesResult {
+    rule_snapshot: Arc<crate::RuntimeRuleSnapshot>,
     local_response: Option<UpstreamResponse>,
     map_traces: Vec<crate::MapTrace>,
     rewrite_traces: Vec<crate::RewriteTrace>,
@@ -393,14 +394,14 @@ async fn stage_apply_request_rules(
     request: &mut ParsedProxyRequest,
     is_h2: bool,
 ) -> Result<RequestRulesResult, crate::ProxyError> {
+    let rule_snapshot = crate::capture_rule_snapshot(&ctx.rewrite_manager, &ctx.map_manager);
     let RequestRuntimeOutcome {
         local_response,
         map_traces,
         rewrite_traces,
         throttle_selection,
-    } = apply_request_runtime_rules(
-        &ctx.rewrite_manager,
-        &ctx.map_manager,
+    } = crate::apply_request_runtime_rules_with_snapshot(
+        &rule_snapshot,
         &ctx.throttle_manager,
         &ctx.workspace_id,
         request,
@@ -421,6 +422,7 @@ async fn stage_apply_request_rules(
     }
 
     Ok(RequestRulesResult {
+        rule_snapshot,
         local_response,
         map_traces,
         rewrite_traces,
@@ -468,6 +470,7 @@ enum BreakpointRequestOutcome {
 #[allow(clippy::too_many_arguments)]
 async fn stage_intercept_request_breakpoint(
     ctx: &ConnectionContext,
+    rule_snapshot: &crate::RuntimeRuleSnapshot,
     request: &ParsedProxyRequest,
     is_h2: bool,
     throttle_selection: &Option<crate::ThrottleRuntimeSelection>,
@@ -553,8 +556,8 @@ async fn stage_intercept_request_breakpoint(
 
             let mut mock_response = crate::build_mock_upstream_response(mock);
             rewrite_traces.extend(
-                apply_response_rewrite_rules(
-                    &ctx.rewrite_manager,
+                crate::apply_response_rewrite_rules_with_snapshot(
+                    rule_snapshot,
                     &ctx.workspace_id,
                     request,
                     &mut mock_response,
@@ -946,6 +949,7 @@ async fn stage_process_upstream_response(
     request: &ParsedProxyRequest,
     mut upstream_response: UpstreamResponse,
     ctx: &ConnectionContext,
+    rule_snapshot: &crate::RuntimeRuleSnapshot,
     is_h2: bool,
     map_traces: Vec<crate::MapTrace>,
     mut rewrite_traces: Vec<crate::RewriteTrace>,
@@ -966,8 +970,8 @@ async fn stage_process_upstream_response(
             "response_body_passthrough_mode"
         );
     } else {
-        let response_rewrite_traces = match apply_response_rewrite_rules(
-            &ctx.rewrite_manager,
+        let response_rewrite_traces = match crate::apply_response_rewrite_rules_with_snapshot(
+            rule_snapshot,
             &ctx.workspace_id,
             request,
             &mut upstream_response,
@@ -1387,6 +1391,7 @@ pub(crate) async fn handle_http_request(
 
     // --- Stage 2: Apply request rules ---
     let RequestRulesResult {
+        rule_snapshot,
         local_response,
         map_traces,
         rewrite_traces,
@@ -1398,6 +1403,7 @@ pub(crate) async fn handle_http_request(
     let (map_traces, rewrite_traces, script_traces, mut throttle_traces) =
         match stage_intercept_request_breakpoint(
             ctx,
+            &rule_snapshot,
             &request,
             is_h2,
             &throttle_selection,
@@ -1526,6 +1532,7 @@ pub(crate) async fn handle_http_request(
         &request,
         upstream_response,
         ctx,
+        &rule_snapshot,
         is_h2,
         map_traces,
         rewrite_traces,
@@ -2395,9 +2402,11 @@ mod tests {
         // task (it owns the session_sender half); we keep `breakpoint_manager`
         // separately (it's an Arc) to resolve the pending entry.
         let request_clone = make_proxy_request_for_mock_drop_test("sess-m9-mock");
+        let rule_snapshot = crate::capture_rule_snapshot(&ctx.rewrite_manager, &ctx.map_manager);
         let handle = tokio::spawn(async move {
             stage_intercept_request_breakpoint(
                 &ctx,
+                &rule_snapshot,
                 &request_clone,
                 false,
                 &throttle_selection,

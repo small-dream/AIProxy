@@ -47,6 +47,12 @@ Throttling 用于在代理层模拟弱网环境，例如高延迟、低带宽、
 - 保存前测试器
 - API QPS / Quota / 并发限流
 
+### Agent 自动化边界
+
+首版 Agent 自动化工具不能创建、更新、删除或激活 Throttle Profile / Rule，也不能启动 15 分钟临时弱网。相关计划与 activation 返回 `FEATURE_NOT_AVAILABLE`；`manageGlobalAutomation` 等预留权限不会绕过该限制。
+
+Agent 可以读取已捕获请求的 Timing、Throttling Trace、丢包与延迟结果来帮助分析，但不能替你修改弱网配置。需要新增、调整或启用弱网时，请在本页手动操作，并在调试结束后关闭全局弱网。
+
 ## 页面结构
 
 ### 顶部运行状态区

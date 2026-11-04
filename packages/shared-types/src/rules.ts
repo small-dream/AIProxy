@@ -130,6 +130,10 @@ type RewriteRuleBase = {
   note?: string;
   priority: number;
   source?: "agent";
+  automationScope?: "workspace" | "global";
+  automationLifecycle?: "persistent" | "ephemeral";
+  changeId?: string;
+  experimentStatus?: string;
   workspaceId: string;
 };
 
@@ -164,6 +168,10 @@ export type MapRule = {
   priority: number;
   sourcePattern: string;
   source?: "agent";
+  automationScope?: "workspace" | "global";
+  automationLifecycle?: "persistent" | "ephemeral";
+  changeId?: string;
+  experimentStatus?: string;
   targetValue: string;
   matchType?: MatchType;
   workspaceId: string;

@@ -16,7 +16,10 @@ pub use types::{
 };
 
 // Re-export all pub structs from managers.rs
-pub use managers::{DnsManager, DnsMappingRule, MapManager, RewriteManager, ThrottleManager};
+pub(crate) use managers::RuntimeRuleSnapshot;
+pub use managers::{
+    paired_rule_managers, DnsManager, DnsMappingRule, MapManager, RewriteManager, ThrottleManager,
+};
 
 // Re-export pub(crate) types that are used outside this module
 pub(crate) use types::{
@@ -25,12 +28,19 @@ pub(crate) use types::{
 
 // Re-export pub(crate) functions used outside this module
 pub use json_path::set_json_path_from_str;
-pub(crate) use map::apply_map_rules;
+pub use preview::{
+    evaluate_offline, OfflineEvaluationInput, OfflineEvaluationResult, OfflineHeader,
+    OfflineRequestInput, OfflineResponseInput,
+};
+mod preview;
+pub(crate) use map::{apply_map_rules, apply_map_rules_with_snapshot};
 pub(crate) use patterns::{compile_match_regex, pattern_matches};
+#[cfg(test)]
+pub(crate) use rewrite::apply_response_rewrite_rules;
 pub(crate) use rewrite::{
-    apply_request_rewrite_rules, apply_response_rewrite_rules, method_matches,
-    rebuild_request_runtime_state, strip_plain_body_edit_header_entries,
-    strip_plain_body_edit_headers,
+    apply_request_rewrite_rules, apply_request_rewrite_rules_with_snapshot,
+    apply_response_rewrite_rules_with_snapshot, method_matches, rebuild_request_runtime_state,
+    strip_plain_body_edit_header_entries, strip_plain_body_edit_headers,
 };
 pub(crate) use script::{apply_request_script_rules, apply_response_script_rules};
 pub(crate) use throttle::{
@@ -87,6 +97,7 @@ pub(crate) fn host_header_value(url: &Url) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn active_rewrite_rules_for_stage(
     rewrite_manager: &Option<Arc<RewriteManager>>,
     workspace_id: &str,
@@ -97,11 +108,17 @@ fn active_rewrite_rules_for_stage(
         return Vec::new();
     };
 
-    // M10: `compiled_rules()` returns a shared `Arc<Vec<...>>` snapshot; we
-    // iterate by reference so the only owned data produced here is the final
-    // `Vec<RewriteRule>` (one shallow clone per surviving rule).
-    let snapshot = manager.compiled_rules();
+    active_rewrite_rules_for_snapshot(&manager.runtime_snapshot(), workspace_id, stage, request)
+}
+
+fn active_rewrite_rules_for_snapshot(
+    snapshot: &RuntimeRuleSnapshot,
+    workspace_id: &str,
+    stage: &str,
+    request: &ParsedProxyRequest,
+) -> Vec<RewriteRule> {
     let mut compiled: Vec<&managers::CompiledRewriteRule> = snapshot
+        .rewrite
         .iter()
         .filter(|cr| cr.rule.enabled)
         .filter(|cr| cr.rule.workspace_id == workspace_id)
@@ -129,6 +146,7 @@ fn active_rewrite_rules_for_stage(
     compiled.into_iter().map(|cr| cr.rule.clone()).collect()
 }
 
+#[allow(dead_code)]
 fn active_map_rule_for_request(
     map_manager: &Option<Arc<MapManager>>,
     workspace_id: &str,
@@ -138,9 +156,17 @@ fn active_map_rule_for_request(
         return None;
     };
 
-    let mut rules: Vec<MapRule> = manager
-        .compiled_rules()
-        .into_iter()
+    active_map_rule_for_snapshot(&manager.runtime_snapshot(), workspace_id, request)
+}
+
+fn active_map_rule_for_snapshot(
+    snapshot: &RuntimeRuleSnapshot,
+    workspace_id: &str,
+    request: &ParsedProxyRequest,
+) -> Option<MapRule> {
+    let mut rules: Vec<MapRule> = snapshot
+        .map
+        .iter()
         .filter(|entry| entry.rule.enabled)
         .filter(|entry| entry.rule.workspace_id == workspace_id)
         .filter(|entry| host_lock_matches(entry.host_lock.as_deref(), &request.host))
@@ -151,7 +177,7 @@ fn active_map_rule_for_request(
                 entry.rule.match_type.as_deref(),
             )
         })
-        .map(|entry| entry.rule)
+        .map(|entry| entry.rule.clone())
         .collect();
 
     rules.sort_by_key(|r| std::cmp::Reverse(r.priority));
@@ -309,6 +335,7 @@ pub(crate) fn active_throttle_selection_for_request(
     })
 }
 
+#[allow(dead_code)]
 pub(crate) fn apply_request_runtime_rules(
     rewrite_manager: &Option<Arc<RewriteManager>>,
     map_manager: &Option<Arc<MapManager>>,
@@ -323,6 +350,67 @@ pub(crate) fn apply_request_runtime_rules(
     let throttle_selection =
         active_throttle_selection_for_request(throttle_manager, workspace_id, request);
 
+    Ok(RequestRuntimeOutcome {
+        local_response,
+        map_traces,
+        rewrite_traces,
+        throttle_selection,
+    })
+}
+
+pub(crate) fn capture_rule_snapshot(
+    rewrite_manager: &Option<Arc<RewriteManager>>,
+    map_manager: &Option<Arc<MapManager>>,
+) -> Arc<RuntimeRuleSnapshot> {
+    if let (Some(rewrite), Some(map)) = (rewrite_manager, map_manager) {
+        if rewrite.shares_runtime_with(map) {
+            return rewrite.runtime_snapshot();
+        }
+    }
+    let rewrite = rewrite_manager
+        .as_ref()
+        .map(|manager| manager.runtime_snapshot())
+        .unwrap_or_else(|| {
+            Arc::new(RuntimeRuleSnapshot {
+                generation: 0,
+                rewrite: Arc::new(Vec::new()),
+                map: Arc::new(Vec::new()),
+            })
+        });
+    let map = map_manager
+        .as_ref()
+        .map(|manager| manager.runtime_snapshot())
+        .unwrap_or_else(|| {
+            Arc::new(RuntimeRuleSnapshot {
+                generation: 0,
+                rewrite: Arc::new(Vec::new()),
+                map: Arc::new(Vec::new()),
+            })
+        });
+    Arc::new(RuntimeRuleSnapshot {
+        generation: rewrite.generation.min(map.generation),
+        rewrite: Arc::clone(&rewrite.rewrite),
+        map: Arc::clone(&map.map),
+    })
+}
+
+pub(crate) fn apply_request_runtime_rules_with_snapshot(
+    snapshot: &RuntimeRuleSnapshot,
+    throttle_manager: &Option<Arc<ThrottleManager>>,
+    workspace_id: &str,
+    request: &mut ParsedProxyRequest,
+    is_http2: bool,
+) -> Result<RequestRuntimeOutcome, String> {
+    let rewrite_traces = rewrite::apply_request_rewrite_rules_with_snapshot(
+        snapshot,
+        workspace_id,
+        request,
+        is_http2,
+    )?;
+    let (local_response, map_traces) =
+        map::apply_map_rules_with_snapshot(snapshot, workspace_id, request)?;
+    let throttle_selection =
+        active_throttle_selection_for_request(throttle_manager, workspace_id, request);
     Ok(RequestRuntimeOutcome {
         local_response,
         map_traces,

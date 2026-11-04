@@ -48,6 +48,14 @@ pub fn operation_has_permission(config: &AgentAccessConfig, permission: ControlP
         ControlPermission::DeleteSessions => config.permissions.delete_sessions,
         ControlPermission::SendRequests => config.permissions.send_requests,
         ControlPermission::ManageRules => config.permissions.manage_rules,
+        ControlPermission::ManageAutomation => config.permissions.manage_automation,
+        ControlPermission::ManageUserAutomation => config.permissions.manage_user_automation,
+        ControlPermission::ManageScripts => config.permissions.manage_scripts,
+        ControlPermission::ManageCrossHostMappings => config.permissions.manage_cross_host_mappings,
+        ControlPermission::ManageProxiedVerification => {
+            config.permissions.manage_proxied_verification
+        }
+        ControlPermission::ManageGlobalAutomation => config.permissions.manage_global_automation,
     }
 }
 
@@ -59,6 +67,12 @@ pub fn permission_label(permission: ControlPermission) -> &'static str {
         ControlPermission::DeleteSessions => "deleteSessions",
         ControlPermission::SendRequests => "sendRequests",
         ControlPermission::ManageRules => "manageRules",
+        ControlPermission::ManageAutomation => "manageAutomation",
+        ControlPermission::ManageUserAutomation => "manageUserAutomation",
+        ControlPermission::ManageScripts => "manageScripts",
+        ControlPermission::ManageCrossHostMappings => "manageCrossHostMappings",
+        ControlPermission::ManageProxiedVerification => "manageProxiedVerification",
+        ControlPermission::ManageGlobalAutomation => "manageGlobalAutomation",
     }
 }
 

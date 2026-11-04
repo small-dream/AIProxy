@@ -38,6 +38,12 @@ Use cases:
 2. Click **Rules** in the left nav
 3. Click the **Scripts** tab at the top
 
+### Agent automation boundary
+
+First-release Agent automation cannot create, update, compile, delete, or execute Script resources; those plans return `FEATURE_NOT_AVAILABLE`. `manageScripts` is a reserved permission for a later release and does not change this limit.
+
+`get_automation_resource` does not return Script source. The Agent may inspect script logs, extracted values, and traces in captured sessions, but it cannot read or modify your source through automation. Edit and save scripts manually on this page.
+
 ## Create a script rule
 
 1. Click **New Script Rule**

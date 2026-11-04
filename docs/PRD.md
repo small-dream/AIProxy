@@ -403,26 +403,41 @@ flowchart LR
 - 批量执行集合内请求并展示逐条结果
 - 页面级结构见 `docs/PAGE_BLUEPRINTS.md` 第 10 节
 
-### 9.11 Agent Access / MCP — `已实现（读取 + 受控操作 + 受控诊断 + 复现闭环）`
+### 9.11 Agent Access / MCP — `已实现（读取 + 受控操作 + 受控诊断 + 自动化实验闭环）`
 
 目标：
 
 - 让 Codex、Claude Code、Cursor 等本地 Agent 直接查询已持久化抓包，减少 HAR、cURL、Body 的人工搬运
 - 让 Agent 在用户授权后完成首次安装、证书、SSL、抓包启停、系统代理与 Session 清理，并复用桌面端业务逻辑
-- 让 Agent 在不经过代理与规则的前提下重放单条已捕获 HTTP 请求，并通过临时 Agent 规则模拟有限的边界条件，形成“触发 → 等待 → 看证据 → 复现/验证”的闭环
+- 让 Agent 在不经过代理与规则的前提下重放单条已捕获 HTTP 请求，并通过受控自动化计划创建、验证、回滚与清理 Rewrite / Map Local 资源
+- 让自动化结果具备可核验的证据等级：离线变换、经过真实代理管线的受控请求、真实客户端会话，并明确每级证据能证明与不能证明的边界
 - 让 Agent 在 AIProxy 自身设置、证书、抓包、系统代理或控制通道出问题时，基于受限、脱敏的状态与日志摘要给出原因和解决步骤，而不是要求用户手工复制日志
 - 通过 Agent Skill 约束查询范围、证据引用、脱敏与提示注入防护
 - 让用户能明确控制会话、Body、WebSocket 与未脱敏 Body 的访问权限
 
 范围：
 
+- 工具契约 `3.3`，共 33 个工具：10 个读取工具、2 个只读诊断工具、1 个受 `manageRules` 保护的 legacy 临时规则读取工具、12 个受权限保护的控制工具、8 个自动化工具
 - 10 个读取工具：`list_workspaces`、`search_sessions`、`wait_for_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`、`export_session_as_curl`
 - 2 个只读诊断工具：`get_app_status` 返回应用/控制通道、抓包、证书、工作区与系统代理状态；`diagnose_ai_proxy_issue` 返回状态、受限应用日志摘要、元数据审计错误、`findings[]` 与 `nextActions[]`
-- 1 个受 `manageRules` 保护的只读工具：`list_agent_rules`，只列临时 Agent 规则，不返回用户规则
-- 12 个写控制工具：既有 9 个桌面控制工具，加上 `replay_session`、`create_agent_rule`、`remove_agent_rules`
-- 控制权限分为 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules`，默认全部关闭；连接模板提供“完整控制”，连接后仍可逐项细调
+- 1 个 legacy 只读工具：`list_agent_rules` 只列内存临时 Agent 规则，不返回用户规则；与 `create_agent_rule`、`remove_agent_rules` 继续只使用旧 `manageRules` 权限
+- 12 个控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`replay_session`、`create_agent_rule`、`remove_agent_rules`
+- 8 个自动化工具：`list_automation_resources`、`get_automation_resource`、`validate_automation_plan`、`apply_automation_plan`、`verify_automation_change`、`get_automation_change`、`rollback_automation_change`、`clear_agent_automation`
+- 权限分为旧控制权限 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules`，以及新增自动化权限 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification`、`manageGlobalAutomation`；全部默认关闭
+- 新权限与旧授权隔离：升级不会把 `manageRules` 推导为任何新权限；配置内存契约版本为 `4`，磁盘兼容信封仍为 `2`，缺失字段按 `false` 归一化
 - `replay_session` 直连原始上游 host，严格锁定 host，串行发送且每分钟最多 10 次；它不经过抓包端口，也不执行用户或 Agent 规则。重放结果作为 `timingSource=agentReplay` 的新会话持久化，失败时返回结构化原因
-- Agent 临时规则只存在于内存，TTL 默认 600 秒、最大 3600 秒、最多 20 条；只开放 Header、Query、响应 Body、同 host Map Remote 与 Mock Response 白名单动作。应用重启即失效，规则页只读并支持一键清除
+- 自动化计划先 `validate` 再 `apply`，使用 `expectedPlanHash`、`expectedScopeHash` 与安装实例级幂等键；计划最多 100 项、序列化不超过 3 MiB、scope 首版仅支持 workspace
+- 首版写能力仅覆盖 Rewrite 与 Map Local：可创建、更新、删除常驻资源，也可创建只读临时资源；Map Remote、DNS、Script、Throttle、Breakpoint 与 Throttle 激活返回 `FEATURE_NOT_AVAILABLE`
+- 常驻 Agent 资源写入 SQLite，临时资源进入运行时并由 TTL 自动清理；临时 TTL 范围 60-3600 秒、默认 600 秒，且首版只能新建，不能修改或删除既有资源
+- 所有 Agent 自动化写入口、Rules 页 Rewrite / Map 保存、过期清理、回滚、提升与清理共享同一把 `automation_mutation_lock`；`AgentRuleRegistry` 另有内部锁，legacy 临时规则在发布时与自动化 Rewrite + Map 快照合并
+- Rewrite + Map 使用统一 `RuntimeRuleSnapshot` 发布，`runtimeGeneration` 单调递增；数据库是自动化资源、change set、实验与验证记录的权威状态，运行时发布失败返回 `RUNTIME_PUBLISH_FAILED` 而不是伪造成功
+- 验证分为 `offline`、`proxy`、`external` 三级：离线验证规则匹配与变换；受控代理验证经过本地 AIProxy 规则管线；外部验证只消费真实客户端在 change 激活后产生的会话。每次结果都返回 `runtimeGeneration`、证据会话、规则 trace、断言与 `limitations`
+- 代理验证只允许 `GET` / `HEAD` / `OPTIONS`，每批最多 20 个请求、每分钟最多 10 个，响应只读取前 256 KiB；目标 origin 必须位于独立白名单，HTTPS 还要求代理运行、SSL interception 开启且根证书已信任
+- external 验证拒绝 `timingSource=agentReplay` 会话，因为 `replay_session` 绕过全部规则；任何重放会话都不能作为 Rewrite / Map / Script / Throttle 生效证据
+- 回滚按 change set 涉及资源版本与依赖检查，不使用整个 workspace 哈希；目标或依赖变化返回 `ROLLBACK_CONFLICT`。常驻 change 可转为用户规则（`promoted`），提升后不可回滚
+- `clear_agent_automation` 只清理当前安装实例中 Agent 自有资源，不删除或恢复用户资源；没有实际资源被清理时不发送空刷新事件
+- legacy 临时 Agent 规则继续只存在于内存，TTL 最长 3600 秒、最多 20 条；只开放 Header、Query、响应 Body、同 host Map Remote 与 Mock Response 白名单动作。应用重启即失效，规则页只读并支持一键清除
+- `automation-changed` 事件携带 `reason`、`changeIds`、`runtimeGeneration`、scope/workspace/lifecycle/status、受影响资源、实验与清理状态；前端按资源定向刷新，不清空用户正在编辑的草稿
 - 会话新增结构化 `failure`（来源、类别、截断脱敏后的消息）；`search_sessions` / `wait_for_sessions` 可按失败筛选，`get_insights` 返回 `byFailureKind`，Inspector 展示失败原因。客户端证书握手失败和 CONNECT 失败会生成限频的连接失败会话
 - `export_session_as_curl` 生成可复现命令但不发送请求；脱敏模式以环境变量占位符替代敏感值，文本 Body 限 64 KiB，二进制 Body 只说明省略原因
 - 支持按 JSON path 提取目标字段、批量跨会话取同一字段、查询参数过滤、路径过滤、排序和结构化 JSON Diff
@@ -430,6 +445,8 @@ flowchart LR
 - 写操作在应用关闭时自动拉起并聚焦 AIProxy；自动启动通过 `launchSource=agent` 跳过旧配置的自动启抓
 - `stop_capture` 始终恢复 AIProxy 接管前的系统代理，恢复失败时返回结构化 warning；`remove_certificate_trust` 撤销信任、删除证书、关闭 SSL、交还系统代理并以 HTTP-only 重启，同时返回系统代理或 SSL 持久化失败
 - Settings > Agent Access：状态诊断、权限、限制、脱敏策略、客户端片段、Skill 安装与断开、审计日志
+- Settings > Agent Access 同时维护 Map Local 批准根目录（最多 10 个，仅通过系统文件夹选择器添加）与两个独立的精确 origin 白名单：代理验证与跨 host 映射
+- Rules 页提供 Automation 标签页，展示最近 change set、实验、资源前后版本、运行时 generation、证据等级、断言结果、冲突解释与清理状态，并支持回滚、提升和清理
 - 故障诊断：Agent 可调用 `diagnose_ai_proxy_issue` 定位控制通道、证书信任、抓包状态、Agent 控制失败与日志读取权限问题；桌面端必须运行，日志只来自白名单滚动文件与元数据审计，默认 WARN/ERROR、限行限字节并二次脱敏，不能视为完整日志导出
 - 连接后提供「验证连接」：真实 MCP 握手 + `tools/list` + 一次 `search_sessions`，分项展示 sidecar、数据库、schema、启用状态、Body 权限与客户端连接
 - 验证连接同时检查控制通道协议版本、启用中的控制权限分组和工具数量
@@ -437,13 +454,15 @@ flowchart LR
 - Codex / Claude Code / Cursor 三客户端配置指引；均使用用户级全局配置，Claude Code 写入 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`）
 - 连接前选择权限场景模板（仅元数据 / 含响应 Body / 含原始数据 / 完整控制），并在 Body 关闭时提示 Agent 无法分析响应体
 - MCP 结果 `meta` 返回 `latestSessionAt`、`captureStatus` 与 `captureUpdatedAt`，让 Agent 能说明“数据截止 12:03”而不是假装实时
-- Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化
+- Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化；当前 Skill 版本为 `3.4`
 - 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
 - 明确数据流向：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；应用内不再二次确认已授权控制操作，但删除类和撤销证书信任仍要求当前对话明确请求
 
 非目标（本版本）：
 
-- 任意规则写入、持久化 Agent 规则、跨 host 重放 / Map Remote、上游代理配置、移动设备 ADB/HDC、导入导出、AI 模型设置、应用更新控制、Snapshot 导出
+- Map Remote、DNS Mapping、Script、Throttle Profile / Rule 与 Breakpoint 的 Agent 写入；Throttle 激活与条件恢复
+- 跨 host 重放、跨 host Map Remote 写入、全局 scope 自动化、Breakpoint 远程 resolve/drop/forward
+- 上游代理配置、移动设备 ADB/HDC、导入导出、AI 模型设置、应用更新控制、Snapshot 导出
 - 任意文件读取、任意路径日志导出或把诊断日志当作完整日志包
 - 实时流量订阅
 - Agent 读取或修改自己的 Agent Access 权限、MCP 客户端配置或 Skill

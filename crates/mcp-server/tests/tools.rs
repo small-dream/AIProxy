@@ -3,6 +3,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 
+use aiproxy_agent_control::{
+    ApplyAutomationPlanParams, AutomationPlan, ClearAgentAutomationParams,
+    GetAutomationChangeParams, GetAutomationResourceParams, ListAutomationResourcesParams,
+    RollbackAutomationChangeParams, ValidateAutomationPlanParams, VerifyAutomationChangeParams,
+};
 use aiproxy_db::sessions::{
     insert_ws_message, upsert_session, SessionDetailRow, SessionSummaryRow, WsMessageRow,
 };
@@ -15,6 +20,11 @@ use aiproxy_mcp::protocol::MCP_TOOL_SCHEMA_VERSION;
 use aiproxy_mcp::tools::agent::{
     create_agent_rule, list_agent_rules, remove_agent_rules, replay_session,
     AgentRuleActionRequest, CreateAgentRuleRequest, RemoveAgentRulesRequest, ReplaySessionRequest,
+};
+use aiproxy_mcp::tools::automation::{
+    apply_automation_plan, clear_agent_automation, get_automation_change, get_automation_resource,
+    list_automation_resources, rollback_automation_change, validate_automation_plan,
+    verify_automation_change,
 };
 use aiproxy_mcp::tools::body::{
     get_session_body, get_session_fields, BodyPart, BodyRedactionMode, GetSessionBodyRequest,
@@ -249,6 +259,99 @@ async fn agent_write_tools_fail_closed_when_permissions_are_disabled() {
     .await
     .unwrap_err();
     assert_eq!(remove_error.code, "CONTROL_PERMISSION_DENIED");
+
+    let plan = AutomationPlan {
+        scope: "workspace".to_string(),
+        workspace_id: Some("ws-agent".to_string()),
+        lifecycle: "persistent".to_string(),
+        ttl_seconds: None,
+        idempotency_key: "permission-test-key-0001".to_string(),
+        upserts: Default::default(),
+        deletes: Vec::new(),
+        activation: None,
+        assets: Vec::new(),
+    };
+    let automation_errors = vec![
+        list_automation_resources(&context, ListAutomationResourcesParams::default(), caller)
+            .await
+            .unwrap_err(),
+        get_automation_resource(
+            &context,
+            GetAutomationResourceParams {
+                kind: "rewrite".to_string(),
+                id: "rewrite-rule-1".to_string(),
+            },
+            caller,
+        )
+        .await
+        .unwrap_err(),
+        validate_automation_plan(
+            &context,
+            ValidateAutomationPlanParams { plan: plan.clone() },
+            caller,
+        )
+        .await
+        .unwrap_err(),
+        apply_automation_plan(
+            &context,
+            ApplyAutomationPlanParams {
+                plan,
+                expected_plan_hash: "plan-hash".to_string(),
+                expected_scope_hash: "scope-hash".to_string(),
+            },
+            caller,
+        )
+        .await
+        .unwrap_err(),
+        verify_automation_change(
+            &context,
+            VerifyAutomationChangeParams {
+                change_id: "change-1".to_string(),
+                mode: "offline".to_string(),
+                baseline_session_ids: Vec::new(),
+                requests: Vec::new(),
+                external_session_ids: Vec::new(),
+                assertions: Vec::new(),
+            },
+            caller,
+        )
+        .await
+        .unwrap_err(),
+        get_automation_change(
+            &context,
+            GetAutomationChangeParams {
+                change_id: "change-1".to_string(),
+            },
+            caller,
+        )
+        .await
+        .unwrap_err(),
+        rollback_automation_change(
+            &context,
+            RollbackAutomationChangeParams {
+                change_id: "change-1".to_string(),
+                expected_scope_hash: "scope-hash".to_string(),
+            },
+            caller,
+        )
+        .await
+        .unwrap_err(),
+        clear_agent_automation(
+            &context,
+            ClearAgentAutomationParams {
+                scope: "workspace".to_string(),
+                workspace_id: Some("ws-agent".to_string()),
+                lifecycle: "all".to_string(),
+            },
+            caller,
+        )
+        .await
+        .unwrap_err(),
+    ];
+    assert_eq!(automation_errors.len(), 8);
+    for error in automation_errors {
+        assert_eq!(error.code, "CONTROL_PERMISSION_DENIED");
+    }
 
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -1531,6 +1634,21 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     assert!(tools.contains(&"create_agent_rule".to_string()));
     assert!(tools.contains(&"list_agent_rules".to_string()));
     assert!(tools.contains(&"remove_agent_rules".to_string()));
+    for name in [
+        "list_automation_resources",
+        "get_automation_resource",
+        "validate_automation_plan",
+        "apply_automation_plan",
+        "verify_automation_change",
+        "get_automation_change",
+        "rollback_automation_change",
+        "clear_agent_automation",
+    ] {
+        assert!(
+            tools.contains(&name.to_string()),
+            "missing automation tool {name}"
+        );
+    }
     let mut expected_tools = aiproxy_mcp::context::available_tools();
     let mut actual_tools = tools.clone();
     expected_tools.sort_unstable();
@@ -1559,6 +1677,27 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
                     "{name}.{property} must have a schema description"
                 );
             }
+        }
+        match name {
+            "list_automation_resources"
+            | "get_automation_resource"
+            | "validate_automation_plan"
+            | "get_automation_change" => {
+                assert_eq!(
+                    annotations["readOnlyHint"], true,
+                    "{name} must be read-only"
+                );
+            }
+            "apply_automation_plan"
+            | "verify_automation_change"
+            | "rollback_automation_change"
+            | "clear_agent_automation" => {
+                assert_eq!(
+                    annotations["readOnlyHint"], false,
+                    "{name} must not be read-only"
+                );
+            }
+            _ => {}
         }
     }
 

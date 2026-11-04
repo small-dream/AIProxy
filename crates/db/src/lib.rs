@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod automation;
 pub mod body_store;
 pub mod collections;
 pub mod connection;

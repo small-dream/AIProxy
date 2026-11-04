@@ -3,10 +3,12 @@ import {
   isWsConnectionStatusEvent,
   isWsMessage,
   parseAgentControlActionEvent,
+  parseAutomationChangedEvent,
   parseBreakpointHit,
   parseBreakpointReleased,
   parseSessionSummary,
   type AgentControlActionEvent,
+  type AutomationChangedEvent,
   type BreakpointHit,
   type BreakpointReleased,
   type SessionRemoveEvent,
@@ -195,6 +197,25 @@ export function onAgentControlAction(
       callback(parsed);
     } else {
       logDevWarn("events", "agent_control_action_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
+    }
+  });
+}
+
+export function onAutomationChanged(
+  callback: (event: AutomationChangedEvent) => void,
+): Promise<Unlisten> {
+  if (!isTauriRuntime()) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<unknown>("automation-changed", (event) => {
+    const parsed = parseAutomationChangedEvent(event.payload);
+    if (parsed) {
+      callback(parsed);
+    } else {
+      logDevWarn("events", "automation_changed_parse_failed", {
         payload: payloadPreview(event.payload),
       });
     }

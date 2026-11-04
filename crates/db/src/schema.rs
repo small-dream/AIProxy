@@ -367,6 +367,94 @@ CREATE TABLE IF NOT EXISTS ai_settings (
     timeout_ms  INTEGER NOT NULL DEFAULT 30000,
     updated_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS automation_resources (
+    resource_kind        TEXT NOT NULL,
+    resource_id          TEXT NOT NULL,
+    scope                TEXT NOT NULL,
+    scope_key            TEXT NOT NULL,
+    workspace_id         TEXT,
+    owner_kind           TEXT NOT NULL,
+    created_by_client    TEXT,
+    created_by_version   TEXT,
+    change_id            TEXT,
+    expires_at           TEXT,
+    created_at           TEXT NOT NULL,
+    updated_at           TEXT NOT NULL,
+    PRIMARY KEY (resource_kind, resource_id)
+);
+CREATE INDEX IF NOT EXISTS idx_automation_resources_scope
+    ON automation_resources(scope_key, resource_kind);
+
+CREATE TABLE IF NOT EXISTS automation_change_sets (
+    id                    TEXT NOT NULL PRIMARY KEY,
+    scope                 TEXT NOT NULL,
+    scope_key             TEXT NOT NULL,
+    workspace_id          TEXT,
+    idempotency_key       TEXT NOT NULL,
+    plan_hash             TEXT NOT NULL,
+    expected_plan_hash    TEXT NOT NULL,
+    scope_hash_before     TEXT NOT NULL,
+    scope_hash_after      TEXT NOT NULL,
+    lifecycle             TEXT NOT NULL,
+    status                TEXT NOT NULL,
+    runtime_generation    INTEGER,
+    client_name           TEXT,
+    client_version        TEXT,
+    summary_json          TEXT NOT NULL,
+    created_at            TEXT NOT NULL,
+    committed_at          TEXT,
+    activated_at          TEXT,
+    reverted_at           TEXT,
+    expires_at            TEXT,
+    UNIQUE (scope_key, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_automation_change_sets_status
+    ON automation_change_sets(status, created_at);
+
+CREATE TABLE IF NOT EXISTS automation_change_items (
+    change_id            TEXT NOT NULL,
+    sequence             INTEGER NOT NULL,
+    resource_kind        TEXT NOT NULL,
+    resource_id          TEXT NOT NULL,
+    operation            TEXT NOT NULL,
+    version_before       TEXT,
+    version_after        TEXT,
+    before_json          TEXT,
+    after_json           TEXT,
+    dependencies_json    TEXT,
+    PRIMARY KEY (change_id, sequence),
+    FOREIGN KEY (change_id) REFERENCES automation_change_sets(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS automation_experiments (
+    id                    TEXT NOT NULL PRIMARY KEY,
+    change_id             TEXT NOT NULL,
+    objective             TEXT NOT NULL,
+    baseline_session_ids  TEXT NOT NULL,
+    status                TEXT NOT NULL,
+    cleanup_state         TEXT NOT NULL,
+    created_at            TEXT NOT NULL,
+    updated_at            TEXT NOT NULL,
+    FOREIGN KEY (change_id) REFERENCES automation_change_sets(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_automation_experiments_change
+    ON automation_experiments(change_id);
+
+CREATE TABLE IF NOT EXISTS automation_verifications (
+    id                    TEXT NOT NULL PRIMARY KEY,
+    experiment_id         TEXT NOT NULL,
+    mode                  TEXT NOT NULL,
+    request_json          TEXT NOT NULL,
+    assertions_json       TEXT NOT NULL,
+    result_json           TEXT NOT NULL,
+    evidence_session_ids  TEXT NOT NULL,
+    limitations_json      TEXT NOT NULL,
+    created_at            TEXT NOT NULL,
+    FOREIGN KEY (experiment_id) REFERENCES automation_experiments(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_automation_verifications_experiment
+    ON automation_verifications(experiment_id, created_at);
 ";
 
 pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {

@@ -27,6 +27,7 @@ mod agent_control;
 mod agent_replay;
 mod agent_rules;
 mod agent_status;
+mod automation;
 mod bootstrap;
 mod commands;
 mod dev_logger;
@@ -306,6 +307,12 @@ pub fn run() {
             commands::test_ai_connection,
             commands::get_agent_access_settings,
             commands::update_agent_access_settings,
+            commands::pick_automation_approved_root,
+            commands::list_automation_changes,
+            commands::get_automation_change,
+            commands::rollback_automation_change,
+            commands::promote_automation_change,
+            commands::clear_agent_automation,
             commands::test_agent_access,
             commands::install_agent_skill,
             commands::install_agent_client_config,
@@ -321,7 +328,15 @@ pub fn run() {
             let _ = app.manage(Arc::new(app_state));
             let state = app.state::<Arc<AppState>>();
             state.set_app_handle(app.handle().clone());
-            state.read_agent_rule_registry().spawn_cleanup();
+            if let Err(error) = state.recover_automation_changes() {
+                tracing::error!(
+                    component = "desktop.automation",
+                    event = "automation_recovery_failed",
+                    error = %error.message,
+                    "automation_recovery_failed"
+                );
+            }
+            automation::spawn_automation_maintenance(Arc::clone(state.inner()));
             agent_status::write_from_state(&state);
             agent_status::spawn_heartbeat(Arc::clone(state.inner()));
             system_proxy_recovery::restore_pending_snapshot_on_startup(app.handle(), &state);

@@ -8,7 +8,7 @@
 //! in [repository]; in-memory session caching and LRU eviction live in [cache].
 
 mod cache;
-mod converters;
+pub(crate) mod converters;
 mod events;
 pub(crate) mod lock_recovery;
 mod repository;
@@ -25,12 +25,14 @@ use events::{
 use repository::Repository;
 
 use aiproxy_proxy_core::{
-    BreakpointManager, DnsManager, MapManager, ProxyServerHandle, ProxySessionDetail,
-    ProxySessionSummary, RewriteManager, ScriptManager, ThrottleManager, TlsManager,
+    paired_rule_managers, BreakpointManager, DnsManager, MapManager, ProxyServerHandle,
+    ProxySessionDetail, ProxySessionSummary, RewriteManager, ScriptManager, ThrottleManager,
+    TlsManager,
 };
 use serde::Serialize;
 use std::{
     collections::HashSet,
+    path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
@@ -142,6 +144,12 @@ pub struct AppState {
     workspace_manager: Arc<WorkspaceManager>,
     app_handle: Mutex<Option<tauri::AppHandle>>,
     focused_hosts: Mutex<HashSet<String>>,
+    // Serializes all automation writes from both the UI and Agent control.
+    // A single lock is intentionally stricter than per-scope locking: it
+    // guarantees a change set never interleaves with a UI save while the
+    // first version only publishes Rewrite and Map rules.
+    automation_mutation_lock: tokio::sync::Mutex<()>,
+    automation_asset_root: PathBuf,
     // Serialize persistence and destructive session operations so an older
     // in-flight upsert cannot emit after clear/delete has completed.
     session_lifecycle_lock: tokio::sync::Mutex<()>,
@@ -167,8 +175,7 @@ impl AppState {
         db: Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
         body_store: Arc<aiproxy_db::body_store::BodyStore>,
     ) -> Self {
-        let rewrite_manager = Arc::new(RewriteManager::new());
-        let map_manager = Arc::new(MapManager::new());
+        let (rewrite_manager, map_manager) = paired_rule_managers();
         let agent_data_dir = body_store
             .base_dir()
             .parent()
@@ -179,6 +186,11 @@ impl AppState {
             Arc::clone(&map_manager),
             agent_data_dir,
         ));
+        let automation_asset_root = body_store
+            .base_dir()
+            .parent()
+            .unwrap_or_else(|| body_store.base_dir())
+            .join("automation-assets");
         let state = Self {
             runtime: Mutex::new(None),
             cache: SessionCache::new(),
@@ -198,6 +210,8 @@ impl AppState {
             workspace_manager: Arc::new(WorkspaceManager::new()),
             app_handle: Mutex::new(None),
             focused_hosts: Mutex::new(HashSet::new()),
+            automation_mutation_lock: tokio::sync::Mutex::new(()),
+            automation_asset_root,
             session_lifecycle_lock: tokio::sync::Mutex::new(()),
             session_generation: AtomicU64::new(0),
             repository: Repository::new(db, body_store),
@@ -689,6 +703,14 @@ impl AppState {
     /// P2-17: returns the lock that serializes the proxy start/stop lifecycle.
     pub fn proxy_op_lock(&self) -> &tokio::sync::Mutex<()> {
         &self.proxy_op_lock
+    }
+
+    pub fn automation_mutation_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.automation_mutation_lock
+    }
+
+    pub fn automation_asset_root(&self) -> &PathBuf {
+        &self.automation_asset_root
     }
 
     // ── runtime handles ─────────────────────────────────────────────

@@ -37,6 +37,12 @@ Breakpoint rules are leaner than other rule types — **no rule name, no priorit
 
 Match Type options are `Contains` (substring, default) / `Wildcard` / `Exact` / `Regex`, with the same meaning as [Rewrite's Match Type](./rewrite-rules.md#match-conditions).
 
+### Agent automation boundary
+
+Breakpoints are global resources and are not isolated by workspace. First-release Agent automation cannot create, update, delete, toggle, or remotely resolve breakpoint hits; those plans return `FEATURE_NOT_AVAILABLE`. `manageGlobalAutomation` is reserved for a later release and does not enable breakpoint writes now.
+
+The Agent can analyze breakpoint hits and releases from captured sessions, but it cannot Forward, Drop, edit headers/body, or send a Mock Response for you. A hit still needs action in the intercept panel; otherwise it is forwarded unchanged after 5 minutes.
+
 ## The intercept panel on a hit
 
 When a request or response hits a breakpoint, the **intercept panel** slides in on the right, and the Rules nav icon shows a pending-breakpoint count badge (click it to jump to the rules page). In the panel you can:

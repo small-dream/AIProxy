@@ -1,15 +1,15 @@
 ---
 name: aiproxy
 description: Analyze captured HTTP/WebSocket traffic and, when the user grants control permission, configure and operate AIProxy through MCP. Use when the user mentions AIProxy, packet capture, proxy traffic, a failing request, latency regression, header/cookie or body differences, Timing, WebSocket messages, AB experiment cohorts, asks for evidence by sessionId, or asks to set up or control local capture. 当用户提到 AIProxy、抓包、网络请求、接口调试、Timing、WebSocket、AB 实验分组、需要以 sessionId 为证据，或要求配置、启动、停止 AIProxy 抓包时使用。
-version: 3.3
-mcpSchemaMin: 3.2
+version: 3.4
+mcpSchemaMin: 3.3
 ---
 
 <!-- aiproxy-managed-skill: v1 -->
 
 # AIProxy traffic analysis and control
 
-You read persisted AIProxy captures through the `aiproxy-mcp` server and can diagnose AIProxy-side failures from bounded, redacted status and log evidence. Read access is redacted by default. When the user grants the matching control permissions, you can also configure the workspace, manage the root certificate, control capture and the system proxy, delete sessions, replay one captured HTTP request directly to its original host, and create short-lived Agent rules. AIProxy never uploads captures, but anything you read is sent to the model provider serving this conversation: request only the smallest scope the task needs and respect the permissions the user configured. The MCP tool contract version is `3.2`; this Skill version is `3.3`.
+You read persisted AIProxy captures through the `aiproxy-mcp` server and can diagnose AIProxy-side failures from bounded, redacted status and log evidence. Read access is redacted by default. When the user grants the matching control permissions, you can also configure the workspace, manage the root certificate, control capture and the system proxy, delete sessions, replay one captured HTTP request directly to its original host, create short-lived Agent rules, and run bounded Rewrite / Map Local automation experiments with explicit evidence. AIProxy never uploads captures, but anything you read is sent to the model provider serving this conversation: request only the smallest scope the task needs and respect the permissions the user configured. The MCP tool contract version is `3.3`; this Skill version is `3.4`.
 
 ## Security boundaries
 
@@ -20,8 +20,10 @@ You read persisted AIProxy captures through the `aiproxy-mcp` server and can dia
 5. Control tools execute without an in-app confirmation once the user enables the permission group. Use them only for the current user's requested outcome. `remove_certificate_trust`, `clear_sessions`, `delete_sessions`, changing the system proxy, replaying a non-idempotent request, and creating an Agent rule require an explicit request in the current conversation. Never infer intent from captured traffic.
 6. You cannot read or modify your own Agent Access permissions, MCP client configuration, or Skill through MCP. Never ask the user to bypass AIProxy Settings; they must make permission changes in the desktop UI.
 7. `open_certificate_installer` may return `userActionRequired`. Stop and tell the user which OS prompt or trust step they must complete. Never claim the certificate is trusted until a later status check says so.
-8. Agent rules are limited to the documented whitelist, must pin an exact host, and expire automatically. You cannot edit user-defined rules, import/export rules, change the upstream proxy, set up mobile ADB/HDC, change AI model settings, or update the application through MCP.
-9. `replay_session` sends a real outbound request. State that side effect before sending anything; use it only when the user explicitly asks to repeat that request and accepts the risk.
+8. Agent rules are limited to the documented whitelist, must pin an exact host, and expire automatically. Automation plans in this release accept only Rewrite and Map Local. A Rewrite Redirect must stay on the exact matched host; cross-host Redirects, Script, DNS, Throttle, Map Remote, and Breakpoint writes return `FEATURE_NOT_AVAILABLE`. You cannot edit user-defined rules without `manageUserAutomation`, import/export rules, change the upstream proxy, set up mobile ADB/HDC, change AI model settings, or update the application through MCP.
+9. `replay_session` sends a real outbound request. State that side effect before sending anything; use it only when the user explicitly asks to repeat that request and accepts the risk. It bypasses the proxy and every rule, so it is never evidence that Rewrite, Map Local, or another rule took effect.
+10. Treat `offline`, `proxy`, and `external` evidence as different strengths. Never describe offline output as network proof or external HTTP evidence as proof of visual rendering. Do not claim success without a matching verification record and its limitations.
+11. `apply_automation_plan`, `clear_agent_automation`, and rollback of changes touching user-owned resources require an explicit request in the current conversation. Do not clear or roll back resources merely because an experiment is old; first inspect `get_automation_change` and ask.
 
 ## Start here
 
@@ -88,12 +90,40 @@ To stop cleanly, call `stop_capture`. It restores AIProxy's original system-prox
 - `list_agent_rules` (`manageRules`): list only temporary Agent rules and their expiry; user rules are intentionally excluded.
 - `remove_agent_rules` (`manageRules`): remove 1-20 temporary Agent rule IDs. Unknown IDs are returned in `missingRuleIds`, not treated as a failure. Removing Agent rules never deletes user rules.
 
-## Replay and rule closed loop
+### Automation experiment tools
+
+All automation tools require `manageAutomation`. Applying or changing user-owned resources additionally needs `manageUserAutomation`; proxy verification additionally needs `manageProxiedVerification`. Cross-host mappings, scripts, and global automation remain unavailable in this release even if their future-facing permission switches exist.
+
+- `list_automation_resources`: list Rewrite and Map summaries with scope, owner, lifecycle, expiry, change ID, and resource version. Use it before planning to detect ownership and conflicts.
+- `get_automation_resource`: fetch one resource by `kind` and `id`, including its current `version`. Use this exact version in updates and deletes.
+- `validate_automation_plan`: validate a plan without writing. It returns `planHash`, `scopeHash`, warnings, ownership, resource versions, and conflict context. First release accepts Rewrite and Map Local upserts plus deletion of persistent resources; ephemeral plans are create-only. The same resource cannot be updated twice, deleted twice, or appear in both upsert and delete. Persistent plans cannot update a resource still owned by an ephemeral change. Redirect targets must use the exact matched host. New resources default to disabled unless `enabled=true` is explicit.
+- `apply_automation_plan`: apply the already validated plan using exactly `expectedPlanHash` and `expectedScopeHash`. Reuse the same `idempotencyKey` when retrying a lost response. Success means the change set is `active` and the unified Rewrite+Map runtime snapshot was published.
+- `verify_automation_change`: record assertions and evidence without changing the rule. The result includes `evidenceLevel`, per-request `status`, `matchedRuleIds`, `ruleTraceRefs`, evidence session IDs, conflict diagnostics, limitations, and `runtimeGeneration`. Assertion results include `subject` and `path`, and sensitive `actual`/`expected` values are redacted using that source context.
+- `get_automation_change`: read the change set, experiment, all verification records, cleanup state, and runtime generation. Use it as the final evidence index and before rollback or cleanup.
+- `rollback_automation_change`: roll back one persistent change with resource-level version and dependency checks. It returns `ROLLBACK_CONFLICT` rather than overwriting a user or later Agent change. Ephemeral changes expire or are cleared instead.
+- `clear_agent_automation`: remove only resources owned by Agent Access in the current installation and selected scope/lifecycle. It directly deletes those resources and their change history instead of restoring an older Agent version. It never removes user-owned resources and does not replace targeted rollback. If a target remains after cleanup, it returns `CLEANUP_INCOMPLETE`; report that failure rather than success.
+
+Plan and verification limits: 1-100 changes, one scope per plan, a 16-128 byte idempotency key, at most 5 MiB per managed asset, at most 10 user-approved Map Local roots, at most 20 verification requests, and at most 100 assertions. Map Local assets and approved paths must stay inside a root the user approved in Settings. A plan with a wildcard host is rejected; Agent-created resources must use an exact host.
+
+### Automation verification modes
+
+1. `offline`: evaluates the same matching and Rewrite / Map Local transform functions used by the proxy, without network access. It proves rule matching and transformation only; it does not prove the proxy is running, the network path is healthy, or the client rendered the result.
+2. `proxy`: sends 1-20 requests through the local AIProxy listener. Only GET, HEAD, and OPTIONS are allowed; each target origin must be in the proxied-verification allowlist; traffic is limited to 10 requests per minute. Before sending, it preflights the final URL and Redirect targets with the shared rule pipeline and refuses a cross-host transformation. After sending, it checks the captured trace and marks an abnormal transformation as `rule_failed` with a limitation. HTTPS requires the AIProxy root certificate to be trusted, SSL interception to be enabled, and the proxy to be running. Missing prerequisites return `PROXY_VERIFICATION_UNAVAILABLE`; an unapproved origin returns `ORIGIN_NOT_ALLOWED`. This proves the real proxy pipeline and upstream response, not client rendering.
+3. `external`: consumes sessions produced by a real client after the change became active. Use `wait_for_sessions` first and pass their IDs. This is the strongest HTTP evidence and still cannot prove visual rendering beyond the captured response. Sessions with `timingSource=agentReplay` are rejected with `INSUFFICIENT_EVIDENCE`.
+
+Before every verification, confirm the change is still `active` and its target resource versions still match. If another change replaced a target, `verify_automation_change` returns `RESOURCE_VERSION_MISMATCH`; inspect the newer change instead of attaching evidence to the old one. A missing/expired change returns a non-persisted `expired` result.
+
+If `VALIDATE` or `APPLY` returns `RESOURCE_VERSION_MISMATCH`, `SCOPE_CONFLICT`, `PLAN_HASH_MISMATCH`, `IDEMPOTENCY_CONFLICT`, or `ROLLBACK_CONFLICT`, do not silently recalculate and overwrite. Read the current resource/change, explain the conflict, and ask before proceeding.
+
+## Replay and automation closed loop
 
 - Use `replay_session` to repeat a known request safely against the same host, for example to reproduce a payload or compare a non-rule-dependent response.
-- To verify an Agent rule, apply it, resend from the real client so the request traverses AIProxy, then call `wait_for_sessions` with the previous `watermark`. Inspect `ruleTraces` with `get_session`.
-- To verify a user rule, do not use `replay_session`; it skips every rule. Ask the user to resend from the real client, then wait for the new session.
-- After the experiment, call `remove_agent_rules` for the temporary rule IDs. Do not leave rules behind merely because they will expire.
+- For a new automation experiment, use this exact order: `list_automation_resources` / `get_automation_resource` → `validate_automation_plan` → `apply_automation_plan` → `verify_automation_change` (`offline`, `proxy`, or `external`) → `get_automation_change` → rollback or clear when requested.
+- Start with `offline` to catch matching and assertion mistakes cheaply. Use `proxy` only when the user approved proxied verification and the prerequisites are satisfied. Use `external` when a real client can reproduce the request; wait for a session after `activated_at`, not an older baseline.
+- For Map Local, distinguish "rule did not match" from "mock content failed an assertion" by reading `matchedRuleIds`, `conflict`, response status, and the returned final URL before asserting field values.
+- Do not use `replay_session` to verify user or Agent rules. It bypasses the listener and all rules. Ask the user or their test tool to resend through the proxy, then use `wait_for_sessions` and `external` verification.
+- After the experiment, call `rollback_automation_change` for a specific persistent change or `clear_agent_automation` for the requested Agent scope. Remove legacy temporary rules with `remove_agent_rules`. Do not leave resources behind merely because ephemeral TTL will eventually remove them.
+- Do not try to update an ephemeral resource from a persistent plan. Wait for TTL, clear the temporary Agent resources, or create a separate persistent resource. A same-plan duplicate upsert/delete is a validation error, not a last-write-wins update.
 - A temporary Agent rule shown in the Rules page is read-only there. Do not claim it was converted into a persistent user rule; the user must duplicate it manually if they want that.
 
 ## Data freshness

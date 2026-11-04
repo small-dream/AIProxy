@@ -3,6 +3,7 @@ import { alpha } from "@mui/material/styles";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
+import { AutomationChangesPanel } from "@/features/automation/AutomationChangesPanel";
 import { BreakpointRulesPanel } from "@/features/rules/components/BreakpointRulesPanel";
 import {
   MappingRulesPanel,
@@ -40,6 +41,8 @@ export function RulesPage() {
         return mappingPanelRef.current;
       case "script":
         return scriptPanelRef.current;
+      case "automation":
+        return null;
     }
   }
 
@@ -166,6 +169,7 @@ export function RulesPage() {
             <Tab value="rewrite" label={t("rulesPage.tabs.rewrite")} />
             <Tab value="mapping" label={t("rulesPage.tabs.mapping")} />
             <Tab value="script" label={t("rulesPage.tabs.script")} />
+            <Tab value="automation" label={t("rulesPage.tabs.automation")} />
           </Tabs>
           <Box sx={{ flex: 1 }} />
           <RulesImportExportButtons />
@@ -176,6 +180,7 @@ export function RulesPage() {
           {tab === "rewrite" && <RewriteRulesPanel ref={rewritePanelRef} />}
           {tab === "mapping" && <MappingRulesPanel ref={mappingPanelRef} />}
           {tab === "script" && <ScriptRulesPanel ref={scriptPanelRef} />}
+          {tab === "automation" && <AutomationChangesPanel />}
         </Box>
       </Paper>
     </Stack>

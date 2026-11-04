@@ -3,11 +3,11 @@
 ## 1. 文档信息
 
 - 文档类型：技术方案与总体架构
-- 文档状态：`Current v3.2（读取 + 受控操作 + 复现闭环；v1 只读基线保留为历史背景）`
+- 文档状态：`Current v3.3（读取 + 受控操作 + 复现闭环 + 自动化实验；v1 只读基线保留为历史背景）`
 
-> 历史说明：本文最初记录 v1 只读架构。v3.0 通过 ADR-007 引入受权限约束的本地 IPC 控制，v3.1 通过 ADR-008 引入受限诊断，v3.2 通过 ADR-009 引入直连重放、结构化失败原因与内存临时 Agent 规则。当前工具契约、权限与错误码以 `docs/API_SPEC.md`、`docs/DECISIONS/ADR-007-agent-control-ipc.md`、`docs/DECISIONS/ADR-008-bounded-diagnostic-log-access.md` 与 `docs/DECISIONS/ADR-009-agent-replay-and-temporary-rules.md` 为准；下文的“只读”“写操作后置”等描述仅保留为历史基线。
-> 实现说明：2026-10-18 已落地 schema 2.1、字段提取、批量字段读取、结构化比较与可配置脱敏；2026-10-29 已落地 schema 3.1、受控诊断工具与白名单日志读取；2026-10-30 已落地 schema 3.2、`wait_for_sessions`、cURL 导出、失败原因、请求重放、临时 Agent 规则，以及 Skill 3.3 的大 JSON 流式按需提取。实际模块、命令、客户端路径与验证结果见文末「实现状态」。
-- 更新日期：`2026-10-30`
+> 历史说明：本文最初记录 v1 只读架构。v3.0 通过 ADR-007 引入受权限约束的本地 IPC 控制，v3.1 通过 ADR-008 引入受限诊断，v3.2 通过 ADR-009 引入直连重放、结构化失败原因与内存临时 Agent 规则，v3.3 通过 ADR-010 引入数据库权威自动化状态、统一运行时快照、资源级回滚与三级证据。当前工具契约、权限与错误码以 `docs/API_SPEC.md`、ADR-007、ADR-008、ADR-009 与 `docs/DECISIONS/ADR-010-automation-runtime-and-evidence.md` 为准；下文的“只读”“写操作后置”等描述仅保留为历史基线。
+> 实现说明：2026-10-18 已落地 schema 2.1、字段提取、批量字段读取、结构化比较与可配置脱敏；2026-10-29 已落地 schema 3.1、受控诊断工具与白名单日志读取；2026-10-30 已落地 schema 3.2、`wait_for_sessions`、cURL 导出、失败原因、请求重放、临时 Agent 规则，以及 Skill 3.3 的大 JSON 流式按需提取；2026-11-04 已落地 schema 3.3、8 个自动化工具、Rewrite + Map Local 实验闭环、资源级回滚与 Skill 3.4。实际模块、命令、客户端路径与验证结果见文末「实现状态」。
+- 更新日期：`2026-11-04`
 - 适用范围：AIProxy Desktop、Rust 核心、`aiproxy-mcp` sidecar、Codex / Claude Code / Cursor 等 Agent 客户端
 - 配套产品规划：`docs/MCP_AGENT_SKILL_PLAN.md`
 - 关联事实源：
@@ -43,7 +43,7 @@
 
 - 云端 MCP、远程访问、团队共享服务端。
 - 任意 SQL、任意 shell、任意文件读取。
-- 任意规则写入、持久化 Agent 规则、跨 host 重放或 Map Remote。
+- 首版不开放 Map Remote、DNS Mapping、Script、Throttle Profile / Rule、Breakpoint、Throttle activation、global scope 自动化或跨 host 重放；Rewrite / Map Local 的 Agent 自动化按 ADR-010 开放。
 - 应用内通用 AI 聊天界面。
 - 断点实时控制、Scenario Replay 自动执行。
 - 用 MCP 替代现有 Tauri command / 前端服务层。
@@ -256,7 +256,7 @@ crates/mcp-server/
 - 每个工具提供 JSON Schema，`additionalProperties: false`。
 - 工具描述必须包含：什么时候使用、什么时候不要使用、返回什么、是否会截断。
 - 工具列表按领域稳定排序，避免 Agent 每次看到不同顺序。
-- `meta.schemaVersion` 使用工具契约版本；当前为 `3.2`。MCP 协议版本由 SDK 协商，不硬编码日期。
+- `meta.schemaVersion` 使用工具契约版本；当前为 `3.3`。MCP 协议版本由 SDK 协商，不硬编码日期。
 - MVP 只声明 tools；Resources 与 Prompts 在 Phase 2 评估，避免过早扩大协议面。
 - 工具列表按能力裁剪：缺少某个可选表时，不向 Agent 宣告依赖它的工具；直接调用未宣告工具返回 `SCHEMA_INCOMPATIBLE`。
 - 权限状态不改变工具 schema：权限关闭的工具仍然出现在工具列表中，调用时返回 `PERMISSION_DENIED`，便于 Agent 告诉用户开启哪个开关。
@@ -496,7 +496,7 @@ MCP `tools/call` 的结果映射：
   "ok": true,
   "data": {},
   "meta": {
-    "schemaVersion": "3.2",
+    "schemaVersion": "3.3",
     "dataFreshness": "persisted",
     "latestSessionAt": "2026-10-17T10:12:00Z",
     "captureStatus": "running",
@@ -602,7 +602,7 @@ Agent 规则只存在于桌面进程内存，应用重启即失效；它们不�
     ]
   },
   "meta": {
-    "schemaVersion": "3.2",
+    "schemaVersion": "3.3",
     "dataFreshness": "persisted",
     "truncated": false,
     "redacted": true,
@@ -663,7 +663,7 @@ Agent 规则只存在于桌面进程内存，应用重启即失效；它们不�
     "hash": { "algorithm": "sha256", "value": "…", "scope": "decodedBody" }
   },
   "meta": {
-    "schemaVersion": "3.2",
+    "schemaVersion": "3.3",
     "dataFreshness": "persisted",
     "redacted": true,
     "truncated": false,
@@ -751,8 +751,14 @@ Agent 规则只存在于桌面进程内存，应用重启即失效；它们不�
 | `replay_session` | 否 | `sendRequests` | 真实出站请求；单并发、10 次/分钟；不经过规则 |
 | `create_agent_rule`、`remove_agent_rules` | 否 | `manageRules` | 仅管理内存临时规则；TTL 最长 3600 秒 |
 | `list_agent_rules` | 否 | `manageRules` | 工具本身只读，但只有启用规则管理权限后才可见可用 |
+| `list_automation_resources`、`get_automation_resource`、`get_automation_change` | 是/自动化读取 | `manageAutomation` | 读取 Rewrite / Map 资源、change、实验与证据；不写运行时 |
+| `validate_automation_plan` | 是/自动化校验 | `manageAutomation`；用户资源另需 `manageUserAutomation` | 只校验计划，返回 planHash / scopeHash / ownership / warning |
+| `apply_automation_plan` | 否 | `manageAutomation`；用户资源另需 `manageUserAutomation` | 数据库事务 + 统一运行时发布；幂等键安装实例级；首版仅 Rewrite / Map Local |
+| `verify_automation_change` | 部分只读 | `manageAutomation`；`proxy` 另需 `manageProxiedVerification` | 返回 offline / proxy / external 证据、断言、trace、冲突与 limitations；replay 会话不能作为证据 |
+| `rollback_automation_change` | 否 | `manageAutomation`；用户资源另需 `manageUserAutomation` | 仅 active persistent change；按资源版本与依赖检查，冲突返回 `ROLLBACK_CONFLICT` |
+| `clear_agent_automation` | 否 | `manageAutomation` | 只清理 Agent 自有资源；不删除用户资源或恢复用户规则 |
 
-六个控制权限 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules` 默认全部关闭。权限关闭时工具仍出现在 `tools/list` 中，调用返回 `PERMISSION_DENIED` 或 `CONTROL_PERMISSION_DENIED`，便于 Agent 告诉用户开启哪个分组。
+旧控制组 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules` 与自动化组 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification`、`manageGlobalAutomation` 共 12 项，默认全部关闭；旧 `manageRules` 不推导任何自动化权限。权限关闭时工具仍出现在 `tools/list` 中，调用返回 `PERMISSION_DENIED` 或 `CONTROL_PERMISSION_DENIED`，便于 Agent 告诉用户开启哪个分组。首版 `manageScripts`、`manageCrossHostMappings`、`manageGlobalAutomation` 是预留授权位，不绕过 `FEATURE_NOT_AVAILABLE`。
 
 ## 9. 脱敏、隐私与安全架构
 
@@ -927,8 +933,8 @@ Skill 不存放用户数据、API key 或抓包样本；示例只使用合成的
 ---
 name: aiproxy
 description: Analyze captured HTTP/WebSocket traffic and diagnose AIProxy failures through MCP. Use when the user mentions AIProxy, packet capture, proxy traffic, failing requests, latency regressions, header/body differences, Timing, WebSocket, AB experiment cohorts, setup/certificate/control-channel failures, or asks for evidence by sessionId. 当用户提到 AIProxy、抓包、网络请求、接口调试、Timing、WebSocket、AB 实验分组，或需要以 sessionId 为证据分析流量、排查 AIProxy 设置与连接故障时使用。
-version: 3.3
-mcpSchemaMin: 3.2
+version: 3.4
+mcpSchemaMin: 3.3
 ---
 
 # AIProxy traffic analysis
@@ -1377,7 +1383,8 @@ sequenceDiagram
 
 - [ ] `aiproxy-mcp` 在三端可启动并完成 MCP 握手。
 - [ ] 只读连接不会创建数据库、写表或执行迁移。
-- [ ] 25 个工具（10 个读取、2 个只读诊断、1 个受权限保护的只读规则工具、12 个写控制）契约稳定，schemaVersion 可验证。
+- [ ] 33 个工具（10 个读取、2 个只读诊断、1 个 legacy 临时规则只读工具、12 个控制、8 个自动化）契约稳定，schemaVersion 可验证。
+- [ ] `automation-changed`、三级验证、运行时 generation、资源级回滚和权限迁移有集成与 UI 回归。
 - [ ] `wait_for_sessions` watermark、失败筛选、cURL 导出、直连重放与临时 Agent 规则的权限、预算和清理语义有回归测试。
 - [ ] 诊断日志只来自白名单、受预算约束并二次脱敏；日志不可信，工具不导出完整日志包。
 - [ ] 默认输出脱敏，`truncated` / `redacted` / `nextCursor` 语义一致。
@@ -1503,11 +1510,11 @@ MVP 预计修改：
 - [ ] 确认三端发布矩阵和签名要求。
 
 
-## 20. 实现状态（2026-10-30）
+## 20. 实现状态（2026-11-04）
 
 已落地模块：
 
-- `crates/mcp-server`：25 个工具（10 个读取、2 个只读诊断、1 个受权限保护的只读规则工具、12 个写控制）、schema 3.2、`config`、`context`、`protocol`、`redaction`、`audit`、`server`、`tools/*`。
+- `crates/mcp-server`：33 个工具（10 个读取、2 个只读诊断、1 个 legacy 临时规则只读工具、12 个控制、8 个自动化）、schema 3.3、`config`、`context`、`protocol`、`redaction`、`audit`、`server`、`tools/*`。
 - `crates/db`：`connection::open_read_only_database`、`inspect_schema`（含 session detail / WebSocket / workspace 列级检查）、`body_store::read_body_range`、session v2 cursor 搜索、Insights path/query 分组、`sessions::search_ws_messages_page`。
 - `apps/desktop/src-tauri/src/commands/agent_access.rs`：设置读取/保存（含脱敏策略）、doctor 诊断、真实 MCP 握手验证、Skill 安装、断开连接（配置备份 + 受管 Skill 清理）、审计读取。
 - `apps/desktop/src/pages/settings/sections/AgentAccessSection.tsx` 与 `apps/desktop/src/features/agent-access/*`。
@@ -1533,6 +1540,10 @@ MVP 预计修改：
 - 3.2 复现闭环：`replay_session` 通过桌面端现有直连发送器复用二进制 Body，严格锁定原 host、单并发、10 次/分钟，并持久化 `timingSource=agentReplay` 新会话；请求不经过抓包端口或任何规则。
 - 3.2 临时规则：`create_agent_rule` / `list_agent_rules` / `remove_agent_rules` 复用 `RewriteManager` / `MapManager`，规则只存在内存、TTL 默认 600 秒/最大 3600 秒、最多 20 条；规则页标记、到期时间、只读、删除、复制与一键清理已落地。
 - 3.2 验证：`cargo check --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test -p aiproxy-agent-control --no-fail-fast`、桌面端 `lint` / `typecheck` / 前端 107 个测试文件 823 个测试均通过；新增重放限流、审计脱敏、注册表重建清理与规则只读 UI 回归。
+- 3.3 自动化底座：新增 8 个 MCP 工具、6 个默认关闭的自动化权限、5 张自动化表、共享 `automation_mutation_lock`、`RuntimeRuleSnapshot` 与 `runtimeGeneration`、资源级回滚、实验 / 验证记录、TTL 清理和启动恢复；Rules 页增加 Agent 实验面板。
+- 3.3 能力边界：首版仅支持 Rewrite 与 Map Local；Map Remote、DNS、Script、Throttle、Breakpoint、Throttle activation 与 global scope 返回 `FEATURE_NOT_AVAILABLE`。`manageRules` 与 legacy 临时规则保持兼容，但不会迁移到新权限。
+- 3.3 证据：`offline` 使用共享规则转换；`proxy` 仅允许 GET / HEAD / OPTIONS 与白名单 origin，20 请求/批、10 请求/分钟、256 KiB 响应；`external` 拒绝 `agentReplay` 和激活前会话。所有结果返回 `runtimeGeneration` 与 `limitations`。
+- 3.3 验证：自动化 Rust 测试覆盖 apply / idempotency / 权限 / 路径 / 回滚 / 过期 / 证据；`cargo test -p aiproxy-desktop automation::tests` 17 项通过，桌面端 typecheck、lint 与文档导航测试通过；新增 Windows / Linux 安装包验证仍在发布门禁中执行。
 - Skill 3.3 大 JSON 按需读取：`body_stream` 使用 serde token 流只物化目标节点；`BodyStore::open_body_reader` 提供安全流式 reader；新增 64 MiB 单 Body、256 MiB 批量、64 KiB 单值、256 匹配、960 KiB 字段载荷和 4 KiB 摘要预算。`get_session_body` / `get_session_fields`、内置 Skill、中英文 Agent Access 帮助文档和 `docs/API_SPEC.md` 已同步。
 - 真实 `pb.photoaffections.com` `app.launch` 会话 `43ffa42e-3525-49a7-8463-51c7a1fb8bc2` 验证通过：`decodedSizeBytes=9084082`，目标为 `$.preferences.local_premade_wizard_config_rc`，返回对象 `7` 个 key、`viewSizeBytes=2448`，未返回其余约 9 MB Body。方案中的示例路径缺少 `preferences` 层级，实际路径以会话验证为准。
 - Skill 3.3 验证：`cargo test -p aiproxy-mcp -p aiproxy-db`（MCP 89 + 17、DB 133 通过）、`cargo clippy -p aiproxy-mcp -p aiproxy-db --tests -- -D warnings`、`pnpm --filter @aiproxy/desktop typecheck`、`pnpm --filter @aiproxy/desktop test`（107 个文件 / 823 个测试）、文档导航测试与真实 MCP stdio 调用均通过；桌面端 lint 仅有仓库既有 2 条 React Hook warning 和既有 dependency-cruiser warning，无新增错误。
@@ -1541,4 +1552,4 @@ MVP 预计修改：
 未完成：
 
 - Windows / Linux 原生安装包验证，以及 Cursor / Codex / Claude 在真实客户端中的端到端冒烟。
-- 实时流量与 Snapshot 导出；12 个写控制工具已于 3.0 / 3.2 落地，后续写入能力仍按独立权限、审计和回滚路径评审。
+- 实时流量与 Snapshot 导出；12 个控制工具与 8 个自动化工具已落地，后续 Map Remote / DNS / Script / Throttle / Breakpoint 写入仍按独立权限、审计、证据和回滚路径评审。

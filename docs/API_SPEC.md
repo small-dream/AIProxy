@@ -2331,7 +2331,7 @@ type ShowLogFileOutput = string; // 日志文件的绝对路径
 - 调用时先确保日志目录与文件存在（不存在则创建），再通过 `tauri-plugin-opener` 的 `reveal_item_in_dir` 在文件管理器中定位该文件（macOS Finder / Windows Explorer / Linux 文件管理器）
 - 目录创建、文件准备或 reveal 失败时返回错误字符串，前端以 Snackbar 提示
 
-## 6.14 Agent Access / MCP Commands — `已实现（读取 + 受控操作 + 受控诊断，工具契约 3.2）`
+## 6.14 Agent Access / MCP Commands — `已实现（读取 + 受控操作 + 受控诊断 + 自动化实验，工具契约 3.3）`
 
 Agent Access 让 Codex、Claude Code、Cursor 等本地 Agent 通过 `aiproxy-mcp` stdio sidecar 读取已持久化流量，并按权限分组执行桌面控制。配置和审计文件位于 `aiproxy_db::connection::resolve_db_dir()`：
 
@@ -2364,6 +2364,12 @@ type AgentAccessSettings = {
     deleteSessions: boolean;
     sendRequests: boolean;
     manageRules: boolean;
+    manageAutomation: boolean;
+    manageUserAutomation: boolean;
+    manageScripts: boolean;
+    manageCrossHostMappings: boolean;
+    manageProxiedVerification: boolean;
+    manageGlobalAutomation: boolean;
   };
   limits: { maxSessions: number; maxBodyBytes: number; maxResponseBytes: number };
   redaction: {
@@ -2372,6 +2378,14 @@ type AgentAccessSettings = {
     customSensitiveKeys: string[];
     customPatterns: { name: string; pattern: string; action: "redact" | "hash" }[];
   };
+  automationApprovedRoots: string[];
+  proxiedVerificationOrigins: string[];
+  automationCrossHostOrigins: string[];
+  automationApprovedRootStatuses: Array<{
+    path: string;
+    exists: boolean;
+    isDirectory: boolean;
+  }>;
   updatedAt?: string | null;
   dataDir: string;
   databasePath: string;
@@ -2402,9 +2416,11 @@ type AgentClientInfo = {
 
 说明：
 
-- 配置缺失时返回默认值（关闭、读取会话开启、Body/WebSocket/raw 与六个控制权限关闭），不视为命令失败。
-- 内存配置契约版本为 `3`。为兼容旧只读 sidecar，磁盘文件仍使用 v2 信封；新增控制权限为 additive 字段，旧 sidecar 会忽略，新 desktop / sidecar 读取后在内存归一化为 v3。
-- 读取旧配置时会补齐缺失的控制权限为 `false`，不产生隐式提权；`sendRequests` 与 `manageRules` 同样默认关闭。`get_agent_access_settings.version` 返回归一化后的 `3`。
+- 配置缺失时返回默认值（关闭、读取会话开启，所有控制与自动化权限关闭），不视为命令失败。
+- 内存配置契约版本为 `4`。为兼容旧只读 sidecar，磁盘文件仍使用 v2 信封；新增控制与自动化权限为 additive 字段，旧 sidecar 会忽略，新 desktop / sidecar 读取后在内存归一化为 v4。
+- 读取旧配置时会把缺失的控制与自动化权限补齐为 `false`，不产生隐式提权；旧 `manageRules` 不推导 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification` 或 `manageGlobalAutomation`。`get_agent_access_settings.version` 返回归一化后的 `4`。
+- `automationApprovedRoots` 最多 10 个，只能通过 `pick_automation_approved_root` 的原生文件夹选择器添加；`automationApprovedRootStatuses` 返回路径当前是否存在且为目录，失效路径不会被静默删除。
+- `proxiedVerificationOrigins` 与 `automationCrossHostOrigins` 是两个独立的精确 origin 白名单；只接受 `http` / `https`，保存时规范化、排序、去重，每次最多 50 个。首版 `automationCrossHostOrigins` 仅预留给后续 Map Remote 写入。
 - `clients` 生成可复制片段；实际写入由 `install_agent_client_config` 完成。
 - Cursor 目标为 `~/.cursor/mcp.json`，使用标准 `mcpServers` 结构且不写 `type` 字段。
 - Codex 目标为 `$CODEX_HOME/config.toml`（默认 `~/.codex/config.toml`）。
@@ -2420,12 +2436,19 @@ type UpdateAgentAccessSettingsInput = {
   permissions: AgentAccessSettings["permissions"];
   limits: AgentAccessSettings["limits"];
   redaction: AgentAccessSettings["redaction"];
+  automationApprovedRoots: string[];
+  proxiedVerificationOrigins: string[];
+  automationCrossHostOrigins: string[];
 };
 ```
 
 响应：`AgentAccessSettings`。
 
-说明：服务端会归一化权限（关闭 `readBodies` 时强制关闭 `readRawBodies`）、脱敏规则和限制值；写入使用临时文件原子替换。
+说明：服务端会归一化权限（关闭 `readBodies` 时强制关闭 `readRawBodies`）、脱敏规则、限制值、批准根目录与 origin 白名单；写入使用临时文件原子替换。配置升级只显示“新权限未启用”提示，不会自动勾选任何新增权限。
+
+### `pick_automation_approved_root`
+
+请求：`{ title: string }`。打开系统文件夹选择器，返回规范化后的绝对目录路径或 `null`；取消不视为错误。渲染器不能自行提交任意根目录绕过该选择器。
 
 ### `test_agent_access`
 
@@ -2491,6 +2514,12 @@ type DoctorResult = {
       deleteSessions: boolean;
       sendRequests: boolean;
       manageRules: boolean;
+      manageAutomation: boolean;
+      manageUserAutomation: boolean;
+      manageScripts: boolean;
+      manageCrossHostMappings: boolean;
+      manageProxiedVerification: boolean;
+      manageGlobalAutomation: boolean;
     } | null;
     availableTools: string[];
   };
@@ -2595,6 +2624,29 @@ type InstallAgentClientConfigResult = {
 
 说明：自动拉起 AIProxy 时，首个 Agent 控制动作可能早于 React 挂载事件监听器。渲染器在订阅 `agent-control-action` 后读取此缓冲区，并按 `eventId` 去重，确保首个动作的通知与查询刷新不丢失。该缓冲区不持久化，应用退出即清空。
 
+### 自动化实验命令
+
+以下 Tauri 命令供 Rules 页 Automation 面板读取和操作用于 Agent 自动化实验的 change set；它们不扩大 MCP 工具权限，所有 Agent 写入口仍由控制通道在桌面端再次校验。
+
+```ts
+list_automation_changes(limit?: number): AutomationChangeView[]; // 1-50，默认 20
+get_automation_change(changeId: string): AutomationChangeView;
+rollback_automation_change(input: {
+  changeId: string;
+  expectedScopeHash: string;
+}): AutomationApplyResult;
+promote_automation_change(changeId: string): AutomationChangeView;
+clear_agent_automation(input: {
+  scope: "workspace" | "global";
+  workspaceId?: string;
+  lifecycle: "persistent" | "ephemeral" | "all";
+}): ClearAgentAutomationResult;
+```
+
+`AutomationChangeView` 包含 change 状态、scope、plan/scope 哈希、`runtimeGeneration`、资源前后快照、`rollbackScopeHash`、实验与验证记录。`promote_automation_change` 只允许 `persistent` 且 `active` 的 change；提升后状态为 `promoted`，不能回滚。`clear_agent_automation` 只处理 Agent 自有资源；用户资源、混合 change 与全局 scope 不会被误删。clear 直接删除当前 Agent 自有资源及其元数据，并收集这些资源的完整 change 历史标记为已终止；它不会通过回滚最后一个 change 恢复出更早的 Agent 版本。运行时发布后若仍能发现同一目标资源，返回 `CLEANUP_INCOMPLETE`，不得报告清理成功。
+
+`AutomationVerificationResult` 必须包含 `runtimeGeneration`。验证开始前会确认 change 仍为 `active`、目标资源版本仍等于 `versionAfter`；目标已被后续修改时返回 `RESOURCE_VERSION_MISMATCH`，不能把旧证据套用到新资源。
+
 ### `get_agent_audit_log`
 
 请求：`{ limit?: number }`，默认 50，最大 200。
@@ -2624,14 +2676,22 @@ type AgentAuditLog = {
 
 ### MCP stdio tool contract
 
-`aiproxy-mcp` 当前工具契约版本为 `3.2`，共 25 个工具：
+`aiproxy-mcp` 当前工具契约版本为 `3.3`，共 33 个工具：
 
 - 10 个读取工具：`list_workspaces`、`search_sessions`、`wait_for_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`、`export_session_as_curl`。
 - 2 个只读诊断工具：`get_app_status`、`diagnose_ai_proxy_issue`。
-- 1 个受 `manageRules` 保护的只读工具：`list_agent_rules`。
-- 12 个受权限保护的写工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`replay_session`、`create_agent_rule`、`remove_agent_rules`。
+- 1 个受 `manageRules` 保护的 legacy 临时规则只读工具：`list_agent_rules`。
+- 12 个受权限保护的控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`replay_session`、`create_agent_rule`、`remove_agent_rules`。
+- 8 个自动化工具（4 个只读 + 4 个写工具）：`list_automation_resources`、`get_automation_resource`、`validate_automation_plan`、`apply_automation_plan`、`verify_automation_change`、`get_automation_change`、`rollback_automation_change`、`clear_agent_automation`。
 
-所有工具都声明 `title`、`description` 与 MCP annotations。读取工具为只读；配置、抓包、系统代理和证书操作关闭 `openWorldHint`；`generate_certificate`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`remove_agent_rules` 标记为破坏性；`replay_session` 标记为 `openWorldHint=true` 且非幂等，客户端应据此提示用户确认。
+所有工具都声明 `title`、`description` 与 MCP annotations。读取工具为只读；配置、抓包、系统代理、证书和自动化写入关闭 `openWorldHint`；`generate_certificate`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`remove_agent_rules`、`rollback_automation_change` 与 `clear_agent_automation` 标记为破坏性；`replay_session` 标记为 `openWorldHint=true` 且非幂等，客户端应据此提示用户确认。`apply_automation_plan` 为幂等写操作，`verify_automation_change` 为非幂等写操作（代理模式会发起真实受控请求），但它不是破坏性操作。
+
+`replay_session` 产生的会话带 `timingSource=agentReplay`，继续直连原始上游并绕过全部规则，不能作为 Rewrite、Map 或任何规则已生效的证据。自动化证据必须来自 `verify_automation_change`，并明确标注 `offline` / `proxy` / `external` 证据等级及其限制。
+
+权限分为两组，全部默认关闭；旧 `manageRules` 不推导任何新权限：
+
+- 旧控制组：`controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules`。
+- 自动化组：`manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification`、`manageGlobalAutomation`。首版只启用 `manageAutomation`、`manageUserAutomation` 与 `manageProxiedVerification` 的实际写路径；其余三个保留为后续能力的独立授权位，不因开启而开放额外写入口。
 
 所有成功结果返回 `{ ok: true, data, meta }`，错误返回 `{ ok: false, error: { code, message, retryable } }`。`meta` 包含 `schemaVersion`、`dataFreshness`、`latestSessionAt`、`captureStatus`、`captureUpdatedAt`、`truncated`、`redacted`、`nextCursor`、`tookMs`、`readAt`、`auditDegraded`；会话是全局的，不再返回恒为 `null` 的 `workspaceId`。稳定排序：
 
@@ -2799,6 +2859,63 @@ Body 与字段提取：
 | `list_agent_rules` | `manageRules` | 只列 Agent 注册表中的临时规则及到期时间，不返回用户规则 |
 | `remove_agent_rules` | `manageRules` | 按 1-20 个 `ruleId` 删除临时 Agent 规则，返回 `removedCount` 与 `missingRuleIds`；未知 ID 不算错误，不影响用户规则 |
 
+自动化工具：
+
+| 工具 | 所需权限 | 行为与首版边界 |
+|---|---|---|
+| `list_automation_resources` | `manageAutomation` | 分页列出当前安装实例可见的 Rewrite / Map 资源摘要，含 `scope`、`owner`、`lifecycle`、`expiresAt`、`changeId`、`version`；首版只返回 `rewrite` 与 `map`，`limit` 默认 50、最大 100 |
+| `get_automation_resource` | `manageAutomation` | 按 `kind` + `id` 返回完整资源与当前版本；首版只支持 `rewrite` / `map`，不返回 Script 源码 |
+| `validate_automation_plan` | `manageAutomation`；如涉及用户资源还需 `manageUserAutomation` | 只校验不写库、不改规则、不发布运行时；返回 `planHash`、`scopeHash`、`canApply`、`warnings`、资源所有权与冲突摘要。首版只接受 Rewrite、Map Local 与常驻资源删除 |
+| `apply_automation_plan` | `manageAutomation`；更新 / 删除用户资源还需 `manageUserAutomation` | 校验 `expectedPlanHash` / `expectedScopeHash`，在共享写协调器内提交数据库并发布统一运行时；只有 change set 进入 `active` 才返回成功。安装实例级 `idempotencyKey` 长 16-128 字节，重试丢失响应的同一计划会返回 `idempotent=true` |
+| `verify_automation_change` | `manageAutomation`；`mode=proxy` 还需 `manageProxiedVerification` | 对 `active` change 执行 `offline` / `proxy` / `external` 验证。返回 `evidenceLevel`、`runtimeGeneration`、断言结果、证据会话、规则 trace 引用、冲突诊断和 `limitations`；目标版本或 generation 已变化时不得复用旧证据 |
+| `get_automation_change` | `manageAutomation` | 返回 change set、资源 before/after 快照、实验状态、清理状态、验证记录、`runtimeGeneration` 与 `rollbackScopeHash`；回滚必须原样传回该哈希 |
+| `rollback_automation_change` | `manageAutomation`；涉及用户资源还需 `manageUserAutomation` | 只回滚常驻（`persistent`）且处于 `active` 的 change；按 change items 的资源版本与依赖检查，目标或依赖已变化返回 `ROLLBACK_CONFLICT`。无关资源的其他变化不应阻断回滚；临时资源通过 TTL / clear 处理 |
+| `clear_agent_automation` | `manageAutomation` | 只清理当前安装实例中 Agent 自有资源，`lifecycle=ephemeral|persistent|all`；首版仅支持 `workspace` scope。按所有权删除资源并终止其完整 change 历史，不恢复更早的 Agent 版本；不会删除或恢复用户资源，也不是特定 change 回滚的替代品 |
+
+自动化计划请求形态：
+
+```ts
+type AutomationPlan = {
+  scope: "workspace" | "global";       // 首版只支持 workspace
+  workspaceId?: string;                // workspace scope 必填
+  lifecycle: "persistent" | "ephemeral";
+  ttlSeconds?: number;                 // ephemeral 60-3600，默认 600
+  idempotencyKey: string;              // 16-128 字节，安装实例作用域
+  upserts: {
+    rewrite?: Array<{ id?: string; expectedVersion?: string; ref?: string; resource: AutomationRewriteResource }>;
+    map?: Array<{ id?: string; expectedVersion?: string; ref?: string; resource: AutomationMapResource }>;
+    dns?: unknown[];                   // 首版 FEATURE_NOT_AVAILABLE
+    script?: unknown[];                // 首版 FEATURE_NOT_AVAILABLE
+    throttleProfile?: unknown[];       // 首版 FEATURE_NOT_AVAILABLE
+    throttleRule?: unknown[];          // 首版 FEATURE_NOT_AVAILABLE
+    breakpoint?: unknown[];            // 首版 FEATURE_NOT_AVAILABLE
+  };
+  deletes?: Array<{ kind: AutomationKind; id: string; expectedVersion: string }>;
+  activation?: unknown;                // 首版 FEATURE_NOT_AVAILABLE
+  assets?: Array<{ ref: string; fileName: string; contentBase64: string; contentType?: string }>;
+};
+```
+
+自动化计划与资源规则：
+
+- 单次计划包含 1-100 个 upsert / delete，序列化后不超过 3 MiB；每个资源类型也最多 100 项。更新必须同时提供 `id` 与 `expectedVersion`。
+- 同一计划中，同一 `(kind, id)` 不能出现两次更新、两次删除，也不能同时出现在 upsert 与 delete 中；validate 返回 `INVALID_ARGUMENT`，不得依赖数据库“最后一项生效”的偶然行为。
+- 资源 `ref` 在计划内唯一，长度 1-128 字节；managed asset 的 `fileName` 不允许路径分隔符，解码后单文件不超过 5 MiB。Map Local 必须使用用户已批准根目录下的 `approvedPath`，或引用同计划 `assets` 的 `managedAssetRef`，两者互斥；越界、失效或符号链接逃逸返回 `PATH_NOT_APPROVED`。
+- `ephemeral` 首版只能新建资源，不能 update、delete 或激活既有 Profile；TTL 到期、主动 clear 或应用重启都会撤销该实验，不能把“临时”当成修改用户资源的通用事务。
+- 常驻（`persistent`）计划不能更新仍归属于临时 change 的资源；此时返回 `INVALID_ARGUMENT`，调用方应等待 TTL、先清理临时资源，或创建新的常驻资源。禁止跨生命周期原地转换，避免运行时的临时快照覆盖新内容。
+- Rewrite 的 Redirect `targetUrl` 必须使用 `http` / `https`，且 host 必须与规则 `urlPattern` 锁定的精确 host 一致。跨 host Redirect 首版返回 `FEATURE_NOT_AVAILABLE`；`manageCrossHostMappings` 只预留给后续 Map Remote，不能绕过此限制。
+- `global` scope、Map Remote 写入、DNS、Script、Throttle Profile / Rule、Breakpoint 与 Throttle activation 在首版均返回 `FEATURE_NOT_AVAILABLE`。`manageScripts`、`manageCrossHostMappings`、`manageGlobalAutomation` 不会绕过这一限制。
+- 用户拥有的资源只能在其 `manageUserAutomation` 已开启时更新、删除或回滚；升级、旧 `manageRules` 或新建 Agent 资源都不产生该授权。
+
+验证证据：
+
+- `offline`：用与代理链路相同的规则匹配与变换实现处理基线请求/内联请求，不发网络请求；只能证明“会匹配并如何变换”，不能证明代理运行时、真实应用或客户端渲染。
+- `proxy`：通过当前 AIProxy 监听端口向精确 origin 白名单中的地址发送受控请求，只允许 `GET` / `HEAD` / `OPTIONS`，单批最多 20 个、每分钟最多 10 个请求；响应体上限 256 KiB。发送前会用同一套离线规则管线预检最终 URL 与 Redirect trace；发现跨 host 变换时拒绝验证。实际请求后还会检查捕获到的 Rewrite / Map trace，异常时把请求标记为 `rule_failed` 并写入 `limitations`，不得把它当作通过证据。需要代理正在运行；HTTPS 需要 SSL interception 与受信任根证书，否则返回 `PROXY_VERIFICATION_UNAVAILABLE`。目标不在 `proxiedVerificationOrigins` 中返回 `ORIGIN_NOT_ALLOWED`。
+- `external`：读取真实客户端在 change 激活后产生的已持久化会话并检查规则 trace 与断言；`agentReplay` 会话被明确拒绝并返回 `INSUFFICIENT_EVIDENCE`。真实客户端证据也不能证明页面视觉渲染。
+- 每个断言使用 `subject`（`status`、`requestHeader`、`responseHeader`、`responseBody`、`queryParam`、`ruleTrace`、`durationMs`）、可选 `path`、`operator`（`equals`、`contains`、`exists`、`notExists`、`gte`、`lte`）与可选 `expected`；单次验证 1-100 条断言、`offline` / `proxy` 模式 1-20 个请求。
+- 每条断言结果必须返回原始 `subject` 与 `path`，用于说明 `actual` 来自哪个 Header、Query、JSON 字段或 trace。自动化输出按资源结构脱敏：同时识别 `{name,value}`、`{headerName,value}`、`{paramName,value}`，并按 JSON 属性名处理敏感字段；断言先根据 `subject/path` 判断敏感来源，再脱敏 `actual`、`expected` 与消息，避免抽取成裸字符串后丢失字段上下文。
+- 验证开始前要求 change 仍为 `active` 且目标资源版本等于 `versionAfter`。目标已被后续修改时返回 `RESOURCE_VERSION_MISMATCH`；过期返回 `expired`，不得把旧结果套用到新资源。返回的 `runtimeGeneration` 用于说明证据对应的运行时版本。
+
 重放与临时规则边界：
 
 - 重放的 session 必须包含完整 HTTP 请求；CONNECT / 状态码 0 的连接失败会话不可重放。请求 Body 在捕获时已截断时必须提供完整 `body` 覆盖，否则返回 `INVALID_ARGUMENT`，不会静默发送不完整内容。
@@ -2822,11 +2939,29 @@ Body 与字段提取：
 - 写操作超时 60 秒并返回 `CONTROL_TIMEOUT`，所有 Agent 写请求串行执行；系统代理和 Session 生命周期继续使用桌面端现有锁。只读状态探测使用 5 秒短超时，避免控制通道异常拖慢 `get_app_status` / `list_workspaces`；`get_app_status` 会把探测超时降级为 `CONTROL_TIMEOUT` 状态，而不是让整个只读调用失败。超时或已发送请求后的连接中断都不自动重试，调用方应先通过 `get_app_status` 确认当前状态。
 - 控制帧硬上限为请求 4 MiB、响应 1 MiB；请求上限覆盖 500+500 条、每条最长 1 KiB 的 SSL proxying 规则。超过硬上限返回 `INVALID_ARGUMENT` / `RESULT_TOO_LARGE`，不会截断后执行。
 - 审计在执行前确认可写，失败返回 `AUDIT_UNAVAILABLE` 且不执行。控制动作由桌面端作为权威写入点：请求携带 MCP 客户端名称与版本，动作结束后无论成功或失败都记录工具、动作摘要、真实客户端身份、耗时和错误码，不记录凭据或 Body。因此直接连接本地 IPC 的已授权请求同样会留下动作记录；sidecar 不重复写入已由桌面端执行的控制动作，仅审计只读工具和未进入桌面控制通道的本地失败。
-- 3.2 新增错误码：`RATE_LIMITED`（重放并发/频率超限，`retryable=true`）、`RULE_LIMIT_EXCEEDED`（临时规则达到 20 条）、`RULE_READ_ONLY`（从规则页修改 Agent 规则）、`REPLAY_FAILED`（未形成新会话的重放失败）。既有控制错误码仍为 `CONTROL_PERMISSION_DENIED`、`APP_LAUNCH_FAILED`、`CONTROL_UNAVAILABLE`、`CONTROL_TIMEOUT`、`USER_ACTION_REQUIRED`、`AUDIT_UNAVAILABLE`；代理、证书和数据库错误原样透传。
+- 3.2 错误码仍保留：`RATE_LIMITED`（重放并发/频率超限，`retryable=true`）、`RULE_LIMIT_EXCEEDED`（临时规则达到 20 条）、`RULE_READ_ONLY`（从规则页修改 Agent 规则）、`REPLAY_FAILED`（未形成新会话的重放失败）。
+- 3.3 自动化新增错误码：
+  - `FEATURE_NOT_AVAILABLE`：首版未开放的资源类型、Map Remote、Script、DNS、Throttle、Breakpoint、global scope 或 activation。
+  - `PLAN_HASH_MISMATCH` / `SCOPE_CONFLICT`：apply 携带的 `expectedPlanHash` 或 `expectedScopeHash` 与 validate 结果或当前作用域不一致。
+  - `IDEMPOTENCY_CONFLICT`：同一安装实例的 `idempotencyKey` 已用于另一个计划；`details.changeId` 指向原 change。
+  - `RESOURCE_VERSION_MISMATCH`：目标资源版本已经变化，必须重新读取、校验并生成新计划。
+  - `PATH_NOT_APPROVED`：Map Local 路径不在批准根目录、文件不存在、目标不是普通文件或存在符号链接逃逸。
+  - `ORIGIN_NOT_ALLOWED`：代理验证目标 origin 不在 `proxiedVerificationOrigins` 白名单。
+  - `RULE_PREFLIGHT_FAILED`：代理验证发送前无法用统一离线规则管线完成评估；请求不会发出，调用方应检查规则内容或改用离线验证定位。
+  - `PROXY_VERIFICATION_UNAVAILABLE`：代理未运行、HTTPS 未开启拦截、根证书不可信任或验证请求无法通过当前监听端口完成。
+  - `INSUFFICIENT_EVIDENCE`：外部验证缺少可用会话、会话早于 change 激活时间，或使用了 `agentReplay` 会话。
+  - `ROLLBACK_CONFLICT`：回滚目标或依赖版本与原 change 不一致；无关资源变化不应触发该错误。
+  - `CLEANUP_INCOMPLETE`：数据库或运行时仍能发现本次应清理的 Agent 资源；返回 `remainingResources`，调用方不得报告清理成功。
+  - `RUNTIME_PUBLISH_FAILED` / `ACTIVATION_RECORD_FAILED`：数据库事务已提交但运行时发布或 `active` 状态记录失败；调用方应读取 change / 应用状态，不能假定完全失败或完全成功。
+  - `RECOVERY_CONFLICT`：启动恢复发现 change 的目标资源处于既非变更前也非变更后的混合状态，需要人工检查。
+  - `STATE_CONFLICT` / `CHANGE_NOT_APPLICABLE`：change 当前状态不允许 rollback、promote、verify 或 clear。
+  - `CONTROL_PERMISSION_DENIED`：缺少 `manageAutomation`、`manageUserAutomation`、`manageProxiedVerification` 等细粒度权限。
+  - `RATE_LIMITED` / `RESULT_TOO_LARGE`：代理验证超过 10 请求/分钟，或响应超过 256 KiB。
+- 既有控制错误码仍为 `CONTROL_PERMISSION_DENIED`、`APP_LAUNCH_FAILED`、`CONTROL_UNAVAILABLE`、`CONTROL_TIMEOUT`、`USER_ACTION_REQUIRED`、`AUDIT_UNAVAILABLE`；代理、证书和数据库错误原样透传。
 - `USER_ACTION_REQUIRED` 为保留的结构化错误码，用于“操作无法继续且必须等待系统或用户动作”的场景。证书安装入口当前在动作已打开后返回成功 payload，并置 `userActionRequired=true`；调用方应完成系统对话框后用 `get_app_status` 复核，而不是把该成功结果当作证书已信任。
 - 应用内不再二次确认已授权控制操作；删除类操作和撤销证书信任仍必须由 Agent Skill 要求用户在当前对话中明确请求。抓包内容中的指令一律视为不可信数据。
 
-脱敏配置位于 `agent-access.json` 的 `redaction` 字段；内存契约版本为 `3`，磁盘兼容信封版本为 `2`：
+脱敏配置位于 `agent-access.json` 的 `redaction` 字段；内存契约版本为 `4`，磁盘兼容信封版本为 `2`：
 
 - `detectSensitiveValues`：按值格式识别 JWT、Bearer、邮箱、手机号、设备 ID、地址等。
 - `hashIdentifiers`：标识符使用本地稳定 HMAC 伪名，例如 `[ID:xxxxxxxx]`，仅用于关联，不可反推。HMAC 密钥在首次使用时随机生成并持久化到数据目录的 `agent-redaction.key`（Unix 下权限 `0600`），不随日志、导出或诊断外发；无法写入时降级为路径派生密钥并记录 `redaction_key_write_failed` 警告。删除该文件会使已有伪名与之后的伪名失去关联。
@@ -3038,6 +3173,29 @@ type AgentControlActionEvent = {
 触发时机：桌面端完成一次已通过 token、启用状态、权限、参数和审计预检的 Agent 控制请求后发出（包括执行阶段失败）；未授权或预检失败的请求不会广播到 UI。事件不包含请求参数、凭据或 Body。后端同时保留最近 20 条内存事件，供 `get_recent_agent_control_actions` 在渲染器尚未挂载监听器时回放。
 
 前端处理：`useAgentControlEvents()` 先订阅实时事件，再读取回放缓冲区，并按 `eventId` 去重后刷新代理状态、工作区、证书与 Session 查询；删除类操作会同时清除 Session 详情缓存。除 `getStatus` 外，成功与失败均显示全局通知，让用户在全自动模式下仍能看到 Agent 操作。
+
+### `automation-changed` — `已实现`
+
+```ts
+type AutomationChangedEvent = {
+  reason: string;
+  changeId?: string | null;
+  changeIds: string[];
+  runtimeGeneration: number;
+  scope?: "workspace" | "global" | null;
+  workspaceId?: string | null;
+  lifecycle?: "persistent" | "ephemeral" | null;
+  status?: string | null;
+  affectedResources?: Array<{ kind: string; id: string; operation: string }>;
+  experimentId?: string | null;
+  cleanupState?: string | null;
+  timestamp: string;
+};
+```
+
+触发时机：自动化 apply、验证、回滚、提升、clear、TTL 清理或启动恢复改变自动化资源 / change / 实验状态并成功发布运行时后发出。没有实际 change 的调用（例如 `changeIds=[]`）不广播事件。
+
+前端处理：`useAutomationEvents()` 订阅事件后按资源定向失效 Rewrite、Map、DNS、Script、Breakpoint、Throttle、Agent 设置、审计、change 列表与 change 详情查询。事件载荷不直接合并进规则缓存，因为 workspace 分组与运行时派生元数据必须以命令返回值为准。定向刷新不得清空 Rules 编辑器中的未保存草稿；当前选中资源的版本变化由编辑器自身的脏状态与版本冲突提示处理。
 
 ## 8. 前端调用规范
 

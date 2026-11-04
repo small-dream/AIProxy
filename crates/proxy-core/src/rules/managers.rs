@@ -2,15 +2,118 @@ use super::*;
 use regex::Regex;
 use std::sync::Arc;
 
+/// Immutable Rewrite+Map snapshot shared by both managers for the first
+/// automation release. Publishing replaces the whole value under one lock so a
+/// request cannot observe a new Rewrite list with an old Map list.
+#[derive(Clone)]
+pub(crate) struct RuntimeRuleSnapshot {
+    pub generation: u64,
+    pub rewrite: Arc<Vec<CompiledRewriteRule>>,
+    pub map: Arc<Vec<CompiledMapRule>>,
+}
+
+struct RuleRuntime {
+    snapshot: Mutex<Arc<RuntimeRuleSnapshot>>,
+}
+
+impl RuleRuntime {
+    fn new() -> Self {
+        Self {
+            snapshot: Mutex::new(Arc::new(RuntimeRuleSnapshot {
+                generation: 0,
+                rewrite: Arc::new(Vec::new()),
+                map: Arc::new(Vec::new()),
+            })),
+        }
+    }
+
+    fn snapshot(&self) -> Arc<RuntimeRuleSnapshot> {
+        Arc::clone(
+            &self
+                .snapshot
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+        )
+    }
+
+    fn replace_rewrite(&self, rewrite: Vec<CompiledRewriteRule>) {
+        let mut guard = self
+            .snapshot
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let current = Arc::clone(&guard);
+        *guard = Arc::new(RuntimeRuleSnapshot {
+            generation: current.generation.saturating_add(1),
+            rewrite: Arc::new(rewrite),
+            map: Arc::clone(&current.map),
+        });
+    }
+
+    fn replace_map(&self, map: Vec<CompiledMapRule>) {
+        let mut guard = self
+            .snapshot
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let current = Arc::clone(&guard);
+        *guard = Arc::new(RuntimeRuleSnapshot {
+            generation: current.generation.saturating_add(1),
+            rewrite: Arc::clone(&current.rewrite),
+            map: Arc::new(map),
+        });
+    }
+
+    fn publish(
+        &self,
+        rewrite: Vec<CompiledRewriteRule>,
+        map: Vec<CompiledMapRule>,
+        generation: u64,
+    ) {
+        let mut guard = self
+            .snapshot
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *guard = Arc::new(RuntimeRuleSnapshot {
+            generation,
+            rewrite: Arc::new(rewrite),
+            map: Arc::new(map),
+        });
+    }
+}
+
+fn compile_rewrite_rules(rules: Vec<(RewriteRule, Option<String>)>) -> Vec<CompiledRewriteRule> {
+    rules
+        .into_iter()
+        .map(|(rule, host_lock)| CompiledRewriteRule {
+            compiled_match: compile_match_regex(
+                &rule.r#match.match_type,
+                &rule.r#match.url_pattern,
+            )
+            .map(Arc::new),
+            rule,
+            host_lock,
+        })
+        .collect()
+}
+
+fn compile_map_rules(rules: Vec<(MapRule, Option<String>)>) -> Vec<CompiledMapRule> {
+    rules
+        .into_iter()
+        .map(|(rule, host_lock)| CompiledMapRule { rule, host_lock })
+        .collect()
+}
+
+/// Build Rewrite and Map managers backed by the same atomic rule runtime.
+pub fn paired_rule_managers() -> (Arc<RewriteManager>, Arc<MapManager>) {
+    let runtime = Arc::new(RuleRuntime::new());
+    (
+        Arc::new(RewriteManager::with_runtime(Arc::clone(&runtime))),
+        Arc::new(MapManager::with_runtime(runtime)),
+    )
+}
+
 /// Manages rewrite rules in memory.
 pub struct RewriteManager {
-    // M10: a single `Arc<Vec<...>>` snapshot is rebuilt only when the rule set
-    // changes (`set_rules`/`save_rule`/`delete_rule`). `compiled_rules()` hands
-    // out a cheap `Arc` clone (refcount bump) instead of deep-cloning every
-    // rule under the lock on each request — the previous code paid a full
-    // `rule.clone()` (including the serde_json payload) + `Regex` clone per
-    // rule per request.
-    snapshot: Mutex<Arc<Vec<CompiledRewriteRule>>>,
+    runtime: Arc<RuleRuntime>,
 }
 
 /// Internal wrapper that pairs a rewrite rule with a pre-compiled regex
@@ -43,34 +146,53 @@ impl Default for RewriteManager {
 
 impl RewriteManager {
     pub fn new() -> Self {
-        Self {
-            snapshot: Mutex::new(Arc::new(Vec::new())),
-        }
+        Self::with_runtime(Arc::new(RuleRuntime::new()))
+    }
+
+    fn with_runtime(runtime: Arc<RuleRuntime>) -> Self {
+        Self { runtime }
     }
 
     pub fn set_rules(&self, rules: Vec<RewriteRule>) {
-        let compiled = rules
-            .into_iter()
-            .map(|rule| CompiledRewriteRule {
-                compiled_match: compile_match_regex(
-                    &rule.r#match.match_type,
-                    &rule.r#match.url_pattern,
-                )
-                .map(Arc::new),
-                rule,
-                host_lock: None,
-            })
-            .collect();
-        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = Arc::new(compiled);
+        self.runtime.replace_rewrite(compile_rewrite_rules(
+            rules.into_iter().map(|rule| (rule, None)).collect(),
+        ));
+    }
+
+    pub fn set_rules_with_host_locks(&self, rules: Vec<(RewriteRule, Option<String>)>) {
+        self.runtime.replace_rewrite(compile_rewrite_rules(rules));
+    }
+
+    /// Atomically publish both rule kinds when created with
+    /// [`paired_rule_managers`]. The Map manager shares the same runtime.
+    pub fn publish_rules_atomic(
+        &self,
+        rewrite: Vec<(RewriteRule, Option<String>)>,
+        map: Vec<(MapRule, Option<String>)>,
+        generation: u64,
+    ) {
+        self.runtime.publish(
+            compile_rewrite_rules(rewrite),
+            compile_map_rules(map),
+            generation,
+        );
     }
 
     pub fn list_rules(&self) -> Vec<RewriteRule> {
-        self.snapshot
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        self.runtime
+            .snapshot()
+            .rewrite
             .iter()
             .map(|cr| cr.rule.clone())
+            .collect()
+    }
+
+    pub fn list_rules_with_host_locks(&self) -> Vec<(RewriteRule, Option<String>)> {
+        self.runtime
+            .snapshot()
+            .rewrite
+            .iter()
+            .map(|entry| (entry.rule.clone(), entry.host_lock.clone()))
             .collect()
     }
 
@@ -89,12 +211,11 @@ impl RewriteManager {
     }
 
     fn store_rule(&self, rule: RewriteRule, host_lock_update: HostLockUpdate) -> RewriteRule {
-        // Resolve whether to preserve an existing host lock under the same lock
-        // used for the write, so concurrent updates cannot briefly fail open.
-        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
+        let current = self.runtime.snapshot();
         let host_lock = match host_lock_update {
             HostLockUpdate::Set(host_lock) => Some(host_lock),
-            HostLockUpdate::Preserve => guard
+            HostLockUpdate::Preserve => current
+                .rewrite
                 .iter()
                 .find(|entry| entry.rule.id == rule.id)
                 .and_then(|entry| entry.host_lock.clone()),
@@ -108,39 +229,48 @@ impl RewriteManager {
             rule: rule.clone(),
             host_lock,
         };
-        // M10: rebuild the snapshot under the lock so concurrent readers
-        // hand-pulling `compiled_rules()` never observe a half-mutated vec.
-        // Preserve the rule's existing position (in-place replace) so UI lists
-        // keyed on `list_rules()` order do not visibly reorder on edit.
-        let mut next: Vec<CompiledRewriteRule> = (**guard).clone();
+        let mut next = (*current.rewrite).clone();
         if let Some(existing) = next.iter_mut().find(|r| r.rule.id == compiled.rule.id) {
             *existing = compiled;
         } else {
             next.push(compiled);
         }
-        *guard = Arc::new(next);
+        self.runtime.replace_rewrite(next);
         rule
     }
 
     pub fn delete_rule(&self, rule_id: &str) {
-        let mut guard = self.snapshot.lock().unwrap_or_else(|e| e.into_inner());
-        if !(**guard).iter().any(|r| r.rule.id == rule_id) {
+        let current = self.runtime.snapshot();
+        if !current.rewrite.iter().any(|r| r.rule.id == rule_id) {
             return; // nothing to do; avoid an unnecessary snapshot rebuild
         }
-        // M10: rebuild preserving relative order of the surviving rules.
-        let next: Vec<CompiledRewriteRule> = (**guard)
+        let next: Vec<CompiledRewriteRule> = current
+            .rewrite
             .iter()
             .filter(|r| r.rule.id != rule_id)
             .cloned()
             .collect();
-        *guard = Arc::new(next);
+        self.runtime.replace_rewrite(next);
     }
 
     /// Returns the current compiled-rule snapshot. Cheap: a single refcount
     /// bump on the shared `Arc<Vec<...>>`. Callers may iterate the result
     /// outside the lock.
+    #[allow(dead_code)]
     pub(crate) fn compiled_rules(&self) -> Arc<Vec<CompiledRewriteRule>> {
-        Arc::clone(&self.snapshot.lock().unwrap_or_else(|e| e.into_inner()))
+        Arc::clone(&self.runtime.snapshot().rewrite)
+    }
+
+    pub(crate) fn runtime_snapshot(&self) -> Arc<RuntimeRuleSnapshot> {
+        self.runtime.snapshot()
+    }
+
+    pub fn runtime_generation(&self) -> u64 {
+        self.runtime.snapshot().generation
+    }
+
+    pub(crate) fn shares_runtime_with(&self, map: &MapManager) -> bool {
+        Arc::ptr_eq(&self.runtime, &map.runtime)
     }
 }
 
@@ -151,7 +281,7 @@ enum HostLockUpdate {
 
 /// Manages map rules (local + remote) in memory.
 pub struct MapManager {
-    rules: Mutex<Vec<CompiledMapRule>>,
+    runtime: Arc<RuleRuntime>,
 }
 
 #[derive(Clone)]
@@ -176,34 +306,45 @@ impl Default for MapManager {
 
 impl MapManager {
     pub fn new() -> Self {
-        Self {
-            rules: Mutex::new(Vec::new()),
-        }
+        Self::with_runtime(Arc::new(RuleRuntime::new()))
+    }
+
+    fn with_runtime(runtime: Arc<RuleRuntime>) -> Self {
+        Self { runtime }
     }
 
     pub fn set_rules(&self, rules: Vec<MapRule>) {
-        let mut guard = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = rules
-            .into_iter()
-            .map(|rule| CompiledMapRule {
-                rule,
-                host_lock: None,
-            })
-            .collect();
+        self.runtime.replace_map(compile_map_rules(
+            rules.into_iter().map(|rule| (rule, None)).collect(),
+        ));
+    }
+
+    pub fn set_rules_with_host_locks(&self, rules: Vec<(MapRule, Option<String>)>) {
+        self.runtime.replace_map(compile_map_rules(rules));
     }
 
     pub fn list_rules(&self) -> Vec<MapRule> {
-        self.rules
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        self.runtime
+            .snapshot()
+            .map
             .iter()
             .map(|entry| entry.rule.clone())
             .collect()
     }
 
+    pub fn list_rules_with_host_locks(&self) -> Vec<(MapRule, Option<String>)> {
+        self.runtime
+            .snapshot()
+            .map
+            .iter()
+            .map(|entry| (entry.rule.clone(), entry.host_lock.clone()))
+            .collect()
+    }
+
     pub fn save_rule(&self, rule: MapRule) -> MapRule {
-        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
-        let host_lock = rules
+        let current = self.runtime.snapshot();
+        let host_lock = current
+            .map
             .iter()
             .find(|entry| entry.rule.id == rule.id)
             .and_then(|entry| entry.host_lock.clone());
@@ -211,17 +352,19 @@ impl MapManager {
             rule: rule.clone(),
             host_lock,
         };
+        let mut rules = (*current.map).clone();
         if let Some(existing) = rules.iter_mut().find(|entry| entry.rule.id == rule.id) {
             *existing = compiled;
         } else {
             rules.push(compiled);
         }
+        self.runtime.replace_map(rules);
         rule
     }
 
     /// Save an Agent map rule together with its exact-host boundary.
     pub fn save_rule_with_host_lock(&self, rule: MapRule, host_lock: impl Into<String>) -> MapRule {
-        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        let mut rules = (*self.runtime.snapshot().map).clone();
         let compiled = CompiledMapRule {
             rule: rule.clone(),
             host_lock: Some(host_lock.into()),
@@ -231,16 +374,27 @@ impl MapManager {
         } else {
             rules.push(compiled);
         }
+        self.runtime.replace_map(rules);
         rule
     }
 
     pub fn delete_rule(&self, rule_id: &str) {
-        let mut rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
+        let mut rules = (*self.runtime.snapshot().map).clone();
         rules.retain(|entry| entry.rule.id != rule_id);
+        self.runtime.replace_map(rules);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn compiled_rules(&self) -> Vec<CompiledMapRule> {
-        self.rules.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        (*self.runtime.snapshot().map).clone()
+    }
+
+    pub(crate) fn runtime_snapshot(&self) -> Arc<RuntimeRuleSnapshot> {
+        self.runtime.snapshot()
+    }
+
+    pub fn runtime_generation(&self) -> u64 {
+        self.runtime.snapshot().generation
     }
 }
 

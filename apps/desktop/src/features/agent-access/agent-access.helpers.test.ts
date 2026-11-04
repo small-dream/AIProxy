@@ -21,6 +21,12 @@ describe("Agent permission presets", () => {
       deleteSessions: false,
       sendRequests: false,
       manageRules: false,
+      manageAutomation: false,
+      manageUserAutomation: false,
+      manageScripts: false,
+      manageCrossHostMappings: false,
+      manageProxiedVerification: false,
+      manageGlobalAutomation: false,
     });
     expect(permissionsForPreset("bodies")).toEqual({
       readSessions: true,
@@ -34,6 +40,12 @@ describe("Agent permission presets", () => {
       deleteSessions: false,
       sendRequests: false,
       manageRules: false,
+      manageAutomation: false,
+      manageUserAutomation: false,
+      manageScripts: false,
+      manageCrossHostMappings: false,
+      manageProxiedVerification: false,
+      manageGlobalAutomation: false,
     });
     expect(permissionsForPreset("raw")).toEqual({
       readSessions: true,
@@ -47,6 +59,12 @@ describe("Agent permission presets", () => {
       deleteSessions: false,
       sendRequests: false,
       manageRules: false,
+      manageAutomation: false,
+      manageUserAutomation: false,
+      manageScripts: false,
+      manageCrossHostMappings: false,
+      manageProxiedVerification: false,
+      manageGlobalAutomation: false,
     });
     expect(permissionsForPreset("full")).toEqual({
       readSessions: true,
@@ -60,6 +78,12 @@ describe("Agent permission presets", () => {
       deleteSessions: true,
       sendRequests: true,
       manageRules: true,
+      manageAutomation: true,
+      manageUserAutomation: true,
+      manageScripts: true,
+      manageCrossHostMappings: true,
+      manageProxiedVerification: true,
+      manageGlobalAutomation: true,
     });
   });
 
@@ -104,5 +128,11 @@ describe("Agent permission presets", () => {
     expect(permissionsEqual(base, { ...base, deleteSessions: true })).toBe(false);
     expect(permissionsEqual(base, { ...base, sendRequests: true })).toBe(false);
     expect(permissionsEqual(base, { ...base, manageRules: true })).toBe(false);
+    expect(permissionsEqual(base, { ...base, manageAutomation: true })).toBe(false);
+    expect(permissionsEqual(base, { ...base, manageUserAutomation: true })).toBe(false);
+    expect(permissionsEqual(base, { ...base, manageScripts: true })).toBe(false);
+    expect(permissionsEqual(base, { ...base, manageCrossHostMappings: true })).toBe(false);
+    expect(permissionsEqual(base, { ...base, manageProxiedVerification: true })).toBe(false);
+    expect(permissionsEqual(base, { ...base, manageGlobalAutomation: true })).toBe(false);
   });
 });

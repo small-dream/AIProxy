@@ -1,5 +1,62 @@
 use super::common::*;
+use std::collections::HashMap;
+
 use aiproxy_db::rusqlite::Connection;
+
+#[derive(Debug, Clone)]
+struct AutomationRuleAnnotation {
+    metadata: aiproxy_db::automation::AutomationResourceRow,
+    change: Option<aiproxy_db::automation::AutomationChangeSetRow>,
+    experiment: Option<aiproxy_db::automation::AutomationExperimentRow>,
+}
+
+fn automation_rule_annotations(
+    state: &AppState,
+    kind: &str,
+    workspace_id: &str,
+) -> Result<HashMap<String, AutomationRuleAnnotation>, String> {
+    let conn = state
+        .lock_db_for_ipc()
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Open rules database: {error}")))?;
+    let rows = aiproxy_db::automation::list_automation_resources(
+        &conn,
+        Some(&format!("workspace:{workspace_id}")),
+        Some(kind),
+        None,
+        10_000,
+    )
+    .map_err(|error| app_error(ERR_INTERNAL, format!("Load automation metadata: {error}")))?;
+    let mut annotations = HashMap::new();
+    for metadata in rows {
+        let change = metadata
+            .change_id
+            .as_deref()
+            .map(|change_id| aiproxy_db::automation::load_automation_change_set(&conn, change_id))
+            .transpose()
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Load automation change: {error}")))?
+            .flatten();
+        let experiment = metadata
+            .change_id
+            .as_deref()
+            .map(|change_id| {
+                aiproxy_db::automation::load_automation_experiment_by_change(&conn, change_id)
+            })
+            .transpose()
+            .map_err(|error| {
+                app_error(ERR_INTERNAL, format!("Load automation experiment: {error}"))
+            })?
+            .flatten();
+        annotations.insert(
+            metadata.resource_id.clone(),
+            AutomationRuleAnnotation {
+                metadata,
+                change,
+                experiment,
+            },
+        );
+    }
+    Ok(annotations)
+}
 
 #[tauri::command]
 pub async fn list_script_session_trace(
@@ -238,13 +295,20 @@ pub fn list_rewrite_rules(
 ) -> Result<Vec<serde_json::Value>, String> {
     let registry = state.read_agent_rule_registry();
     let snapshot = registry.snapshot();
+    let annotations = automation_rule_annotations(&state, "rewrite", &input.workspace_id)?;
     Ok(state
         .read_rewrite_manager()
         .list_rules()
         .into_iter()
         .filter(|r| r.workspace_id == input.workspace_id)
         .filter(|rule| !snapshot.auxiliary_rule_ids.contains(&rule.id))
-        .map(|rule| annotate_agent_rule(&rule, snapshot.by_rule_id.get(&rule.id)))
+        .map(|rule| {
+            annotate_agent_rule(
+                &rule,
+                snapshot.by_rule_id.get(&rule.id),
+                annotations.get(&rule.id),
+            )
+        })
         .collect())
 }
 
@@ -253,7 +317,9 @@ pub async fn save_rewrite_rule(
     input: RewriteRule,
     state: State<'_, Arc<AppState>>,
 ) -> Result<RewriteRule, String> {
-    ensure_rule_is_user_editable(&state, &input.id)?;
+    let shared_state = Arc::clone(state.inner());
+    let _guard = shared_state.automation_mutation_lock().lock().await;
+    ensure_rule_is_user_editable(state.inner(), &input.id)?;
     // Build the DB row up front so `input` stays available for the manager
     // mutation after the closure runs.
     let row = aiproxy_db::rules::RewriteRuleRow {
@@ -439,6 +505,7 @@ pub fn list_map_rules(
 ) -> Result<Vec<serde_json::Value>, String> {
     let registry = state.read_agent_rule_registry();
     let snapshot = registry.snapshot();
+    let annotations = automation_rule_annotations(&state, "map", &input.workspace_id)?;
     Ok(state
         .read_map_manager()
         .list_rules()
@@ -448,7 +515,13 @@ pub fn list_map_rules(
             Some(mode) => r.mode == *mode,
             None => true,
         })
-        .map(|rule| annotate_agent_rule(&rule, snapshot.by_rule_id.get(&rule.id)))
+        .map(|rule| {
+            annotate_agent_rule(
+                &rule,
+                snapshot.by_rule_id.get(&rule.id),
+                annotations.get(&rule.id),
+            )
+        })
         .collect())
 }
 
@@ -457,7 +530,9 @@ pub async fn save_map_rule(
     input: MapRule,
     state: State<'_, Arc<AppState>>,
 ) -> Result<MapRule, String> {
-    ensure_rule_is_user_editable(&state, &input.id)?;
+    let shared_state = Arc::clone(state.inner());
+    let _guard = shared_state.automation_mutation_lock().lock().await;
+    ensure_rule_is_user_editable(state.inner(), &input.id)?;
     validate_map_rule(&input)?;
 
     // Build the DB row up front so `input` stays available for the manager
@@ -735,6 +810,12 @@ pub async fn delete_rule(
     input: DeleteRuleInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
+    let shared_state = Arc::clone(state.inner());
+    let _guard = if matches!(input.rule_type.as_str(), "rewrite" | "map") {
+        Some(shared_state.automation_mutation_lock().lock().await)
+    } else {
+        None
+    };
     // Validate rule_type early to avoid double-wrapping with app_error
     match input.rule_type.as_str() {
         "rewrite" | "map" | "dns" | "script" => {}
@@ -744,6 +825,9 @@ pub async fn delete_rule(
                 format!("Unknown rule type: {}", input.rule_type),
             ))
         }
+    }
+    if matches!(input.rule_type.as_str(), "rewrite" | "map") {
+        ensure_rule_is_user_editable(shared_state.as_ref(), &input.rule_id)?;
     }
 
     // Capture owned copies for the closure; `input` is reused for the
@@ -793,27 +877,77 @@ pub async fn delete_rule(
 fn annotate_agent_rule<T: serde::Serialize>(
     rule: &T,
     info: Option<&crate::agent_rules::AgentRuleInfo>,
+    automation: Option<&AutomationRuleAnnotation>,
 ) -> serde_json::Value {
     let mut value = serde_json::to_value(rule).unwrap_or(serde_json::Value::Null);
-    if let (Some(info), Some(object)) = (info, value.as_object_mut()) {
+    let Some(object) = value.as_object_mut() else {
+        return value;
+    };
+    if let Some(info) = info {
         object.insert("source".to_string(), serde_json::json!("agent"));
+        object.insert(
+            "automationScope".to_string(),
+            serde_json::json!("workspace"),
+        );
+        object.insert(
+            "automationLifecycle".to_string(),
+            serde_json::json!("ephemeral"),
+        );
         object.insert(
             "expiresAt".to_string(),
             serde_json::json!(info.expires_at.as_str()),
         );
     }
+    if let Some(annotation) =
+        automation.filter(|annotation| annotation.metadata.owner_kind == "agent")
+    {
+        object.insert("source".to_string(), serde_json::json!("agent"));
+        object.insert(
+            "automationScope".to_string(),
+            serde_json::json!(annotation.metadata.scope.clone()),
+        );
+        if let Some(change) = annotation.change.as_ref() {
+            object.insert(
+                "automationLifecycle".to_string(),
+                serde_json::json!(change.lifecycle.clone()),
+            );
+            object.insert("changeId".to_string(), serde_json::json!(change.id.clone()));
+        }
+        if let Some(expires_at) = annotation.metadata.expires_at.as_ref() {
+            object.insert(
+                "expiresAt".to_string(),
+                serde_json::json!(expires_at.clone()),
+            );
+        }
+        if let Some(experiment) = annotation.experiment.as_ref() {
+            object.insert(
+                "experimentStatus".to_string(),
+                serde_json::json!(experiment.status.clone()),
+            );
+        }
+    }
     value
 }
 
-fn ensure_rule_is_user_editable(
-    state: &State<'_, Arc<AppState>>,
-    rule_id: &str,
-) -> Result<(), String> {
+fn ensure_rule_is_user_editable(state: &AppState, rule_id: &str) -> Result<(), String> {
     if state.read_agent_rule_registry().contains_rule(rule_id) {
         return Err(app_error(
             "RULE_READ_ONLY",
             "Temporary Agent rules are read-only. Remove this rule and create a normal rule if it should persist.",
         ));
+    }
+    let conn = state
+        .lock_db_for_ipc()
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Open rules database: {error}")))?;
+    for kind in ["rewrite", "map"] {
+        let metadata = aiproxy_db::automation::load_automation_resource(&conn, kind, rule_id)
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Load rule ownership: {error}")))?;
+        if metadata.is_some_and(|metadata| metadata.owner_kind == "agent") {
+            return Err(app_error(
+                "RULE_READ_ONLY",
+                "Agent-owned rules are read-only. Use Agent Experiments to roll back the change or convert it to your rules.",
+            ));
+        }
     }
     Ok(())
 }
@@ -912,6 +1046,12 @@ pub async fn bulk_update_rules(
     input: BulkUpdateRulesInput,
     state: State<'_, Arc<AppState>>,
 ) -> Result<usize, String> {
+    let shared_state = Arc::clone(state.inner());
+    let _guard = if matches!(input.rule_type.as_str(), "rewrite" | "map") {
+        Some(shared_state.automation_mutation_lock().lock().await)
+    } else {
+        None
+    };
     let rule_type = input.rule_type.clone();
     validate_bulk_rule_type(&rule_type)?;
 
@@ -927,6 +1067,9 @@ pub async fn bulk_update_rules(
                 "RULE_READ_ONLY",
                 "Temporary Agent rules are read-only and cannot be edited, reordered, or toggled from the rules page.",
             ));
+        }
+        for update in &updates {
+            ensure_rule_is_user_editable(&state, &update.id)?;
         }
     }
     run_blocking_command("bulk_update_rules", {

@@ -409,7 +409,7 @@ pub(crate) fn proxy_detail_to_row(
     detail: &ProxySessionDetail,
     body_store: &BodyStore,
 ) -> SessionDetailRow {
-    let timing_json = detail.timing.as_ref().map(|t| {
+    let mut timing_json = detail.timing.as_ref().map(|t| {
         let mut v = serde_json::json!({});
         if let Some(ms) = t.connect_ms {
             v["connect_ms"] = serde_json::json!(ms);
@@ -443,6 +443,11 @@ pub(crate) fn proxy_detail_to_row(
         }
         v.to_string()
     });
+    if timing_json.is_none() {
+        if let Some(ref source) = detail.timing_source {
+            timing_json = Some(serde_json::json!({ "timing_source": source }).to_string());
+        }
+    }
 
     SessionDetailRow {
         id: format!("{}-detail", detail.id),

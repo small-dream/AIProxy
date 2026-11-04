@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 
 const SKILL_MARKER: &str = "<!-- aiproxy-managed-skill: v1 -->";
-const AGENT_SKILL_VERSION: &str = "3.3";
+const AGENT_SKILL_VERSION: &str = "3.4";
 const SKILL_CONTENT: &str = include_str!("../../resources/agent-skill/aiproxy/SKILL.md");
 const MAX_AUDIT_ENTRIES: usize = 200;
 
@@ -51,6 +51,10 @@ pub struct AgentAccessSettings {
     pub permissions: AgentAccessPermissions,
     pub limits: AgentAccessLimits,
     pub redaction: AgentAccessRedaction,
+    pub automation_approved_roots: Vec<String>,
+    pub proxied_verification_origins: Vec<String>,
+    pub automation_cross_host_origins: Vec<String>,
+    pub automation_approved_root_statuses: Vec<AutomationApprovedRootStatus>,
     pub updated_at: Option<String>,
     pub data_dir: String,
     pub database_path: String,
@@ -64,6 +68,14 @@ pub struct AgentAccessSettings {
     pub clients: Vec<AgentClientInfo>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationApprovedRootStatus {
+    pub path: String,
+    pub exists: bool,
+    pub is_directory: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateAgentAccessSettingsInput {
@@ -71,6 +83,12 @@ pub struct UpdateAgentAccessSettingsInput {
     pub permissions: AgentAccessPermissions,
     pub limits: AgentAccessLimits,
     pub redaction: AgentAccessRedaction,
+    #[serde(default)]
+    pub automation_approved_roots: Vec<String>,
+    #[serde(default)]
+    pub proxied_verification_origins: Vec<String>,
+    #[serde(default)]
+    pub automation_cross_host_origins: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -154,6 +172,48 @@ pub async fn get_agent_access_settings() -> Result<AgentAccessSettings, String> 
     run_blocking_command("get_agent_access_settings", build_settings).await
 }
 
+/// Open the native folder picker for a Map Local approval root. The renderer
+/// supplies only a localized title; the selected path is resolved and returned
+/// by the backend so arbitrary renderer paths never enter this trust boundary.
+#[tauri::command]
+pub async fn pick_automation_approved_root(
+    app: tauri::AppHandle,
+    title: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title(title)
+        .pick_folder(move |picked| {
+            let _ = tx.send(picked);
+        });
+    let Some(picked) = rx
+        .await
+        .map_err(|error| app_error(ERR_INTERNAL, format!("dialog channel closed: {error}")))?
+    else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(|_| {
+        app_error(
+            ERR_INVALID_INPUT,
+            "The selected root is not a local directory.",
+        )
+    })?;
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|error| app_error(ERR_INVALID_INPUT, format!("open selected root: {error}")))?;
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|error| app_error(ERR_INVALID_INPUT, format!("inspect selected root: {error}")))?;
+    if !metadata.is_dir() {
+        return Err(app_error(
+            ERR_INVALID_INPUT,
+            "The selected Map Local root must be a directory.",
+        ));
+    }
+    Ok(Some(canonical.to_string_lossy().into_owned()))
+}
+
 #[tauri::command]
 pub async fn update_agent_access_settings(
     input: UpdateAgentAccessSettingsInput,
@@ -166,6 +226,9 @@ pub async fn update_agent_access_settings(
         config.permissions = input.permissions;
         config.limits = input.limits;
         config.redaction = input.redaction;
+        config.automation_approved_roots = input.automation_approved_roots;
+        config.proxied_verification_origins = input.proxied_verification_origins;
+        config.automation_cross_host_origins = input.automation_cross_host_origins;
         config.updated_at = Some(chrono::Utc::now().to_rfc3339());
         write_config(&paths.config_path, &config).map_err(|error| {
             tracing::error!(
@@ -972,6 +1035,18 @@ fn build_settings() -> Result<AgentAccessSettings, String> {
         .into_iter()
         .map(|client| client_info(client, sidecar.path.as_deref(), &paths.data_dir))
         .collect::<Result<Vec<_>, String>>()?;
+    let automation_approved_root_statuses = config
+        .automation_approved_roots
+        .iter()
+        .map(|path| {
+            let metadata = std::fs::metadata(path).ok();
+            AutomationApprovedRootStatus {
+                path: path.clone(),
+                exists: metadata.is_some(),
+                is_directory: metadata.is_some_and(|metadata| metadata.is_dir()),
+            }
+        })
+        .collect();
 
     Ok(AgentAccessSettings {
         version: config.version,
@@ -980,6 +1055,10 @@ fn build_settings() -> Result<AgentAccessSettings, String> {
         permissions: config.permissions,
         limits: config.limits,
         redaction: config.redaction,
+        automation_approved_roots: config.automation_approved_roots,
+        proxied_verification_origins: config.proxied_verification_origins,
+        automation_cross_host_origins: config.automation_cross_host_origins,
+        automation_approved_root_statuses,
         updated_at: config.updated_at,
         data_dir: paths.data_dir.display().to_string(),
         database_path: paths.db_path.display().to_string(),

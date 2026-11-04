@@ -17,6 +17,7 @@ import {
 import {
   useAdbActions,
   useAgentControlEvents,
+  useAutomationEvents,
   useMenuActions,
   useProxyLifecycle,
   useSystemProxyWarning,
@@ -54,6 +55,7 @@ export function AppShell() {
     location.pathname === "/certificates";
   useBreakpointEvents();
   useAgentControlEvents();
+  useAutomationEvents();
   useSessionEvents();
   useSystemProxyWarning();
   const pendingBreakpointCount = useBreakpointStore((s) => s.pendingHits.length);

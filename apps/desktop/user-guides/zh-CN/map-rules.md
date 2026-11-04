@@ -37,16 +37,18 @@ Map Local 和 Map Remote 共用同一组字段：
 
 勾选行前复选框可批量 **启用 / 禁用 / 删除**；拖动行首把手可排序（优先级自动重排，列表顺序即优先顺序）。也可以在 [Sessions](./sessions.md) 里右键某条请求 → **Map Local 此请求**，会基于该 Host + Path 预填一条新草稿。Map Local / Map Remote 规则包含在 Rules 页的[导入 / 导出](./rewrite-rules.md#规则导入--导出)中。
 
-### Agent 临时映射规则
+### Agent 映射规则
 
-通过 [Agent 接入](./agent-access.md) 创建的同 host Map Remote 或 Mock Response 会出现在列表中，并带有 warning 色 **Agent** 标记和到期时间：
+映射列表可能包含两类 Agent 资源，需要区分：
 
-- 临时规则只存在内存中，应用重启后失效；到期后自动移除。
-- 这些行是只读的：不能编辑、启用/停用、批量选择或拖拽排序。
-- 仍可通过“...”菜单删除或复制。复制会生成普通持久化规则，并去掉临时标记与到期时间。
-- 列表上方的 **清除全部 Agent 规则** 只删除临时 Agent 规则，不影响你保存的 Map Local / Map Remote 规则。
+- **旧版临时规则**：`create_agent_rule` 可创建同 host Map Remote 或本地 Mock Response。它们只存在内存中，默认 600 秒、最长 3600 秒，应用重启后消失；规则行只读，可通过 **清除全部 Agent 规则** 或 `remove_agent_rules` 清理。
+- **自动化实验资源**：首版只支持创建、更新和验证 **Map Local**，会带 `Agent · 临时` 或 `Agent · 常驻` 标记。临时资源只能新建，不能更新或删除已有资源；常驻资源会写入规则库，需在 **Rules → Agent 实验** 回滚，或由你点击 **转为我的规则** 后再编辑。
 
-Agent 的 Map Remote 只能指向与匹配 URL 相同的 host；跨 host 映射必须由你在规则页手动创建。
+自动化 Map Local 的文件必须位于 **设置 → Agent 接入 → Map Local 批准根目录** 内，或引用同一计划托管的上传资产。最多批准 10 个根目录，且只能通过系统选择器添加；目录失效会保留并显示 warning。越界、文件不存在、不是普通文件或符号链接逃逸返回 `PATH_NOT_APPROVED`。
+
+首版自动化 **不允许写 Map Remote**。即使开启“映射到其他主机”，`validate_automation_plan` / `apply_automation_plan` 对 Map Remote 仍返回 `FEATURE_NOT_AVAILABLE`；跨 host origin 白名单仅为后续版本预留，不能绕过此限制。旧 `create_agent_rule` 的同 host Map Remote 仍是旧临时规则能力，不属于自动化实验，也不能证明 Map Remote 的持久化写入已经开放。
+
+Agent 复制映射规则会生成普通持久化规则，但不会删除原 Agent 资源。实验结束后应明确回滚或清理，不要只依赖复制和到期时间。
 
 ## Map Local：返回本地文件
 

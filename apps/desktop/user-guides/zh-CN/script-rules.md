@@ -38,6 +38,12 @@
 2. 在左侧导航栏点击 **Rules**
 3. 点击顶部 **Scripts** 标签页
 
+### Agent 自动化边界
+
+首版 Agent 自动化工具不能创建、更新、编译、删除或执行 Script 资源，相关计划返回 `FEATURE_NOT_AVAILABLE`。`manageScripts` 是后续能力的预留授权位，开启后也不会改变这一限制。
+
+`get_automation_resource` 不返回 Script 源码；Agent 只能结合已捕获会话中的 Script log、extract 结果和 trace 分析一次请求的表现，不能读取或修改你的脚本源码。需要修改脚本时，请在本页手动编辑并保存。
+
 ## 创建脚本规则
 
 1. 点击 **New Script Rule**

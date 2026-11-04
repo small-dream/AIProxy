@@ -17,6 +17,7 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [MCP_AGENT_LOOP_PLAN.md](./MCP_AGENT_LOOP_PLAN.md) | MCP v3.2 Agent loop implementation plan and acceptance criteria |
 | [MCP_AGENT_SKILL_PLAN.md](./MCP_AGENT_SKILL_PLAN.md) | MCP + Agent Skill product plan and implementation status |
 | [MCP_AGENT_SKILL_ARCHITECTURE.md](./MCP_AGENT_SKILL_ARCHITECTURE.md) | MCP transport, tools, permissions, and client integration architecture |
+| [MCP_AGENT_AUTOMATION_CONTROL_PLAN.md](./MCP_AGENT_AUTOMATION_CONTROL_PLAN.md) | Implemented first-release Agent automation record (Rewrite + Map Local) with experiment evidence, runtime snapshots, and resource-level rollback |
 | [MCP_LARGE_JSON_FIELD_EXTRACTION_PLAN.md](./MCP_LARGE_JSON_FIELD_EXTRACTION_PLAN.md) | Streaming JSON field extraction plan for large MCP responses and token-efficient Agent access |
 | [UI_UX_REVIEW_2026-08-16.md](./UI_UX_REVIEW_2026-08-16.md) | UI/UX review snapshot — P0 fixed, P1/P2 backlog pending |
 
@@ -39,6 +40,7 @@ This directory contains the design and architecture documentation for AIProxy. T
 | [DECISIONS/ADR-007-agent-control-ipc.md](./DECISIONS/ADR-007-agent-control-ipc.md) | Permission-gated Agent control over owner-only local IPC |
 | [DECISIONS/ADR-008-bounded-diagnostic-log-access.md](./DECISIONS/ADR-008-bounded-diagnostic-log-access.md) | Bounded, redacted diagnostic log access |
 | [DECISIONS/ADR-009-agent-replay-and-temporary-rules.md](./DECISIONS/ADR-009-agent-replay-and-temporary-rules.md) | Direct request replay and in-memory temporary Agent rules |
+| [DECISIONS/ADR-010-automation-runtime-and-evidence.md](./DECISIONS/ADR-010-automation-runtime-and-evidence.md) | Database-authoritative automation, shared runtime snapshots, and tiered evidence |
 | [releases/](./releases/) | Versioned bilingual release summaries used by GitHub Releases and in-app updates |
 
 ### Architecture Decision Records (ADRs)
@@ -56,6 +58,7 @@ ADRs capture important architectural decisions and their rationale.
 | [ADR-007](./DECISIONS/ADR-007-agent-control-ipc.md) | Permission-gated Agent control over owner-only local IPC |
 | [ADR-008](./DECISIONS/ADR-008-bounded-diagnostic-log-access.md) | Bounded, redacted diagnostic log access |
 | [ADR-009](./DECISIONS/ADR-009-agent-replay-and-temporary-rules.md) | Direct request replay and in-memory temporary Agent rules |
+| [ADR-010](./DECISIONS/ADR-010-automation-runtime-and-evidence.md) | Agent automation runtime, permission migration, rollback, and tiered evidence |
 
 ### Screenshots
 

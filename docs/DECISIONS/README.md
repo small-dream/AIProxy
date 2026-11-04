@@ -19,3 +19,4 @@
 - `ADR-007-agent-control-ipc.md`
 - `ADR-008-bounded-diagnostic-log-access.md`
 - `ADR-009-agent-replay-and-temporary-rules.md`
+- `ADR-010-automation-runtime-and-evidence.md`

@@ -1,4 +1,4 @@
-import { Alert, Button } from "@mui/material";
+import { Alert, Button, Stack, Typography } from "@mui/material";
 import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
@@ -17,30 +17,49 @@ export function formatAgentRuleExpiry(expiresAt: string | undefined, locale: Sup
   });
 }
 
-export function AgentRulesNotice({ count }: { count: number }) {
+export function AgentRulesNotice({
+  persistentCount,
+  temporaryCount,
+}: {
+  persistentCount: number;
+  temporaryCount: number;
+}) {
   const { t } = useI18n();
   const clearMutation = useClearAgentRules();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  if (count === 0) return null;
+  if (temporaryCount === 0 && persistentCount === 0) return null;
 
   return (
     <>
       <Alert
         severity="warning"
         action={
-          <Button
-            color="inherit"
-            disabled={clearMutation.isPending}
-            onClick={() => setConfirmOpen(true)}
-            size="small"
-          >
-            {t("rulesPage.agentRule.clearAction")}
-          </Button>
+          temporaryCount > 0 ? (
+            <Button
+              color="inherit"
+              disabled={clearMutation.isPending}
+              onClick={() => setConfirmOpen(true)}
+              size="small"
+            >
+              {t("rulesPage.agentRule.clearAction")}
+            </Button>
+          ) : undefined
         }
         sx={{ alignItems: "center", mb: 1, py: 0.25 }}
       >
-        {t("rulesPage.agentRule.notice", { count })}
+        <Stack spacing={0.25}>
+          {temporaryCount > 0 ? (
+            <Typography variant="body2">
+              {t("rulesPage.agentRule.notice", { count: temporaryCount })}
+            </Typography>
+          ) : null}
+          {persistentCount > 0 ? (
+            <Typography variant="body2">
+              {t("rulesPage.agentRule.persistentNotice", { count: persistentCount })}
+            </Typography>
+          ) : null}
+        </Stack>
       </Alert>
       <ConfirmDialog
         cancelLabel={t("common.actions.cancel")}
@@ -66,8 +85,18 @@ export function AgentRulesNotice({ count }: { count: number }) {
   );
 }
 
-export function AgentRuleReadOnlyNotice({ expiresAt }: { expiresAt?: string | undefined }) {
+export function AgentRuleReadOnlyNotice({
+  expiresAt,
+  lifecycle,
+}: {
+  expiresAt?: string | undefined;
+  lifecycle?: "persistent" | "ephemeral" | undefined;
+}) {
   const { t, locale } = useI18n();
+
+  if (lifecycle === "persistent") {
+    return <Alert severity="info">{t("rulesPage.agentRule.readOnlyPersistentDescription")}</Alert>;
+  }
 
   return (
     <Alert severity="info">

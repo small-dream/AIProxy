@@ -541,11 +541,15 @@ export function ManagedRulesWorkbench(props: {
 
 export type ManagedRuleListItem = {
   active: boolean;
+  automationLifecycle?: "persistent" | "ephemeral" | undefined;
+  automationScope?: "workspace" | "global" | undefined;
   /** Optional trailing chip (e.g. a priority number). Panels where list order
    *  IS the priority omit it so the number does not compete with drag order. */
   chipLabel?: string;
   enabled: boolean;
   expiresAt?: string | undefined;
+  changeId?: string | undefined;
+  experimentStatus?: string | undefined;
   id: string;
   name: string;
   onClick: () => void;
@@ -777,7 +781,31 @@ function ManagedRuleListRow({
               {item.source === "agent" && (
                 <Chip
                   color="warning"
-                  label={t("rulesPage.agentRule.badge")}
+                  label={t(
+                    item.automationLifecycle === "persistent"
+                      ? "rulesPage.agentRule.badgePersistent"
+                      : "rulesPage.agentRule.badgeEphemeral",
+                  )}
+                  size="small"
+                  sx={{ fontSize: 11, height: 20 }}
+                  variant="outlined"
+                />
+              )}
+              {item.source === "agent" && item.automationScope && (
+                <Chip
+                  label={t(
+                    item.automationScope === "global"
+                      ? "rulesPage.agentRule.scopeGlobal"
+                      : "rulesPage.agentRule.scopeWorkspace",
+                  )}
+                  size="small"
+                  sx={{ fontSize: 11, height: 20 }}
+                  variant="outlined"
+                />
+              )}
+              {item.changeId && item.experimentStatus && (
+                <Chip
+                  label={item.experimentStatus}
                   size="small"
                   sx={{ fontSize: 11, height: 20 }}
                   variant="outlined"

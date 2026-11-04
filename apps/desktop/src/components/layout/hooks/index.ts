@@ -1,5 +1,6 @@
 export { useAdbActions } from "./use-adb-actions";
 export { useAgentControlEvents } from "./use-agent-control-events";
+export { useAutomationEvents } from "./use-automation-events";
 export { useMenuActions } from "./use-menu-actions";
 export { useProxyLifecycle } from "./use-proxy-lifecycle";
 export { useSystemProxyWarning } from "./use-system-proxy-warning";

@@ -31,6 +31,12 @@ const defaultPermissions = {
   deleteSessions: false,
   sendRequests: false,
   manageRules: false,
+  manageAutomation: false,
+  manageUserAutomation: false,
+  manageScripts: false,
+  manageCrossHostMappings: false,
+  manageProxiedVerification: false,
+  manageGlobalAutomation: false,
 };
 
 const fallbackClients: AgentAccessSettings["clients"] = [
@@ -43,7 +49,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "3.3",
+    bundledSkillVersion: "3.4",
     configFormat: "toml",
     configSnippet:
       '[mcp_servers.aiproxy]\ncommand = "<path-to-aiproxy-mcp>"\nargs = ["--data-dir", "<path-to-aiproxy-data>"]\n',
@@ -57,7 +63,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "3.3",
+    bundledSkillVersion: "3.4",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {
@@ -82,7 +88,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
     skillInstalled: false,
     skillManaged: false,
     skillVersion: null,
-    bundledSkillVersion: "3.3",
+    bundledSkillVersion: "3.4",
     configFormat: "json",
     configSnippet: JSON.stringify(
       {
@@ -100,7 +106,7 @@ const fallbackClients: AgentAccessSettings["clients"] = [
 ];
 
 let fallbackSettings: AgentAccessSettings = {
-  version: 3,
+  version: 4,
   enabled: false,
   transport: "stdio",
   permissions: defaultPermissions,
@@ -125,6 +131,10 @@ let fallbackSettings: AgentAccessSettings = {
   sidecarPath: null,
   sidecarAvailable: false,
   sidecarVersion: null,
+  automationApprovedRoots: [],
+  proxiedVerificationOrigins: [],
+  automationCrossHostOrigins: [],
+  automationApprovedRootStatuses: [],
   clients: fallbackClients,
 };
 
@@ -276,6 +286,19 @@ export async function getAgentAuditLog(limit = 50): Promise<AgentAuditLog> {
     return await invoke<AgentAuditLog>("get_agent_audit_log", { limit });
   } catch (error) {
     reportCommandFailure("get_agent_audit_log", error);
+    throw coerceAppError(error);
+  }
+}
+
+export async function pickAutomationApprovedRoot(title: string): Promise<string | null> {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  try {
+    return await invoke<string | null>("pick_automation_approved_root", { title });
+  } catch (error) {
+    reportCommandFailure("pick_automation_approved_root", error);
     throw coerceAppError(error);
   }
 }

@@ -92,6 +92,12 @@ This means:
 - The HTTPS connection's TLS SNI uses the original hostname, so no certificate validation error is triggered
 - System DNS is unaffected; the mapping stops as soon as you turn off the proxy
 
+### Agent automation boundary
+
+First-release Agent automation cannot create, update, delete, or activate DNS mappings. `validate_automation_plan` / `apply_automation_plan` return `FEATURE_NOT_AVAILABLE` for DNS resources; enabling `manageAutomation`, `manageGlobalAutomation`, or another reserved permission does not bypass this. Manage DNS mappings manually on this page.
+
+The Agent can still analyze actual resolution, connection, and failure behavior from captured sessions and rule traces, but that is not DNS resource editing and must not be described as a successful Agent-made DNS change.
+
 ## Scope
 
 DNS mapping applies to all proxy paths:

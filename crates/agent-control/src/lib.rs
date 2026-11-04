@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod automation;
+
+pub use automation::*;
+
 pub const CONTROL_PROTOCOL_VERSION: u16 = 1;
 pub const CONTROL_DESCRIPTOR_FILE: &str = "agent-control.json";
 // A configure_workspace request may legitimately carry 500 include rules and
@@ -29,7 +33,7 @@ pub struct ControlDescriptor {
     pub started_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ControlRequest {
     pub protocol_version: u16,
@@ -44,7 +48,7 @@ pub struct ControlRequest {
     pub operation: ControlOperation,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "method", content = "params", rename_all = "camelCase")]
 pub enum ControlOperation {
     GetStatus,
@@ -62,33 +66,65 @@ pub enum ControlOperation {
     CreateAgentRule(CreateAgentRuleParams),
     ListAgentRules,
     RemoveAgentRules(RemoveAgentRulesParams),
+    ListAutomationResources(ListAutomationResourcesParams),
+    GetAutomationResource(GetAutomationResourceParams),
+    ValidateAutomationPlan(ValidateAutomationPlanParams),
+    ApplyAutomationPlan(ApplyAutomationPlanParams),
+    VerifyAutomationChange(VerifyAutomationChangeParams),
+    GetAutomationChange(GetAutomationChangeParams),
+    RollbackAutomationChange(RollbackAutomationChangeParams),
+    ClearAgentAutomation(ClearAgentAutomationParams),
 }
 
 impl ControlOperation {
-    pub fn required_permission(&self) -> Option<ControlPermission> {
+    pub fn required_permissions(&self) -> Vec<ControlPermission> {
         match self {
-            Self::GetStatus | Self::ReadDiagnosticLogs(_) => None,
+            Self::GetStatus | Self::ReadDiagnosticLogs(_) => Vec::new(),
             Self::ConfigureWorkspace(_) | Self::StartCapture(_) | Self::StopCapture(_) => {
-                Some(ControlPermission::ControlCapture)
+                vec![ControlPermission::ControlCapture]
             }
-            Self::SetSystemProxy(_) => Some(ControlPermission::ControlSystemProxy),
+            Self::SetSystemProxy(_) => vec![ControlPermission::ControlSystemProxy],
             Self::GenerateCertificate(_)
             | Self::OpenCertificateInstaller
-            | Self::RemoveCertificateTrust => Some(ControlPermission::ManageCertificates),
+            | Self::RemoveCertificateTrust => vec![ControlPermission::ManageCertificates],
             Self::ClearSessions | Self::DeleteSessions(_) => {
-                Some(ControlPermission::DeleteSessions)
+                vec![ControlPermission::DeleteSessions]
             }
-            Self::ReplaySession(_) => Some(ControlPermission::SendRequests),
+            Self::ReplaySession(_) => vec![ControlPermission::SendRequests],
             Self::CreateAgentRule(_) | Self::ListAgentRules | Self::RemoveAgentRules(_) => {
-                Some(ControlPermission::ManageRules)
+                vec![ControlPermission::ManageRules]
             }
+            Self::VerifyAutomationChange(params) => {
+                let mut permissions = vec![ControlPermission::ManageAutomation];
+                if params.mode == "proxy" {
+                    permissions.push(ControlPermission::ManageProxiedVerification);
+                }
+                permissions
+            }
+            Self::ListAutomationResources(_)
+            | Self::GetAutomationResource(_)
+            | Self::ValidateAutomationPlan(_)
+            | Self::ApplyAutomationPlan(_)
+            | Self::GetAutomationChange(_)
+            | Self::RollbackAutomationChange(_)
+            | Self::ClearAgentAutomation(_) => vec![ControlPermission::ManageAutomation],
         }
+    }
+
+    pub fn required_permission(&self) -> Option<ControlPermission> {
+        self.required_permissions().into_iter().next()
     }
 
     pub fn is_write(&self) -> bool {
         !matches!(
             self,
-            Self::GetStatus | Self::ReadDiagnosticLogs(_) | Self::ListAgentRules
+            Self::GetStatus
+                | Self::ReadDiagnosticLogs(_)
+                | Self::ListAgentRules
+                | Self::ListAutomationResources(_)
+                | Self::GetAutomationResource(_)
+                | Self::ValidateAutomationPlan(_)
+                | Self::GetAutomationChange(_)
         )
     }
 
@@ -109,6 +145,14 @@ impl ControlOperation {
             Self::CreateAgentRule(_) => "createAgentRule",
             Self::ListAgentRules => "listAgentRules",
             Self::RemoveAgentRules(_) => "removeAgentRules",
+            Self::ListAutomationResources(_) => "listAutomationResources",
+            Self::GetAutomationResource(_) => "getAutomationResource",
+            Self::ValidateAutomationPlan(_) => "validateAutomationPlan",
+            Self::ApplyAutomationPlan(_) => "applyAutomationPlan",
+            Self::VerifyAutomationChange(_) => "verifyAutomationChange",
+            Self::GetAutomationChange(_) => "getAutomationChange",
+            Self::RollbackAutomationChange(_) => "rollbackAutomationChange",
+            Self::ClearAgentAutomation(_) => "clearAgentAutomation",
         }
     }
 
@@ -132,6 +176,14 @@ impl ControlOperation {
             Self::CreateAgentRule(_) => "create_agent_rule",
             Self::ListAgentRules => "list_agent_rules",
             Self::RemoveAgentRules(_) => "remove_agent_rules",
+            Self::ListAutomationResources(_) => "list_automation_resources",
+            Self::GetAutomationResource(_) => "get_automation_resource",
+            Self::ValidateAutomationPlan(_) => "validate_automation_plan",
+            Self::ApplyAutomationPlan(_) => "apply_automation_plan",
+            Self::VerifyAutomationChange(_) => "verify_automation_change",
+            Self::GetAutomationChange(_) => "get_automation_change",
+            Self::RollbackAutomationChange(_) => "rollback_automation_change",
+            Self::ClearAgentAutomation(_) => "clear_agent_automation",
         }
     }
 
@@ -193,6 +245,41 @@ impl ControlOperation {
             Self::RemoveAgentRules(params) => {
                 format!("Remove {} temporary Agent rules", params.rule_ids.len())
             }
+            Self::ListAutomationResources(params) => format!(
+                "List automation resources (scope={}, kind={}, limit={})",
+                params.scope.as_deref().unwrap_or("all"),
+                params.kind.as_deref().unwrap_or("all"),
+                params.limit
+            ),
+            Self::GetAutomationResource(params) => {
+                format!("Read {} automation resource {}", params.kind, params.id)
+            }
+            Self::ValidateAutomationPlan(params) => format!(
+                "Validate {} automation plan with {} resources",
+                params.plan.lifecycle,
+                params.plan.upserts.resource_count() + params.plan.deletes.len()
+            ),
+            Self::ApplyAutomationPlan(params) => format!(
+                "Apply {} automation plan to {}",
+                params.plan.lifecycle,
+                params.plan.workspace_id.as_deref().unwrap_or("global")
+            ),
+            Self::VerifyAutomationChange(params) => format!(
+                "Verify automation change {} in {} mode with {} assertions",
+                params.change_id,
+                params.mode,
+                params.assertions.len()
+            ),
+            Self::GetAutomationChange(params) => {
+                format!("Read automation change {}", params.change_id)
+            }
+            Self::RollbackAutomationChange(params) => {
+                format!("Roll back automation change {}", params.change_id)
+            }
+            Self::ClearAgentAutomation(params) => format!(
+                "Clear Agent-owned {} automation resources in {}",
+                params.lifecycle, params.scope
+            ),
         }
     }
 }
@@ -206,6 +293,12 @@ pub enum ControlPermission {
     DeleteSessions,
     SendRequests,
     ManageRules,
+    ManageAutomation,
+    ManageUserAutomation,
+    ManageScripts,
+    ManageCrossHostMappings,
+    ManageProxiedVerification,
+    ManageGlobalAutomation,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

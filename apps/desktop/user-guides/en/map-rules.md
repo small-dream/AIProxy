@@ -37,16 +37,18 @@ When multiple rules match, the **highest-priority** one wins.
 
 Tick row checkboxes for bulk **Enable / Disable / Delete**; drag the row handle to reorder (priorities renumber automatically so list order equals precedence). You can also right-click a request in [Sessions](./sessions.md) → **Map Local this request** to pre-fill a new draft with that host + path. Map Local / Map Remote rules are included in the Rules-page [import / export](./rewrite-rules.md#import--export-rules).
 
-### Temporary Agent map rules
+### Agent map rules
 
-Same-host Map Remote or Mock Response rules created through [Agent Access](./agent-access.md) appear in this list with a warning-colored **Agent** chip and an expiry time:
+The map list can contain two kinds of Agent resources:
 
-- Temporary rules live only in memory and disappear when the app restarts or the TTL expires.
-- These rows are read-only: you cannot edit, enable/disable, batch-select, or drag them.
-- You can still delete or duplicate them from the “...” menu. Duplicating creates a normal persistent rule and removes the temporary source and expiry metadata.
-- **Clear all Agent rules** above the list removes only temporary Agent rules; your saved Map Local / Map Remote rules are untouched.
+- **Legacy temporary rules**: `create_agent_rule` can create a same-host Map Remote or local Mock Response. They live only in memory, default to 600 seconds and at most 3600 seconds, and disappear when the app restarts. Rows are read-only and can be removed with **Clear all Agent rules** or `remove_agent_rules`.
+- **Automation experiment resources**: this release supports only creating, updating, and verifying **Map Local** resources, marked `Agent · Ephemeral` or `Agent · Persistent`. Ephemeral resources are create-only and cannot update or delete existing resources. Persistent resources enter the rule store and must be rolled back in **Rules → Agent Experiments**, or converted with **Convert to my rules** before editing.
 
-An Agent Map Remote must target the same host as its matched URL. Cross-host mapping must be created manually on the Rules page.
+An automation Map Local file must be inside an approved root under **Settings → Agent Access → Approved Map Local roots**, or reference an asset managed by the same plan. Up to 10 roots are allowed and must be added with the native picker; missing roots stay listed with a warning. Escape, a missing file, a non-regular file, or a symlink escape returns `PATH_NOT_APPROVED`.
+
+This release does **not** allow automation to write Map Remote. Even with **Map to other hosts** enabled, `validate_automation_plan` / `apply_automation_plan` return `FEATURE_NOT_AVAILABLE` for Map Remote. The cross-host origin list is reserved for a later release and cannot bypass this limit. The legacy `create_agent_rule` same-host Map Remote remains a separate temporary-rule capability; it does not make persistent Map Remote writes available.
+
+Duplicating an Agent map rule creates a normal persistent rule but does not remove the original Agent resource. Roll it back or clear the experiment when the task ends instead of relying on duplication or TTL.
 
 ## Map Local: return a local file
 

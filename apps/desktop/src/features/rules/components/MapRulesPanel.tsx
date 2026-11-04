@@ -132,7 +132,12 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
           return `${r.name} ${r.sourcePattern} ${r.targetValue}`.toLowerCase().includes(q);
         });
     }, [rules, searchValue]);
-    const agentRuleCount = rules.filter((rule) => rule.source === "agent").length;
+    const temporaryAgentRuleCount = rules.filter(
+      (rule) => rule.source === "agent" && rule.automationLifecycle !== "persistent",
+    ).length;
+    const persistentAgentRuleCount = rules.filter(
+      (rule) => rule.source === "agent" && rule.automationLifecycle === "persistent",
+    ).length;
     const isAgentRule = draft.source === "agent";
 
     useEffect(() => {
@@ -518,7 +523,10 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
           }
           list={
             <Stack spacing={1}>
-              <AgentRulesNotice count={agentRuleCount} />
+              <AgentRulesNotice
+                persistentCount={persistentAgentRuleCount}
+                temporaryCount={temporaryAgentRuleCount}
+              />
               <ManagedRuleList
                 emptyActions={
                   <Button
@@ -543,7 +551,11 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
                 items={filteredRules.map((rule) => ({
                   id: rule.id,
                   active: rule.id === selectedRuleId,
+                  automationLifecycle: rule.automationLifecycle,
+                  automationScope: rule.automationScope,
+                  changeId: rule.changeId,
                   enabled: rule.enabled,
+                  experimentStatus: rule.experimentStatus,
                   expiresAt: rule.expiresAt,
                   name: rule.name || t("rulesPage.untitledRule"),
                   subtitle: `${rule.sourcePattern || "*"} → ${rule.targetValue || t("rulesPage.notConfigured")}`,
@@ -606,7 +618,12 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
                 pointerEvents: isAgentRule ? "none" : undefined,
               }}
             >
-              {isAgentRule && <AgentRuleReadOnlyNotice expiresAt={draft.expiresAt} />}
+              {isAgentRule && (
+                <AgentRuleReadOnlyNotice
+                  expiresAt={draft.expiresAt}
+                  lifecycle={draft.automationLifecycle}
+                />
+              )}
               <RuleEditorIdentity
                 advanced={
                   <AdvancedPriorityField

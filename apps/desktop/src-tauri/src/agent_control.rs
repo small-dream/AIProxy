@@ -18,6 +18,7 @@ use interprocess::local_socket::{prelude::*, ListenerOptions};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::automation::{AutomationError, AutomationPermissions};
 use crate::bootstrap::AppState;
 use crate::commands::{
     disable_system_proxy_impl, enable_system_proxy_impl, generate_root_certificate_impl,
@@ -469,18 +470,20 @@ fn execute_request(
 
     let result = if request.operation.is_write() {
         let created_by = audit_identity(request.client_name.as_deref());
+        let client_version = audit_identity(request.client_version.as_deref());
         let guard = tauri::async_runtime::block_on(write_lock.lock());
         // A request can wait behind another long write. Re-read the live
         // permissions and audit availability after acquiring the lock so a
         // revocation that happened while queued still stops this action.
         let result = match preflight_request(token, data_dir, &request) {
-            Ok(()) => {
+            Ok(config) => {
                 let state = Arc::clone(app.state::<Arc<AppState>>().inner());
                 tauri::async_runtime::block_on(dispatch(
                     state,
                     data_dir.to_path_buf(),
                     request.operation,
-                    &created_by,
+                    (&created_by, &client_version),
+                    automation_permissions(&config),
                 ))
             }
             Err(error) => Err(error),
@@ -489,13 +492,18 @@ fn execute_request(
         result
     } else {
         let created_by = audit_identity(request.client_name.as_deref());
+        let client_version = audit_identity(request.client_version.as_deref());
         let state = Arc::clone(app.state::<Arc<AppState>>().inner());
-        tauri::async_runtime::block_on(dispatch(
-            state,
-            data_dir.to_path_buf(),
-            request.operation,
-            &created_by,
-        ))
+        match preflight_request(token, data_dir, &request) {
+            Ok(config) => tauri::async_runtime::block_on(dispatch(
+                state,
+                data_dir.to_path_buf(),
+                request.operation,
+                (&created_by, &client_version),
+                automation_permissions(&config),
+            )),
+            Err(error) => Err(error),
+        }
     };
     ControlExecution {
         result,
@@ -510,7 +518,7 @@ fn preflight_request(
     token: &str,
     data_dir: &Path,
     request: &ControlRequest,
-) -> Result<(), ControlError> {
+) -> Result<AgentAccessConfig, ControlError> {
     if request.protocol_version != CONTROL_PROTOCOL_VERSION {
         return Err(ControlError::new(
             "CONTROL_UNAVAILABLE",
@@ -560,14 +568,28 @@ fn preflight_request(
             )
         })?;
     }
-    Ok(())
+    Ok(config)
+}
+
+fn automation_permissions(config: &AgentAccessConfig) -> AutomationPermissions {
+    AutomationPermissions {
+        manage_automation: config.permissions.manage_automation,
+        manage_user_automation: config.permissions.manage_user_automation,
+        manage_scripts: config.permissions.manage_scripts,
+        manage_cross_host_mappings: config.permissions.manage_cross_host_mappings,
+        manage_proxied_verification: config.permissions.manage_proxied_verification,
+        manage_global_automation: config.permissions.manage_global_automation,
+        automation_approved_roots: config.automation_approved_roots.clone(),
+        proxied_verification_origins: config.proxied_verification_origins.clone(),
+    }
 }
 
 async fn dispatch(
     state: Arc<AppState>,
     data_dir: PathBuf,
     operation: ControlOperation,
-    created_by: &str,
+    caller: (&str, &str),
+    automation_permissions: AutomationPermissions,
 ) -> Result<Value, ControlError> {
     match operation {
         ControlOperation::GetStatus => get_status(state).await,
@@ -667,25 +689,28 @@ async fn dispatch(
             })
         }
         ControlOperation::CreateAgentRule(params) => {
+            let _guard = state.automation_mutation_lock().lock().await;
             let workspace_id = state
                 .read_status()
                 .active_workspace_id
                 .unwrap_or_else(|| "default".to_string());
             let info = state
                 .read_agent_rule_registry()
-                .create(params, &workspace_id, created_by)
+                .create(params, &workspace_id, caller.0)
                 .map_err(agent_rule_control_error)?;
             serde_json::to_value(info).map_err(|error| {
                 ControlError::new("INTERNAL_ERROR", format!("serialize Agent rule: {error}"))
             })
         }
         ControlOperation::ListAgentRules => {
+            let _guard = state.automation_mutation_lock().lock().await;
             let rules = state.read_agent_rule_registry().list();
             serde_json::to_value(rules).map_err(|error| {
                 ControlError::new("INTERNAL_ERROR", format!("serialize Agent rules: {error}"))
             })
         }
         ControlOperation::RemoveAgentRules(params) => {
+            let _guard = state.automation_mutation_lock().lock().await;
             let result = state.read_agent_rule_registry().remove(params.rule_ids);
             serde_json::to_value(result).map_err(|error| {
                 ControlError::new(
@@ -694,7 +719,57 @@ async fn dispatch(
                 )
             })
         }
+        ControlOperation::ListAutomationResources(params) => state
+            .list_automation_resources(params)
+            .and_then(to_control_value)
+            .map_err(automation_control_error),
+        ControlOperation::GetAutomationResource(params) => state
+            .get_automation_resource(params)
+            .and_then(to_control_value)
+            .map_err(automation_control_error),
+        ControlOperation::ValidateAutomationPlan(params) => state
+            .validate_automation_plan(params, caller, automation_permissions)
+            .await
+            .and_then(to_control_value)
+            .map_err(automation_control_error),
+        ControlOperation::ApplyAutomationPlan(params) => state
+            .apply_automation_plan(params, caller, automation_permissions)
+            .await
+            .and_then(to_control_value)
+            .map_err(automation_control_error),
+        ControlOperation::VerifyAutomationChange(params) => state
+            .verify_automation_change(params, automation_permissions)
+            .await
+            .and_then(to_control_value)
+            .map_err(automation_control_error),
+        ControlOperation::GetAutomationChange(params) => state
+            .get_automation_change(params)
+            .and_then(to_control_value)
+            .map_err(automation_control_error),
+        ControlOperation::RollbackAutomationChange(params) => state
+            .rollback_automation_change(params, Some(automation_permissions))
+            .await
+            .and_then(to_control_value)
+            .map_err(automation_control_error),
+        ControlOperation::ClearAgentAutomation(params) => state
+            .clear_agent_automation(params)
+            .await
+            .and_then(to_control_value)
+            .map_err(automation_control_error),
     }
+}
+
+fn to_control_value<T: serde::Serialize>(value: T) -> Result<Value, AutomationError> {
+    serde_json::to_value(value)
+        .map_err(|error| AutomationError::internal(format!("serialize automation result: {error}")))
+}
+
+fn automation_control_error(error: AutomationError) -> ControlError {
+    let mut control = ControlError::new(error.code, error.message);
+    if let Some(details) = error.details {
+        control = control.with_details(details);
+    }
+    control
 }
 
 fn agent_rule_control_error(error: crate::agent_rules::AgentRuleError) -> ControlError {
@@ -1218,28 +1293,38 @@ fn ensure_permission(
     config: &AgentAccessConfig,
     operation: &ControlOperation,
 ) -> Result<(), ControlError> {
-    let Some(permission) = operation.required_permission() else {
-        return Ok(());
-    };
-    let enabled = match permission {
-        ControlPermission::ControlCapture => config.permissions.control_capture,
-        ControlPermission::ControlSystemProxy => config.permissions.control_system_proxy,
-        ControlPermission::ManageCertificates => config.permissions.manage_certificates,
-        ControlPermission::DeleteSessions => config.permissions.delete_sessions,
-        ControlPermission::SendRequests => config.permissions.send_requests,
-        ControlPermission::ManageRules => config.permissions.manage_rules,
-    };
-    if enabled {
-        Ok(())
-    } else {
-        Err(ControlError::new(
-            "CONTROL_PERMISSION_DENIED",
-            format!(
-                "Agent control permission {} is disabled in AIProxy Settings > Agent Access.",
-                permission_name(permission)
-            ),
-        ))
+    for permission in operation.required_permissions() {
+        let enabled = match permission {
+            ControlPermission::ControlCapture => config.permissions.control_capture,
+            ControlPermission::ControlSystemProxy => config.permissions.control_system_proxy,
+            ControlPermission::ManageCertificates => config.permissions.manage_certificates,
+            ControlPermission::DeleteSessions => config.permissions.delete_sessions,
+            ControlPermission::SendRequests => config.permissions.send_requests,
+            ControlPermission::ManageRules => config.permissions.manage_rules,
+            ControlPermission::ManageAutomation => config.permissions.manage_automation,
+            ControlPermission::ManageUserAutomation => config.permissions.manage_user_automation,
+            ControlPermission::ManageScripts => config.permissions.manage_scripts,
+            ControlPermission::ManageCrossHostMappings => {
+                config.permissions.manage_cross_host_mappings
+            }
+            ControlPermission::ManageProxiedVerification => {
+                config.permissions.manage_proxied_verification
+            }
+            ControlPermission::ManageGlobalAutomation => {
+                config.permissions.manage_global_automation
+            }
+        };
+        if !enabled {
+            return Err(ControlError::new(
+                "CONTROL_PERMISSION_DENIED",
+                format!(
+                    "Agent control permission {} is disabled in AIProxy Settings > Agent Access.",
+                    permission_name(permission)
+                ),
+            ));
+        }
     }
+    Ok(())
 }
 
 fn permission_name(permission: ControlPermission) -> &'static str {
@@ -1250,6 +1335,12 @@ fn permission_name(permission: ControlPermission) -> &'static str {
         ControlPermission::DeleteSessions => "deleteSessions",
         ControlPermission::SendRequests => "sendRequests",
         ControlPermission::ManageRules => "manageRules",
+        ControlPermission::ManageAutomation => "manageAutomation",
+        ControlPermission::ManageUserAutomation => "manageUserAutomation",
+        ControlPermission::ManageScripts => "manageScripts",
+        ControlPermission::ManageCrossHostMappings => "manageCrossHostMappings",
+        ControlPermission::ManageProxiedVerification => "manageProxiedVerification",
+        ControlPermission::ManageGlobalAutomation => "manageGlobalAutomation",
     }
 }
 

@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 use crate::context::Freshness;
 
-pub const MCP_TOOL_SCHEMA_VERSION: &str = "3.2";
+pub const MCP_TOOL_SCHEMA_VERSION: &str = "3.3";
 
 /// Stable envelope shared by every AIProxy MCP tool. Tool-specific payloads
 /// live under `data`; this schema only promises the top-level result shape.

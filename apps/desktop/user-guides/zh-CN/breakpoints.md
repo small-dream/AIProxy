@@ -37,6 +37,12 @@
 
 Match Type 可选 `Contains`（子串，默认）/ `Wildcard`（通配符）/ `Exact`（精确）/ `Regex`（正则），含义与 [Rewrite 的 Match Type](./rewrite-rules.md#匹配条件) 一致。
 
+### Agent 自动化边界
+
+断点是全局资源，不受 workspace 隔离。首版 Agent 自动化工具不能创建、更新、删除、启停断点，也不能远程处理命中的请求；相关计划返回 `FEATURE_NOT_AVAILABLE`。`manageGlobalAutomation` 只是后续能力的预留权限，当前不会开放断点写入。
+
+Agent 可以分析会话中的断点命中与放行记录，但不能替你 Forward、Drop、修改 Header / Body 或发送 Mock Response。断点命中后仍需由你在拦截面板处理，否则会在 5 分钟后按原样放行。
+
 ## 命中后的拦截面板
 
 请求或响应命中断点后，右侧会滑出**拦截面板**，并在导航栏 Rules 图标上显示待处理断点数量徽章（点击可跳到规则页）。面板里你可以：

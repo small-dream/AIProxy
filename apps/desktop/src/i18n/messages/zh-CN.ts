@@ -88,6 +88,7 @@ export const zhCNMessages: Messages = {
       detecting: "检测中...",
       failed: "失败",
       idle: "空闲",
+      loading: "加载中...",
       na: "不适用",
       notCaptured: "未捕获",
       notDetected: "未检测到",
@@ -337,7 +338,7 @@ export const zhCNMessages: Messages = {
       enableFullControl: "启用完整控制",
       fullControlBadge: "完整控制",
       fullControlWarning:
-        "完整控制允许 Agent 启动/停止抓包、接管系统代理、管理根证书、删除会话、向原始上游重放请求并创建临时规则。请仅在信任当前 Agent 与任务时开启；非幂等重放、删除与撤销证书信任仍必须由你在当前对话中明确请求。",
+        "完整控制会同时开启六项基础控制和六项自动化权限，允许 Agent 管理抓包与证书、删除会话、重放请求、创建临时规则，并执行带证据记录的 Rewrite / Map Local 实验。请仅在信任当前 Agent 与任务时开启；首版仍不开放 Map Remote、Script、DNS、Throttle 或 Breakpoint 写入，非幂等重放、删除与撤销证书信任仍必须由你在当前对话中明确请求。",
       manageCertificatesDescription:
         "允许 Agent 生成或轮换根证书、打开系统安装入口，以及撤销信任并清理证书。系统密码或安装确认仍由操作系统要求你完成。",
       manageCertificatesLabel: "管理根证书",
@@ -347,6 +348,46 @@ export const zhCNMessages: Messages = {
       manageRulesLabel: "创建临时规则",
       manageRulesDescription:
         "允许 Agent 为当前运行的 AIProxy 创建短期请求或响应规则。规则会自动过期，应用重启后消失，并会在规则页标记来源。",
+      manageAutomationLabel: "管理 Agent 自动化",
+      manageAutomationDescription:
+        "允许 Agent 创建、验证、回滚并清理它自有的常驻或临时 Rewrite 与 Map Local 资源。不会因此获得修改你已有规则的权限。",
+      manageUserAutomationLabel: "管理我的自动化",
+      manageUserAutomationDescription:
+        "允许 Agent 修改、删除、启停或回滚你拥有的资源。这是高风险权限，旧临时规则权限不会自动带来此授权。",
+      manageScriptsLabel: "管理脚本",
+      manageScriptsDescription:
+        "为后续版本预留。首版 Script 写入、编译和自动化执行仍不可用，开启不会绕过 FEATURE_NOT_AVAILABLE。",
+      manageCrossHostMappingsLabel: "映射到其他主机",
+      manageCrossHostMappingsDescription:
+        "为后续版本预留。首版 Map Remote 写入不可用，跨 host origin 白名单不会绕过 FEATURE_NOT_AVAILABLE。",
+      manageProxiedVerificationLabel: "通过 AIProxy 验证",
+      manageProxiedVerificationDescription:
+        "允许 Agent 向本地 AIProxy 监听端口发送有数量与方法限制的幂等验证请求。HTTPS 验证需要开启拦截并信任根证书。",
+      manageGlobalAutomationLabel: "管理全局自动化",
+      manageGlobalAutomationDescription:
+        "预留给 Breakpoint 等全局资源。本版本不会因此开放 Breakpoint 写入。",
+      automationScopeTitle: "自动化资源边界",
+      automationScopeDescription:
+        "Map Local 只允许读取你在此处通过系统目录选择器批准的根目录；验证与跨 host 映射使用各自独立的精确 origin 白名单。",
+      newAutomationPermissionsHint:
+        "本版本新增的高级自动化权限默认未启用。升级不会从旧的临时规则权限推导任何新授权，请按当前任务逐项勾选。",
+      automationRootsTitle: "Map Local 批准根目录",
+      automationRootsDescription:
+        "最多 10 个。失效路径会保留并显示警告，不会自动删除。Agent 只能读取这些目录内已存在的文件。",
+      automationRootsEmpty: "尚未批准任何 Map Local 根目录。",
+      automationRootPickerAction: "添加根目录",
+      automationRootPickerPending: "正在选择…",
+      automationRootPickerTitle: "选择 Agent 可读取的 Map Local 根目录",
+      proxiedVerificationOriginsTitle: "代理验证 origin 白名单",
+      proxiedVerificationOriginsDescription:
+        "仅这些精确 origin 可接收受控代理验证请求。首版只允许 GET、HEAD、OPTIONS，并受频率与响应大小限制。",
+      crossHostOriginsTitle: "跨 host 映射 origin 白名单",
+      crossHostOriginsDescription:
+        "独立于代理验证白名单。Map Remote 在后续版本开放后，跨 host 目标必须同时来自此列表；本版本写入仍不可用。",
+      originPlaceholder: "https://staging.example.com",
+      originInvalid: "请输入有效的 http 或 https origin。",
+      originAdd: "添加",
+      originEmpty: "尚未配置任何 origin。",
       checkBodyAccess: "Body 读取权限",
       checkClients: "客户端连接",
       checkControlChannel: "Agent 控制通道",
@@ -770,6 +811,8 @@ export const zhCNMessages: Messages = {
     untitledRule: "未命名规则",
     agentRule: {
       badge: "Agent",
+      badgeEphemeral: "Agent · 临时",
+      badgePersistent: "Agent · 常驻",
       cleared: "已移除 {{count}} 条临时 Agent 规则。",
       clearAction: "清除 Agent 规则",
       clearConfirmMessage:
@@ -778,14 +821,116 @@ export const zhCNMessages: Messages = {
       expires: "{{time}} 到期",
       notice:
         "{{count}} 条临时 Agent 规则正在影响匹配流量。它们仅存在于内存中，AIProxy 重启后会消失。",
+      persistentNotice:
+        "{{count}} 条常驻 Agent 规则正在影响匹配流量。请在 Agent 实验中回滚，或转为你的规则后再编辑。",
       readOnlyDescription:
         "这是一条临时 Agent 规则，只读且将在 {{time}} 到期。你可以复制为持久化用户规则，或删除它以停止影响流量。",
+      readOnlyPersistentDescription:
+        "这是一条常驻 Agent 规则，只读。请在 Agent 实验中回滚这个 change set，或将它转为你的规则后再编辑。",
+      scopeGlobal: "全局",
+      scopeWorkspace: "工作区",
+    },
+    agentExperiment: {
+      activatedAt: "激活时间",
+      actual: "实际值",
+      assertions: "断言",
+      baselineSessions: "基线会话",
+      candidates: "候选规则",
+      cleanupState: "清理状态",
+      conflict: "规则冲突诊断",
+      created: "创建时间",
+      description:
+        "查看 Agent 最近创建的 Rewrite / Map Local 变更、验证证据和清理状态。代理证据不代表真实 App 已正确渲染。",
+      emptyDescription:
+        "Agent 通过自动化工具应用变更后，change set、验证请求、断言和证据会话会出现在这里。",
+      emptyTitle: "还没有 Agent 实验",
+      evidenceLevel: "证据等级",
+      evidenceSessions: "证据会话",
+      expected: "期望值",
+      expiresAt: "到期时间",
+      experiment: "实验状态",
+      items: "资源变更",
+      limitations: "证据限制",
+      noAssertions: "这次验证没有断言结果。",
+      noBaseline: "未关联",
+      noItems: "这个 change set 没有资源明细。",
+      noLimitations: "没有额外限制。",
+      noVerifications: "还没有验证记录。",
+      objective: "实验目标",
+      operation: "操作",
+      priority: "优先级",
+      request: "请求",
+      resource: "资源",
+      runtimeGeneration: "运行时 generation",
+      scope: "作用域",
+      status: "状态",
+      title: "Agent 实验",
+      version: "版本",
+      winningRule: "最终命中规则",
+      workspace: "工作区",
+      actions: {
+        clearEphemeral: "清理临时资源",
+        missingSelection: "请选择一个 change set。",
+        promote: "转为我的规则",
+        rollback: "回滚",
+      },
+      confirm: {
+        clearMessage:
+          "将清理当前作用域内所有临时 Agent 资源，而不只是这个 change set。用户规则和常驻 Agent 资源不会受影响。",
+        clearTitle: "清理临时 Agent 资源？",
+        promoteMessage:
+          "变更涉及的 Agent 资源将转为你拥有的常驻规则。转换后该 change set 不能再回滚。",
+        promoteTitle: "转为我的规则？",
+        rollbackMessage: "将按资源级快照回滚这个 change set。若目标或依赖已变化，操作会被拒绝。",
+        rollbackTitle: "回滚这个 Agent 变更？",
+      },
+      lifecycle: {
+        ephemeral: "临时",
+        persistent: "常驻",
+      },
+      modes: {
+        external: "真实客户端",
+        offline: "离线变换",
+        proxy: "受控代理",
+      },
+      operations: {
+        create: "创建",
+        delete: "删除",
+        update: "更新",
+      },
+      scopes: {
+        global: "全局",
+        workspace: "工作区",
+      },
+      statusValue: {
+        aborted: "已中止",
+        active: "已生效",
+        assertion_failed: "断言失败",
+        committed: "已提交",
+        expired: "已过期",
+        insufficient_evidence: "证据不足",
+        not_matched: "未命中",
+        prepared: "准备中",
+        promoted: "已转为用户规则",
+        publish_failed: "发布失败",
+        reverted: "已回滚",
+        reverting: "回滚中",
+        rule_failed: "规则执行失败",
+        shadowed: "被覆盖",
+        upstream_failed: "上游失败",
+      },
+      success: {
+        clear: "已清理 {{count}} 个临时 Agent 资源。",
+        promote: "Agent 资源已转为你的规则。",
+        rollback: "Agent 变更已回滚。",
+      },
     },
     unsavedChangesIndicator: "有未保存的修改",
     unsavedChangesMessage: "规则编辑器中存在未保存的修改，离开后将丢失。",
     unsavedChangesTitle: "未保存的修改",
     urlPatternPlaceholder: "URL 匹配模式（子串匹配，例如 api.example.com 或 *）",
     tabs: {
+      automation: "Agent 实验",
       breakpoint: "断点",
       dns: "DNS",
       mapping: "映射",

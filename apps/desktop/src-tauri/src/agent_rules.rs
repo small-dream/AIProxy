@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use aiproxy_agent_control::{AgentRuleAction, CreateAgentRuleParams};
 use aiproxy_proxy_core::{MapManager, MapRule, RewriteManager, RewriteRule, RewriteRuleMatch};
@@ -19,7 +18,6 @@ const MAX_RULE_TEXT_BYTES: usize = 256 * 1024;
 const MAX_PATTERN_BYTES: usize = 2048;
 const MAX_HEADER_VALUE_BYTES: usize = 8192;
 const MAX_METHODS: usize = 16;
-const CLEANUP_INTERVAL: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone)]
 pub struct AgentRuleError {
@@ -87,6 +85,7 @@ struct AgentRuleRecord {
 #[derive(Debug)]
 pub struct AgentRuleRegistry {
     rules: Mutex<Vec<AgentRuleRecord>>,
+    mutation_lock: Mutex<()>,
     data_dir: PathBuf,
     rewrite_manager: Arc<RewriteManager>,
     map_manager: Arc<MapManager>,
@@ -100,22 +99,11 @@ impl AgentRuleRegistry {
     ) -> Self {
         Self {
             rules: Mutex::new(Vec::new()),
+            mutation_lock: Mutex::new(()),
             data_dir,
             rewrite_manager,
             map_manager,
         }
-    }
-
-    pub fn spawn_cleanup(self: &Arc<Self>) {
-        let registry = Arc::clone(self);
-        tauri::async_runtime::spawn(async move {
-            let mut interval = tokio::time::interval(CLEANUP_INTERVAL);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                interval.tick().await;
-                registry.cleanup_expired();
-            }
-        });
     }
 
     pub fn create(
@@ -146,6 +134,10 @@ impl AgentRuleRegistry {
         let name = normalize_name(params.name, &params.action, &pattern.host)?;
         let expires_at = now + chrono::Duration::seconds(ttl_seconds as i64);
 
+        let _mutation = self
+            .mutation_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut rules = self.rules.lock().unwrap_or_else(|error| error.into_inner());
         self.cleanup_expired_locked(&mut rules, now);
         if rules.len() >= MAX_AGENT_RULES {
@@ -217,6 +209,10 @@ impl AgentRuleRegistry {
     }
 
     pub fn list(&self) -> Vec<AgentRuleInfo> {
+        let _mutation = self
+            .mutation_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut rules = self.rules.lock().unwrap_or_else(|error| error.into_inner());
         self.cleanup_expired_locked(&mut rules, Utc::now());
         rules
@@ -226,6 +222,17 @@ impl AgentRuleRegistry {
     }
 
     pub fn snapshot(&self) -> AgentRuleSnapshot {
+        self.with_live_snapshot(Clone::clone)
+    }
+
+    /// Snapshot the live legacy rules while serializing against registry writes
+    /// and expiration cleanup. The callback runs under the same lock so runtime
+    /// publication cannot resurrect a rule removed between snapshot and merge.
+    pub fn with_live_snapshot<T>(&self, read: impl FnOnce(&AgentRuleSnapshot) -> T) -> T {
+        let _mutation = self
+            .mutation_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut rules = self.rules.lock().unwrap_or_else(|error| error.into_inner());
         self.cleanup_expired_locked(&mut rules, Utc::now());
         let mut snapshot = AgentRuleSnapshot::default();
@@ -237,7 +244,7 @@ impl AgentRuleRegistry {
                 snapshot.auxiliary_rule_ids.insert(id.clone());
             }
         }
-        snapshot
+        read(&snapshot)
     }
 
     pub fn remove(&self, rule_ids: Vec<String>) -> RemoveAgentRulesResult {
@@ -245,6 +252,10 @@ impl AgentRuleRegistry {
     }
 
     fn remove_at(&self, rule_ids: Vec<String>, now: DateTime<Utc>) -> RemoveAgentRulesResult {
+        let _mutation = self
+            .mutation_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut rules = self.rules.lock().unwrap_or_else(|error| error.into_inner());
         self.cleanup_expired_locked(&mut rules, now);
         let mut requested = rule_ids
@@ -276,6 +287,10 @@ impl AgentRuleRegistry {
     }
 
     pub fn clear(&self) -> ClearAgentRulesResult {
+        let _mutation = self
+            .mutation_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut rules = self.rules.lock().unwrap_or_else(|error| error.into_inner());
         self.cleanup_expired_locked(&mut rules, Utc::now());
         let removed_count = rules.len();
@@ -288,6 +303,10 @@ impl AgentRuleRegistry {
     /// Forget metadata after another command has already deleted the primary
     /// rule from its manager. Auxiliary rules and mock files still belong to us.
     pub fn forget_deleted_rule(&self, rule_id: &str) {
+        let _mutation = self
+            .mutation_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut rules = self.rules.lock().unwrap_or_else(|error| error.into_inner());
         let Some(index) = rules
             .iter()
@@ -300,6 +319,10 @@ impl AgentRuleRegistry {
     }
 
     pub fn cleanup_expired(&self) -> usize {
+        let _mutation = self
+            .mutation_lock
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let mut rules = self.rules.lock().unwrap_or_else(|error| error.into_inner());
         self.cleanup_expired_locked(&mut rules, Utc::now())
     }

@@ -270,6 +270,12 @@ impl AppContext {
                 "deleteSessions": value.permissions.delete_sessions,
                 "sendRequests": value.permissions.send_requests,
                 "manageRules": value.permissions.manage_rules,
+                "manageAutomation": value.permissions.manage_automation,
+                "manageUserAutomation": value.permissions.manage_user_automation,
+                "manageScripts": value.permissions.manage_scripts,
+                "manageCrossHostMappings": value.permissions.manage_cross_host_mappings,
+                "manageProxiedVerification": value.permissions.manage_proxied_verification,
+                "manageGlobalAutomation": value.permissions.manage_global_automation,
             })
         });
         let mut issues: Vec<Value> = Vec::new();
@@ -376,6 +382,14 @@ pub fn available_tools() -> Vec<&'static str> {
         "clear_sessions",
         "delete_sessions",
         "replay_session",
+        "list_automation_resources",
+        "get_automation_resource",
+        "validate_automation_plan",
+        "apply_automation_plan",
+        "verify_automation_change",
+        "get_automation_change",
+        "rollback_automation_change",
+        "clear_agent_automation",
         "create_agent_rule",
         "list_agent_rules",
         "remove_agent_rules",

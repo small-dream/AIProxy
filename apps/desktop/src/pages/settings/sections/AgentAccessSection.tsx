@@ -1,4 +1,5 @@
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import DeleteOutlineRoundedIcon from "@mui/icons-material/DeleteOutlineRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
 import FiberManualRecordRoundedIcon from "@mui/icons-material/FiberManualRecordRounded";
@@ -45,6 +46,10 @@ import {
 } from "@/features/agent-access/AgentClientRow";
 import { AgentPathValue } from "@/features/agent-access/AgentPathValue";
 import {
+  AGENT_AUDIT_QUERY_KEY,
+  AGENT_SETTINGS_QUERY_KEY,
+} from "@/features/agent-access/agent-access-query-keys";
+import {
   permissionsForConnectPreset,
   permissionsEqual,
   permissionsForPreset,
@@ -58,6 +63,7 @@ import {
   getAgentAuditLog,
   installAgentClientConfig,
   installAgentSkill,
+  pickAutomationApprovedRoot,
   removeAgentClientConfig,
   testAgentAccess,
   updateAgentAccessSettings,
@@ -71,9 +77,6 @@ import {
   SettingsRow,
   selectControlSx,
 } from "../SettingsLayoutParts";
-
-const AGENT_SETTINGS_QUERY_KEY = ["agent-access-settings"];
-const AGENT_AUDIT_QUERY_KEY = ["agent-access-audit"];
 
 type AgentAccessDraft = UpdateAgentAccessSettingsInput;
 type FeedbackArea = "client" | "diagnostics" | "permissions" | "settings";
@@ -154,6 +157,7 @@ export function AgentAccessSection() {
   const [pendingRemove, setPendingRemove] = useState<AgentClientInfo | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [pickingAutomationRoot, setPickingAutomationRoot] = useState(false);
 
   const settingsQuery = useQuery({
     queryKey: AGENT_SETTINGS_QUERY_KEY,
@@ -318,6 +322,9 @@ export function AgentAccessSection() {
             permissions,
             limits: draft.limits,
             redaction: draft.redaction,
+            automationApprovedRoots: draft.automationApprovedRoots,
+            proxiedVerificationOrigins: draft.proxiedVerificationOrigins,
+            automationCrossHostOrigins: draft.automationCrossHostOrigins,
           });
         } catch (error) {
           throw new Error(coerceAppError(error).message || t("common.errors.generic"), {
@@ -556,6 +563,66 @@ export function AgentAccessSection() {
   ) {
     setDraft((current) =>
       current ? { ...current, redaction: { ...current.redaction, [key]: value } } : current,
+    );
+  }
+
+  async function addAutomationRoot() {
+    if (!draft || pickingAutomationRoot || draft.automationApprovedRoots.length >= 10) return;
+    setPickingAutomationRoot(true);
+    try {
+      const path = await pickAutomationApprovedRoot(
+        t("settingsPage.agentAccess.automationRootPickerTitle"),
+      );
+      if (!path) return;
+      setDraft((current) => {
+        if (!current || current.automationApprovedRoots.includes(path)) return current;
+        return {
+          ...current,
+          automationApprovedRoots: [...current.automationApprovedRoots, path].slice(0, 10),
+        };
+      });
+    } catch (error) {
+      setFeedback({
+        area: "permissions",
+        severity: "error",
+        message: coerceAppError(error).message || t("common.errors.generic"),
+      });
+    } finally {
+      setPickingAutomationRoot(false);
+    }
+  }
+
+  function removeAutomationRoot(path: string) {
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            automationApprovedRoots: current.automationApprovedRoots.filter(
+              (root) => root !== path,
+            ),
+          }
+        : current,
+    );
+  }
+
+  function addOrigin(
+    field: "proxiedVerificationOrigins" | "automationCrossHostOrigins",
+    origin: string,
+  ) {
+    setDraft((current) => {
+      if (!current || current[field].includes(origin)) return current;
+      return { ...current, [field]: [...current[field], origin].sort() };
+    });
+  }
+
+  function removeOrigin(
+    field: "proxiedVerificationOrigins" | "automationCrossHostOrigins",
+    origin: string,
+  ) {
+    setDraft((current) =>
+      current
+        ? { ...current, [field]: current[field].filter((value) => value !== origin) }
+        : current,
     );
   }
 
@@ -921,6 +988,12 @@ export function AgentAccessSection() {
                           deleteSessions: true,
                           sendRequests: true,
                           manageRules: true,
+                          manageAutomation: true,
+                          manageUserAutomation: true,
+                          manageScripts: true,
+                          manageCrossHostMappings: true,
+                          manageProxiedVerification: true,
+                          manageGlobalAutomation: true,
                         },
                       }
                     : current,
@@ -1025,10 +1098,200 @@ export function AgentAccessSection() {
                 }}
               />
             </SettingsRow>
+            <SettingsRow
+              itemId="agent-manage-automation"
+              label={t("settingsPage.agentAccess.manageAutomationLabel")}
+              description={t("settingsPage.agentAccess.manageAutomationDescription")}
+            >
+              <Switch
+                size="small"
+                color="warning"
+                checked={draft.permissions.manageAutomation}
+                onChange={(event) => updatePermission("manageAutomation", event.target.checked)}
+                slotProps={{
+                  input: { "aria-label": t("settingsPage.agentAccess.manageAutomationLabel") },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-manage-user-automation"
+              label={t("settingsPage.agentAccess.manageUserAutomationLabel")}
+              description={t("settingsPage.agentAccess.manageUserAutomationDescription")}
+            >
+              <Switch
+                size="small"
+                color="error"
+                checked={draft.permissions.manageUserAutomation}
+                onChange={(event) => updatePermission("manageUserAutomation", event.target.checked)}
+                slotProps={{
+                  input: {
+                    "aria-label": t("settingsPage.agentAccess.manageUserAutomationLabel"),
+                  },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-manage-scripts"
+              label={t("settingsPage.agentAccess.manageScriptsLabel")}
+              description={t("settingsPage.agentAccess.manageScriptsDescription")}
+            >
+              <Switch
+                size="small"
+                color="warning"
+                checked={draft.permissions.manageScripts}
+                onChange={(event) => updatePermission("manageScripts", event.target.checked)}
+                slotProps={{
+                  input: { "aria-label": t("settingsPage.agentAccess.manageScriptsLabel") },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-manage-cross-host-mappings"
+              label={t("settingsPage.agentAccess.manageCrossHostMappingsLabel")}
+              description={t("settingsPage.agentAccess.manageCrossHostMappingsDescription")}
+            >
+              <Switch
+                size="small"
+                color="warning"
+                checked={draft.permissions.manageCrossHostMappings}
+                onChange={(event) =>
+                  updatePermission("manageCrossHostMappings", event.target.checked)
+                }
+                slotProps={{
+                  input: {
+                    "aria-label": t("settingsPage.agentAccess.manageCrossHostMappingsLabel"),
+                  },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-manage-proxied-verification"
+              label={t("settingsPage.agentAccess.manageProxiedVerificationLabel")}
+              description={t("settingsPage.agentAccess.manageProxiedVerificationDescription")}
+            >
+              <Switch
+                size="small"
+                color="warning"
+                checked={draft.permissions.manageProxiedVerification}
+                onChange={(event) =>
+                  updatePermission("manageProxiedVerification", event.target.checked)
+                }
+                slotProps={{
+                  input: {
+                    "aria-label": t("settingsPage.agentAccess.manageProxiedVerificationLabel"),
+                  },
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              itemId="agent-manage-global-automation"
+              label={t("settingsPage.agentAccess.manageGlobalAutomationLabel")}
+              description={t("settingsPage.agentAccess.manageGlobalAutomationDescription")}
+            >
+              <Switch
+                size="small"
+                color="error"
+                checked={draft.permissions.manageGlobalAutomation}
+                onChange={(event) =>
+                  updatePermission("manageGlobalAutomation", event.target.checked)
+                }
+                slotProps={{
+                  input: {
+                    "aria-label": t("settingsPage.agentAccess.manageGlobalAutomationLabel"),
+                  },
+                }}
+              />
+            </SettingsRow>
           </SettingsGroup>
           <Alert severity="warning" variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
             {t("settingsPage.agentAccess.fullControlWarning")}
           </Alert>
+
+          <Divider sx={{ mt: 2 }} />
+          <Box sx={{ pt: 1.5 }}>
+            <Typography variant="subtitle2">
+              {t("settingsPage.agentAccess.automationScopeTitle")}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {t("settingsPage.agentAccess.automationScopeDescription")}
+            </Typography>
+          </Box>
+          <Alert severity="info" variant="outlined" sx={{ ...compactAlertSx, mt: 1 }}>
+            {t("settingsPage.agentAccess.newAutomationPermissionsHint")}
+          </Alert>
+
+          <Box sx={{ mt: 1.5 }}>
+            <Typography variant="subtitle2">
+              {t("settingsPage.agentAccess.automationRootsTitle")}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {t("settingsPage.agentAccess.automationRootsDescription")}
+            </Typography>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
+              {draft.automationApprovedRoots.map((path) => {
+                const status = settings.automationApprovedRootStatuses.find(
+                  (entry) => entry.path === path,
+                );
+                const invalid = status ? !status.exists || !status.isDirectory : false;
+                return (
+                  <Chip
+                    key={path}
+                    color={invalid ? "warning" : "default"}
+                    icon={invalid ? <WarningAmberRoundedIcon /> : undefined}
+                    label={path}
+                    onDelete={() => removeAutomationRoot(path)}
+                    deleteIcon={<DeleteOutlineRoundedIcon />}
+                    sx={{ maxWidth: "100%" }}
+                  />
+                );
+              })}
+            </Stack>
+            {draft.automationApprovedRoots.length === 0 ? (
+              <Typography variant="body2" sx={{ color: "text.secondary", mt: 1 }}>
+                {t("settingsPage.agentAccess.automationRootsEmpty")}
+              </Typography>
+            ) : null}
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => void addAutomationRoot()}
+              disabled={busy || pickingAutomationRoot || draft.automationApprovedRoots.length >= 10}
+              sx={{ mt: 1 }}
+            >
+              {pickingAutomationRoot
+                ? t("settingsPage.agentAccess.automationRootPickerPending")
+                : t("settingsPage.agentAccess.automationRootPickerAction")}
+            </Button>
+          </Box>
+
+          <Box sx={{ mt: 2 }}>
+            <ScopedOriginEditor
+              title={t("settingsPage.agentAccess.proxiedVerificationOriginsTitle")}
+              description={t("settingsPage.agentAccess.proxiedVerificationOriginsDescription")}
+              values={draft.proxiedVerificationOrigins}
+              disabled={busy}
+              placeholder={t("settingsPage.agentAccess.originPlaceholder")}
+              invalidMessage={t("settingsPage.agentAccess.originInvalid")}
+              addLabel={t("settingsPage.agentAccess.originAdd")}
+              emptyLabel={t("settingsPage.agentAccess.originEmpty")}
+              onAdd={(origin) => addOrigin("proxiedVerificationOrigins", origin)}
+              onRemove={(origin) => removeOrigin("proxiedVerificationOrigins", origin)}
+            />
+          </Box>
+          <Box sx={{ mt: 1.5 }}>
+            <ScopedOriginEditor
+              title={t("settingsPage.agentAccess.crossHostOriginsTitle")}
+              description={t("settingsPage.agentAccess.crossHostOriginsDescription")}
+              values={draft.automationCrossHostOrigins}
+              disabled={busy}
+              placeholder={t("settingsPage.agentAccess.originPlaceholder")}
+              invalidMessage={t("settingsPage.agentAccess.originInvalid")}
+              addLabel={t("settingsPage.agentAccess.originAdd")}
+              emptyLabel={t("settingsPage.agentAccess.originEmpty")}
+              onAdd={(origin) => addOrigin("automationCrossHostOrigins", origin)}
+              onRemove={(origin) => removeOrigin("automationCrossHostOrigins", origin)}
+            />
+          </Box>
 
           <Divider sx={{ mt: 1 }} />
           <Box sx={{ pt: 1.5 }}>
@@ -1496,6 +1759,109 @@ function activeMutationAction(
   return null;
 }
 
+function ScopedOriginEditor({
+  addLabel,
+  description,
+  disabled,
+  emptyLabel,
+  invalidMessage,
+  onAdd,
+  onRemove,
+  placeholder,
+  title,
+  values,
+}: {
+  addLabel: string;
+  description: string;
+  disabled: boolean;
+  emptyLabel: string;
+  invalidMessage: string;
+  onAdd: (origin: string) => void;
+  onRemove: (origin: string) => void;
+  placeholder: string;
+  title: string;
+  values: string[];
+}) {
+  const [input, setInput] = useState("");
+  const [invalid, setInvalid] = useState(false);
+
+  function submit() {
+    const normalized = normalizeOrigin(input);
+    if (!normalized) {
+      setInvalid(true);
+      return;
+    }
+    onAdd(normalized);
+    setInput("");
+    setInvalid(false);
+  }
+
+  return (
+    <Box>
+      <Typography variant="subtitle2">{title}</Typography>
+      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+        {description}
+      </Typography>
+      <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start", mt: 1 }}>
+        <TextField
+          size="small"
+          fullWidth
+          value={input}
+          error={invalid}
+          helperText={invalid ? invalidMessage : undefined}
+          placeholder={placeholder}
+          disabled={disabled || values.length >= 50}
+          onChange={(event) => {
+            setInput(event.target.value);
+            setInvalid(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={disabled || !input.trim() || values.length >= 50}
+          onClick={submit}
+          sx={{ minWidth: 72 }}
+        >
+          {addLabel}
+        </Button>
+      </Stack>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1 }}>
+        {values.map((origin) => (
+          <Chip
+            key={origin}
+            label={origin}
+            onDelete={disabled ? undefined : () => onRemove(origin)}
+            deleteIcon={<DeleteOutlineRoundedIcon />}
+            sx={{ fontFamily: "monospace" }}
+          />
+        ))}
+      </Stack>
+      {values.length === 0 ? (
+        <Typography variant="body2" sx={{ color: "text.secondary", mt: 1 }}>
+          {emptyLabel}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
+
+function normalizeOrigin(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
 function draftFromSettings(settings: AgentAccessSettings): AgentAccessDraft {
   return {
     enabled: settings.enabled,
@@ -1506,6 +1872,9 @@ function draftFromSettings(settings: AgentAccessSettings): AgentAccessDraft {
       customSensitiveKeys: [...settings.redaction.customSensitiveKeys],
       customPatterns: settings.redaction.customPatterns.map((rule) => ({ ...rule })),
     },
+    automationApprovedRoots: [...settings.automationApprovedRoots],
+    proxiedVerificationOrigins: [...settings.proxiedVerificationOrigins],
+    automationCrossHostOrigins: [...settings.automationCrossHostOrigins],
   };
 }
 
@@ -1523,6 +1892,12 @@ function draftsEqual(current: AgentAccessDraft, saved: AgentAccessDraft) {
     "deleteSessions",
     "sendRequests",
     "manageRules",
+    "manageAutomation",
+    "manageUserAutomation",
+    "manageScripts",
+    "manageCrossHostMappings",
+    "manageProxiedVerification",
+    "manageGlobalAutomation",
   ];
   const limitKeys: Array<keyof AgentAccessLimits> = [
     "maxSessions",
@@ -1532,6 +1907,12 @@ function draftsEqual(current: AgentAccessDraft, saved: AgentAccessDraft) {
   return (
     permissionKeys.every((key) => current.permissions[key] === saved.permissions[key]) &&
     limitKeys.every((key) => current.limits[key] === saved.limits[key]) &&
-    JSON.stringify(current.redaction) === JSON.stringify(saved.redaction)
+    JSON.stringify(current.redaction) === JSON.stringify(saved.redaction) &&
+    JSON.stringify(current.automationApprovedRoots) ===
+      JSON.stringify(saved.automationApprovedRoots) &&
+    JSON.stringify(current.proxiedVerificationOrigins) ===
+      JSON.stringify(saved.proxiedVerificationOrigins) &&
+    JSON.stringify(current.automationCrossHostOrigins) ===
+      JSON.stringify(saved.automationCrossHostOrigins)
   );
 }

@@ -3,12 +3,12 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub const AGENT_ACCESS_CONFIG_VERSION: u32 = 3;
+pub const AGENT_ACCESS_CONFIG_VERSION: u32 = 4;
 const MIN_SUPPORTED_CONFIG_VERSION: u32 = 2;
 // Control permissions are additive and older readers ignore unknown fields.
 // Keep the on-disk envelope at the oldest supported version so an older
 // read-only sidecar can still read the same configuration after this app is
-// upgraded. Readers normalize the in-memory contract to version 3.
+// upgraded. Readers normalize the in-memory contract to version 4.
 const BACKWARD_COMPATIBLE_DISK_VERSION: u32 = MIN_SUPPORTED_CONFIG_VERSION;
 pub const DEFAULT_MAX_SESSIONS: usize = 100;
 pub const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
@@ -67,6 +67,26 @@ pub struct AgentAccessPermissions {
     /// Allow creating and removing temporary in-memory Agent rules.
     #[serde(default)]
     pub manage_rules: bool,
+    /// Allow managing Agent-owned persistent and ephemeral automation
+    /// resources. This deliberately does not inherit the legacy manageRules
+    /// grant.
+    #[serde(default)]
+    pub manage_automation: bool,
+    /// Allow changing resources owned by the user.
+    #[serde(default)]
+    pub manage_user_automation: bool,
+    /// Allow creating, updating, compiling, and executing Agent scripts.
+    #[serde(default)]
+    pub manage_scripts: bool,
+    /// Allow Map Remote rules to target a different host.
+    #[serde(default)]
+    pub manage_cross_host_mappings: bool,
+    /// Allow verification requests through the local AIProxy listener.
+    #[serde(default)]
+    pub manage_proxied_verification: bool,
+    /// Reserved for future global automation such as Breakpoint writes.
+    #[serde(default)]
+    pub manage_global_automation: bool,
 }
 
 impl Default for AgentAccessPermissions {
@@ -83,6 +103,12 @@ impl Default for AgentAccessPermissions {
             delete_sessions: false,
             send_requests: false,
             manage_rules: false,
+            manage_automation: false,
+            manage_user_automation: false,
+            manage_scripts: false,
+            manage_cross_host_mappings: false,
+            manage_proxied_verification: false,
+            manage_global_automation: false,
         }
     }
 }
@@ -150,6 +176,15 @@ pub struct AgentAccessConfig {
     pub limits: AgentAccessLimits,
     #[serde(default)]
     pub redaction: AgentAccessRedaction,
+    /// Roots the user explicitly approved for Agent Map Local file reads.
+    #[serde(default)]
+    pub automation_approved_roots: Vec<String>,
+    /// Exact origins the user approved for proxied verification.
+    #[serde(default)]
+    pub proxied_verification_origins: Vec<String>,
+    /// Exact origins the user approved for future cross-host Map Remote rules.
+    #[serde(default)]
+    pub automation_cross_host_origins: Vec<String>,
     pub updated_at: Option<String>,
 }
 
@@ -162,6 +197,9 @@ impl Default for AgentAccessConfig {
             permissions: AgentAccessPermissions::default(),
             limits: AgentAccessLimits::default(),
             redaction: AgentAccessRedaction::default(),
+            automation_approved_roots: Vec::new(),
+            proxied_verification_origins: Vec::new(),
+            automation_cross_host_origins: Vec::new(),
             updated_at: None,
         }
     }
@@ -204,8 +242,34 @@ impl AgentAccessConfig {
                 rule
             })
             .collect();
+        self.automation_approved_roots = self
+            .automation_approved_roots
+            .into_iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .take(10)
+            .collect();
+        self.proxied_verification_origins = normalize_origins(self.proxied_verification_origins);
+        self.automation_cross_host_origins = normalize_origins(self.automation_cross_host_origins);
         self
     }
+}
+
+fn normalize_origins(origins: Vec<String>) -> Vec<String> {
+    let mut origins = origins
+        .into_iter()
+        .filter_map(|value| {
+            let url = url::Url::parse(value.trim()).ok()?;
+            if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+                return None;
+            }
+            Some(url.origin().ascii_serialization())
+        })
+        .take(50)
+        .collect::<Vec<_>>();
+    origins.sort();
+    origins.dedup();
+    origins
 }
 
 #[derive(Debug, Clone)]
@@ -484,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    fn v2_config_upgrades_to_v3_without_implicit_control_permissions() {
+    fn v2_config_upgrades_without_implicit_control_permissions() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("agent-access.json");
         std::fs::write(
@@ -498,7 +562,8 @@ mod tests {
                     "readBodies": true,
                     "readRawBodies": false,
                     "readWebSocket": true,
-                    "exportSnapshots": false
+                    "exportSnapshots": false,
+                    "manageRules": true
                 },
                 "limits": {
                     "maxSessions": 100,
@@ -520,5 +585,12 @@ mod tests {
         assert!(!loaded.permissions.control_system_proxy);
         assert!(!loaded.permissions.manage_certificates);
         assert!(!loaded.permissions.delete_sessions);
+        assert!(loaded.permissions.manage_rules);
+        assert!(!loaded.permissions.manage_automation);
+        assert!(!loaded.permissions.manage_user_automation);
+        assert!(!loaded.permissions.manage_scripts);
+        assert!(!loaded.permissions.manage_cross_host_mappings);
+        assert!(!loaded.permissions.manage_proxied_verification);
+        assert!(!loaded.permissions.manage_global_automation);
     }
 }

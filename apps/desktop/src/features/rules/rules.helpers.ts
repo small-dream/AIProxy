@@ -17,7 +17,7 @@ import { DEFAULT_RULE_PRIORITY } from "@/features/rules/rules-priority.helpers";
 export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] as const;
 const DEFAULT_WORKSPACE_ID = "default";
 
-export type RulesTabValue = "breakpoint" | "rewrite" | "mapping" | "script";
+export type RulesTabValue = "automation" | "breakpoint" | "rewrite" | "mapping" | "script";
 export type TranslationFn = ReturnType<typeof useI18n>["t"];
 
 /**

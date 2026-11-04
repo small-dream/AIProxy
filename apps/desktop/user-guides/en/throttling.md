@@ -47,6 +47,12 @@ Not yet supported:
 - A pre-save tester
 - API QPS / quota / concurrency limiting
 
+### Agent automation boundary
+
+First-release Agent automation cannot create, update, delete, or activate Throttle Profiles / Rules, or start the 15-minute temporary weak-network window. Those plans and activation return `FEATURE_NOT_AVAILABLE`; reserved permissions such as `manageGlobalAutomation` do not bypass the limit.
+
+The Agent can inspect captured Timing, Throttling traces, packet loss, and delay results to help diagnose behavior, but it cannot change weak-network configuration for you. Create, adjust, or enable throttling on this page, and turn off global weak-network when debugging ends.
+
 ## Page layout
 
 ### Top status area

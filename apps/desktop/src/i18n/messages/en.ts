@@ -86,6 +86,7 @@ export const enMessages = {
       detecting: "Detecting...",
       failed: "Failed",
       idle: "Idle",
+      loading: "Loading...",
       na: "N/A",
       notCaptured: "Not captured",
       notDetected: "Not detected",
@@ -341,7 +342,7 @@ export const enMessages = {
       enableFullControl: "Enable full control",
       fullControlBadge: "full control",
       fullControlWarning:
-        "Full control lets the Agent start or stop capture, take over the system proxy, manage the root certificate, delete sessions, replay requests to their original upstream, and create temporary rules. Enable it only when you trust the Agent and task; non-idempotent replays, deletion, and certificate-trust removal still require an explicit request in the current conversation.",
+        "Full control enables all six base controls and all six automation permissions. The Agent can manage capture and certificates, delete sessions, replay requests, create temporary rules, and run Rewrite / Map Local experiments with recorded evidence. Enable it only when you trust the Agent and task; this release still does not allow Map Remote, Script, DNS, Throttle, or Breakpoint writes, and non-idempotent replays, deletion, and certificate-trust removal still require an explicit request in the current conversation.",
       manageCertificatesDescription:
         "Let the Agent generate or rotate the root certificate, open the system installer, and revoke trust. The operating system still asks you for passwords or installation approval.",
       manageCertificatesLabel: "Manage the root certificate",
@@ -351,6 +352,46 @@ export const enMessages = {
       manageRulesLabel: "Create temporary rules",
       manageRulesDescription:
         "Let the Agent create short-lived request or response rules for this running AIProxy instance. Rules expire automatically, disappear after restart, and are marked on the Rules page.",
+      manageAutomationLabel: "Manage Agent automation",
+      manageAutomationDescription:
+        "Let the Agent create, verify, roll back, and clean up its own persistent or ephemeral Rewrite and Map Local resources. This does not grant access to your existing rules.",
+      manageUserAutomationLabel: "Manage my automation",
+      manageUserAutomationDescription:
+        "Let the Agent update, delete, toggle, or roll back resources you own. This is a high-risk permission and is never implied by temporary-rule access.",
+      manageScriptsLabel: "Manage scripts",
+      manageScriptsDescription:
+        "Reserved for a later release. Script writes, compilation, and automated execution remain unavailable in this release; enabling this permission does not bypass FEATURE_NOT_AVAILABLE.",
+      manageCrossHostMappingsLabel: "Map to other hosts",
+      manageCrossHostMappingsDescription:
+        "Reserved for a later release. Map Remote writes remain unavailable, and the cross-host origin allowlist does not bypass FEATURE_NOT_AVAILABLE in this version.",
+      manageProxiedVerificationLabel: "Verify through AIProxy",
+      manageProxiedVerificationDescription:
+        "Let the Agent send bounded, idempotent verification requests through the local AIProxy listener. HTTPS verification requires interception and a trusted root certificate.",
+      manageGlobalAutomationLabel: "Manage global automation",
+      manageGlobalAutomationDescription:
+        "Reserved for future global resources such as Breakpoint rules. It does not enable Breakpoint writes in this release.",
+      automationScopeTitle: "Automation resource boundaries",
+      automationScopeDescription:
+        "Map Local can read only roots you approve here with the native folder picker. Proxy verification and cross-host mapping use separate exact-origin allowlists.",
+      newAutomationPermissionsHint:
+        "Advanced automation permissions are new in this release and start disabled. Upgrading never derives them from legacy temporary-rule access; enable only what the current task needs.",
+      automationRootsTitle: "Approved Map Local roots",
+      automationRootsDescription:
+        "Up to 10 roots. Missing paths remain listed with a warning and are never removed silently. The Agent can read only existing files inside these roots.",
+      automationRootsEmpty: "No Map Local roots are approved.",
+      automationRootPickerAction: "Add root",
+      automationRootPickerPending: "Choosing…",
+      automationRootPickerTitle: "Choose a Map Local root the Agent may read",
+      proxiedVerificationOriginsTitle: "Proxy verification origins",
+      proxiedVerificationOriginsDescription:
+        "Only these exact origins can receive controlled proxy verification requests. This release allows GET, HEAD, and OPTIONS with request-rate and response-size limits.",
+      crossHostOriginsTitle: "Cross-host mapping origins",
+      crossHostOriginsDescription:
+        "Separate from proxy verification. When Map Remote becomes available, cross-host targets must also appear here; writes remain unavailable in this release.",
+      originPlaceholder: "https://staging.example.com",
+      originInvalid: "Enter a valid http or https origin.",
+      originAdd: "Add",
+      originEmpty: "No origins configured.",
       checkBodyAccess: "Body read permission",
       checkClients: "Client connections",
       checkControlChannel: "Agent control channel",
@@ -791,6 +832,8 @@ export const enMessages = {
     untitledRule: "Untitled Rule",
     agentRule: {
       badge: "Agent",
+      badgeEphemeral: "Agent · Ephemeral",
+      badgePersistent: "Agent · Persistent",
       cleared: "Removed {{count}} temporary Agent rules.",
       clearAction: "Clear Agent rules",
       clearConfirmMessage:
@@ -799,8 +842,110 @@ export const enMessages = {
       expires: "Expires {{time}}",
       notice:
         "{{count}} temporary Agent rule(s) affect matching traffic. They exist only in memory and disappear when AIProxy restarts.",
+      persistentNotice:
+        "{{count}} persistent Agent rule(s) affect matching traffic. Roll back the change or convert it to your rules in Agent Experiments before editing.",
       readOnlyDescription:
         "This is a temporary Agent rule. It is read-only and expires at {{time}}. Duplicate it to create a persistent user rule, or delete it to stop matching traffic.",
+      readOnlyPersistentDescription:
+        "This is a persistent Agent rule and is read-only. Roll back its change set or convert it to your rules in Agent Experiments before editing.",
+      scopeGlobal: "Global",
+      scopeWorkspace: "Workspace",
+    },
+    agentExperiment: {
+      activatedAt: "Activated",
+      actual: "Actual",
+      assertions: "Assertions",
+      baselineSessions: "Baseline sessions",
+      candidates: "Candidate rules",
+      cleanupState: "Cleanup state",
+      conflict: "Rule conflict diagnosis",
+      created: "Created",
+      description:
+        "Review recent Agent-created Rewrite and Map Local changes, verification evidence, and cleanup state. Proxy evidence does not prove that a real app rendered the response.",
+      emptyDescription:
+        "After an Agent applies an automation plan, its change set, verification requests, assertions, and evidence sessions appear here.",
+      emptyTitle: "No Agent experiments yet",
+      evidenceLevel: "Evidence level",
+      evidenceSessions: "Evidence sessions",
+      expected: "Expected",
+      expiresAt: "Expires",
+      experiment: "Experiment",
+      items: "Resource changes",
+      limitations: "Evidence limitations",
+      noAssertions: "This verification has no assertion results.",
+      noBaseline: "Not linked",
+      noItems: "This change set has no resource details.",
+      noLimitations: "No additional limitations.",
+      noVerifications: "No verification records yet.",
+      objective: "Objective",
+      operation: "Operation",
+      priority: "Priority",
+      request: "Request",
+      resource: "Resource",
+      runtimeGeneration: "Runtime generation",
+      scope: "Scope",
+      status: "Status",
+      title: "Agent Experiments",
+      version: "Version",
+      winningRule: "Winning rule",
+      workspace: "Workspace",
+      actions: {
+        clearEphemeral: "Clear ephemeral resources",
+        missingSelection: "Select a change set.",
+        promote: "Convert to my rules",
+        rollback: "Roll back",
+      },
+      confirm: {
+        clearMessage:
+          "This clears every ephemeral Agent resource in the current scope, not only this change set. User rules and persistent Agent resources are unaffected.",
+        clearTitle: "Clear ephemeral Agent resources?",
+        promoteMessage:
+          "Agent-owned resources in this change become persistent rules owned by you. The change set cannot be rolled back after conversion.",
+        promoteTitle: "Convert to your rules?",
+        rollbackMessage:
+          "This rolls back the change from its resource-level snapshot. If targets or dependencies changed, the operation is rejected.",
+        rollbackTitle: "Roll back this Agent change?",
+      },
+      lifecycle: {
+        ephemeral: "Ephemeral",
+        persistent: "Persistent",
+      },
+      modes: {
+        external: "Real client",
+        offline: "Offline transform",
+        proxy: "Controlled proxy",
+      },
+      operations: {
+        create: "Create",
+        delete: "Delete",
+        update: "Update",
+      },
+      scopes: {
+        global: "Global",
+        workspace: "Workspace",
+      },
+      statusValue: {
+        aborted: "Aborted",
+        active: "Active",
+        assertion_failed: "Assertion failed",
+        committed: "Committed",
+        expired: "Expired",
+        insufficient_evidence: "Insufficient evidence",
+        not_matched: "Not matched",
+        prepared: "Preparing",
+        promoted: "Converted to user rules",
+        publish_failed: "Publish failed",
+        reverted: "Reverted",
+        reverting: "Reverting",
+        rule_failed: "Rule failed",
+        shadowed: "Shadowed",
+        upstream_failed: "Upstream failed",
+      },
+      success: {
+        clear: "Cleared {{count}} ephemeral Agent resources.",
+        promote: "Agent resources now belong to your rules.",
+        rollback: "Agent change rolled back.",
+      },
     },
     unsavedChangesIndicator: "Unsaved changes",
     unsavedChangesMessage: "The rule editor has unsaved changes. Leaving now will discard them.",
@@ -819,6 +964,7 @@ export const enMessages = {
     title: "Rules",
     urlPatternPlaceholder: "URL pattern (substring match, e.g. api.example.com or *)",
     tabs: {
+      automation: "Agent Experiments",
       breakpoint: "Breakpoint",
       dns: "DNS",
       mapping: "Mapping",

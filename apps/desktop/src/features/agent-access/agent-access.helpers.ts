@@ -36,6 +36,12 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         deleteSessions: false,
         sendRequests: false,
         manageRules: false,
+        manageAutomation: false,
+        manageUserAutomation: false,
+        manageScripts: false,
+        manageCrossHostMappings: false,
+        manageProxiedVerification: false,
+        manageGlobalAutomation: false,
       };
     case "bodies":
       return {
@@ -50,6 +56,12 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         deleteSessions: false,
         sendRequests: false,
         manageRules: false,
+        manageAutomation: false,
+        manageUserAutomation: false,
+        manageScripts: false,
+        manageCrossHostMappings: false,
+        manageProxiedVerification: false,
+        manageGlobalAutomation: false,
       };
     case "raw":
       return {
@@ -64,6 +76,12 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         deleteSessions: false,
         sendRequests: false,
         manageRules: false,
+        manageAutomation: false,
+        manageUserAutomation: false,
+        manageScripts: false,
+        manageCrossHostMappings: false,
+        manageProxiedVerification: false,
+        manageGlobalAutomation: false,
       };
     case "full":
       return {
@@ -78,6 +96,12 @@ export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccess
         deleteSessions: true,
         sendRequests: true,
         manageRules: true,
+        manageAutomation: true,
+        manageUserAutomation: true,
+        manageScripts: true,
+        manageCrossHostMappings: true,
+        manageProxiedVerification: true,
+        manageGlobalAutomation: true,
       };
   }
 }
@@ -116,6 +140,12 @@ export function permissionsEqual(
     current.manageCertificates === next.manageCertificates &&
     current.deleteSessions === next.deleteSessions &&
     current.sendRequests === next.sendRequests &&
-    current.manageRules === next.manageRules
+    current.manageRules === next.manageRules &&
+    current.manageAutomation === next.manageAutomation &&
+    current.manageUserAutomation === next.manageUserAutomation &&
+    current.manageScripts === next.manageScripts &&
+    current.manageCrossHostMappings === next.manageCrossHostMappings &&
+    current.manageProxiedVerification === next.manageProxiedVerification &&
+    current.manageGlobalAutomation === next.manageGlobalAutomation
   );
 }

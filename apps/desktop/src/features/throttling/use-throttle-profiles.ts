@@ -11,9 +11,13 @@ import {
   setActiveThrottleProfile,
 } from "@/services/commands";
 
-const THROTTLE_PROFILES_KEY = ["throttle-profiles"] as const;
-const THROTTLE_RULES_KEY = ["throttle-rules"] as const;
-const THROTTLE_STATS_KEY = ["throttle-runtime-stats"] as const;
+export const THROTTLE_PROFILES_QUERY_KEY = ["throttle-profiles"] as const;
+export const THROTTLE_RULES_QUERY_KEY = ["throttle-rules"] as const;
+export const THROTTLE_STATS_QUERY_KEY = ["throttle-runtime-stats"] as const;
+
+const THROTTLE_PROFILES_KEY = THROTTLE_PROFILES_QUERY_KEY;
+const THROTTLE_RULES_KEY = THROTTLE_RULES_QUERY_KEY;
+const THROTTLE_STATS_KEY = THROTTLE_STATS_QUERY_KEY;
 
 export function useThrottleProfiles() {
   return useQuery({

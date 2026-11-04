@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listBreakpointRules, setBreakpointRules } from "@/services/commands";
 
-const BREAKPOINT_RULES_KEY = ["breakpoint-rules"] as const;
+export const BREAKPOINT_RULES_QUERY_KEY = ["breakpoint-rules"] as const;
+
+const BREAKPOINT_RULES_KEY = BREAKPOINT_RULES_QUERY_KEY;
 
 export function useBreakpointRules() {
   return useQuery({

@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod automation;
 pub mod body;
 pub(crate) mod body_stream;
 pub mod compare;

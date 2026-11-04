@@ -576,7 +576,7 @@ Sessions Inspector 选中会话 → 点击 "Repeat" 按钮
 RulesPage
 ├─ PageHeader
 ├─ SectionCard "Rule Center"
-│  ├─ RuleTypeTabs (Breakpoint / Rewrite / Mapping / Script；Mapping 内部分段 Map Local / Map Remote / DNS)
+│  ├─ RuleTypeTabs (Breakpoint / Rewrite / Mapping / Script / Agent 实验；Mapping 内部分段 Map Local / Map Remote / DNS)
 │  └─ ActiveWorkbench
 │     ├─ BreakpointRulesPanel
 │     │  ├─ ManagedRulesWorkbench
@@ -626,7 +626,7 @@ RulesPage
 │        ├─ ManagedRulesWorkbench（结构同 MapRulesPanel：身份行 + Advanced Priority + editorFooter + 溢出菜单）
 │        │  ├─ Left Pane（Create Rule 主按钮 / Search / BatchBar / ManagedRuleList / 重排提示）
 │        │  └─ Right Pane（RuleEditorIdentity + RuleSection "Host Pattern / Target IP" + EditorActionBar + Dialogs）
-│     └─ ScriptRulesPanel
+│     ├─ ScriptRulesPanel
 │        ├─ ManagedRulesWorkbench
 │        │  ├─ Left Pane
 │        │  │  ├─ Create Actions（New Script Rule 主按钮 + Templates 次按钮 + Import File 文本按钮；
@@ -641,6 +641,18 @@ RulesPage
 │        │     ├─ RuleSection "Script Source"（TypeScript 单文件脚本编辑器）
 │        │     ├─ EditorActionBar（editorFooter：脏标记 + Save 主按钮（⌘S/Ctrl+S Tooltip）+ “...” 溢出菜单）
 │        │     └─ Dialogs（模板选择 / 单条删除确认 / 批量删除确认 / 溢出菜单（Duplicate / Remove））
+│     └─ AutomationChangesPanel
+│        ├─ Left Pane（最近 change set 列表：changeId / status / lifecycle / item 数 /
+│        │   runtimeGeneration / 创建时间；空态说明 Agent 尚未应用自动化计划）
+│        └─ Right Pane
+│           ├─ ChangeSummary（status / lifecycle / scope / workspace / generation /
+│           │   createdAt / activatedAt / expiresAt）
+│           ├─ ExperimentSummary（objective / baseline sessions / experiment status / cleanup state）
+│           ├─ ChangeItems（operation / versionBefore / versionAfter / before-after Accordion）
+│           ├─ VerificationGroups（offline / proxy / external：请求、证据等级、断言、
+│           │   命中规则、冲突诊断、证据会话、limitations）
+│           ├─ ActionBar（Rollback / Promote / Clear Ephemeral，按状态与 lifecycle 禁用）
+│           └─ Dialogs（滚动确认 / 转为用户规则确认 / 清理临时资源确认）
 ```
 
 各规则面板通用的页面级快捷键：Cmd/Ctrl+S 保存、Alt+↑/↓ 键盘重排选中规则、方向键在列表行间移动焦点。
@@ -670,6 +682,10 @@ BreakpointInterceptPanel (在 AppShell 主内容区与状态栏之间渲染)
 | `features/breakpoints/use-breakpoint-events.ts` | 订阅 `breakpoint-hit` / `breakpoint-released` Tauri 事件的 React hook |
 | `features/breakpoints/use-breakpoint-rules.ts` | React Query hooks，调用 `listBreakpointRules` / `setBreakpointRules` |
 | `features/rules/use-rule-center.ts` | React Query hooks，管理 Rewrite / Mapping / Script 规则的读取、保存、删除 |
+| `features/automation/AutomationChangesPanel.tsx` | Agent 实验 change set 列表、资源快照、验证证据、冲突解释与回滚 / 提升 / 清理操作 |
+| `features/automation/use-automation-changes.ts` | change 列表 / 详情查询与 mutation，成功后同时刷新规则、Agent 设置与自动化查询 |
+| `features/automation/automation-changes.helpers.ts` | 证据模式分组、日期格式化与快照敏感值再次脱敏 |
+| `services/commands/automation.ts` | `list_automation_changes` / `get_automation_change` / `rollback_automation_change` / `promote_automation_change` / `clear_agent_automation` |
 | `features/breakpoints/components/BreakpointInterceptPanel.tsx` | 断点拦截面板主组件，含 HeaderEditor、BodyEditor、Mock 编辑器、倒计时 chip |
 | `pages/rules/index.tsx` | Rules 页面，规则中心工作台（Tabs + 列表 + 编辑器 + 预览） |
 | `components/layout/AppShell.tsx` | 集成 BreakpointInterceptPanel 和状态栏断点计数指示器 |
@@ -681,21 +697,30 @@ BreakpointInterceptPanel (在 AppShell 主内容区与状态栏之间渲染)
 ```ts
 type RulesPageState = {
   query: {
-    ruleType: "breakpoint" | "rewrite" | "mapping" | "script";
+    ruleType: "breakpoint" | "rewrite" | "mapping" | "script" | "automation";
     mappingMode?: "local" | "remote" | "dns";
     keyword: string;
   };
   selection: {
     selectedRuleId?: string;
+    selectedAutomationChangeId?: string;
   };
   editor: {
     dirty: boolean;
     enabled: boolean;
     priority: number;
   };
+  automation: {
+    changeLimit: number;
+    evidenceExpanded: Record<"offline" | "proxy" | "external", boolean>;
+    actionError?: string | null;
+  };
   mutation: {
     saving: boolean;
     deleting: boolean;
+    rollingBack: boolean;
+    promoting: boolean;
+    clearingAutomation: boolean;
   };
 };
 ```
@@ -821,6 +846,22 @@ User switches rule type
    `clear_agent_rules` 并刷新 Rewrite / Map 查询
 -> `use-agent-control-events` 在 create / remove / clear Agent 规则后刷新规则查询，
    确保 Agent 调用后规则页无需手动重载
+
+2026-11 Agent 实验：
+-> Agent 通过 validate / apply 创建 change 后，后端发出 `automation-changed`；
+   AppShell 的 `useAutomationEvents` 失效 Rewrite / Map / DNS / Script / Breakpoint /
+   Throttle / Agent 设置 / 审计 / automation changes / change detail 查询
+-> Automation tab 读取最近 change set（默认 20，最多 50），用户选择后读取完整
+   change 详情；选中 change 不因后台刷新丢失，列表更新后仍以 changeId 恢复
+-> change 激活前由后端保证运行时已发布，因此详情显示的 `runtimeGeneration` 即
+   本次证据对应的 generation；generation 或资源版本变化后旧验证记录只作为历史，
+   不得展示成当前资源的已验证结论
+-> rollback 携带 `rollbackScopeHash`；成功后 change 变为 reverted，重新读取列表与详情
+-> promote 仅对 active persistent change 启用；成功后变为 promoted，回滚按钮禁用
+-> clear ephemeral 清理当前 workspace scope 的 Agent 临时资源，不影响用户规则或
+   常驻 Agent 资源；成功后刷新所有自动化与规则查询
+-> 任何 mutation 失败都在详情内显示错误；`ROLLBACK_CONFLICT` 指引重新读取资源和
+   change，不自动重试，也不清空当前草稿或用户搜索条件
 
 ## 6.6 Throttling Page — `已实现 P0/P1`
 
@@ -1117,13 +1158,14 @@ type SettingsPageState = {
 };
 ```
 
-### 8.4.1 Agent Access Section — `已实现（读取 + 受控操作 · 紧凑版）`
+### 8.4.1 Agent Access Section — `已实现（读取 + 受控操作 + 自动化实验 · 紧凑版）`
 
 页面目标：
 
 - 以低噪音状态头展示 sidecar、版本与连接状态
 - 让用户显式开启会话、Body、WebSocket 与未脱敏 Body 权限
-- 让用户按分组开启控制抓包、系统代理、根证书、Session 删除、请求重放与临时规则权限
+- 让用户按分组开启基础控制权限与自动化权限；新增自动化权限默认关闭，旧 `manageRules` 不自动迁移
+- 让用户管理 Map Local 批准根目录与两个独立的精确 origin 白名单
 - 让用户配置格式识别、稳定哈希和自定义敏感字段
 - 为 Codex、Claude Code、Cursor 提供一键连接（写 MCP 配置 + 安装 Skill）与断开
 - 提供「验证连接」：真实 MCP 握手、工具调用与逐项检查结果
@@ -1158,13 +1200,14 @@ AgentAccessSection
 │  │  ├─ Custom sensitive field names
 │  │  └─ Query limits
 │  ├─ Control permissions group
-│  │  ├─ Enable full control shortcut
-│  │  ├─ Control capture and workspace settings
-│  │  ├─ Control system proxy
-│  │  ├─ Manage root certificate
-│  │  ├─ Delete sessions
-│  │  ├─ Replay captured requests
-│  │  └─ Manage temporary Agent rules
+│  │  ├─ Enable full control shortcut (12 switches, including automation)
+│  │  ├─ Base controls: capture / system proxy / certificate / delete / replay / temporary rules
+│  │  └─ Automation controls: manageAgent / manageUser / scripts / crossHost / proxyVerify / global
+│  ├─ Automation boundaries
+│  │  ├─ New-permission migration hint
+│  │  ├─ Approved Map Local roots (max 10, native folder picker, invalid-path warning)
+│  │  ├─ Proxied verification origins (exact origins)
+│  │  └─ Cross-host mapping origins (separate exact origins, reserved in this release)
 │  └─ Save / Discard
 ├─ AgentAuditTable (collapsed summary by default)
 ├─ SecurityNote
@@ -1189,7 +1232,10 @@ AgentAccessSection
 8. 客户端状态基于“aiproxy 条目是否存在 + Skill 内容是否为当前版本”，不使用“配置文件是否存在”判断；状态文案为 `已配置` / `需更新` / `未配置`。手动配置区展示已安装 Skill 版本与内置版本。
 9. 断开连接需二次确认：说明将移除的配置路径、将删除的受管 Skill 路径与备份行为；自定义 Skill 保留并提示。移除后状态回到 `未配置`。
 10. 客户端列表顶部固定展示数据流向说明：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；读取默认保守，控制权限默认关闭。已连接且 Body 关闭时追加 `BodyDisabledNotice`，说明 Agent 无法分析响应体。
-11. 控制权限分组展示六项开关，并提供“启用完整控制”快捷操作；`sendRequests` 明确说明会发出真实外部请求，`manageRules` 明确说明只创建内存临时规则但仍会影响经过代理的匹配流量。开启后不显示应用内二次确认。删除类操作、撤销证书信任、非幂等重放和创建规则仍由 Agent Skill 要求当前对话的明确用户请求。
+11. 控制权限分组展示 12 项开关，并提供“启用完整控制”快捷操作；快捷键会同时打开六个基础项和六个自动化项，但保存前仍是草稿，用户可逐项关闭。`sendRequests` 明确说明会发出真实外部请求，`manageRules` 明确说明只创建内存临时规则但仍会影响经过代理的匹配流量；`manageUserAutomation` 使用 error 色并说明可修改用户资源；`manageProxiedVerification` 说明会通过本地代理发出受控请求；`manageScripts`、`manageCrossHostMappings`、`manageGlobalAutomation` 说明首版不开放对应写入口。开启后不显示应用内二次确认。删除类操作、撤销证书信任、非幂等重放、用户资源修改/删除和规则提升仍由 Agent Skill 要求当前对话的明确用户请求。
+11.1 新增权限迁移提示必须常驻：升级不会把 `manageRules` 迁移为任何自动化权限，也不会自动勾选新字段。用户必须显式开启并保存 `manageAutomation` 才能使用 8 个自动化工具。
+11.2 Map Local 批准根目录最多 10 个，只能通过系统文件夹选择器添加；每一项显示单行路径与移除按钮，路径不存在或不是目录时显示 warning，且不会自动删除。代理验证 origin 与跨 host 映射 origin 是两个独立的列表，只接受规范化后的精确 `http` / `https` origin；不支持通配 host。跨 host 白名单首版仅预留，Map Remote 写入仍返回 `FEATURE_NOT_AVAILABLE`。
+11.3 自动化边界区必须说明首版仅开放 Rewrite 与 Map Local；`offline` / `proxy` / `external` 证据的差异由 Rules 页 Agent 实验展示，Settings 不重复渲染验证结果。
 12. 审计表默认只显示最近调用数量摘要；展开后按时间倒序展示明细，新增动作摘要列与 `agentControl` 写控制标记，刷新时重新读取 JSONL。
 13. Cursor 行明确目标为 `~/.cursor/mcp.json`，连接后需重新加载 Cursor 窗口；Claude Code 目标为 `CLAUDE_CONFIG_DIR/.claude.json`（默认 `~/.claude.json`），连接后需重新启动 Claude Code。
 14. `AppShell` 订阅 `agent-control-action` 并读取最近 20 条回放缓冲区：按 `eventId` 去重后刷新代理、工作区、证书、Session 与规则查询；删除类动作清除详情缓存；除 `getStatus` 外显示动作成功/失败通知，确保自动拉起后的首个 Agent 动作也可见。
@@ -1204,6 +1250,9 @@ type AgentAccessSectionState = {
     permissions: AgentAccessPermissions;
     limits: AgentAccessLimits;
     redaction: AgentAccessRedaction;
+    automationApprovedRoots: string[];
+    proxiedVerificationOrigins: string[];
+    automationCrossHostOrigins: string[];
   };
   feedback: {
     area: "client" | "diagnostics" | "permissions" | "settings";
@@ -1222,6 +1271,7 @@ type AgentAccessSectionState = {
   } | null;
   diagnosticsOpen: boolean;
   advancedOpen: boolean;
+  pickingAutomationRoot: boolean;
 };
 ```
 

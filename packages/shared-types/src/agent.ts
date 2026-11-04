@@ -12,6 +12,12 @@ export type AgentAccessPermissions = {
   deleteSessions: boolean;
   sendRequests: boolean;
   manageRules: boolean;
+  manageAutomation: boolean;
+  manageUserAutomation: boolean;
+  manageScripts: boolean;
+  manageCrossHostMappings: boolean;
+  manageProxiedVerification: boolean;
+  manageGlobalAutomation: boolean;
 };
 
 export type AgentAccessLimits = {
@@ -56,6 +62,10 @@ export type AgentAccessSettings = {
   permissions: AgentAccessPermissions;
   limits: AgentAccessLimits;
   redaction: AgentAccessRedaction;
+  automationApprovedRoots: string[];
+  proxiedVerificationOrigins: string[];
+  automationCrossHostOrigins: string[];
+  automationApprovedRootStatuses: AutomationApprovedRootStatus[];
   updatedAt?: string | null;
   dataDir: string;
   databasePath: string;
@@ -74,6 +84,15 @@ export type UpdateAgentAccessSettingsInput = {
   permissions: AgentAccessPermissions;
   limits: AgentAccessLimits;
   redaction: AgentAccessRedaction;
+  automationApprovedRoots: string[];
+  proxiedVerificationOrigins: string[];
+  automationCrossHostOrigins: string[];
+};
+
+export type AutomationApprovedRootStatus = {
+  path: string;
+  exists: boolean;
+  isDirectory: boolean;
 };
 
 export type AgentAccessCheckStatus = "ok" | "warning" | "error";

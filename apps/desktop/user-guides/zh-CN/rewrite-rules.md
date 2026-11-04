@@ -300,16 +300,24 @@ Upstream / Local Response -> Response Rewrite -> Script(onResponse) -> Breakpoin
 - **未保存草稿保护**：编辑器有未保存修改时，离开 Rules 页面、切换标签页、选择另一条规则、新建规则或套用模板，都会先弹「有未保存的更改……是否丢弃？」确认。
 - 字段级校验错误在首次尝试保存后显示在每个出错字段下方；Alert 仅用于保存失败和跨字段警告。
 
-### Agent 临时 Rewrite 规则
+### Agent Rewrite 规则
 
-通过 [Agent 接入](./agent-access.md) 创建的 Header、Query 或响应 Body 改写会以临时规则出现在列表中：
+Rewrite 列表里可能出现两类来自 [Agent 接入](./agent-access.md) 的规则：旧版 `create_agent_rule` 创建的内存临时规则，以及自动化实验创建的常驻 / 临时 Rewrite。它们都会显示 **Agent** 标记，但生命周期不同：
 
-- 行内显示 warning 色 **Agent** 标记与到期时间；默认 600 秒后失效，最长 3600 秒。
-- 规则只存在内存中，应用重启后消失，不会写入你的持久化规则。
-- Agent 规则是只读的：不能编辑、启停、批量选择或拖拽；但仍可删除、复制，或通过列表上方的 **清除全部 Agent 规则** 一次清理。
-- 复制会生成普通持久化规则，并去掉临时标记与到期时间；确认需要长期保留时才复制。
+- **旧临时规则**：默认 600 秒后失效，最长 3600 秒；只存在内存中，应用重启后消失。仍通过 **清除全部 Agent 规则** 或 `remove_agent_rules` 清理。
+- **自动化临时规则**：带 `Agent · 临时` 标记与到期时间，TTL 为 60-3600 秒。只读，不能编辑、启停、拖拽或批量选择；到期、应用重启或清理实验时撤销。
+- **自动化常驻规则**：带 `Agent · 常驻` 标记，会持续影响匹配流量。规则列表中是只读的；请到 **Rules → Agent 实验** 回滚 change set，或由你点击 **转为我的规则** 后编辑。
+- 复制 Agent 规则会生成普通持久化规则，并去掉 Agent 来源与到期信息。复制不是回滚，原 Agent 资源仍会继续存在，确认不需要时应单独回滚或清理。
 
-Agent 的 `replay_session` **不会经过 Rewrite 规则**，因此不能用重放证明规则生效。正确验证方式是让真实客户端重新发起请求，再通过 Agent 的 `wait_for_sessions` 等待新会话，并查看该会话的 `ruleTraces` / Automation 记录。
+Agent 应使用以下闭环验证自动化 Rewrite：
+
+1. `validate_automation_plan` 检查匹配条件、优先级、冲突与 `planHash`。
+2. `apply_automation_plan` 应用计划，并确认 change 为 `active`、运行时 generation 已发布。
+3. `verify_automation_change` 选择 `offline`、`proxy` 或 `external` 记录断言。
+4. `get_automation_change` 查看资源前后版本、证据、限制与清理状态。
+5. 任务结束调用 `rollback_automation_change` 或 `clear_agent_automation`。
+
+`offline` 只证明离线匹配与变换；`proxy` 证明受控请求经过 AIProxy 后得到预期 HTTP 结果；`external` 证明真实客户端在 change 激活后产生了匹配会话。三者都不能单独证明页面已正确渲染。Agent 的 `replay_session` **不会经过 Rewrite 规则**，不能作为规则生效证据；使用 `external` 时，必须先让真实客户端或其他测试工具重新发起请求，再把新会话交给验证工具。
 
 ## 无效组合保护
 

@@ -447,7 +447,7 @@ describe("MapRulesPanel — priority hygiene", () => {
 
     render(<MapRulesPanel mode="remote" />);
 
-    expect(screen.getByText("rulesPage.agentRule.badge")).toBeInTheDocument();
+    expect(screen.getByText("rulesPage.agentRule.badgeEphemeral")).toBeInTheDocument();
     expect(screen.getByText(/rulesPage\.agentRule\.expires/)).toBeInTheDocument();
     expect(screen.getByText(/rulesPage\.agentRule\.readOnlyDescription/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "rulesPage.editor.saveRule" })).toBeDisabled();

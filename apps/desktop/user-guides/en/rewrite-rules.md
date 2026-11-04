@@ -300,16 +300,24 @@ Notes:
 - **Unsaved-draft guard**: leaving the Rules page, switching tabs, selecting another rule, creating a rule, or applying a template while the editor is dirty asks "Unsaved changes … discard?" before proceeding.
 - Field-level validation errors render under each offending field after the first save attempt; alerts are reserved for save errors and cross-field warnings.
 
-### Temporary Agent Rewrite rules
+### Agent Rewrite rules
 
-Header, query, and response-body rewrites created through [Agent Access](./agent-access.md) appear as temporary rules in this list:
+The Rewrite list can contain two kinds of rules created through [Agent Access](./agent-access.md): in-memory temporary rules from legacy `create_agent_rule`, and persistent or ephemeral Rewrite rules from automation experiments. Both show an **Agent** chip, but their lifecycle differs:
 
-- Each row shows a warning-colored **Agent** chip and its expiry time. The default TTL is 600 seconds, with a maximum of 3600 seconds.
-- Rules live only in memory, disappear when the app restarts, and are never written to your persistent rule database.
-- Agent rules are read-only: you cannot edit, enable/disable, batch-select, or drag them. You can still delete or duplicate them, or use **Clear all Agent rules** above the list.
-- Duplicating creates a normal persistent rule and removes the temporary source and expiry metadata. Do this only when you actually want to keep it.
+- **Legacy temporary rules** expire after 600 seconds by default and at most 3600 seconds. They live only in memory, disappear on restart, and are removed by **Clear all Agent rules** or `remove_agent_rules`.
+- **Automation ephemeral rules** show an `Agent · Ephemeral` chip and expiry. TTL is 60-3600 seconds. They are read-only and leave when the experiment expires, the app restarts, or you clear the experiment.
+- **Automation persistent rules** show an `Agent · Persistent` chip and keep affecting matching traffic. They are read-only in the rule list; open **Rules → Agent Experiments** to roll back the change set, or choose **Convert to my rules** before editing.
+- Duplicating an Agent rule creates a normal persistent copy without the Agent source or expiry metadata. Duplication is not rollback: the original Agent resource remains until you explicitly roll it back or clear it.
 
-Agent `replay_session` **does not pass through Rewrite rules**, so replay cannot prove that a rule is active. To verify one, resend from the real client, use the Agent's `wait_for_sessions` to wait for the new session, then inspect `ruleTraces` / the Automation trace.
+Use this closed loop to verify an automation Rewrite:
+
+1. `validate_automation_plan` checks match conditions, priority, conflicts, and returns `planHash`.
+2. `apply_automation_plan` applies the plan; confirm the change is `active` and a runtime generation was published.
+3. `verify_automation_change` records assertions with `offline`, `proxy`, or `external` evidence.
+4. `get_automation_change` shows before/after versions, evidence, limitations, and cleanup state.
+5. Call `rollback_automation_change` or `clear_agent_automation` when the task ends.
+
+`offline` proves only offline matching and transformation. `proxy` proves the expected HTTP result for a controlled request through AIProxy. `external` proves that a real client produced a matching session after activation. None proves correct visual rendering on its own. Agent `replay_session` **does not pass through Rewrite rules** and is never evidence that the rule worked. For `external`, have the real client or another test tool resend first, then pass the new session to the verifier.
 
 ## Invalid-combination guards
 

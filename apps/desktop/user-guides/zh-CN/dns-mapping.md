@@ -92,6 +92,12 @@ DNS 映射在代理层生效，不影响系统 DNS 设置：
 - HTTPS 连接的 TLS SNI 使用原始域名，不会触发证书校验错误
 - 不影响系统 DNS 设置，关闭代理后映射自动失效
 
+### Agent 自动化边界
+
+首版 Agent 自动化工具不能创建、更新、删除或激活 DNS 映射。`validate_automation_plan` / `apply_automation_plan` 对 DNS 资源返回 `FEATURE_NOT_AVAILABLE`；开启 `manageAutomation`、`manageGlobalAutomation` 或其他预留权限都不会绕过。DNS 映射仍可在本页由你手动管理。
+
+Agent 可以通过已捕获会话和规则 trace 分析请求实际解析、连接和失败的表现，但这不是 DNS 资源编辑能力，也不能把会话诊断结果当作“已通过 Agent 修改 DNS”。
+
 ## 适用范围
 
 DNS 映射对以下代理路径全部生效：

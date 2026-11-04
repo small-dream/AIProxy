@@ -87,9 +87,11 @@ pub use breakpoints::{
 pub use context::{ProxyConfig, ProxyManagers};
 pub use error::ProxyError;
 pub use rules::{
-    set_json_path_from_str, DnsManager, DnsMappingRule, MapManager, MapRule, MapTrace,
-    RewriteManager, RewriteRule, RewriteRuleMatch, RewriteTrace, RewriteTraceEntry,
-    ThrottleManager, ThrottleProfileData, ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
+    evaluate_offline, paired_rule_managers, set_json_path_from_str, DnsManager, DnsMappingRule,
+    MapManager, MapRule, MapTrace, OfflineEvaluationInput, OfflineEvaluationResult, OfflineHeader,
+    OfflineRequestInput, OfflineResponseInput, RewriteManager, RewriteRule, RewriteRuleMatch,
+    RewriteTrace, RewriteTraceEntry, ThrottleManager, ThrottleProfileData, ThrottleRuleData,
+    ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use server::{send_direct_request, send_direct_request_bytes, start_proxy_server};
 pub use ssl_proxying::{SslProxyEntry, SslProxyingConfig, SslProxyingSettings};
@@ -151,9 +153,10 @@ pub(crate) use http_io::{
 };
 pub(crate) use http_proxy::HttpProxyService;
 pub(crate) use rules::{
-    apply_request_runtime_rules, apply_request_script_rules, apply_request_throttle,
-    apply_response_rewrite_rules, apply_response_script_rules, evaluate_response_throttle,
-    resolve_dns_override, throttle_response_body, throttle_selection_matches_stage,
-    RequestRuntimeOutcome, ThrottleRuntimeSelection,
+    apply_request_runtime_rules_with_snapshot, apply_request_script_rules, apply_request_throttle,
+    apply_response_rewrite_rules_with_snapshot, apply_response_script_rules, capture_rule_snapshot,
+    evaluate_response_throttle, resolve_dns_override, throttle_response_body,
+    throttle_selection_matches_stage, RequestRuntimeOutcome, RuntimeRuleSnapshot,
+    ThrottleRuntimeSelection,
 };
 pub(crate) use types::{ParsedProxyRequest, UpstreamResponse};

@@ -16,3 +16,4 @@ export * from "./ws";
 export * from "./ai";
 export * from "./agent-access";
 export * from "./agent-control";
+export * from "./automation";

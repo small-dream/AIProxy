@@ -61,7 +61,11 @@ describe("AgentConnectDialog", () => {
       </AppProviders>,
     );
 
-    expect(screen.getByText(/Full control lets the Agent start or stop capture/i)).toBeVisible();
+    expect(
+      screen.getByText(
+        /Full control enables all six base controls and all six automation permissions/i,
+      ),
+    ).toBeVisible();
     expect(screen.getByText(/full control/i, { selector: "span" })).toBeVisible();
   });
 

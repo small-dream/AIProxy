@@ -514,7 +514,12 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
           return `${r.name} ${r.match.urlPattern} ${r.rewriteType}`.toLowerCase().includes(q);
         });
     }, [rules, searchValue]);
-    const agentRuleCount = rules.filter((rule) => rule.source === "agent").length;
+    const temporaryAgentRuleCount = rules.filter(
+      (rule) => rule.source === "agent" && rule.automationLifecycle !== "persistent",
+    ).length;
+    const persistentAgentRuleCount = rules.filter(
+      (rule) => rule.source === "agent" && rule.automationLifecycle === "persistent",
+    ).length;
     const isAgentRule = draft.source === "agent";
 
     useEffect(() => {
@@ -932,7 +937,10 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
           }
           list={
             <Stack spacing={1}>
-              <AgentRulesNotice count={agentRuleCount} />
+              <AgentRulesNotice
+                persistentCount={persistentAgentRuleCount}
+                temporaryCount={temporaryAgentRuleCount}
+              />
               <ManagedRuleList
                 emptyActions={
                   <Stack direction="row" spacing={1} sx={{ justifyContent: "center" }}>
@@ -961,7 +969,11 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
                 items={filteredRules.map((rule) => ({
                   id: rule.id,
                   active: rule.id === selectedRuleId,
+                  automationLifecycle: rule.automationLifecycle,
+                  automationScope: rule.automationScope,
+                  changeId: rule.changeId,
                   enabled: rule.enabled,
+                  experimentStatus: rule.experimentStatus,
                   expiresAt: rule.expiresAt,
                   name: rule.name || t("rulesPage.untitledRule"),
                   subtitle: `${formatRuleMatch(rule.match)} - ${describeRewriteAction(rule, t)}`,
@@ -1024,7 +1036,12 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
                 pointerEvents: isAgentRule ? "none" : undefined,
               }}
             >
-              {isAgentRule && <AgentRuleReadOnlyNotice expiresAt={draft.expiresAt} />}
+              {isAgentRule && (
+                <AgentRuleReadOnlyNotice
+                  expiresAt={draft.expiresAt}
+                  lifecycle={draft.automationLifecycle}
+                />
+              )}
               <RewriteEditorIdentity
                 advancedOpen={advancedOpen}
                 draft={draft}

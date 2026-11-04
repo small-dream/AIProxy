@@ -290,19 +290,18 @@ pub(crate) fn ensure_permission(
     config: &AgentAccessConfig,
     operation: &ControlOperation,
 ) -> Result<(), ToolError> {
-    let Some(permission) = operation.required_permission() else {
-        return Ok(());
-    };
-    if operation_has_permission(config, permission) {
-        return Ok(());
+    for permission in operation.required_permissions() {
+        if !operation_has_permission(config, permission) {
+            return Err(ToolError::new(
+                "CONTROL_PERMISSION_DENIED",
+                format!(
+                    "Agent control permission {} is disabled. Enable it in AIProxy Settings > Agent Access > Control permissions.",
+                    permission_label(permission)
+                ),
+            ));
+        }
     }
-    Err(ToolError::new(
-        "CONTROL_PERMISSION_DENIED",
-        format!(
-            "Agent control permission {} is disabled. Enable it in AIProxy Settings > Agent Access > Control permissions.",
-            permission_label(permission)
-        ),
-    ))
+    Ok(())
 }
 
 pub(crate) fn ensure_audit(state: &AppContext) -> Result<(), ToolError> {

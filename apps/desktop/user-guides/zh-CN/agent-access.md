@@ -1,6 +1,6 @@
 # Agent 接入（MCP）使用指南
 
-Agent 接入让 Codex、Claude Code 和 Cursor 通过本地 MCP 服务查询 AIProxy 已保存的抓包数据，并可在用户明确授权后完成首次安装、证书、SSL、抓包启停、系统代理、Session 清理、请求重放和有限时间的临时规则。适合让编码 Agent 结合真实请求、响应和 Timing 定位问题，不必先手工导出 HAR 或逐条复制请求。
+Agent 接入让 Codex、Claude Code 和 Cursor 通过本地 MCP 服务查询 AIProxy 已保存的抓包数据，并可在用户明确授权后完成首次安装、证书、SSL、抓包启停、系统代理、Session 清理、请求重放、有限时间的临时规则，以及带证据记录的 Rewrite / Map Local 自动化实验。适合让编码 Agent 结合真实请求、响应和 Timing 定位问题，不必先手工导出 HAR 或逐条复制请求。
 
 当 AIProxy 自身出现设置、证书、抓包、系统代理或 Agent 接入故障时，也可以让 Agent 调用 `diagnose_ai_proxy_issue`，获取受限的状态与日志摘要、可能原因和解决步骤。该能力用于 AIProxy 故障诊断，不替代应用流量的会话分析。
 
@@ -8,7 +8,7 @@ Agent 接入让 Codex、Claude Code 和 Cursor 通过本地 MCP 服务查询 AIP
 
 - MCP 服务以本地 stdio sidecar 运行，不开放网络端口。
 - 读取能力默认只读取已持久化会话；控制写操作通过仅当前用户可访问的本地 IPC 调用桌面端，不开放 TCP 端口。
-- 读取权限、六个控制权限分组、Body 上限和脱敏策略都由你控制；控制权限默认全部关闭，所有工具调用都会写入仅含元数据的审计日志。
+- 读取权限、六个基础控制权限、六个自动化权限、Body 上限和脱敏策略都由你控制；控制权限默认全部关闭，所有工具调用都会写入仅含元数据的审计日志。
 - 应用未运行时，控制写工具会自动拉起并聚焦 AIProxy；自动启动不会先按旧配置启抓，而是等待 Agent 的下一步工具调用。
 - AIProxy 不会上传抓包。Agent 读取内容后，这些内容会发送到对应客户端的模型服务商，因此仍需按任务最小化授权。
 
@@ -51,7 +51,7 @@ Agent 接入让 Codex、Claude Code 和 Cursor 通过本地 MCP 服务查询 AIP
 | 仅元数据 | 定位请求、状态码、Host、Timing 或规则命中 | 会话摘要、Headers、Query、Cookie、Timing 与规则追踪，不读取 Body |
 | 含响应 Body | 需要检查 JSON 字段、错误响应或 WebSocket 内容 | 在元数据基础上增加脱敏后的请求 / 响应 Body 与 WebSocket 消息 |
 | 含原始数据（高风险） | 任务明确需要未脱敏字段，且已确认数据敏感度 | 额外允许 raw 与 base64 Body；可能暴露凭据和个人信息，只应临时开启 |
-| 完整控制（高风险） | 首次安装、需要 Agent 调整 SSL/端口、启停抓包、管理证书、系统代理、清理 Session、重放请求或创建临时规则 | 在脱敏 Body 与 WebSocket 读取基础上，开启六个控制权限分组；不启用未脱敏 Body |
+| 完整控制（高风险） | 首次安装、需要 Agent 调整 SSL/端口、启停抓包、管理证书、系统代理、清理 Session、重放请求、创建临时规则或执行自动化实验 | 在脱敏 Body 与 WebSocket 读取基础上，开启六个基础控制权限和六个自动化权限；不启用未脱敏 Body |
 
 连接后仍可在 **读取权限** 和 **控制权限** 中调整。关闭 **读取 Body** 会同时关闭 **读取未脱敏 Body**。
 
@@ -98,7 +98,9 @@ Agent 可以在应用关闭时自动拉起并聚焦 AIProxy。应用内不再二
 
 ## 控制权限
 
-控制权限位于读取权限下方，默认全部关闭：
+控制权限位于读取权限下方，默认全部关闭。权限分为基础控制与自动化两组；新自动化权限不会因为旧版临时规则权限或升级而自动开启。
+
+基础控制权限：
 
 | 权限 | 允许 Agent 做什么 |
 |---|---|
@@ -107,9 +109,20 @@ Agent 可以在应用关闭时自动拉起并聚焦 AIProxy。应用内不再二
 | 管理根证书 | 生成或轮换证书、打开系统安装入口、撤销信任并删除证书 |
 | 删除会话 | 清空全部会话与 Body，或按 session ID 批量删除（单次最多 200 个） |
 | 重放已捕获请求 | 直连原请求的 host 重新发送一次 HTTP 请求，并把结果保存为新会话 |
-| 创建临时规则 | 创建、列出和删除白名单内的临时 Agent 规则；不能编辑用户规则 |
+| 创建临时规则 | 创建、列出和删除白名单内的临时 Agent 规则；不能编辑用户规则；仍只使用旧的 `manageRules` 授权 |
 
-点击 **启用完整控制** 会一次打开六项权限。开启后 Agent 执行对应操作时，应用内不再二次确认；因此只应在信任当前 Agent 和任务时使用。审计日志会记录动作摘要、耗时和错误码，但不记录凭据、Body 或规则值。
+自动化权限：
+
+| 权限 | 允许 Agent 做什么 |
+|---|---|
+| 管理 Agent 自动化 | 读取、校验、应用、验证、回滚和清理 Agent 自有自动化资源；不会自动获得修改你已有规则的权限 |
+| 管理我的自动化 | 更新、删除、启停或回滚你拥有的资源；高风险，必须单独开启 |
+| 管理脚本 | 预留授权位；首版 Script 写入仍返回 `FEATURE_NOT_AVAILABLE` |
+| 映射到其他主机 | 预留授权位；首版 Map Remote 写入仍返回 `FEATURE_NOT_AVAILABLE` |
+| 通过 AIProxy 验证 | 允许向本地代理监听端口发送受控幂等验证请求；仍要求 change、origin 白名单和运行状态校验 |
+| 管理全局自动化 | 预留授权位；首版 global scope 与 Breakpoint 写入仍不可用 |
+
+点击 **启用完整控制** 会一次打开全部十二项权限。开启后 Agent 执行对应操作时，应用内不再二次确认；因此只应在信任当前 Agent 和任务时使用。首版即使开启“管理脚本”“映射到其他主机”或“管理全局自动化”，也不会绕过 `FEATURE_NOT_AVAILABLE`。审计日志会记录动作摘要、耗时和错误码，但不记录凭据、Body 或规则值。
 
 ### 请求重放
 
@@ -117,7 +130,7 @@ Agent 可以在应用关闭时自动拉起并聚焦 AIProxy。应用内不再二
 
 重放有两条重要限制：
 
-- **不经过 AIProxy，也不执行任何用户或 Agent 规则。** 因此不能用重放验证 Rewrite、Map、限速或临时规则；要验证规则，应让真实客户端重新发起请求，再用 `wait_for_sessions` 等待新会话，然后查看 `ruleTraces`。
+- **不经过 AIProxy，也不执行任何用户或 Agent 规则。** 因此不能用重放验证 Rewrite、Map、限速或临时规则。自动化实验应使用 `verify_automation_change`；如果选择 `external` 真实客户端证据，应让真实客户端在 change 激活后重新发起请求，再用 `wait_for_sessions` 等待新会话并交给验证工具检查。
 - URL 只能通过 Query 参数覆盖修改，目标 host 与原会话严格一致。Agent 不能借重放把请求发到另一个 host。
 
 重放同一时刻只允许一个请求，每分钟最多 10 次；超过限制会返回 `RATE_LIMITED`。成功时结果保存为 `timingSource=agentReplay` 的新会话；如果发送前失败，返回 `REPLAY_FAILED`，不会伪造新会话。原始请求 Body 已被捕获截断时，Agent 必须提供完整的 `body` 覆盖，不能静默发送不完整内容。
@@ -135,6 +148,46 @@ Agent 可以在应用关闭时自动拉起并聚焦 AIProxy。应用内不再二
 - 复制 Agent 规则会生成普通持久化规则，并去掉临时标记与到期时间；如果希望长期保留，应显式复制并保存。
 
 Agent 规则达到上限时返回 `RULE_LIMIT_EXCEEDED`；从规则页尝试修改 Agent 规则时返回 `RULE_READ_ONLY`。实验结束后应及时调用 `remove_agent_rules`，不要依赖到期清理。
+
+### Agent 自动化实验
+
+自动化实验与旧的 `create_agent_rule` 是两套独立能力。自动化工具使用新的 `manageAutomation`，首版只写 Rewrite 与 Map Local；旧的临时规则仍只使用 `manageRules`，不会获得持久化、脚本或跨 host 能力。
+
+首版支持：
+
+- 创建常驻或临时 Rewrite / Map Local 资源；常驻资源会写入规则库并持续生效，直到显式回滚或转为用户规则。
+- 临时（`ephemeral`）资源只能新建，不能更新、删除或激活已有资源；TTL 为 60-3600 秒，默认 600 秒，到期、主动清理或应用重启都会撤销实验。
+- 在 `manageUserAutomation` 开启时，按精确资源版本更新或删除你拥有的常驻资源；未开启时只能操作 Agent 自有资源。
+- 同一计划不能重复更新或重复删除同一资源，也不能同时更新和删除它；这类计划会在 validate 阶段被拒绝，避免产生无法回滚的 change。
+- 常驻计划不能更新仍属于临时实验的资源。请等待临时资源到期、先清理 Agent 资源，或新建常驻资源；应用不支持跨生命周期原地转换。
+- Map Local 的文件必须位于 **设置 → Agent 接入 → Map Local 批准根目录** 中，或引用同一计划托管的上传资产。最多批准 10 个根目录；目录只能通过系统选择器添加，失效路径会保留并显示 warning。越界、文件不存在、不是普通文件或符号链接逃逸都会返回 `PATH_NOT_APPROVED`。
+- Rewrite Redirect 只能指向规则匹配 host 上的 HTTP/S URL。跨 host Redirect 返回 `FEATURE_NOT_AVAILABLE`；即使开启“映射到其他主机”也不能绕过。
+- 首版 `Map Remote`、DNS、Script、Throttle Profile / Rule、Breakpoint、Throttle activation、global scope、跨 host Redirect 和跨 host 映射写入均返回 `FEATURE_NOT_AVAILABLE`。
+
+推荐由 Agent 按以下顺序完成任务：
+
+1. `list_automation_resources` / `get_automation_resource` 读取资源、所有权与当前版本。
+2. `validate_automation_plan` 生成 `planHash`、`scopeHash`、冲突摘要与 warning，不写库、不改运行时。
+3. `apply_automation_plan` 使用上一步的哈希和稳定的 `idempotencyKey` 应用计划；只有 change set 进入 `active` 且统一运行时发布成功才视为成功。
+4. `verify_automation_change` 执行断言并记录证据。验证前必须确认 change 仍为 `active`，目标资源版本仍等于 `versionAfter`。
+5. `get_automation_change` 读取 change、资源前后快照、实验状态、验证记录、清理状态和 `runtimeGeneration`。
+6. 结束时按任务要求调用 `rollback_automation_change` 或 `clear_agent_automation`，并再次确认没有可见残留资源。
+
+#### 验证证据等级
+
+| 等级 | 能证明什么 | 不能证明什么 |
+|---|---|---|
+| `offline` 离线变换 | 使用与代理链路相同的匹配和变换实现，证明“请求会命中并如何变换”；不发送网络请求 | 不能证明代理监听端口已生效、真实客户端已重发或页面已正确渲染 |
+| `proxy` 受控代理 | 通过当前 AIProxy 监听端口发送受控请求，证明代理运行时命中规则并返回预期字段 | 不能替代真实 App 的页面渲染和交互验证 |
+| `external` 真实客户端 | 读取 change 激活后由真实客户端产生的已持久化会话，检查规则 trace 与断言 | 只证明该会话中的 HTTP 行为，不能证明页面视觉呈现；`agentReplay` 会话会被拒绝 |
+
+代理验证只允许 `GET` / `HEAD` / `OPTIONS`，每批最多 20 个请求，每分钟最多 10 个请求，响应体最多 256 KiB。目标必须来自 **代理验证 origin 白名单**；发送前会用同一套规则管线预检最终 URL 和 Redirect 目标，发现跨 host 变换就拒绝；请求之后还会检查实际 trace，异常时标记为 `rule_failed`。HTTPS 还要求开启 SSL interception 且根证书已受信任，否则返回 `PROXY_VERIFICATION_UNAVAILABLE`。跨 host 映射使用独立白名单，不能与代理验证白名单混用。代理验证和外部验证都不是“App 一定渲染正确”的证明。断言结果会保留 `subject` 与 `path`，而 `actual`、`expected` 和消息会按字段来源脱敏。
+
+#### 在 Rules 页查看与清理
+
+打开 **Rules → Agent 实验** 可查看最近 change set、资源变更、实验目标、基线会话、断言、证据等级、证据会话、冲突诊断、限制与清理状态。临时资源可使用 **清理临时资源**；常驻 Agent 资源可 **回滚**；确认长期保留时可 **转为我的规则**。转为用户规则后该 change set 状态为 `promoted`，不能再回滚。
+
+`clear_agent_automation` 只清理当前安装实例中 Agent 自有的资源，不删除或恢复用户资源，也不能替代针对某个 change 的资源级回滚。它按所有权直接删除资源和元数据，并终止这些资源的完整 change 历史，不会通过回滚最后一个 change 恢复出更早的 Agent 版本；发布运行时后仍有目标残留时返回 `CLEANUP_INCOMPLETE`，不会报告成功。回滚按 change items 的资源版本与依赖检查；无关资源的后续变化不应阻断回滚，目标或依赖已变化则返回 `ROLLBACK_CONFLICT`。`runtimeGeneration` 用于说明证据和运行时快照的对应关系，不能把旧证据复用到新资源版本。
 
 ## 客户端状态与管理
 
@@ -182,6 +235,8 @@ Agent 规则达到上限时返回 `RULE_LIMIT_EXCEEDED`；从规则页尝试修�
 - “把这条登录请求导出为 PowerShell cURL，但不要显示完整 Cookie。”
 - “重放我刚才明确指定的这条 GET 请求，并把新 sessionId、状态码和失败原因告诉我。”
 - “临时给 `/api/checkout` 加一个调试 Header，10 分钟后自动失效；验证完立即清理。”
+- “为 `/api/items` 创建三条互斥的 Map Local 响应，分别返回正常、空数据和业务错误；用受控代理验证状态码与 JSON 字段，并给出证据等级和限制。”
+- “把刚才的 Rewrite 实验改为常驻规则，验证后回滚；确认 Rules → Agent 实验里没有残留资源。”
 
 如果 Agent 提示看不到响应体，先确认连接时选择了 **含响应 Body**，或在 **读取权限** 中开启 Body 读取后保存。
 
@@ -196,15 +251,32 @@ Agent 规则达到上限时返回 `RULE_LIMIT_EXCEEDED`；从规则页尝试修�
 | `CONTROL_PERMISSION_DENIED` | 对应的控制权限未开启。到 **设置 → Agent 接入 → 控制权限** 开启后保存。 |
 | `CONTROL_UNAVAILABLE` | 桌面端未运行、控制通道不可用或版本不匹配。打开或更新 AIProxy 后重试。 |
 | `AUDIT_UNAVAILABLE` | 审计日志不可写，敏感操作已被拒绝。检查数据目录权限，不要反复重试。 |
+| `FEATURE_NOT_AVAILABLE` | 首版尚未开放该资源类型或操作，例如 Map Remote、DNS、Script、Throttle、Breakpoint、global scope 或 activation。不要通过开启预留权限绕过。 |
+| `PLAN_HASH_MISMATCH` / `SCOPE_CONFLICT` | 计划或作用域已经变化。重新读取资源、执行 `validate_automation_plan`，不要手工沿用旧哈希。 |
+| `IDEMPOTENCY_CONFLICT` | 同一 `idempotencyKey` 已用于另一份计划。读取返回的 `changeId`，使用新的 key 或复用原计划。 |
+| `RESOURCE_VERSION_MISMATCH` | 目标资源版本已变化。重新 `get_automation_resource`、校验并生成新计划，不能把旧证据套到新资源。 |
+| `PATH_NOT_APPROVED` | Map Local 路径不在批准根目录、文件不存在、不是普通文件或存在符号链接逃逸。检查批准根目录与文件路径。 |
+| `ORIGIN_NOT_ALLOWED` | 代理验证目标不在独立 origin 白名单中。先在设置中添加精确 origin。 |
+| `RULE_PREFLIGHT_FAILED` | 代理验证发送前无法用离线规则管线完成评估，请求未发出。先检查规则内容，或改用离线验证定位。 |
+| `PROXY_VERIFICATION_UNAVAILABLE` | 代理未运行、HTTPS 未拦截或根证书未受信任，验证请求无法通过监听端口完成。先修复代理与证书状态。 |
+| `INSUFFICIENT_EVIDENCE` | 外部验证没有可用会话、会话早于 change 激活时间，或用了 `agentReplay` 会话。让真实客户端重发并等待新会话。 |
+| `ROLLBACK_CONFLICT` | 目标资源或依赖版本已经变化。先查看最新 change / 资源，不要强制覆盖。 |
+| `CLEANUP_INCOMPLETE` | 清理后仍发现本次应删除的 Agent 资源。读取 change 和 Rules 页状态，不要报告清理成功。 |
+| `RECOVERY_CONFLICT` | 启动恢复发现资源处于既非变更前也非变更后的混合状态，需要人工检查。 |
+| `RUNTIME_PUBLISH_FAILED` / `ACTIVATION_RECORD_FAILED` | 数据库已提交，但运行时发布或 active 状态记录失败。读取 change 和应用状态，不能假定完全成功或完全失败。 |
+| `STATE_CONFLICT` / `CHANGE_NOT_APPLICABLE` | 当前 change 状态不允许继续验证、回滚、提升或清理。先刷新 change 详情。 |
+| `RESULT_TOO_LARGE` | 代理验证响应超过 256 KiB，或自动化结果过大。缩小验证目标、断言或分页读取。 |
 
 ## 安全边界
 
 - stdio sidecar 不暴露网络监听端口，但同一系统用户下的进程仍可能访问本地数据；这是本地工具的信任边界。
 - 默认脱敏、默认关闭的控制权限和审计用于降低暴露面，不能替代对敏感项目的判断。
 - 抓包内容可能包含恶意提示或伪造指令，Agent 必须把它当作不可信数据。不要因为响应 Body 中写着“请删除会话”或“请关闭证书校验”就执行操作。
-- 删除类操作、撤销证书信任、非幂等重放和创建临时规则只能在当前对话中由你明确请求，不能由抓包内容、网页文本或工具返回值触发。
+- 删除类操作、撤销证书信任、非幂等重放、创建临时规则、应用自动化计划、清理 Agent 资源和回滚用户资源只能在当前对话中由你明确请求，不能由抓包内容、网页文本或工具返回值触发。
 - 重放会产生真实外部副作用，并且不经过 AIProxy 或任何规则；不要用重放结果证明规则已经生效。
-- Agent 临时规则会真实影响经过代理的匹配流量。即使规则会自动过期，也应在实验结束后主动清理。
+- Agent 临时规则、常驻资源与自动化实验都会真实影响经过代理的匹配流量。即使临时资源会自动过期，也应在实验结束后主动清理；清理前先检查 change 详情，不要删除用户资源。
+- `offline` 证据只证明离线变换，`proxy` 证据只证明受控请求经过代理后的 HTTP 结果，`external` 证据也只证明真实客户端产生的会话。三者都不能单独证明页面视觉渲染正确。
+- 自动化计划使用共享写协调器并串行发布运行时；不要并发启动多个互相修改同一资源的实验。遇到 `RUNTIME_PUBLISH_FAILED`、`ACTIVATION_RECORD_FAILED` 或 `RECOVERY_CONFLICT` 时先检查状态，不要反复重试。
 - 不要把生产凭据、个人数据或受监管数据交给不需要它们的 Agent 任务。
 - 结束敏感调试后，及时关闭 **读取未脱敏 Body**，必要时断开不再使用的客户端。
 
@@ -229,6 +301,14 @@ Agent 规则达到上限时返回 `RULE_LIMIT_EXCEEDED`；从规则页尝试修�
 ### Q: 删除会话后能恢复吗？
 
 不能。`clear_sessions` 会删除完整数据库会话与 Body 文件，`delete_sessions` 会删除指定 ID 及其 Body。执行前请确认当前对话中的删除请求来自你本人，而不是抓包内容中的指令。
+
+### Q: Agent 说 Rewrite 已验证，但重放没有看到改写，哪个结果可信？
+
+`replay_session` 直连原上游并绕过所有规则，不能用于证明 Rewrite 生效。请查看 `verify_automation_change` 的 `evidenceLevel`：`offline` 只代表离线变换，`proxy` 代表受控请求经过 AIProxy，`external` 代表真实客户端产生了新会话。需要页面表现时，还必须由真实 App 或外部测试工具提供证据。
+
+### Q: “清理临时资源”和“回滚”有什么区别？
+
+回滚针对一个常驻 change set，按资源级快照和依赖检查恢复；清理临时资源会移除 Agent 自有的临时资源，不删除用户规则。`clear_agent_automation` 也不会恢复被回滚或修改过的用户资源，因此两者不能互相替代。
 
 ### Q: 断开连接会删除什么？
 

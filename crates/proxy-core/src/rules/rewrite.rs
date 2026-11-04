@@ -282,15 +282,33 @@ pub(crate) fn rewrite_actions(rule: &RewriteRule) -> Vec<(String, Value)> {
     vec![(rule.rewrite_type.clone(), rule.payload.clone())]
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn apply_request_rewrite_rules(
     rewrite_manager: &Option<Arc<RewriteManager>>,
     workspace_id: &str,
     request: &mut ParsedProxyRequest,
     is_http2: bool,
 ) -> Result<Vec<RewriteTrace>, String> {
+    let Some(manager) = rewrite_manager else {
+        return Ok(Vec::new());
+    };
+    apply_request_rewrite_rules_with_snapshot(
+        &manager.runtime_snapshot(),
+        workspace_id,
+        request,
+        is_http2,
+    )
+}
+
+pub(crate) fn apply_request_rewrite_rules_with_snapshot(
+    snapshot: &RuntimeRuleSnapshot,
+    workspace_id: &str,
+    request: &mut ParsedProxyRequest,
+    is_http2: bool,
+) -> Result<Vec<RewriteTrace>, String> {
     let mut traces = Vec::new();
 
-    for rule in active_rewrite_rules_for_stage(rewrite_manager, workspace_id, "request", request) {
+    for rule in active_rewrite_rules_for_snapshot(snapshot, workspace_id, "request", request) {
         let started_at = Instant::now();
         let mut entries = Vec::new();
 
@@ -567,6 +585,7 @@ fn apply_request_action(
     Ok("success")
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn apply_response_rewrite_rules(
     rewrite_manager: &Option<Arc<RewriteManager>>,
     workspace_id: &str,
@@ -574,9 +593,28 @@ pub(crate) fn apply_response_rewrite_rules(
     response: &mut UpstreamResponse,
     is_http2: bool,
 ) -> Result<Vec<RewriteTrace>, String> {
+    let Some(manager) = rewrite_manager else {
+        return Ok(Vec::new());
+    };
+    apply_response_rewrite_rules_with_snapshot(
+        &manager.runtime_snapshot(),
+        workspace_id,
+        request,
+        response,
+        is_http2,
+    )
+}
+
+pub(crate) fn apply_response_rewrite_rules_with_snapshot(
+    snapshot: &RuntimeRuleSnapshot,
+    workspace_id: &str,
+    request: &ParsedProxyRequest,
+    response: &mut UpstreamResponse,
+    is_http2: bool,
+) -> Result<Vec<RewriteTrace>, String> {
     let mut traces = Vec::new();
 
-    for rule in active_rewrite_rules_for_stage(rewrite_manager, workspace_id, "response", request) {
+    for rule in active_rewrite_rules_for_snapshot(snapshot, workspace_id, "response", request) {
         let started_at = Instant::now();
         let mut entries = Vec::new();
 
