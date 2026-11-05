@@ -132,27 +132,39 @@ async fn prepare_control_auth(
                 ),
             ));
         }
-        let request = AgentGrantRequest {
-            capability,
-            action_fingerprint: operation_action_fingerprint(operation),
-            action_summary: operation.action_summary(),
-            scope: scope.clone(),
-            reason: format!(
-                "The Agent needs temporary {} access for this specific action.",
-                permission_label(permission)
-            ),
-            approval_options: approval_options(operation, operation_non_idempotent(operation)),
-            expires_in_seconds: 30,
-            non_idempotent: operation_non_idempotent(operation),
-            resource_policy: operation_resource_policy(operation),
-        };
-        let grant = request_grant_with_descriptor(descriptor, request, caller).await?;
+        let grant =
+            request_operation_grant(descriptor, operation, capability, scope.clone(), caller)
+                .await?;
         grant_ids.push(grant.id);
     }
     Ok(ControlAuth {
         grant_ids,
         action_fingerprint: Some(operation_action_fingerprint(operation)),
     })
+}
+
+async fn request_operation_grant(
+    descriptor: &ControlDescriptor,
+    operation: &ControlOperation,
+    capability: AgentCapability,
+    scope: AgentGrantScope,
+    caller: ControlCaller<'_>,
+) -> Result<AgentGrant, ToolError> {
+    let request = AgentGrantRequest {
+        capability,
+        action_fingerprint: operation_action_fingerprint(operation),
+        action_summary: operation.action_summary(),
+        scope,
+        reason: format!(
+            "The Agent needs temporary {} access for this specific action.",
+            capability.as_str()
+        ),
+        approval_options: approval_options(operation, operation_non_idempotent(operation)),
+        expires_in_seconds: 30,
+        non_idempotent: operation_non_idempotent(operation),
+        resource_policy: operation_resource_policy(operation),
+    };
+    request_grant_with_descriptor(descriptor, request, caller).await
 }
 
 #[derive(Debug, Clone)]
@@ -491,6 +503,24 @@ fn operation_resource_policy(operation: &ControlOperation) -> Option<AgentGrantR
     })
 }
 
+fn approval_required_capabilities(error: &ToolError) -> Vec<AgentCapability> {
+    error
+        .details
+        .as_ref()
+        .and_then(|details| details.get("capabilities"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(|value| {
+                    serde_json::from_str::<AgentCapability>(&format!("\"{value}\"")).ok()
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub async fn call_control(
     paths: &AppPaths,
     operation: ControlOperation,
@@ -527,6 +557,40 @@ pub async fn call_control(
     .await;
     match first {
         Ok(value) => Ok(value),
+        Err(error) if error.code == "APPROVAL_REQUIRED" => {
+            // The desktop may conditionally require a capability that is not
+            // part of the operation's static permission list (for example
+            // manageUserAutomation for a plan that touches user-owned rules).
+            // Ask for the missing grants and retry once.
+            let capabilities = approval_required_capabilities(&error);
+            if capabilities.is_empty() {
+                return Err(error);
+            }
+            let scope = operation_grant_scope(paths, &operation).await?;
+            let mut auth = auth;
+            for capability in capabilities {
+                let grant = request_operation_grant(
+                    &descriptor,
+                    &operation,
+                    capability,
+                    scope.clone(),
+                    caller,
+                )
+                .await?;
+                if !auth.grant_ids.contains(&grant.id) {
+                    auth.grant_ids.push(grant.id);
+                }
+            }
+            auth.action_fingerprint = Some(operation_action_fingerprint(&operation));
+            call_once(
+                operation,
+                descriptor,
+                CONTROL_WRITE_TIMEOUT_SECS,
+                caller,
+                &auth,
+            )
+            .await
+        }
         Err(error) if allow_launch && error.code == "CONTROL_UNAVAILABLE" && error.retryable => {
             // A stale descriptor is common after a crash. The single-instance
             // plugin focuses an already-running app, so launching is safe.
@@ -1229,5 +1293,24 @@ mod tests {
         assert_eq!(scope.methods, vec!["POST".to_string()]);
         assert_eq!(scope.host.as_deref(), Some("api.example.com"));
         assert_eq!(scope.path_prefix.as_deref(), Some("/v1/orders"));
+    }
+
+    #[test]
+    fn approval_required_details_map_back_to_capabilities() {
+        let error =
+            ToolError::new("APPROVAL_REQUIRED", "needs approval").with_details(serde_json::json!({
+                "capabilities": ["manageUserAutomation", "manageAutomation"]
+            }));
+        assert_eq!(
+            approval_required_capabilities(&error),
+            vec![
+                AgentCapability::ManageUserAutomation,
+                AgentCapability::ManageAutomation
+            ]
+        );
+        assert!(
+            approval_required_capabilities(&ToolError::new("APPROVAL_REQUIRED", "no details"))
+                .is_empty()
+        );
     }
 }

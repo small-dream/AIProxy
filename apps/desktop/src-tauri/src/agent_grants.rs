@@ -335,6 +335,20 @@ pub fn authorize(
     )
 }
 
+/// Whether the request already carries a grant for this capability. Used to
+/// distinguish "the client did not request this capability yet" (return
+/// APPROVAL_REQUIRED so it can ask) from "the grant does not match this action"
+/// (a real approval error).
+pub fn has_grant_for_capability(grant_ids: &[String], capability: AgentCapability) -> bool {
+    let guard = store().lock().unwrap_or_else(|error| error.into_inner());
+    grant_ids.iter().any(|id| {
+        guard
+            .grants
+            .iter()
+            .any(|grant| grant.id == *id && grant.capability == capability)
+    })
+}
+
 fn authorized_grant_id(
     grants: &[AgentGrant],
     agent_instance_id: &str,

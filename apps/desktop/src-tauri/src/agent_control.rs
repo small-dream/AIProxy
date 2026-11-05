@@ -552,8 +552,11 @@ fn execute_request(
             notify_ui: false,
         };
     }
+    let extra_permissions = conditional_permissions(app, &request.operation);
     let result = if request.operation.is_write() {
-        if let Err(error) = preflight_request(token, data_dir, &request) {
+        if let Err(error) =
+            preflight_request_with_extra(token, data_dir, &request, &extra_permissions)
+        {
             return ControlExecution {
                 result: Err(error),
                 notify_ui: false,
@@ -563,14 +566,15 @@ fn execute_request(
         // A request can wait behind another long write. Re-read the live
         // permissions and audit availability after acquiring the lock so a
         // revocation that happened while queued still stops this action.
-        let result = match preflight_request(token, data_dir, &request) {
-            Ok(preflight) => execute_authorized_request(app, data_dir, request, preflight),
-            Err(error) => Err(error),
-        };
+        let result =
+            match preflight_request_with_extra(token, data_dir, &request, &extra_permissions) {
+                Ok(preflight) => execute_authorized_request(app, data_dir, request, preflight),
+                Err(error) => Err(error),
+            };
         drop(guard);
         result
     } else {
-        match preflight_request(token, data_dir, &request) {
+        match preflight_request_with_extra(token, data_dir, &request, &extra_permissions) {
             Ok(preflight) => execute_authorized_request(app, data_dir, request, preflight),
             Err(error) => Err(error),
         }
@@ -603,6 +607,84 @@ fn execute_authorized_request(
     ))
 }
 
+/// Capabilities the action may need beyond its static requirement. Automation
+/// apply/rollback can touch user-owned rules even though the control operation
+/// only declares `manageAutomation`; inspect the persisted ownership so the
+/// user is asked for `manageUserAutomation` only when it is really needed.
+fn conditional_permissions(
+    app: &AppHandle,
+    operation: &ControlOperation,
+) -> Vec<ControlPermission> {
+    if operation_requires_user_automation(app, operation) {
+        vec![ControlPermission::ManageUserAutomation]
+    } else {
+        Vec::new()
+    }
+}
+
+fn operation_requires_user_automation(app: &AppHandle, operation: &ControlOperation) -> bool {
+    let state = app.state::<Arc<AppState>>();
+    let state = state.inner();
+    let Ok(conn) = state.lock_db_for_ipc() else {
+        tracing::warn!(
+            component = "desktop.agent_control",
+            event = "automation_ownership_probe_failed",
+            "automation_ownership_probe_failed"
+        );
+        // Fail closed: ask for the grant instead of silently skipping the check.
+        return true;
+    };
+    match operation {
+        ControlOperation::ApplyAutomationPlan(params) => {
+            let plan = &params.plan;
+            let mut targets: Vec<(&str, &str)> = Vec::new();
+            for upsert in &plan.upserts.rewrite {
+                if let Some(id) = upsert.id.as_deref() {
+                    targets.push(("rewrite", id));
+                }
+            }
+            for upsert in &plan.upserts.map {
+                if let Some(id) = upsert.id.as_deref() {
+                    targets.push(("map", id));
+                }
+            }
+            for delete in &plan.deletes {
+                targets.push((delete.kind.as_str(), delete.id.as_str()));
+            }
+            targets.into_iter().any(|(kind, id)| {
+                match aiproxy_db::automation::load_automation_resource(&conn, kind, id) {
+                    Ok(Some(row)) if row.owner_kind == "agent" => false,
+                    Ok(_) => true,
+                    Err(error) => {
+                        tracing::warn!(
+                            component = "desktop.agent_control",
+                            event = "automation_ownership_probe_failed",
+                            error = %error,
+                            "automation_ownership_probe_failed"
+                        );
+                        true
+                    }
+                }
+            })
+        }
+        ControlOperation::RollbackAutomationChange(params) => {
+            match aiproxy_db::automation::load_automation_change_items(&conn, &params.change_id) {
+                Ok(items) => crate::automation::change_requires_user_automation(&items),
+                Err(error) => {
+                    tracing::warn!(
+                        component = "desktop.agent_control",
+                        event = "automation_ownership_probe_failed",
+                        error = %error,
+                        "automation_ownership_probe_failed"
+                    );
+                    true
+                }
+            }
+        }
+        _ => false,
+    }
+}
+
 /// Validate everything that can deny a control action before any side effect
 /// runs. Keeping this separate from `dispatch` makes the security boundary
 /// testable without constructing a Tauri application.
@@ -610,6 +692,15 @@ fn preflight_request(
     token: &str,
     data_dir: &Path,
     request: &ControlRequest,
+) -> Result<Preflight, ControlError> {
+    preflight_request_with_extra(token, data_dir, request, &[])
+}
+
+fn preflight_request_with_extra(
+    token: &str,
+    data_dir: &Path,
+    request: &ControlRequest,
+    extra_permissions: &[ControlPermission],
 ) -> Result<Preflight, ControlError> {
     if request.protocol_version != CONTROL_PROTOCOL_VERSION {
         return Err(ControlError::new(
@@ -660,8 +751,8 @@ fn preflight_request(
             grants: AuthorizedGrants::default(),
         });
     }
-    ensure_permission(&config, &request.operation)?;
-    let grants = ensure_approved_grants(&config, request)?;
+    ensure_permission(&config, &request.operation, extra_permissions)?;
+    let grants = ensure_approved_grants(&config, request, extra_permissions)?;
     validate_operation(&request.operation)?;
 
     if request.operation.is_write() {
@@ -698,21 +789,21 @@ fn ensure_grant_request_allowed(
 fn ensure_approved_grants(
     config: &AgentAccessConfig,
     request: &ControlRequest,
+    extra_permissions: &[ControlPermission],
 ) -> Result<AuthorizedGrants, ControlError> {
-    let missing = request
-        .operation
-        .required_permissions()
+    let missing = required_permissions_for(&request.operation, extra_permissions)
         .into_iter()
         .filter(|permission| !control_permission_enabled(config, *permission))
         .collect::<Vec<_>>();
     if missing.is_empty() {
         return Ok(AuthorizedGrants::default());
     }
+    let missing_capabilities = missing
+        .iter()
+        .map(|permission| capability_for_control_permission(*permission))
+        .collect::<Vec<_>>();
     if request.grant_ids.is_empty() {
-        return Err(ControlError::new(
-            "APPROVAL_REQUIRED",
-            "This Agent control action needs a short-lived desktop approval before it can run.",
-        ));
+        return Err(approval_required_error(&missing_capabilities));
     }
     let agent_instance_id = request
         .agent_instance_id
@@ -735,9 +826,16 @@ fn ensure_approved_grants(
         ));
     }
     let mut authorized = AuthorizedGrants::default();
-    for permission in missing {
-        let capability = capability_for_control_permission(permission);
+    let mut not_requested = Vec::new();
+    for capability in missing_capabilities {
         ensure_grant_request_allowed(config, capability)?;
+        // A request may carry only the grants it already knows about. Report
+        // the remaining capabilities so the sidecar can ask for them instead of
+        // failing the whole action with APPROVAL_INVALID.
+        if !agent_grants::has_grant_for_capability(&request.grant_ids, capability) {
+            not_requested.push(capability);
+            continue;
+        }
         let grant_id = agent_grants::authorize(
             agent_instance_id,
             &client_name,
@@ -752,7 +850,23 @@ fn ensure_approved_grants(
         }
         authorized.capabilities.insert(capability);
     }
+    if !not_requested.is_empty() {
+        return Err(approval_required_error(&not_requested));
+    }
     Ok(authorized)
+}
+
+fn approval_required_error(capabilities: &[AgentCapability]) -> ControlError {
+    ControlError::new(
+        "APPROVAL_REQUIRED",
+        "This Agent control action needs a short-lived desktop approval before it can run.",
+    )
+    .with_details(json!({
+        "capabilities": capabilities
+            .iter()
+            .map(|capability| capability.as_str())
+            .collect::<Vec<_>>(),
+    }))
 }
 
 fn automation_permissions(
@@ -1494,8 +1608,9 @@ async fn set_system_proxy(state: Arc<AppState>, enabled: bool) -> Result<Value, 
 fn ensure_permission(
     config: &AgentAccessConfig,
     operation: &ControlOperation,
+    extra_permissions: &[ControlPermission],
 ) -> Result<(), ControlError> {
-    for permission in operation.required_permissions() {
+    for permission in required_permissions_for(operation, extra_permissions) {
         if control_permission_enabled(config, permission) {
             continue;
         }
@@ -1511,6 +1626,19 @@ fn ensure_permission(
         }
     }
     Ok(())
+}
+
+fn required_permissions_for(
+    operation: &ControlOperation,
+    extra_permissions: &[ControlPermission],
+) -> Vec<ControlPermission> {
+    let mut permissions = operation.required_permissions();
+    for permission in extra_permissions {
+        if !permissions.contains(permission) {
+            permissions.push(*permission);
+        }
+    }
+    permissions
 }
 
 fn control_permission_enabled(config: &AgentAccessConfig, permission: ControlPermission) -> bool {
@@ -2277,5 +2405,24 @@ mod tests {
         assert!(rendered.contains("upstreamProxyEnabled"));
         assert!(!rendered.contains("workspace-user"));
         assert!(!rendered.contains("workspace-secret"));
+    }
+
+    #[test]
+    fn conditional_permissions_are_deduplicated_and_reported() {
+        let permissions = required_permissions_for(
+            &ControlOperation::GetStatus,
+            &[
+                ControlPermission::ManageUserAutomation,
+                ControlPermission::ManageUserAutomation,
+            ],
+        );
+        assert_eq!(permissions, vec![ControlPermission::ManageUserAutomation]);
+
+        let error = approval_required_error(&[AgentCapability::ManageUserAutomation]);
+        assert_eq!(error.code, "APPROVAL_REQUIRED");
+        assert_eq!(
+            error.details.as_ref().unwrap()["capabilities"][0],
+            "manageUserAutomation"
+        );
     }
 }

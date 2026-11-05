@@ -1283,10 +1283,20 @@ impl AppState {
                 )
                 .with_details(json!({ "changeId": existing.id })));
             }
-            if matches!(existing.status.as_str(), "active" | "reverted" | "aborted") {
+            if existing.status == "active" {
                 let summary: Value =
                     serde_json::from_str(&existing.summary_json).unwrap_or(Value::Null);
                 return Ok(apply_result_from_change(&existing, &summary, true));
+            }
+            if matches!(existing.status.as_str(), "reverted" | "aborted") {
+                return Err(AutomationError::new(
+                    "CHANGE_NOT_APPLICABLE",
+                    "this idempotencyKey belongs to a change that was rolled back or cleared; use a new idempotencyKey to apply the plan again",
+                )
+                .with_details(json!({
+                    "changeId": existing.id,
+                    "status": existing.status,
+                })));
             }
             if matches!(existing.status.as_str(), "committed" | "publish_failed") {
                 let generation = self.publish_current_runtime(
@@ -1307,6 +1317,18 @@ impl AppState {
                 .map_err(|error| {
                     AutomationError::internal(format!("activate retried change: {error}"))
                 })?;
+                // Return the refreshed row: the stale `existing` still says
+                // publish_failed and carries no runtime generation.
+                let refreshed = automation::load_automation_change_set(&conn, &existing.id)
+                    .map_err(|error| {
+                        AutomationError::internal(format!("reload retried change: {error}"))
+                    })?
+                    .ok_or_else(|| {
+                        AutomationError::internal(format!(
+                            "retried change {} disappeared",
+                            existing.id
+                        ))
+                    })?;
                 drop(conn);
                 self.emit_automation_changed(
                     "apply_automation_plan_retry",
@@ -1314,8 +1336,8 @@ impl AppState {
                     generation,
                 );
                 let summary: Value =
-                    serde_json::from_str(&existing.summary_json).unwrap_or(Value::Null);
-                return Ok(apply_result_from_change(&existing, &summary, true));
+                    serde_json::from_str(&refreshed.summary_json).unwrap_or(Value::Null);
+                return Ok(apply_result_from_change(&refreshed, &summary, true));
             }
             return Err(AutomationError::new(
                 "CHANGE_NOT_APPLICABLE",
@@ -1497,6 +1519,12 @@ impl AppState {
                         format!("rewrite resource {id} does not exist"),
                     ));
                 }
+                ensure_resource_in_plan_scope(
+                    "rewrite",
+                    &id,
+                    &existing.as_ref().unwrap().workspace_id,
+                    workspace_id.as_deref().unwrap_or_default(),
+                )?;
                 if owner == "user" && !permissions.manage_user_automation {
                     return Err(AutomationError::new(
                         "CONTROL_PERMISSION_DENIED",
@@ -1620,6 +1648,12 @@ impl AppState {
                         format!("map resource {id} does not exist"),
                     ));
                 }
+                ensure_resource_in_plan_scope(
+                    "map",
+                    &id,
+                    &existing.as_ref().unwrap().workspace_id,
+                    workspace_id.as_deref().unwrap_or_default(),
+                )?;
                 if owner == "user" && !permissions.manage_user_automation {
                     return Err(AutomationError::new(
                         "CONTROL_PERMISSION_DENIED",
@@ -1772,6 +1806,26 @@ impl AppState {
                     format!("{kind} resource {} does not exist", delete.id),
                 )
             })?;
+            let resource_workspace_id = match &before {
+                PreparedResource::Rewrite(rule) => &rule.workspace_id,
+                PreparedResource::Map(rule) => &rule.workspace_id,
+            };
+            ensure_resource_in_plan_scope(
+                kind,
+                &delete.id,
+                resource_workspace_id,
+                workspace_id.as_deref().unwrap_or_default(),
+            )?;
+            // A persistent plan must not delete a resource that still belongs
+            // to an ephemeral change: the TTL rollback would then fail forever
+            // because its expected post-change version is gone.
+            ensure_persistent_update_allowed(
+                &metadata_conn,
+                &plan.lifecycle,
+                kind,
+                &delete.id,
+                metadata_before.as_ref(),
+            )?;
             let owner = metadata_before
                 .as_ref()
                 .map(|row| row.owner_kind.as_str())
@@ -4113,6 +4167,22 @@ fn path_is_within(path: &Path, root: &Path) -> bool {
     }
 }
 
+fn ensure_resource_in_plan_scope(
+    kind: &str,
+    resource_id: &str,
+    resource_workspace_id: &str,
+    plan_workspace_id: &str,
+) -> Result<(), AutomationError> {
+    if resource_workspace_id == plan_workspace_id {
+        return Ok(());
+    }
+    Err(AutomationError::new(
+        "SCOPE_CONFLICT",
+        format!("{kind} resource belongs to a different workspace"),
+    )
+    .with_details(json!({ "kind": kind, "resourceId": resource_id })))
+}
+
 fn ensure_persistent_update_allowed(
     conn: &aiproxy_db::rusqlite::Connection,
     plan_lifecycle: &str,
@@ -4410,7 +4480,14 @@ fn rewrite_row(rule: &RewriteRule) -> aiproxy_db::rules::RewriteRuleRow {
             .clone()
             .unwrap_or_else(|| "contains".to_string()),
         rewrite_type: rule.rewrite_type.clone(),
-        payload: serde_json::to_string(&rule.actions).unwrap_or_else(|_| "[]".to_string()),
+        // Legacy rows persist a single action object in `payload` and have no
+        // `actions` array. Preserve that shape on write so rolling an update
+        // back does not replace the object with `"null"`.
+        payload: if rule.actions.is_some() {
+            serde_json::to_string(&rule.actions).unwrap_or_else(|_| "[]".to_string())
+        } else {
+            serde_json::to_string(&rule.payload).unwrap_or_else(|_| "null".to_string())
+        },
     }
 }
 
@@ -4660,7 +4737,7 @@ fn parse_metadata_from_dependencies(
         .map_err(|error| AutomationError::internal(format!("decode resource metadata: {error}")))
 }
 
-fn change_requires_user_automation(items: &[AutomationChangeItemRow]) -> bool {
+pub(crate) fn change_requires_user_automation(items: &[AutomationChangeItemRow]) -> bool {
     items.iter().any(|item| {
         if item.operation == "create" {
             return false;
@@ -5848,7 +5925,7 @@ mod tests {
     }
 
     #[test]
-    fn idempotent_replay_survives_rollback_and_rejects_a_different_plan() {
+    fn idempotent_replay_returns_active_change_and_rejects_reverted_plans() {
         let harness = test_harness();
         let permissions = automation_permissions();
         let plan = rewrite_plan(
@@ -5859,12 +5936,12 @@ mod tests {
         let first = apply_validated(&harness, &plan, &permissions).unwrap();
         let second = apply_validated(&harness, &plan, &permissions).unwrap();
         assert!(second.idempotent);
+        assert_eq!(second.status, "active");
         assert_eq!(first.change_id, second.change_id);
 
         rollback(&harness, &first.change_id, Some(permissions.clone())).unwrap();
-        let after_rollback = apply_validated(&harness, &plan, &permissions).unwrap();
-        assert!(after_rollback.idempotent);
-        assert_eq!(after_rollback.status, "reverted");
+        let after_rollback = apply_validated(&harness, &plan, &permissions).unwrap_err();
+        assert_eq!(after_rollback.code, "CHANGE_NOT_APPLICABLE");
         assert!(harness.state.read_rewrite_manager().list_rules().is_empty());
 
         let mut conflicting = plan.clone();
@@ -5875,6 +5952,184 @@ mod tests {
                 .code,
             "IDEMPOTENCY_CONFLICT"
         );
+    }
+
+    #[test]
+    fn publish_failure_retry_returns_the_activated_change() {
+        let harness = test_harness();
+        let permissions = automation_permissions();
+        let plan = rewrite_plan(
+            "publish-retry-0001",
+            "persistent",
+            rewrite_resource("Retry", "api.example.com", true),
+        );
+        let first = apply_validated(&harness, &plan, &permissions).unwrap();
+        {
+            let conn = harness.state.lock_db_for_ipc().unwrap();
+            aiproxy_db::automation::update_automation_change_status(
+                &conn,
+                &first.change_id,
+                "publish_failed",
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        }
+
+        let retried = tauri::async_runtime::block_on(harness.state.apply_automation_plan(
+            ApplyAutomationPlanParams {
+                plan,
+                expected_plan_hash: String::new(),
+                expected_scope_hash: String::new(),
+            },
+            ("test-agent", "1.0"),
+            permissions.clone(),
+        ))
+        .unwrap();
+
+        assert!(retried.idempotent);
+        assert_eq!(retried.status, "active");
+        assert!(retried.runtime_generation > 0);
+    }
+
+    #[test]
+    fn plans_reject_resources_from_another_workspace() {
+        let harness = test_harness();
+        let permissions = automation_permissions();
+        {
+            let conn = harness.state.lock_db_for_ipc().unwrap();
+            aiproxy_db::workspaces::upsert_workspace(
+                &conn,
+                &WorkspaceRow {
+                    id: "ws-2".to_string(),
+                    name: "Other workspace".to_string(),
+                    proxy_port: 8889,
+                    ssl_enabled: false,
+                    http2_enabled: true,
+                    system_proxy_enabled: false,
+                    verify_upstream_tls: false,
+                    tls_verify_hosts: "[]".to_string(),
+                    ssl_blind_hosts: "[]".to_string(),
+                    upstream_proxy: String::new(),
+                    ssl_proxying: String::new(),
+                    storage_path: harness._directory.path().display().to_string(),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    updated_at: chrono::Utc::now().to_rfc3339(),
+                },
+            )
+            .unwrap();
+        }
+        let foreign = RewriteRule {
+            actions: Some(vec![json!({
+                "rewriteType": "header",
+                "payload": {
+                    "headerName": "X-Other",
+                    "operation": "set",
+                    "target": "request",
+                    "value": "other"
+                }
+            })]),
+            enabled: true,
+            id: "foreign-rewrite-1".to_string(),
+            name: "Other workspace rule".to_string(),
+            note: None,
+            payload: json!({}),
+            priority: 10,
+            r#match: RewriteRuleMatch {
+                methods: vec!["GET".to_string()],
+                stage: "request".to_string(),
+                url_pattern: "https://other.example.com/*".to_string(),
+                match_type: Some("wildcard".to_string()),
+            },
+            rewrite_type: "header".to_string(),
+            workspace_id: "ws-2".to_string(),
+        };
+        harness
+            .state
+            .read_rewrite_manager()
+            .save_rule_with_host_lock(foreign.clone(), "other.example.com");
+
+        let mut plan = rewrite_plan(
+            "cross-workspace-0001",
+            "persistent",
+            rewrite_resource("Cross", "api.example.com", true),
+        );
+        plan.upserts.rewrite[0].id = Some(foreign.id.clone());
+        plan.upserts.rewrite[0].expected_version = Some("sha256:bogus".to_string());
+
+        let error = validate(&harness, &plan, &permissions).unwrap_err();
+        assert_eq!(error.code, "SCOPE_CONFLICT");
+    }
+
+    #[test]
+    fn persistent_plans_cannot_delete_ephemeral_resources() {
+        let harness = test_harness();
+        let permissions = automation_permissions();
+        let ephemeral = rewrite_plan(
+            "ephemeral-delete-0001",
+            "ephemeral",
+            rewrite_resource("Temporary", "api.example.com", true),
+        );
+        apply_validated(&harness, &ephemeral, &permissions).unwrap();
+        let rule = harness
+            .state
+            .read_rewrite_manager()
+            .list_rules()
+            .into_iter()
+            .next()
+            .expect("ephemeral rule should be published");
+        let version = PreparedResource::Rewrite(rule.clone()).version().unwrap();
+
+        let mut delete_plan = rewrite_plan(
+            "persistent-delete-0001",
+            "persistent",
+            rewrite_resource("Delete", "api.example.com", true),
+        );
+        delete_plan.upserts.rewrite.clear();
+        delete_plan.deletes = vec![AutomationDelete {
+            kind: "rewrite".to_string(),
+            id: rule.id.clone(),
+            expected_version: version,
+        }];
+
+        let error = validate(&harness, &delete_plan, &permissions).unwrap_err();
+        assert_eq!(error.code, "INVALID_ARGUMENT");
+    }
+
+    #[test]
+    fn rewrite_row_preserves_legacy_payload() {
+        let rule = RewriteRule {
+            actions: None,
+            enabled: true,
+            id: "legacy-rewrite-1".to_string(),
+            name: "Legacy rule".to_string(),
+            note: None,
+            payload: json!({
+                "rewriteType": "header",
+                "payload": {
+                    "headerName": "X-Legacy",
+                    "operation": "set",
+                    "target": "request",
+                    "value": "legacy"
+                }
+            }),
+            priority: 10,
+            r#match: RewriteRuleMatch {
+                methods: vec!["GET".to_string()],
+                stage: "request".to_string(),
+                url_pattern: "https://legacy.example.com/*".to_string(),
+                match_type: Some("wildcard".to_string()),
+            },
+            rewrite_type: "header".to_string(),
+            workspace_id: WORKSPACE_ID.to_string(),
+        };
+
+        let row = rewrite_row(&rule);
+        let stored: Value = serde_json::from_str(&row.payload).unwrap();
+        assert!(stored.is_object());
+        assert_eq!(stored["payload"]["headerName"], "X-Legacy");
     }
 
     #[test]
