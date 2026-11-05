@@ -107,6 +107,7 @@ pub fn request(
     requester: GrantRequester,
 ) -> Result<AgentGrant, String> {
     validate_request(&request)?;
+    validate_approval_options(&request)?;
     let now = chrono::Utc::now();
     let key = grant_key(
         &requester.agent_instance_id,
@@ -244,6 +245,14 @@ pub fn approve(input: ApproveAgentAccessGrantInput) -> Result<AgentGrant, String
     }
     if !grant.approval_options.contains(&input.option) {
         return Err("This approval option is not allowed for the requested action".to_string());
+    }
+    // Re-check against the capability policy instead of trusting the options
+    // supplied in the original request: a client must not be able to widen a
+    // high-risk grant to the 15-minute quota.
+    if !aiproxy_agent_control::allowed_approval_options(grant.capability, grant.non_idempotent)
+        .contains(&input.option)
+    {
+        return Err("This approval option is not allowed for the requested capability".to_string());
     }
     let (ttl, max_uses) = match input.option {
         AgentGrantApprovalOption::Once => (ONCE_EXECUTION_WINDOW_SECS, 1),
@@ -445,6 +454,27 @@ fn validate_request(request: &AgentGrantRequest) -> Result<(), String> {
             .any(|option| *option != AgentGrantApprovalOption::Once)
     {
         return Err("Non-idempotent actions can only be approved once".to_string());
+    }
+    Ok(())
+}
+
+/// The desktop owns the safety policy: a client may ask for the 15-minute
+/// quota only when the capability is repeatable and the action is idempotent.
+/// Reject instead of silently trimming so a misbehaving client gets a clear
+/// error rather than a weaker approval than it displayed.
+fn validate_approval_options(request: &AgentGrantRequest) -> Result<(), String> {
+    let allowed =
+        aiproxy_agent_control::allowed_approval_options(request.capability, request.non_idempotent);
+    if let Some(option) = request
+        .approval_options
+        .iter()
+        .find(|option| !allowed.contains(option))
+    {
+        return Err(format!(
+            "Approval option {:?} is not allowed for capability {}",
+            option,
+            request.capability.as_str()
+        ));
     }
     Ok(())
 }
@@ -822,6 +852,56 @@ mod tests {
         reserve_grants(&mut grants, &["grant_1".to_string()]).unwrap();
         assert!(reserve_grants(&mut grants, &["grant_1".to_string()]).is_err());
         assert_eq!(grants[0].remaining_uses, 0);
+    }
+
+    #[test]
+    fn high_risk_capabilities_reject_reusable_approval() {
+        let both = vec![
+            AgentGrantApprovalOption::Once,
+            AgentGrantApprovalOption::FifteenMinutes,
+        ];
+        let once = vec![AgentGrantApprovalOption::Once];
+
+        assert!(validate_approval_options(&request_for(
+            AgentCapability::ReadBodies,
+            both.clone(),
+            false,
+        ))
+        .is_ok());
+        assert!(validate_approval_options(&request_for(
+            AgentCapability::DeleteSessions,
+            both.clone(),
+            false,
+        ))
+        .is_err());
+        assert!(validate_approval_options(&request_for(
+            AgentCapability::DeleteSessions,
+            once.clone(),
+            false,
+        ))
+        .is_ok());
+        assert!(
+            validate_approval_options(&request_for(AgentCapability::ReadBodies, both, true,))
+                .is_err()
+        );
+    }
+
+    fn request_for(
+        capability: AgentCapability,
+        approval_options: Vec<AgentGrantApprovalOption>,
+        non_idempotent: bool,
+    ) -> AgentGrantRequest {
+        AgentGrantRequest {
+            capability,
+            action_fingerprint: "sha256:a".to_string(),
+            action_summary: "Delete the selected sessions".to_string(),
+            scope: Default::default(),
+            reason: "Clean up after the task".to_string(),
+            approval_options,
+            expires_in_seconds: 30,
+            non_idempotent,
+            resource_policy: None,
+        }
     }
 
     #[test]

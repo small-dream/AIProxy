@@ -347,17 +347,7 @@ fn capability_approval_options(
 }
 
 fn capability_allows_repeat(capability: AgentCapability) -> bool {
-    !matches!(
-        capability,
-        AgentCapability::ReadRawBodies
-            | AgentCapability::ControlSystemProxy
-            | AgentCapability::ManageCertificates
-            | AgentCapability::DeleteSessions
-            | AgentCapability::ManageUserAutomation
-            | AgentCapability::ManageScripts
-            | AgentCapability::ManageCrossHostMappings
-            | AgentCapability::ManageGlobalAutomation
-    )
+    aiproxy_agent_control::capability_allows_repeat_approval(capability)
 }
 
 fn operation_non_idempotent(operation: &ControlOperation) -> bool {

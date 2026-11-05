@@ -185,6 +185,42 @@ fn default_grant_request_ttl() -> u64 {
     30
 }
 
+/// Capabilities that can only be approved for a single use. High-risk actions
+/// must not receive the 15-minute / 50-use quota even when the client reports
+/// them as idempotent; the desktop re-validates approval options at the IPC
+/// boundary instead of trusting the sidecar.
+pub fn capability_allows_repeat_approval(capability: AgentCapability) -> bool {
+    !matches!(
+        capability,
+        AgentCapability::ReadRawBodies
+            | AgentCapability::ControlSystemProxy
+            | AgentCapability::ManageCertificates
+            | AgentCapability::DeleteSessions
+            | AgentCapability::ManageUserAutomation
+            | AgentCapability::ManageScripts
+            | AgentCapability::ManageCrossHostMappings
+            | AgentCapability::ManageGlobalAutomation
+    )
+}
+
+/// Build the approval options a capability may offer. This is the single
+/// source of truth shared by the MCP sidecar's grant request and the desktop's
+/// grant store, so a client cannot widen its own quota by lying about
+/// `nonIdempotent`.
+pub fn allowed_approval_options(
+    capability: AgentCapability,
+    non_idempotent: bool,
+) -> Vec<AgentGrantApprovalOption> {
+    if !non_idempotent && capability_allows_repeat_approval(capability) {
+        vec![
+            AgentGrantApprovalOption::Once,
+            AgentGrantApprovalOption::FifteenMinutes,
+        ]
+    } else {
+        vec![AgentGrantApprovalOption::Once]
+    }
+}
+
 pub fn operation_action_fingerprint(operation: &ControlOperation) -> String {
     let serialized = serde_json::to_vec(operation).unwrap_or_default();
     sha256_hex(&serialized)
@@ -207,6 +243,29 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn high_risk_capabilities_only_allow_once() {
+        assert_eq!(
+            allowed_approval_options(AgentCapability::DeleteSessions, false),
+            vec![AgentGrantApprovalOption::Once]
+        );
+        assert_eq!(
+            allowed_approval_options(AgentCapability::ManageUserAutomation, false),
+            vec![AgentGrantApprovalOption::Once]
+        );
+        assert_eq!(
+            allowed_approval_options(AgentCapability::ReadBodies, false),
+            vec![
+                AgentGrantApprovalOption::Once,
+                AgentGrantApprovalOption::FifteenMinutes
+            ]
+        );
+        assert_eq!(
+            allowed_approval_options(AgentCapability::ReadBodies, true),
+            vec![AgentGrantApprovalOption::Once]
+        );
+    }
 
     #[test]
     fn fingerprints_change_with_operation_parameters() {
