@@ -433,7 +433,10 @@ fn read_optional_body(
         decoded_size_bytes: body.decoded_size_bytes,
         wire_size_bytes: body.wire_size_bytes,
         mime_type: reference.mime_type.clone(),
-        hash: Some(sha256_hex(&body.bytes)),
+        // A digest of the raw bytes is a confirmation oracle for a redacted
+        // body, so only expose it when the caller explicitly requested raw
+        // content (matching get_session_body's policy).
+        hash: raw.then(|| sha256_hex(&body.bytes)),
         capture_truncated: body.capture_truncated,
         scan_truncated: body.has_more,
     })

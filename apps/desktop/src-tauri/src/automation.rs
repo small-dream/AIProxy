@@ -2673,6 +2673,13 @@ impl AppState {
             ));
         }
         let target_ids = self.change_target_ids(&change.id)?;
+        let response_stage_targets = self
+            .read_rewrite_manager()
+            .list_rules()
+            .into_iter()
+            .filter(|rule| rule.r#match.stage == "response" && target_ids.contains(&rule.id))
+            .map(|rule| rule.id)
+            .collect::<HashSet<_>>();
         let mut request_results = Vec::new();
         let mut evidence = Vec::new();
         let mut overall_passed = true;
@@ -2681,6 +2688,7 @@ impl AppState {
             "Offline evidence does not prove that the real proxy runtime or network path is active.".to_string(),
             "Offline evidence does not prove real client rendering.".to_string(),
         ];
+        let mut response_limitation_added = false;
         for request in &params.requests {
             let baseline_id = request
                 .baseline_session_id
@@ -2700,6 +2708,8 @@ impl AppState {
                 .as_ref()
                 .map(offline_baseline_response)
                 .transpose()?;
+            let response_unevaluated =
+                baseline_response.is_none() && !response_stage_targets.is_empty();
             let result = evaluate_offline(
                 OfflineEvaluationInput {
                     workspace_id: change
@@ -2740,6 +2750,21 @@ impl AppState {
             let assertions = evaluate_assertions(&params.assertions, &observations);
             if request_status == "passed" && assertions.iter().any(|assertion| !assertion.passed) {
                 request_status = "assertion_failed".to_string();
+            }
+            if response_unevaluated
+                && matches!(
+                    request_status.as_str(),
+                    "passed" | "not_matched" | "shadowed"
+                )
+            {
+                request_status = "insufficient_evidence".to_string();
+                if !response_limitation_added {
+                    limitations.push(
+                        "Response-stage rewrite rules were not evaluated because no baselineSessionId was supplied; pass a baseline session to verify response transformations."
+                            .to_string(),
+                    );
+                    response_limitation_added = true;
+                }
             }
             let conflict = matches!(
                 request_status.as_str(),
@@ -3409,6 +3434,11 @@ impl AppState {
             "upstream_failed"
         } else if requests.iter().any(|request| request.status == "shadowed") {
             "shadowed"
+        } else if requests
+            .iter()
+            .any(|request| request.status == "insufficient_evidence")
+        {
+            "insufficient_evidence"
         } else {
             "not_matched"
         };
@@ -6096,6 +6126,54 @@ mod tests {
 
         let error = validate(&harness, &delete_plan, &permissions).unwrap_err();
         assert_eq!(error.code, "INVALID_ARGUMENT");
+    }
+
+    #[test]
+    fn offline_verification_marks_response_rules_unverified_without_a_baseline() {
+        let harness = test_harness();
+        let permissions = automation_permissions();
+        let mut resource = rewrite_resource("Response shape", "api.example.com", true);
+        resource.r#match.stage = "response".to_string();
+        let plan = rewrite_plan("offline-response-0001", "persistent", resource);
+        let applied = apply_validated(&harness, &plan, &permissions).unwrap();
+
+        let result = tauri::async_runtime::block_on(harness.state.verify_automation_change(
+            VerifyAutomationChangeParams {
+                change_id: applied.change_id,
+                mode: "offline".to_string(),
+                baseline_session_ids: Vec::new(),
+                requests: vec![VerificationRequest {
+                    r#ref: "req-1".to_string(),
+                    baseline_session_id: None,
+                    method: Some("GET".to_string()),
+                    url: Some("https://api.example.com/v1/items".to_string()),
+                    headers: Vec::new(),
+                    body: None,
+                    json_set: BTreeMap::new(),
+                }],
+                external_session_ids: Vec::new(),
+                assertions: vec![AutomationAssertion {
+                    id: "status".to_string(),
+                    subject: "status".to_string(),
+                    path: None,
+                    operator: "exists".to_string(),
+                    expected: None,
+                }],
+            },
+            permissions,
+        ))
+        .unwrap();
+
+        assert_eq!(result.status, "insufficient_evidence");
+        assert_eq!(result.requests[0].status, "insufficient_evidence");
+        assert!(
+            result
+                .limitations
+                .iter()
+                .any(|line| line.contains("baselineSessionId")),
+            "limitations: {:?}",
+            result.limitations
+        );
     }
 
     #[test]

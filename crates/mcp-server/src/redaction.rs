@@ -66,6 +66,10 @@ pub struct Redactor {
     custom_patterns: Vec<CompiledPattern>,
 }
 
+fn decode_json_key(raw: &str) -> String {
+    serde_json::from_str::<String>(&format!("\"{raw}\"")).unwrap_or_else(|_| raw.to_string())
+}
+
 impl Redactor {
     pub fn from_config(config: &AgentAccessConfig, data_dir: &Path) -> Result<Self, String> {
         let hash_key = load_hash_key(data_dir);
@@ -438,7 +442,11 @@ impl Redactor {
             output = regex
                 .replace_all(&output, |captures: &regex::Captures<'_>| {
                     let key = captures.get(1).map(|value| value.as_str()).unwrap_or("");
-                    let lower = key.trim().to_lowercase();
+                    // The fallback path sees raw JSON text, so the key may still
+                    // contain escapes such as `\u0077`. Decode it for matching
+                    // only; the original bytes are preserved in the output.
+                    let decoded_key = decode_json_key(key);
+                    let lower = decoded_key.trim().to_lowercase();
                     let normalized: String = lower
                         .chars()
                         .filter(|character| {
@@ -981,6 +989,21 @@ mod tests {
             .mode();
 
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn escaped_json_keys_are_redacted_in_the_text_fallback() {
+        let redactor = redactor();
+        // Trailing comma forces the non-JSON fallback; the sensitive key is
+        // written with a JSON escape that used to bypass the name check.
+        let input = "{\"pass\\u0077ord\":\"hunter2\"},";
+        let output = redactor.redact_non_json_text(input);
+        assert!(
+            !output.value.contains("hunter2"),
+            "escaped key leaked a secret: {}",
+            output.value
+        );
+        assert!(!output.records.is_empty());
     }
 
     #[test]

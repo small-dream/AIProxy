@@ -215,6 +215,7 @@ fn apply_body_field_rewrite(
         .map_err(|error| format!("body field rewrite requires UTF-8 JSON body: {error}"))?;
     let mut json_body: serde_json::Value = serde_json::from_str(body_text)
         .map_err(|error| format!("body field rewrite requires valid JSON body: {error}"))?;
+    let original_json = json_body.clone();
     let mut entries = Vec::new();
 
     for (index, field) in fields.iter().enumerate() {
@@ -238,6 +239,13 @@ fn apply_body_field_rewrite(
             after,
             Some(operation.to_string()),
         ));
+    }
+
+    // If every action was a no-op, keep the original bytes instead of
+    // re-serializing: JSON normalization would change number literals,
+    // escaping and whitespace even though the semantic value is unchanged.
+    if json_body == original_json {
+        return Ok((decoded, entries));
     }
 
     let rewritten = serde_json::to_vec(&json_body)
@@ -1021,6 +1029,40 @@ mod tests {
     // P1-8: object key order must survive a Fields rewrite. serde_json's default
     // BTreeMap reordered every key, which breaks APIs that sign the raw JSON
     // string (the user edits one field, the whole body changes order).
+    // P2: a no-op Fields rule must not rewrite the whole body just to normalize
+    // numbers/whitespace/escapes; signature-sensitive payloads depend on it.
+    #[test]
+    fn body_field_rewrite_preserves_bytes_when_nothing_changes() {
+        let mut rule = response_body_field_rule();
+        rule.payload = serde_json::json!({
+            "contentType": "application/json",
+            "fields": [{
+                "operation": "set",
+                "path": "$.user.name",
+                "value": "grace",
+                "valueType": "string",
+            }],
+            "mode": "fields",
+            "target": "response",
+        });
+        let mut response = response_with_debug_header();
+        let original = br#"{"user":{"name":"grace"},"amount":1.50,"note":"a\tb"}"#;
+        response.replace_response_body(original.to_vec());
+        response
+            .response_headers
+            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let mut entries = Vec::new();
+
+        let outcome = apply_one_response_rule(&rule, &mut response, false, &mut entries);
+
+        assert_eq!(outcome.ok(), Some("success"), "entries: {entries:?}");
+        assert_eq!(
+            response.response_body.as_slice(),
+            original,
+            "a no-op field rewrite must keep the original bytes"
+        );
+    }
+
     #[test]
     fn response_body_field_rewrite_preserves_key_order() {
         let rule = response_body_field_rule();

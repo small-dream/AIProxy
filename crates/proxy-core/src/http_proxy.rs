@@ -505,6 +505,24 @@ async fn stage_intercept_request_breakpoint(
 
     match resolution.action {
         BreakpointActionKind::Drop => {
+            let message = "The request was dropped by the active breakpoint rule.";
+            let drop_detail = build_breakpoint_drop_detail(
+                &request_mut,
+                started_at,
+                started_at_instant,
+                message,
+                map_traces,
+                rewrite_traces,
+                script_traces,
+                throttle_traces,
+            );
+            if ctx.session_sender.send(drop_detail).await.is_err() {
+                tracing::debug!(
+                    event = "session_send_dropped",
+                    reason = "receiver_disconnected",
+                    "session_send_dropped"
+                );
+            }
             let response = handle_drop_action(ctx)?;
             Ok(BreakpointRequestOutcome::Drop(response))
         }
@@ -1081,7 +1099,24 @@ async fn stage_process_upstream_response(
     if let Some(resolution) = breakpoint_resolution {
         match resolution.action {
             BreakpointActionKind::Drop => {
-                let _ = ctx.session_sender.send(session_detail).await;
+                let message = "The response was dropped by the active breakpoint rule.";
+                let drop_detail = build_breakpoint_drop_detail(
+                    request,
+                    started_at,
+                    started_at_instant,
+                    message,
+                    map_traces,
+                    rewrite_traces,
+                    script_traces,
+                    throttle_traces,
+                );
+                if ctx.session_sender.send(drop_detail).await.is_err() {
+                    tracing::debug!(
+                        event = "session_send_dropped",
+                        reason = "receiver_disconnected",
+                        "session_send_dropped"
+                    );
+                }
                 cancellation_guard.disarm();
                 return handle_drop_action(ctx);
             }
@@ -1894,6 +1929,53 @@ pub(crate) fn build_hyper_response_from_upstream(
         .map_err(crate::ProxyError::ResponseBuildError)
 }
 
+/// Build the session detail for a breakpoint Drop. The client receives no
+/// upstream response (plain HTTP is closed; MITM gets 204), so the recorded
+/// session must not keep the upstream status/body it was about to receive.
+#[allow(clippy::too_many_arguments)]
+fn build_breakpoint_drop_detail(
+    request: &ParsedProxyRequest,
+    started_at: DateTime<Utc>,
+    started_at_instant: Instant,
+    message: &str,
+    map_traces: Vec<crate::MapTrace>,
+    rewrite_traces: Vec<crate::RewriteTrace>,
+    script_traces: Vec<crate::ScriptTrace>,
+    throttle_traces: Vec<crate::ThrottleTrace>,
+) -> ProxySessionDetail {
+    let mut detail = build_session_detail(
+        request,
+        0,
+        &HeaderMap::new(),
+        message.as_bytes(),
+        message.len(),
+        started_at,
+        started_at_instant,
+        ProxyTimingBreakdown {
+            connect_ms: None,
+            connection_reused: None,
+            connection_wait_ms: None,
+            dns_ms: None,
+            request_send_ms: None,
+            response_read_ms: Some(0),
+            tls_ms: None,
+            total_ms: Some(started_at_instant.elapsed().as_millis()),
+            waiting_ms: Some(started_at_instant.elapsed().as_millis()),
+        },
+        false,
+        false,
+    );
+    detail.map_traces = map_traces;
+    detail.rewrite_traces = rewrite_traces;
+    detail.script_traces = script_traces;
+    detail.throttle_traces = throttle_traces;
+    detail.set_failure(Some(crate::SessionFailure::proxy(
+        "breakpoint_dropped",
+        message.to_string(),
+    )));
+    detail
+}
+
 /// Handle a Drop breakpoint action.
 ///
 /// For plain HTTP connections, returns an error which causes hyper to
@@ -2525,5 +2607,29 @@ mod tests {
             tls_cipher_suite: None,
             tls_protocol: None,
         }
+    }
+
+    #[test]
+    fn breakpoint_drop_detail_does_not_keep_the_upstream_response() {
+        let request = make_proxy_request_for_mock_drop_test("sess-drop");
+        let detail = build_breakpoint_drop_detail(
+            &request,
+            Utc::now(),
+            Instant::now(),
+            "The response was dropped by the active breakpoint rule.",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+
+        assert_eq!(detail.summary.status_code, 0);
+        assert!(detail.failure.is_some());
+        let body = detail
+            .response_body
+            .as_ref()
+            .and_then(|body| body.inline_text())
+            .unwrap_or_default();
+        assert!(body.contains("dropped"), "unexpected body: {body:?}");
     }
 }

@@ -671,6 +671,12 @@ async fn search_get_body_and_compare_are_redacted_by_default() {
     );
     assert!(compare_meta.redacted);
     assert!(!compare_data.to_string().contains("secret-left"));
+    assert!(
+        compare_data["bodyDiff"]["left"]["hash"].is_null(),
+        "redacted compare must not expose a raw-body digest: {}",
+        compare_data["bodyDiff"]["left"]["hash"]
+    );
+    assert!(compare_data["bodyDiff"]["right"]["hash"].is_null());
 
     let _ = std::fs::remove_dir_all(directory);
 }
