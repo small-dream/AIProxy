@@ -4,7 +4,7 @@ set -euo pipefail
 echo "=== AIProxy Release Checklist ==="
 echo ""
 
-echo "[1/7] Version consistency..."
+echo "[1/9] Version consistency..."
 node <<'EOF'
 const fs = require("node:fs");
 
@@ -48,37 +48,42 @@ console.log(`✓ Version consistency passed (${entries[0][1]})`);
 EOF
 echo ""
 
-echo "[2/7] Typecheck..."
+echo "[2/9] Typecheck..."
 pnpm typecheck
 echo "✓ Typecheck passed"
 echo ""
 
-echo "[3/7] Lint..."
+echo "[3/9] Lint..."
 pnpm lint
 echo "✓ Lint passed"
 echo ""
 
-echo "[4/7] Dependency audit (production)..."
+echo "[4/9] API contract (docs vs code)..."
+pnpm check:api-contract
+echo "✓ API contract passed"
+echo ""
+
+echo "[5/9] Dependency audit (production)..."
 pnpm audit --prod --audit-level high
 echo "✓ Production dependency audit passed"
 echo ""
 
-echo "[5/7] Frontend Tests..."
+echo "[6/9] Frontend Tests..."
 pnpm test
 echo "✓ Frontend tests passed"
 echo ""
 
-echo "[6/8] Build MCP sidecar..."
+echo "[7/9] Build MCP sidecar..."
 node scripts/build-mcp-sidecar.mjs --profile debug
 echo "✓ MCP sidecar built"
 echo ""
 
-echo "[7/8] Rust Tests..."
+echo "[8/9] Rust Tests..."
 cargo test --workspace
 echo "✓ Rust tests passed"
 echo ""
 
-echo "[8/8] Rust Clippy..."
+echo "[9/9] Rust Clippy..."
 cargo clippy --workspace --all-targets -- -D warnings
 echo "✓ Clippy passed"
 echo ""

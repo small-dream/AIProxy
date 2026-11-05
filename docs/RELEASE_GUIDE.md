@@ -15,7 +15,7 @@
 
 1. 更新版本号
 2. 新增与 Git tag 同名的双语发布摘要（`docs/releases/v<版本号>.md`）
-3. 执行 lint / test / typecheck / Rust tests
+3. 执行 lint / test / typecheck / Rust tests / API 契约检查
 4. 确认 GitHub Actions CI 已通过
 5. 在目标平台本机或 Release workflow 中完成一次 `bundle`
 6. 手工安装产物验证
@@ -46,9 +46,12 @@
 pnpm lint
 pnpm test
 pnpm typecheck
+pnpm check:api-contract
 node scripts/build-mcp-sidecar.mjs --profile debug
 cargo test --workspace
 ```
+
+> `pnpm check:api-contract` 会校验 `main.rs` 注册的 Tauri 命令、前端订阅的事件与 `docs/API_SPEC.md` 是否一致；注册新命令时必须同步补文档小节，否则该步骤失败。
 
 > MCP 集成测试会启动本地 sidecar。先构建 debug sidecar，避免测试误用 `target/debug` 中遗留的旧版本。
 

@@ -2740,24 +2740,43 @@ type InstallAgentClientConfigResult = {
 
 ### 自动化实验命令
 
-以下 Tauri 命令供 Rules 页 Automation 面板读取和操作用于 Agent 自动化实验的 change set；它们不扩大 MCP 工具权限，所有 Agent 写入口仍由控制通道在桌面端再次校验。
+以下 Tauri 命令供 Rules 页 Automation 面板读取和操作用于 Agent 自动化实验的 change set；它们不扩大 MCP 工具权限，所有 Agent 写入口仍由控制通道在桌面端再次校验。`AutomationChangeView`、`AutomationApplyResult`、`ClearAgentAutomationResult` 的字段定义以 `packages/shared-types/src/automation.ts` 为唯一事实源。
 
-```ts
-list_automation_changes(limit?: number): AutomationChangeView[]; // 1-50，默认 20
-get_automation_change(changeId: string): AutomationChangeView;
-rollback_automation_change(input: {
-  changeId: string;
-  expectedScopeHash: string;
-}): AutomationApplyResult;
-promote_automation_change(changeId: string): AutomationChangeView;
-clear_agent_automation(input: {
-  scope: "workspace" | "global";
-  workspaceId?: string;
-  lifecycle: "persistent" | "ephemeral" | "all";
-}): ClearAgentAutomationResult;
-```
+### `list_automation_changes`
 
-`AutomationChangeView` 包含 change 状态、scope、plan/scope 哈希、`runtimeGeneration`、资源前后快照、`rollbackScopeHash`、实验与验证记录。`promote_automation_change` 只允许 `persistent` 且 `active` 的 change；提升后状态为 `promoted`，不能回滚。`clear_agent_automation` 只处理 Agent 自有资源；用户资源、混合 change 与全局 scope 不会被误删。clear 直接删除当前 Agent 自有资源及其元数据，并收集这些资源的完整 change 历史标记为已终止；它不会通过回滚最后一个 change 恢复出更早的 Agent 版本。运行时发布后若仍能发现同一目标资源，返回 `CLEANUP_INCOMPLETE`，不得报告清理成功。
+请求：`{ limit?: number }`，取值 `1-50`，默认 `20`。
+
+响应：`AutomationChangeView[]`，按创建时间倒序。
+
+### `get_automation_change`
+
+请求：`{ changeId: string }`。
+
+响应：`AutomationChangeView`，包含 change 状态、scope、plan/scope 哈希、`runtimeGeneration`、资源前后快照、`rollbackScopeHash`、实验与验证记录。
+
+### `rollback_automation_change`
+
+请求：`{ input: { changeId: string; expectedScopeHash: string } }`。
+
+响应：`AutomationApplyResult`，成功时 `status="reverted"`。
+
+说明：只回滚 `persistent` 且 `active` 的 change；目标或依赖已被后续修改时返回 `ROLLBACK_CONFLICT`，已提升（`promoted`）的 change 不能再回滚。
+
+### `promote_automation_change`
+
+请求：`{ changeId: string }`。
+
+响应：`AutomationChangeView`。
+
+说明：只允许 `persistent` 且 `active` 的 change；提升后状态为 `promoted`，资源所有权转为用户，不能回滚。
+
+### `clear_agent_automation`
+
+请求：`{ scope: "workspace" | "global"; workspaceId?: string; lifecycle: "persistent" | "ephemeral" | "all" }`。命令参数为扁平字段，不包在 `input` 对象中；`scope="global"` 在首版不执行清理。
+
+响应：`ClearAgentAutomationResult`。
+
+说明：只处理 Agent 自有资源；用户资源与混合 change 不会被误删。clear 直接删除当前 Agent 自有资源及其元数据，并收集这些资源的完整 change 历史标记为已终止；它不会通过回滚最后一个 change 恢复出更早的 Agent 版本。运行时发布后若仍能发现同一目标资源，返回 `CLEANUP_INCOMPLETE`，不得报告清理成功。
 
 `AutomationVerificationResult` 必须包含 `runtimeGeneration`。验证开始前会确认 change 仍为 `active`、目标资源版本仍等于 `versionAfter`；目标已被后续修改时返回 `RESOURCE_VERSION_MISMATCH`，不能把旧证据套用到新资源。
 
