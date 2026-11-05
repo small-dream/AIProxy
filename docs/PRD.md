@@ -457,7 +457,7 @@ flowchart LR
 - Codex / Claude Code / Cursor 三客户端配置指引；均使用用户级全局配置，Claude Code 写入 `.claude.json`（遵循 `CLAUDE_CONFIG_DIR`）
 - 连接前选择权限预设（只读分析（默认值）/ 完全控制 / 自定义），新配置默认“只读分析”；首次选择“自定义”复制只读分析，预设只填写权限草稿且必须精确匹配，Body 关闭时提示 Agent 无法分析响应体
 - MCP 结果 `meta` 返回 `latestSessionAt`、`captureStatus` 与 `captureUpdatedAt`，让 Agent 能说明“数据截止 12:03”而不是假装实时
-- Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化；当前 Skill 版本为 `3.5`
+- Agent Skill 使用英文 canonical 正文 + 中英双语触发词，并在 frontmatter 中版本化；当前 Skill 版本为 `3.6`
 - AIProxy 管理的旧 Skill 在应用启动时自动升级；缺失文件不创建、自定义 Skill 不覆盖，旧版应用不会降级更新版 Skill
 - 默认脱敏，支持 JWT/PII/设备 ID 格式识别与稳定哈希关联；`readRawBodies` 为独立高风险开关
 - 明确数据流向：AIProxy 不上传抓包，但 Agent 读取后会把内容发送给对应模型服务商；`始终允许` 的控制操作不弹应用内确认，`请求时询问` 的控制必须先通过全局审批卡；删除类和撤销证书信任仍要求当前对话明确请求

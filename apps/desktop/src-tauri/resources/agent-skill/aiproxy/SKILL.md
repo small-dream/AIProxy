@@ -1,7 +1,7 @@
 ---
 name: aiproxy
 description: Analyze captured HTTP/WebSocket traffic and, when the user grants control permission, configure and operate AIProxy through MCP. Use when the user mentions AIProxy, packet capture, proxy traffic, a failing request, latency regression, header/cookie or body differences, Timing, WebSocket messages, AB experiment cohorts, asks for evidence by sessionId, or asks to set up or control local capture. 当用户提到 AIProxy、抓包、网络请求、接口调试、Timing、WebSocket、AB 实验分组、需要以 sessionId 为证据，或要求配置、启动、停止 AIProxy 抓包时使用。
-version: 3.5
+version: 3.6
 mcpSchemaMin: 3.3
 ---
 
@@ -9,7 +9,7 @@ mcpSchemaMin: 3.3
 
 # AIProxy traffic analysis and control
 
-You read persisted AIProxy captures through the `aiproxy-mcp` server and can diagnose AIProxy-side failures from bounded, redacted status and log evidence. Read access is redacted by default. When the user grants the matching control permissions, you can also configure the workspace, manage the root certificate, control capture and the system proxy, delete sessions, replay one captured HTTP request directly to its original host, create short-lived Agent rules, and run bounded Rewrite / Map Local automation experiments with explicit evidence. AIProxy never uploads captures, but anything you read is sent to the model provider serving this conversation: request only the smallest scope the task needs and respect the permissions the user configured. The MCP tool contract version is `3.3`; this Skill version is `3.5`.
+You read persisted AIProxy captures through the `aiproxy-mcp` server and can diagnose AIProxy-side failures from bounded, redacted status and log evidence. Read access is redacted by default. When the user grants the matching control permissions, you can also configure the workspace, manage the root certificate, control capture and the system proxy, delete sessions, replay one captured HTTP request directly to its original host, create short-lived Agent rules, and run bounded Rewrite / Map Local automation experiments with explicit evidence. AIProxy never uploads captures, but anything you read is sent to the model provider serving this conversation: request only the smallest scope the task needs and respect the permissions the user configured. The MCP tool contract version is `3.3`; this Skill version is `3.6`.
 
 ## Security boundaries
 
@@ -153,7 +153,7 @@ Before concluding, compare `latestSessionAt` with the user's time window. When t
 - Use `redactionMode="metadata"` when only size, MIME type, or readability matters.
 - JSON path support is a safe subset: `$`, `$.ab.ab_test`, `$['ab']['ab_test']`, `$[0]`, `$[*]`. Filter expressions, recursive descent, and scripts are not supported.
 - POST form parameters: use `formParamNames` (up to 20 names) or `includeFormParams=true`. Only `application/x-www-form-urlencoded` and `multipart/form-data` are supported. File parts never return content.
-- `textQuery` searches the redacted full-text view and returns up to 20 hits with context. `offsetBytes` is relative to that redacted view.
+- `textQuery` searches the redacted text view and returns up to 20 hits with context. JSON bodies are redacted and searched as a stream; the scan limit is 16 MiB. `offsetBytes` is relative to that redacted view.
 - Page long text with `offset` + `maxBytes`. For `redacted-text`, offsets are based on `decodedViewBytes`; for `base64` / `raw`, on `decodedBodyBytes`; `metadata` has no offset.
 - Do not infer truncation from `returnedBytes`. Use `hasMore`, `captureTruncated`, `scanTruncated`, and `truncatedReasons`: `captureLimit` (already truncated during capture), `scanLimit` (scan limit reached), `pageLimit` (continue with `nextOffset`), and `resultLimit` (hits, extracted values, or structural summaries clipped).
 - When the target JSON path is known, call `jsonPaths` and never page the complete body to recover that field. For `jsonPaths`, `decodedSizeBytes` is the complete body size and `returnedBytes`/`viewSizeBytes` describe only the extracted field result. A 9 MiB body can therefore have a small view.
@@ -177,7 +177,7 @@ Before concluding, compare `latestSessionAt` with the user's time window. When t
 - Header issues: narrow with `searchIn=["headers"]` or `["query"]`, then inspect `get_session`.
 - `sessionId` supports a unique prefix of at least 8 characters. Multiple matches return `SESSION_ID_AMBIGUOUS` with candidates; never guess one.
 - `CURSOR_INVALID`: restart from the first page. Cursors are bound to sort parameters.
-- `BODY_TOO_LARGE`: for `jsonPaths` this means the single streamed body exceeds 64 MiB (`scanLimit`), the batch exceeds 256 MiB (`batchScanLimit`), or `$` targets more than 8 MiB (`rootPathTooLarge`); `textQuery` has its own 8 MiB limit. Request specific fields, split the batch, or run text search separately; never solve it by paging the full body for a known field.
+- `BODY_TOO_LARGE`: for `jsonPaths` this means the single streamed body exceeds 64 MiB (`scanLimit`), the batch exceeds 256 MiB (`batchScanLimit`), or `$` targets more than 8 MiB (`rootPathTooLarge`); `textQuery` has its own 16 MiB limit. The textQuery error sets `recommendedAction="useJsonPaths"` and `recommendedTool="get_session_body"`: switch to `jsonPaths` for the target field. Request specific fields, split the batch, or run text search separately; never solve it by paging the full body for a known field.
 - `JSON_TOO_DEEP`: choose a shallower target path; JSON nesting beyond the documented limit is rejected rather than partially returned.
 - `BODY_NOT_JSON`: use `textQuery` or `diffMode="text"`.
 - `BODY_NOT_FORM`: use `textQuery` or `redacted-text` instead of guessing the parameter list.

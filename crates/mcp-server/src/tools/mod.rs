@@ -8,6 +8,7 @@ pub mod curl;
 pub mod diagnostics;
 pub mod insights;
 pub mod sessions;
+pub(crate) mod text_search;
 pub mod websocket;
 pub mod workspaces;
 

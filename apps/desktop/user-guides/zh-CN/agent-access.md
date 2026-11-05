@@ -96,7 +96,7 @@ Agent 可以在应用关闭时自动拉起并聚焦 AIProxy。**始终允许** �
 
 - 单个目标值最多返回 64 KiB；对象或数组超限时返回 `truncated=true` 和一层 `valueSummary`，其中最多列出 32 个直接 key 或 16 个数组项。
 - 需要继续下钻时，根据 `valueSummary.keys[].name` 拼接更具体的 `jsonPaths`，不要为了发现或读取已知字段而分页完整 Body。
-- `textQuery` 仍需扫描完整文本，上限为 8 MiB；大 Body 的文本搜索应与字段提取拆成不同调用。
+- `textQuery` 对 JSON Body 使用流式脱敏与分块搜索，上限为 16 MiB；超过上限时会明确提示改用 `jsonPaths` 读取目标字段。大 Body 的文本搜索应与字段提取拆成不同调用。
 - 单路径最多返回 256 个匹配；超限时保留已有结果并标记 `resultLimit`。单次字段载荷超过 960 KiB 时，未保存的路径带 `omittedByResultLimit=true`，应拆成更小的 `jsonPaths` 调用。`decodedSizeBytes` 是完整 Body 大小，`returnedBytes` 与 `viewSizeBytes` 只描述本次提取结果。
 
 ## 控制权限

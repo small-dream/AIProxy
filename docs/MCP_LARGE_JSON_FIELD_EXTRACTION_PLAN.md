@@ -47,7 +47,7 @@
 - `serde_json::Value` 对重复 key 取最后一个；流式解析若命中即停会得到第一个。
 - `viewSizeBytes` 若只对大于 `8 MiB` 的路径重定义，会产生同字段两种语义。
 
-结论：所有带 `jsonPaths` 的请求统一走流式提取。`8 MiB` 只保留给 `textQuery`、完整脱敏文本和无法安全流式处理的全根值场景。
+结论：所有带 `jsonPaths` 的请求统一走流式提取。`8 MiB` 只保留给完整脱敏文本分页和无法安全流式处理的全根值场景；`textQuery` 已在后续改动中改为 16 MiB 流式脱敏搜索。
 
 ### 3.3 脱敏语义比原计划更细
 
@@ -121,7 +121,7 @@
 
 - 不新增第二个“读取 JSON”的工具；继续使用 `get_session_body` / `get_session_fields` 的 `jsonPaths`。
 - 不提供递归列出完整 key 树的模式；只提供有固定预算的一层结构摘要。
-- 不改变 `textQuery` 的语义。`textQuery` 仍搜索完整脱敏文本视图，受 `8 MiB` 上限约束。
+- 本方案不改变 `textQuery` 的搜索语义；后续已将 `textQuery` 改为 16 MiB 流式脱敏搜索，并保留相同的命中与上下文结果。
 - 本方案不扩大 `compare_sessions` 的 Body 比较上限。
 - 不降低 `raw` / `base64` 的权限和审计要求。
 - 不悄悄接受 `$local_x` 之类的非标准路径；返回 `JSON_PATH_INVALID`，提示应写为 `$.local_x`。
@@ -190,9 +190,9 @@
 | `jsonPaths`，Path 不是 `$` | 流式提取，完整验证文档，只物化目标子树或其结构摘要 |
 | `jsonPaths`，Path 为 `$`，Body `<= 8 MiB` | 允许，按普通目标节点处理 |
 | `jsonPaths`，Path 为 `$`，Body `> 8 MiB` | 返回 `BODY_TOO_LARGE`，提示改用具体字段路径或 `valueSummary` |
-| `jsonPaths` + `textQuery`，Body `<= 8 MiB` | 字段流式提取，同时按现有逻辑执行文本搜索 |
-| `jsonPaths` + `textQuery`，Body `> 8 MiB` | 拒绝混合请求，提示拆开调用 |
-| `textQuery`，Body `> 8 MiB` | 返回 `BODY_TOO_LARGE`，完整脱敏文本搜索仍受 `8 MiB` 限制 |
+| `jsonPaths` + `textQuery`，Body `<= 16 MiB` | 字段流式提取，同时执行流式脱敏文本搜索 |
+| `jsonPaths` + `textQuery`，Body `> 16 MiB` | 拒绝混合请求，提示拆开调用并优先使用 `jsonPaths` |
+| `textQuery`，Body `> 16 MiB` | 返回 `BODY_TOO_LARGE`，错误信息明确建议改用 `jsonPaths` |
 
 ### 7.3 顺序与重复 key
 
@@ -510,7 +510,7 @@
 
 最终实现与方案的主要对应关系：
 
-- 所有 `jsonPaths` 统一走流式提取；`textQuery` 和 `compare_sessions` 仍保持 `8 MiB` 完整扫描上限。
+- 所有 `jsonPaths` 统一走流式提取；`textQuery` 后续升级为 `16 MiB` 流式脱敏搜索，`compare_sessions` 仍保持 `8 MiB` 完整扫描上限。
 - file-backed Body 先做一次有界 UTF-8 与 SHA-256 预扫描，再流式解析，因此内存有界但会读取文件两次；inline Body 先校验字节再走同一解析器。
 - 单路径最多 `256` 个匹配，单目标值最多 `64 KiB`，结构摘要最多 `32` 个 key / `16` 个数组项 / `4 KiB`。
 - 单次 `jsonPaths` 字段载荷在扫描期限制为 `960 KiB`，为默认 `1 MiB` 工具响应 envelope 留出空间；超预算的路径返回 `omittedByResultLimit=true`，整体标记 `resultLimit`。

@@ -1222,7 +1222,7 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
     format!("{}…", text.chars().take(max_chars).collect::<String>())
 }
 
-fn append_key_path(path: &str, key: &str) -> String {
+pub(crate) fn append_key_path(path: &str, key: &str) -> String {
     if key
         .chars()
         .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))

@@ -96,7 +96,7 @@ When the Agent already knows the target field, use `get_session_body` with `json
 
 - A single target value is limited to 64 KiB. When an object or array is larger, the result has `truncated=true` and a one-level `valueSummary` with at most 32 direct keys or 16 array items.
 - To drill down, append a child key from `valueSummary.keys[].name` to `jsonPaths`; do not page the full body to discover or retrieve a known field.
-- `textQuery` still scans the complete text view and is limited to 8 MiB. Split text search from field extraction for large bodies.
+- `textQuery` uses streaming redaction and chunked search for JSON bodies, with a 16 MiB limit. Above that limit the error points you to `jsonPaths` for the target field. Split text search from field extraction for large bodies.
 - A path returns at most 256 matches. Additional matches are withheld and reported as `resultLimit`. The extracted field payload is also capped at 960 KiB; paths that are not stored have `omittedByResultLimit=true`, so split them into smaller `jsonPaths` calls. `decodedSizeBytes` is the complete body size, while `returnedBytes` and `viewSizeBytes` describe only the extracted result.
 
 ## Control permissions

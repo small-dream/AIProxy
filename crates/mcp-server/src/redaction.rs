@@ -167,6 +167,13 @@ impl Redactor {
             return self.output(rendered, records);
         }
 
+        self.redact_non_json_text(text)
+    }
+
+    /// Redact text already known not to be a single JSON document. This skips
+    /// the full JSON parse so large SSE/NDJSON bodies cannot materialize a
+    /// value tree through the fallback path.
+    pub fn redact_non_json_text(&self, text: &str) -> RedactionOutput<String> {
         // P1-5: SSE/NDJSON/multi-document bodies are not ONE JSON document.
         // Redact each line that itself carries a JSON object/array with the
         // structured pass (so nested secrets are found), keep every other line
@@ -289,6 +296,52 @@ impl Redactor {
             self.redact_string_inner(value, &path, &mut records)
         };
         self.output(redacted, records)
+    }
+
+    /// Redact a non-sensitive JSON string value, applying the same value-level
+    /// rules used by the materialized redaction path.
+    pub fn redact_text_value(
+        &self,
+        value: &str,
+        path: &str,
+        records: &mut Vec<RedactionRecord>,
+    ) -> String {
+        self.redact_string_inner(value, path, records)
+    }
+
+    /// Redact a scalar under a sensitive key without materializing the full
+    /// JSON document.
+    pub fn redact_named_scalar(
+        &self,
+        name: &str,
+        value: &str,
+        path: &str,
+        records: &mut Vec<RedactionRecord>,
+    ) -> String {
+        match self.classify(name) {
+            Some(classification) => self.redact_scalar(value, path, &classification, records),
+            None => self.redact_string_inner(value, path, records),
+        }
+    }
+
+    /// Sensitive object/array values are replaced as a whole, matching
+    /// `redact_json_field` behavior for the materialized path.
+    pub fn redact_named_container(
+        &self,
+        name: &str,
+        path: &str,
+        records: &mut Vec<RedactionRecord>,
+    ) -> String {
+        let rule = self
+            .classify(name)
+            .map(|classification| classification.rule)
+            .unwrap_or_else(|| name.trim().to_lowercase());
+        records.push(RedactionRecord {
+            path: path.to_string(),
+            rule,
+            action: "redact".to_string(),
+        });
+        REDACTED_VALUE.to_string()
     }
 
     fn redact_json_value_inner(

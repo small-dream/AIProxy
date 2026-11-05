@@ -2,7 +2,6 @@ use aiproxy_db::body_store::BodyStore;
 use aiproxy_db::sessions::load_session_detail;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use regex::RegexBuilder;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -16,10 +15,10 @@ use crate::redaction::Redactor;
 
 use super::body_stream::{extract_json_paths, MAX_JSON_PATH_SCAN_BYTES};
 use super::sessions::{lookup_session_id, require_session_id, SessionIdLookup};
+use super::text_search::{search_text, text_query_scan_limit_error, MAX_TEXT_QUERY_SCAN_BYTES};
 
 const MAX_BODY_SCAN_BYTES: usize = 8 * 1024 * 1024;
 const MAX_BATCH_JSON_SCAN_BYTES: u64 = 256 * 1024 * 1024;
-const MAX_TEXT_QUERY_HITS: usize = 20;
 const DEFAULT_CONTEXT_BYTES: usize = 120;
 const MAX_CONTEXT_BYTES: usize = 1024;
 const MAX_BATCH_SESSIONS: usize = 20;
@@ -72,7 +71,7 @@ pub struct GetSessionBodyRequest {
     /// At most 20 JSONPath expressions beginning with $; requires a JSON body.
     #[serde(default)]
     pub json_paths: Vec<String>,
-    /// Case-sensitive substring to find in a UTF-8 text body, at most 256 characters.
+    /// Case-insensitive substring to find in a UTF-8 text body, at most 256 characters.
     pub text_query: Option<String>,
     /// Context bytes around each text match, 0-1024; default 120.
     #[schemars(range(min = 0, max = 1024))]
@@ -712,20 +711,11 @@ fn extract_body(
     redactor: &Redactor,
 ) -> Result<(Value, ToolMeta), ToolError> {
     let raw = request.redaction_mode == BodyRedactionMode::Raw;
-    if text_query.is_some() && sizes.decoded_size_bytes > MAX_BODY_SCAN_BYTES as u64 {
-        return Err(ToolError::new(
-            "BODY_TOO_LARGE",
-            format!(
-                "textQuery requires scanning the complete body, but it exceeds {} bytes. Use jsonPaths alone for a narrower field result, or split the request.",
-                MAX_BODY_SCAN_BYTES
-            ),
-        )
-        .with_details(json!({
-            "reason": "scanLimit",
-            "decodedSizeBytes": sizes.decoded_size_bytes,
-            "scanLimitBytes": MAX_BODY_SCAN_BYTES,
-            "textQuery": true,
-        })));
+    if text_query.is_some() && sizes.decoded_size_bytes > MAX_TEXT_QUERY_SCAN_BYTES as u64 {
+        return Err(text_query_scan_limit_error(
+            sizes.decoded_size_bytes,
+            MAX_TEXT_QUERY_SCAN_BYTES,
+        ));
     }
 
     let extraction = if json_paths.is_empty() {
@@ -762,52 +752,30 @@ fn extract_body(
     let mut result_limited = false;
     let mut structure_parsed = extraction.is_some();
     if let Some(query) = text_query {
-        let body = read_full_body(store, reference, MAX_BODY_SCAN_BYTES)?;
-        if body.scan_truncated {
-            return Err(ToolError::new(
-                "BODY_TOO_LARGE",
-                format!(
-                    "textQuery requires scanning the complete body, but it exceeds {} bytes. Use jsonPaths alone for a narrower field result.",
-                    MAX_BODY_SCAN_BYTES
-                ),
-            )
-            .with_details(json!({
-                "reason": "scanLimit",
-                "decodedSizeBytes": sizes.decoded_size_bytes,
-                "scanLimitBytes": MAX_BODY_SCAN_BYTES,
-                "textQuery": true,
-            })));
-        }
-        let raw_text = std::str::from_utf8(&body.bytes).map_err(|_| {
-            body_error(
-                "BODY_NOT_TEXT",
-                "textQuery requires a UTF-8 text body.",
-                "notText",
-                part,
-            )
-        })?;
-        let (search_text, text_redaction_fields) = if raw {
-            (raw_text.to_string(), Vec::new())
-        } else {
-            let redacted = redactor.redact_text(raw_text);
-            (redacted.value, redacted.fields)
-        };
-        redacted_fields.extend(text_redaction_fields);
-        if extraction.is_none() {
-            // Only raw mode may disclose the original digest (see the nulling
-            // below): a redacted view plus the raw hash is a guessing oracle.
-            if raw {
-                hash = Some(sha256_hex(raw_text.as_bytes()));
-            }
-            structure_parsed = serde_json::from_str::<Value>(raw_text).is_ok();
-        }
         let context_bytes = request
             .context_bytes
             .unwrap_or(DEFAULT_CONTEXT_BYTES)
             .min(MAX_CONTEXT_BYTES);
-        let matches = text_matches(&search_text, query, context_bytes);
-        result_limited = matches.1;
-        text_match_results = matches.0;
+        let search = search_text(
+            store,
+            reference,
+            sizes.decoded_size_bytes,
+            query,
+            context_bytes,
+            raw,
+            redactor,
+            MAX_TEXT_QUERY_SCAN_BYTES,
+        )
+        .map_err(|error| add_body_error_context(error, part))?;
+        redacted_fields.extend(search.redacted_fields);
+        if extraction.is_none() {
+            // Only raw mode discloses the original digest (see the nulling
+            // below): a redacted view plus the raw hash is a guessing oracle.
+            hash = search.hash;
+            structure_parsed = search.structure_parsed;
+        }
+        result_limited = search.limited;
+        text_match_results = search.matches;
     }
 
     if json_values.is_empty() {
@@ -1895,37 +1863,6 @@ pub(crate) fn render_json_path(segments: &[JsonPathSegment]) -> String {
     path
 }
 
-fn text_matches(text: &str, query: &str, context_bytes: usize) -> (Vec<Value>, bool) {
-    let Ok(regex) = RegexBuilder::new(&regex::escape(query))
-        .case_insensitive(true)
-        .build()
-    else {
-        return (Vec::new(), false);
-    };
-    let mut matches = Vec::new();
-    let mut limited = false;
-    for found in regex.find_iter(text) {
-        if matches.len() >= MAX_TEXT_QUERY_HITS {
-            limited = true;
-            break;
-        }
-        let mut start = found.start().saturating_sub(context_bytes);
-        while start > 0 && !text.is_char_boundary(start) {
-            start -= 1;
-        }
-        let mut end = found.end().saturating_add(context_bytes).min(text.len());
-        while end < text.len() && !text.is_char_boundary(end) {
-            end += 1;
-        }
-        matches.push(json!({
-            "offsetBytes": found.start(),
-            "snippet": &text[start..end],
-            "match": found.as_str(),
-        }));
-    }
-    (matches, limited)
-}
-
 fn body_truncation_reasons(
     capture_truncated: bool,
     scan_truncated: bool,
@@ -2168,14 +2105,6 @@ mod tests {
         let segments = parse_json_path("$.items[*].name").unwrap();
         let result = extract_json_path(&value, "$.items[*].name", &segments);
         assert_eq!(result["value"], json!(["a", "b"]));
-    }
-
-    #[test]
-    fn text_query_returns_context() {
-        let (matches, limited) = text_matches("alpha beta gamma", "beta", 3);
-        assert!(!limited);
-        assert_eq!(matches[0]["match"], "beta");
-        assert!(matches[0]["snippet"].as_str().unwrap().contains("beta"));
     }
 
     #[test]
