@@ -153,7 +153,7 @@ describe("SettingsPage navigation", () => {
     expect(screen.getAllByText("Copy MCP config")).toHaveLength(1);
   });
 
-  it("writes the Codex MCP config through the default read-only flow", async () => {
+  it("preserves the default grant policies through the connect flow", async () => {
     renderSettings("/settings?section=agent");
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
@@ -161,7 +161,7 @@ describe("SettingsPage navigation", () => {
     expect(await screen.findByText("Connect Codex")).toBeInTheDocument();
     expect(
       within(screen.getByRole("dialog")).getByRole("radio", {
-        name: /^Read-only analysis \(default\)/i,
+        name: /^Custom/,
       }),
     ).toBeChecked();
     expect(screen.queryByText("Write MCP configuration?")).not.toBeInTheDocument();
@@ -172,6 +172,21 @@ describe("SettingsPage navigation", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Body reading is off/)).not.toBeInTheDocument();
+    expect(await screen.findAllByText("Configured")).toHaveLength(1);
+  });
+
+  it("confirms high-risk permissions before connecting a client", async () => {
+    renderSettings("/settings?section=agent");
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
+    fireEvent.click(await screen.findByRole("radio", { name: /^Full control/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect and write" }));
+
+    expect(
+      screen.getByText("Enable high-risk Agent permissions before connecting?"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Connect and enable" }));
+
     expect(await screen.findAllByText("Configured")).toHaveLength(1);
   });
 

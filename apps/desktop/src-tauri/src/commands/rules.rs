@@ -826,9 +826,9 @@ pub async fn delete_rule(
             ))
         }
     }
-    if matches!(input.rule_type.as_str(), "rewrite" | "map") {
-        ensure_rule_is_user_editable(shared_state.as_ref(), &input.rule_id)?;
-    }
+    // Deletion stays available for Agent rules: the rules page exposes Remove
+    // for them and cleans the registry/mock body afterwards. Only edits,
+    // toggles and reordering are read-only.
 
     // Capture owned copies for the closure; `input` is reused for the
     // post-DB manager dispatch.

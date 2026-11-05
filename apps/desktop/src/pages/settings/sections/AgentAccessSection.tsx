@@ -223,6 +223,10 @@ export function AgentAccessSection({
   const [pickingAutomationRoot, setPickingAutomationRoot] = useState(false);
   const [changesOpen, setChangesOpen] = useState(false);
   const [pendingHighRiskSave, setPendingHighRiskSave] = useState<SaveInput | null>(null);
+  const [pendingHighRiskConnect, setPendingHighRiskConnect] = useState<{
+    input: ConnectInput;
+    items: AgentAccessChangeItem[];
+  } | null>(null);
   const [bulkGrantOpen, setBulkGrantOpen] = useState(false);
   const [revokeControlOpen, setRevokeControlOpen] = useState(false);
   const [revokeResult, setRevokeResult] = useState<RevokeAgentControlResult | null>(null);
@@ -291,7 +295,7 @@ export function AgentAccessSection({
 
   function replaceDraftFromSettings(settings: AgentAccessSettings) {
     const nextDraft = draftFromSettings(settings);
-    const nextPreset = presetForPermissions(nextDraft.permissions);
+    const nextPreset = presetForPermissions(nextDraft.permissions, nextDraft.grantRequestPolicy);
     setDraft(nextDraft);
     setPresetSelection(nextPreset);
     setCustomAccess((current) =>
@@ -724,9 +728,15 @@ export function AgentAccessSection({
   const connectedClientCount = settings.clients.filter((client) => client.configInstalled).length;
   const bodyDisabled = !settings.permissions.readBodies;
   const rawBodiesBlocked = hasUnmetPermissionDependencies(draft.permissions, "readRawBodies");
-  const visibleGrants = (grantsQuery.data?.grants ?? []).filter((grant) =>
-    ["pending", "approved", "executing"].includes(grant.status),
-  );
+  const allGrants = grantsQuery.data?.grants ?? [];
+  const activeGrantStatuses = new Set(["pending", "approved", "executing"]);
+  const visibleGrants = [
+    ...allGrants.filter((grant) => activeGrantStatuses.has(grant.status)),
+    ...allGrants
+      .filter((grant) => !activeGrantStatuses.has(grant.status))
+      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))
+      .slice(0, 10),
+  ];
   const changeItems = buildAgentAccessChangeItems(savedDraft, draft, t);
   const highRiskChangeItems = changeItems.filter((item) => item.highRisk);
   const busy =
@@ -901,6 +911,25 @@ export function AgentAccessSection({
     saveMutation.mutate({ area, draft });
   }
 
+  function startConnect(input: ConnectInput) {
+    if (!draft) return;
+    const access = accessForConnectPreset(input.preset, {
+      permissions: draft.permissions,
+      grantRequestPolicy: draft.grantRequestPolicy,
+    });
+    const highRiskItems = buildAgentAccessChangeItems(
+      savedDraft,
+      { ...draft, ...access },
+      t,
+    ).filter((item) => item.highRisk);
+    if (highRiskItems.length > 0) {
+      setPendingConnect(null);
+      setPendingHighRiskConnect({ input, items: highRiskItems });
+      return;
+    }
+    connectMutation.mutate(input);
+  }
+
   function openPermissionDetails() {
     setPermissionsOpen(true);
     window.requestAnimationFrame(() => {
@@ -932,7 +961,7 @@ export function AgentAccessSection({
     setConnectError(null);
     setPendingConnect({
       info,
-      preset: presetForPermissions(draft.permissions),
+      preset: presetForPermissions(draft.permissions, draft.grantRequestPolicy),
     });
   }
 
@@ -1969,7 +1998,7 @@ export function AgentAccessSection({
         }}
         onConfirm={() => {
           if (!pendingConnect) return;
-          connectMutation.mutate({
+          startConnect({
             info: pendingConnect.info,
             preset: pendingConnect.preset,
           });
@@ -2102,6 +2131,28 @@ export function AgentAccessSection({
         onConfirm={enableAllAvailablePermissions}
         open={bulkGrantOpen}
         title={t("settingsPage.agentAccess.bulkGrantTitle")}
+      />
+
+      <ConfirmDialog
+        confirmColor="warning"
+        confirmLabel={t("settingsPage.agentAccess.highRiskConnectConfirm")}
+        isConfirming={connectMutation.isPending}
+        message={t("settingsPage.agentAccess.highRiskSaveMessage", {
+          permissions: pendingHighRiskConnect?.items.map((item) => item.label).join(" · ") ?? "",
+        })}
+        onCancel={() => {
+          const input = pendingHighRiskConnect?.input;
+          setPendingHighRiskConnect(null);
+          if (input) setPendingConnect(input);
+        }}
+        onConfirm={() => {
+          if (!pendingHighRiskConnect) return;
+          const input = pendingHighRiskConnect.input;
+          setPendingHighRiskConnect(null);
+          connectMutation.mutate(input);
+        }}
+        open={pendingHighRiskConnect !== null}
+        title={t("settingsPage.agentAccess.highRiskConnectTitle")}
       />
 
       <ConfirmDialog

@@ -11,7 +11,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
   AgentAccessGrantList,
@@ -47,6 +47,7 @@ export function AgentGrantApprovalHost() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const notified = useRef(new Set<string>());
+  const [dismissedRequestId, setDismissedRequestId] = useState<string | null>(null);
   const grantsQuery = useQuery({
     queryKey: AGENT_GRANTS_QUERY_KEY,
     queryFn: listAgentAccessGrants,
@@ -124,14 +125,24 @@ export function AgentGrantApprovalHost() {
     meta: { suppressGlobalErrorNotification: true },
   });
 
-  const pending = grantsQuery.data?.grants.find((grant) => grant.status === "pending") ?? null;
+  const nextPending = grantsQuery.data?.grants.find((grant) => grant.status === "pending") ?? null;
+  const pending = nextPending && nextPending.requestId !== dismissedRequestId ? nextPending : null;
   const pendingCount = grantsQuery.data?.pendingCount ?? 0;
   const busy = approveMutation.isPending || denyMutation.isPending;
   const error = approveMutation.error ?? denyMutation.error;
   const allowFifteenMinutes = pending?.approvalOptions.includes("fifteenMinutes") ?? false;
 
+  useEffect(() => {
+    approveMutation.reset();
+    denyMutation.reset();
+  }, [pending?.requestId, approveMutation.reset, denyMutation.reset]);
+
+  function dismissForNow() {
+    if (pending) setDismissedRequestId(pending.requestId);
+  }
+
   return (
-    <Dialog fullWidth maxWidth="sm" open={pending !== null}>
+    <Dialog fullWidth maxWidth="sm" onClose={dismissForNow} open={pending !== null}>
       {pending ? (
         <>
           <DialogTitle>
@@ -213,6 +224,9 @@ export function AgentGrantApprovalHost() {
             </Stack>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button color="inherit" disabled={busy} onClick={dismissForNow}>
+              {t("settingsPage.agentAccess.grantLater")}
+            </Button>
             <Button
               color="inherit"
               disabled={busy}

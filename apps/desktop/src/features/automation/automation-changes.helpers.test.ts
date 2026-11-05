@@ -18,6 +18,17 @@ describe("automation change helpers", () => {
     expect(output).not.toContain("value");
   });
 
+  it("redacts payload values whose sibling name is sensitive", () => {
+    const output = formatAutomationValue({
+      actions: [{ payload: { headerName: "Authorization", value: "Bearer secret" } }],
+      fields: [{ path: "$.user.password", value: "hunter2" }],
+      query: [{ paramName: "access_token", value: "query-secret" }],
+    });
+    expect(output).not.toContain("Bearer secret");
+    expect(output).not.toContain("hunter2");
+    expect(output).not.toContain("query-secret");
+  });
+
   it("keeps invalid dates visible for diagnosis", () => {
     expect(formatAutomationDate("not-a-date", "none")).toBe("not-a-date");
     expect(formatAutomationDate(null, "none")).toBe("none");

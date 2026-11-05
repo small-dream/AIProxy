@@ -362,6 +362,8 @@ export const zhCNMessages: Messages = {
         "本版本未开放的能力不会显示。直接在配置文件中开启这些字段也不会绕过 FEATURE_NOT_AVAILABLE。",
       highRiskChangeSummary: "将开启 {{count}} 项高风险权限",
       highRiskSaveConfirm: "保存并开启",
+      highRiskConnectConfirm: "连接并开启",
+      highRiskConnectTitle: "连接前开启高风险 Agent 权限？",
       highRiskSaveMessage:
         "本次保存将开启：{{permissions}}。这些权限允许 Agent 影响真实流量或执行不可恢复的操作。仅在当前任务确实需要时保存。",
       highRiskSaveTitle: "开启高风险 Agent 权限？",
@@ -606,6 +608,9 @@ export const zhCNMessages: Messages = {
         "这是一次非幂等操作。批准只允许执行一次；如果结果未知，请先检查上游状态，不要直接重复提交。",
       grantNotificationBody: "Agent 请求临时权限：{{capability}}。请回到 AIProxy 审批。",
       grantNotificationTitle: "{{client}} 正在等待授权",
+      grantLater: "稍后处理",
+      grantRecordedAt: "记录于 {{time}}",
+      grantUnknownWarning: "结果未知：该动作可能已经执行。重试前请先确认 AIProxy 中的实际状态。",
       grantPendingSince: "等待审批 · {{time}}",
       grantPermissionDurationHint:
         "授权绑定当前 MCP 实例、客户端和动作指纹；参数变化后必须重新审批。应用退出后授权立即失效。",

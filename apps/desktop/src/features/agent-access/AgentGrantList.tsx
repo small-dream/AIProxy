@@ -1,4 +1,4 @@
-import { Box, Button, Chip, Divider, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, Divider, Stack, Typography } from "@mui/material";
 
 import type { AgentAccessGrantList, AgentGrant } from "@aiproxy/shared-types";
 
@@ -22,9 +22,7 @@ export function AgentGrantList({
   showHeader?: boolean;
 }) {
   const { t } = useI18n();
-  const grants = (data?.grants ?? []).filter((grant) =>
-    ["pending", "approved", "executing"].includes(grant.status),
-  );
+  const grants = data?.grants ?? [];
 
   return (
     <Box>
@@ -68,7 +66,15 @@ export function AgentGrantList({
                   <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: "wrap" }}>
                     <Chip
                       size="small"
-                      color={grant.status === "pending" ? "warning" : "success"}
+                      color={
+                        grant.status === "pending"
+                          ? "warning"
+                          : grant.status === "unknown"
+                            ? "error"
+                            : active
+                              ? "success"
+                              : "default"
+                      }
                       variant={grant.status === "pending" ? "filled" : "outlined"}
                       label={grantStatusLabel(grant.status, t)}
                     />
@@ -103,10 +109,19 @@ export function AgentGrantList({
                         time: new Date(grant.expiresAt).toLocaleTimeString(),
                         uses: grant.remainingUses,
                       })
-                    : t("settingsPage.agentAccess.grantPendingSince", {
-                        time: new Date(grant.createdAt).toLocaleTimeString(),
-                      })}
+                    : grant.status === "pending"
+                      ? t("settingsPage.agentAccess.grantPendingSince", {
+                          time: new Date(grant.createdAt).toLocaleTimeString(),
+                        })
+                      : t("settingsPage.agentAccess.grantRecordedAt", {
+                          time: new Date(grant.createdAt).toLocaleTimeString(),
+                        })}
                 </Typography>
+                {grant.status === "unknown" ? (
+                  <Alert severity="warning" variant="outlined">
+                    {t("settingsPage.agentAccess.grantUnknownWarning")}
+                  </Alert>
+                ) : null}
               </Stack>
             );
           })}

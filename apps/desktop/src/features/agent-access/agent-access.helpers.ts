@@ -96,9 +96,17 @@ export function accessForPreset(preset: AgentPermissionPreset): AgentPermissionA
   };
 }
 
-export function presetForPermissions(permissions: AgentAccessPermissions): AgentPresetSelection {
+export function presetForPermissions(
+  permissions: AgentAccessPermissions,
+  grantRequestPolicy: AgentGrantRequestPolicyMap = deniedGrantRequestPolicy(),
+): AgentPresetSelection {
   for (const preset of AGENT_PERMISSION_PRESETS) {
-    if (permissionsEqual(permissions, permissionsForPreset(preset))) return preset;
+    if (
+      permissionsEqual(permissions, permissionsForPreset(preset)) &&
+      grantRequestPoliciesEqual(grantRequestPolicy, deniedGrantRequestPolicy())
+    ) {
+      return preset;
+    }
   }
   return "custom";
 }

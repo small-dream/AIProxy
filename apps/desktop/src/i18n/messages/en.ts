@@ -368,6 +368,8 @@ export const enMessages = {
         "Capabilities that are not available in this release are hidden. Enabling them directly in the config file does not bypass FEATURE_NOT_AVAILABLE.",
       highRiskChangeSummary: "{{count}} high-risk permissions will be enabled",
       highRiskSaveConfirm: "Save and enable",
+      highRiskConnectConfirm: "Connect and enable",
+      highRiskConnectTitle: "Enable high-risk Agent permissions before connecting?",
       highRiskSaveMessage:
         "This save enables: {{permissions}}. These permissions allow actions with real traffic or destructive effects. Save only when the current task needs them.",
       highRiskSaveTitle: "Enable high-risk Agent permissions?",
@@ -625,6 +627,10 @@ export const enMessages = {
       grantNotificationBody:
         "The Agent requests temporary permission: {{capability}}. Return to AIProxy to review it.",
       grantNotificationTitle: "{{client}} is waiting for approval",
+      grantLater: "Later",
+      grantRecordedAt: "Recorded {{time}}",
+      grantUnknownWarning:
+        "The result is unknown: the action may already have run. Check AIProxy state before retrying.",
       grantPendingSince: "Waiting for approval · {{time}}",
       grantPermissionDurationHint:
         "The grant is bound to this MCP instance, client, and action fingerprint. Any parameter change requires a new approval. Grants are cleared when AIProxy exits.",
