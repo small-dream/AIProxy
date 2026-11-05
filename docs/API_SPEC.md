@@ -2421,7 +2421,7 @@ type AgentClientInfo = {
 
 说明：
 
-- 配置缺失时返回默认值（接入关闭；读取会话与脱敏 Body 开启，未脱敏 Body、WebSocket、导出、控制与自动化权限关闭），即新配置默认匹配“只读分析（推荐）”，不视为命令失败。
+- 配置缺失时返回默认值（接入关闭；读取会话与脱敏 Body 开启，未脱敏 Body、WebSocket、导出、控制与自动化权限关闭），即新配置默认匹配“只读分析（默认值）”，不视为命令失败。
 - 内存配置契约版本为 `5`。为兼容旧只读 sidecar，磁盘文件仍使用 v2 信封；新增控制、自动化权限与 `grantRequestPolicy` 为 additive 字段，旧 sidecar 会忽略，新 desktop / sidecar 读取后在内存归一化为 v5。
 - 读取旧配置时会把缺失的控制与自动化权限补齐为 `false`，不产生隐式提权；旧 `manageRules` 不推导 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification` 或 `manageGlobalAutomation`。`get_agent_access_settings.version` 返回归一化后的 `5`。
 - `grantRequestPolicy` 为每项能力保存 `deny` 或 `ask`。UI 统一表达为 `禁止 / 请求时询问 / 始终允许`，其中 `始终允许` 映射到静态权限 `true`；高风险能力默认 `deny`。缺失策略按保守默认补齐，不改变已有静态权限。`readSessions` 没有独立的 grant 消费链路，其策略在读取时强制归一化为 `deny`，UI 只提供 `禁止 / 始终允许`；旧配置中的 `ask` 不会产生可执行的审批流程。

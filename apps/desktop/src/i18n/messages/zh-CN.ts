@@ -499,6 +499,8 @@ export const zhCNMessages: Messages = {
       connectDialogScopeHint: "将授予：{{permissions}}。连接后仍可按权限分组调整。",
       connectPresetGlobalHint:
         "权限是 AIProxy 全局设置。在此选择模式会影响所有已连接客户端，而不是只影响当前客户端。",
+      connectPresetCustomDescription:
+        "保留当前已保存的权限与请求授权策略，不套用其他预设；连接后可在权限分组中继续调整。",
       connectDialogScopeTitle: "Agent 可访问与控制",
       connectDialogTitle: "连接 {{client}}",
       connectSuccess:
@@ -583,23 +585,15 @@ export const zhCNMessages: Messages = {
       reconnect: "重新连接",
       presetTitle: "权限预设",
       presetDescription:
-        "预设只填写权限草稿，不会自动保存。手动修改任一权限后会切到“自定义”；套用其他预设后，可选择“自定义”恢复刚才的组合。",
+        "预设只填写权限草稿，不会自动保存。首次选择“自定义”会从“只读分析”复制；之后手动修改任一权限会自动切到“自定义”，并保留最近一次组合。",
       presetCustom: "自定义",
       presetCustomDescription:
-        "当前为自定义权限组合。继续调整下列权限，或选择其他预设后再返回“自定义”。",
-      presetCurrent: "保留当前权限",
-      presetCurrentDescription: "保留设置中已保存的完整权限组合，包括自定义或部分开启的控制权限。",
-      presetMetadata: "仅元数据",
-      presetMetadataDescription: "会话摘要、Header、Query、Timing 与规则命中；不读取 Body。",
-      presetReadOnly: "只读分析（推荐）",
-      presetReadOnlyDescription:
-        "默认推荐：读取会话元数据与脱敏后的 Body，用于分析响应字段和错误。",
-      presetDebugReplay: "调试与重放",
-      presetDebugReplayDescription:
-        "在只读分析基础上允许向原始 host 重放请求；非幂等请求仍需逐次审批。",
-      presetAutomationExperiment: "自动化实验",
-      presetAutomationExperimentDescription:
-        "允许创建、验证和回滚 Agent 自有的 Rewrite / Map Local 资源；不自动开启抓包、系统代理或 Map Local 根目录。",
+        "按需调整下列权限。首次进入时会从“只读分析”复制一份草稿；之后再选“自定义”会恢复最近一次组合。",
+      presetReadOnly: "只读分析（默认值）",
+      presetReadOnlyDescription: "读取会话元数据与脱敏后的 Body；不授予控制、重放或自动化权限。",
+      presetFullControl: "完全控制",
+      presetFullControlDescription:
+        "启用本版全部可用能力，包括控制、删除、重放、自动化与未脱敏 Body。保存时仍会要求确认高风险权限。",
       grantActionLabel: "Agent 想做什么",
       grantAllowFifteenMinutes: "允许 15 分钟",
       grantAllowOnce: "允许一次",

@@ -21,7 +21,7 @@ const INFO: AgentClientInfo = {
 };
 
 describe("AgentConnectDialog", () => {
-  it("offers scenario presets and reports preset changes", () => {
+  it("offers read-only, full control, and custom presets", () => {
     const onChangePreset = vi.fn();
     render(
       <AppProviders>
@@ -40,31 +40,30 @@ describe("AgentConnectDialog", () => {
     );
 
     expect(screen.getByRole("radio", { name: /^read-only analysis/i })).toBeChecked();
-    expect(screen.queryByRole("radio", { name: /full control/i })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: /^debug and replay/i }));
-    expect(onChangePreset).toHaveBeenCalledWith("debugReplay");
+    expect(screen.getByRole("radio", { name: /^full control/i })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /^custom/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /^full control/i }));
+    expect(onChangePreset).toHaveBeenCalledWith("fullControl");
   });
 
-  it("makes the automation experiment boundary explicit", () => {
+  it("makes the full-control risk explicit", () => {
     render(
       <AppProviders>
         <AgentConnectDialog
           busy={false}
           clientLabel="Codex"
-          currentPermissions={permissionsForPreset("automationExperiment")}
+          currentPermissions={permissionsForPreset("fullControl")}
           info={INFO}
           onCancel={vi.fn()}
           onChangePreset={vi.fn()}
           onConfirm={vi.fn()}
           open
-          preset="automationExperiment"
+          preset="fullControl"
         />
       </AppProviders>,
     );
 
-    expect(
-      screen.getByText(/capture, system proxy, and map local roots stay explicitly off/i),
-    ).toBeVisible();
+    expect(screen.getByText(/saving still requires the high-risk confirmation/i)).toBeVisible();
     expect(screen.getByText(/permissions are global to aiproxy/i)).toBeVisible();
   });
 
@@ -85,19 +84,20 @@ describe("AgentConnectDialog", () => {
           onChangePreset={vi.fn()}
           onConfirm={vi.fn()}
           open
-          preset="current"
+          preset="custom"
         />
       </AppProviders>,
     );
 
-    expect(screen.getByRole("radio", { name: /^keep current permissions/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /^custom/i })).toBeChecked();
     expect(screen.getByText(/control permissions/i)).toBeVisible();
   });
 
   it("does not claim read access when every read permission is disabled", () => {
     const readDisabled = {
-      ...permissionsForPreset("metadata"),
+      ...permissionsForPreset("readOnly"),
       readSessions: false,
+      readBodies: false,
     };
     render(
       <AppProviders>
@@ -110,7 +110,7 @@ describe("AgentConnectDialog", () => {
           onChangePreset={vi.fn()}
           onConfirm={vi.fn()}
           open
-          preset="current"
+          preset="custom"
         />
       </AppProviders>,
     );

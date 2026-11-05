@@ -25,7 +25,7 @@ describe("Agent capability mode policy", () => {
   });
 
   it("does not expose an unexecutable ask mode for session metadata", () => {
-    const permissions = permissionsForPreset("metadata");
+    const permissions = permissionsForPreset("readOnly");
     const policy = { ...defaultGrantRequestPolicy(), readSessions: "ask" as const };
     const denied = { ...permissions, readSessions: false };
 
@@ -37,7 +37,7 @@ describe("Agent capability mode policy", () => {
   });
 
   it("maps the three UI states to one mutually exclusive backend state", () => {
-    const permissions = permissionsForPreset("metadata");
+    const permissions = permissionsForPreset("readOnly");
     const policy = defaultGrantRequestPolicy();
 
     const always = applyCapabilityMode(permissions, policy, "sendRequests", "always");
@@ -81,7 +81,7 @@ describe("Agent capability mode policy", () => {
   });
 
   it("requires confirmation when a high-impact capability leaves blocked", () => {
-    const permissions = permissionsForPreset("metadata");
+    const permissions = permissionsForPreset("readOnly");
     const policy = defaultGrantRequestPolicy();
     expect(
       requiresAccessChangeConfirmation(permissions, policy, permissions, {
@@ -98,7 +98,7 @@ describe("Agent capability mode policy", () => {
   });
 
   it("requires confirmation when a high-impact capability becomes permanent", () => {
-    const permissions = permissionsForPreset("metadata");
+    const permissions = permissionsForPreset("readOnly");
     const policy = defaultGrantRequestPolicy();
     const alwaysAllowed = applyCapabilityMode(permissions, policy, "sendRequests", "always");
 

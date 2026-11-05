@@ -1,8 +1,12 @@
-import type { AgentAccessPermissions, AgentClientInfo } from "@aiproxy/shared-types";
+import type {
+  AgentAccessPermissions,
+  AgentClientInfo,
+  AgentGrantRequestPolicyMap,
+} from "@aiproxy/shared-types";
 
 import type { TranslationKey } from "@/i18n";
 
-import { AGENT_PERMISSION_KEYS } from "./agent-access.permissions";
+import { AGENT_PERMISSION_KEYS, availablePermissionDefinitions } from "./agent-access.permissions";
 
 export type AgentClientConnectionState = "connected" | "needsUpdate" | "notConnected";
 
@@ -16,48 +20,39 @@ export function shouldConfirmConfigWrite(info: AgentClientInfo) {
   return info.configExists;
 }
 
-export type AgentPermissionPreset =
-  | "metadata"
-  | "readOnly"
-  | "debugReplay"
-  | "automationExperiment";
-/** The reconnect dialog can also preserve a user's custom permission mix. */
-export type AgentConnectPreset = AgentPermissionPreset | "current";
+export type AgentPermissionPreset = "readOnly" | "fullControl";
+export type AgentPresetSelection = AgentPermissionPreset | "custom";
+export type AgentConnectPreset = AgentPresetSelection;
+
+export type AgentPermissionAccess = {
+  permissions: AgentAccessPermissions;
+  grantRequestPolicy: AgentGrantRequestPolicyMap;
+};
 
 export const AGENT_PERMISSION_PRESETS: readonly AgentPermissionPreset[] = [
-  "metadata",
   "readOnly",
-  "debugReplay",
-  "automationExperiment",
+  "fullControl",
 ] as const;
 
 export function presetLabelKey(preset: AgentConnectPreset): TranslationKey {
   switch (preset) {
-    case "metadata":
-      return "settingsPage.agentAccess.presetMetadata";
     case "readOnly":
       return "settingsPage.agentAccess.presetReadOnly";
-    case "debugReplay":
-      return "settingsPage.agentAccess.presetDebugReplay";
-    case "automationExperiment":
-      return "settingsPage.agentAccess.presetAutomationExperiment";
-    case "current":
-      return "settingsPage.agentAccess.presetCurrent";
+    case "fullControl":
+      return "settingsPage.agentAccess.presetFullControl";
+    case "custom":
+      return "settingsPage.agentAccess.presetCustom";
   }
 }
 
 export function presetDescriptionKey(preset: AgentConnectPreset): TranslationKey {
   switch (preset) {
-    case "metadata":
-      return "settingsPage.agentAccess.presetMetadataDescription";
     case "readOnly":
       return "settingsPage.agentAccess.presetReadOnlyDescription";
-    case "debugReplay":
-      return "settingsPage.agentAccess.presetDebugReplayDescription";
-    case "automationExperiment":
-      return "settingsPage.agentAccess.presetAutomationExperimentDescription";
-    case "current":
-      return "settingsPage.agentAccess.presetCurrentDescription";
+    case "fullControl":
+      return "settingsPage.agentAccess.presetFullControlDescription";
+    case "custom":
+      return "settingsPage.agentAccess.presetCustomDescription";
   }
 }
 
@@ -68,112 +63,73 @@ export function presetDescriptionKey(preset: AgentConnectPreset): TranslationKey
  * explicit instead of being bundled into a scenario.
  */
 export function permissionsForPreset(preset: AgentPermissionPreset): AgentAccessPermissions {
+  const permissions = Object.fromEntries(
+    AGENT_PERMISSION_KEYS.map((key) => [key, false]),
+  ) as AgentAccessPermissions;
+
   switch (preset) {
-    case "metadata":
-      return {
-        readSessions: true,
-        readBodies: false,
-        readRawBodies: false,
-        readWebSocket: false,
-        exportSnapshots: false,
-        controlCapture: false,
-        controlSystemProxy: false,
-        manageCertificates: false,
-        deleteSessions: false,
-        sendRequests: false,
-        manageRules: false,
-        manageAutomation: false,
-        manageUserAutomation: false,
-        manageScripts: false,
-        manageCrossHostMappings: false,
-        manageProxiedVerification: false,
-        manageGlobalAutomation: false,
-      };
     case "readOnly":
       return {
+        ...permissions,
         readSessions: true,
         readBodies: true,
-        readRawBodies: false,
-        readWebSocket: false,
-        exportSnapshots: false,
-        controlCapture: false,
-        controlSystemProxy: false,
-        manageCertificates: false,
-        deleteSessions: false,
-        sendRequests: false,
-        manageRules: false,
-        manageAutomation: false,
-        manageUserAutomation: false,
-        manageScripts: false,
-        manageCrossHostMappings: false,
-        manageProxiedVerification: false,
-        manageGlobalAutomation: false,
       };
-    case "debugReplay":
-      return {
-        readSessions: true,
-        readBodies: true,
-        readRawBodies: false,
-        readWebSocket: false,
-        exportSnapshots: false,
-        controlCapture: false,
-        controlSystemProxy: false,
-        manageCertificates: false,
-        deleteSessions: false,
-        sendRequests: true,
-        manageRules: false,
-        manageAutomation: false,
-        manageUserAutomation: false,
-        manageScripts: false,
-        manageCrossHostMappings: false,
-        manageProxiedVerification: false,
-        manageGlobalAutomation: false,
-      };
-    case "automationExperiment":
-      return {
-        readSessions: true,
-        readBodies: true,
-        readRawBodies: false,
-        readWebSocket: false,
-        exportSnapshots: false,
-        controlCapture: false,
-        controlSystemProxy: false,
-        manageCertificates: false,
-        deleteSessions: false,
-        sendRequests: false,
-        manageRules: false,
-        manageAutomation: true,
-        manageUserAutomation: false,
-        manageScripts: false,
-        manageCrossHostMappings: false,
-        manageProxiedVerification: false,
-        manageGlobalAutomation: false,
-      };
+    case "fullControl": {
+      for (const definition of availablePermissionDefinitions()) {
+        permissions[definition.key] = true;
+      }
+      return permissions;
+    }
   }
 }
 
-export function presetForPermissions(permissions: AgentAccessPermissions): AgentConnectPreset {
+export function deniedGrantRequestPolicy(): AgentGrantRequestPolicyMap {
+  return Object.fromEntries(
+    AGENT_PERMISSION_KEYS.map((capability) => [capability, "deny"]),
+  ) as AgentGrantRequestPolicyMap;
+}
+
+export function accessForPreset(preset: AgentPermissionPreset): AgentPermissionAccess {
+  return {
+    permissions: permissionsForPreset(preset),
+    grantRequestPolicy: deniedGrantRequestPolicy(),
+  };
+}
+
+export function presetForPermissions(permissions: AgentAccessPermissions): AgentPresetSelection {
   for (const preset of AGENT_PERMISSION_PRESETS) {
     if (permissionsEqual(permissions, permissionsForPreset(preset))) return preset;
   }
-  return "current";
+  return "custom";
 }
 
 /**
- * Resolve the permissions represented by the connect dialog. "current" keeps
- * the exact saved permission mix so reconnecting never silently revokes a
- * user's partial control grants or other custom settings.
+ * Resolve the access represented by the connect dialog. "custom" keeps the
+ * exact saved permission mix so reconnecting never silently revokes a user's
+ * partial control grants or other custom settings.
  */
-export function permissionsForConnectPreset(
+export function accessForConnectPreset(
   preset: AgentConnectPreset,
-  current: AgentAccessPermissions,
-): AgentAccessPermissions {
-  return preset === "current" ? { ...current } : permissionsForPreset(preset);
+  current: AgentPermissionAccess,
+): AgentPermissionAccess {
+  return preset === "custom"
+    ? {
+        permissions: { ...current.permissions },
+        grantRequestPolicy: { ...current.grantRequestPolicy },
+      }
+    : accessForPreset(preset);
 }
 
 export function permissionsEqual(
   current: AgentAccessPermissions,
   next: AgentAccessPermissions,
+): boolean {
+  return AGENT_PERMISSION_KEYS.every((key) => current[key] === next[key]);
+}
+
+export function grantRequestPoliciesEqual(
+  current: AgentGrantRequestPolicyMap,
+  next: AgentGrantRequestPolicyMap,
 ): boolean {
   return AGENT_PERMISSION_KEYS.every((key) => current[key] === next[key]);
 }

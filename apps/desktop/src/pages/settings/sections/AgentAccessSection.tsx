@@ -62,7 +62,9 @@ import {
 } from "@/features/agent-access/agent-access-query-keys";
 import {
   AGENT_PERMISSION_PRESETS,
-  permissionsForConnectPreset,
+  accessForConnectPreset,
+  accessForPreset,
+  grantRequestPoliciesEqual,
   permissionsEqual,
   permissionsForPreset,
   presetDescriptionKey,
@@ -70,6 +72,7 @@ import {
   presetForPermissions,
   shouldConfirmConfigWrite,
   type AgentConnectPreset,
+  type AgentPresetSelection,
 } from "@/features/agent-access/agent-access.helpers";
 import {
   applyCapabilityMode,
@@ -205,6 +208,7 @@ export function AgentAccessSection({
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<AgentAccessDraft | null>(null);
   const [customAccess, setCustomAccess] = useState<PermissionDraftSnapshot | null>(null);
+  const [presetSelection, setPresetSelection] = useState<AgentPresetSelection>("readOnly");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [pendingSkillOverwrite, setPendingSkillOverwrite] = useState<PendingSkillOverwrite | null>(
     null,
@@ -244,18 +248,18 @@ export function AgentAccessSection({
   const unsavedGuard = useUnsavedChangesGuard(dirty);
 
   useEffect(() => {
-    if (settingsQuery.data) {
-      setDraft((current) => current ?? draftFromSettings(settingsQuery.data));
+    if (settingsQuery.data && !draft) {
+      replaceDraftFromSettings(settingsQuery.data);
     }
-  }, [settingsQuery.data]);
+  }, [draft, settingsQuery.data]);
 
   useEffect(() => {
-    if (!draft || presetForPermissions(draft.permissions) !== "current") return;
+    if (!draft || presetSelection !== "custom") return;
     const next = draftAccessSnapshot(draft);
     setCustomAccess((current) =>
       current && permissionDraftSnapshotsEqual(current, next) ? current : next,
     );
-  }, [draft]);
+  }, [draft, presetSelection]);
 
   useEffect(() => {
     if (!highlightedItemId || !isAgentPermissionMatrixTarget(highlightedItemId)) return;
@@ -287,11 +291,11 @@ export function AgentAccessSection({
 
   function replaceDraftFromSettings(settings: AgentAccessSettings) {
     const nextDraft = draftFromSettings(settings);
+    const nextPreset = presetForPermissions(nextDraft.permissions);
     setDraft(nextDraft);
-    setCustomAccess(
-      presetForPermissions(nextDraft.permissions) === "current"
-        ? draftAccessSnapshot(nextDraft)
-        : null,
+    setPresetSelection(nextPreset);
+    setCustomAccess((current) =>
+      nextPreset === "custom" ? draftAccessSnapshot(nextDraft) : current,
     );
   }
 
@@ -506,19 +510,25 @@ export function AgentAccessSection({
   const connectMutation = useMutation({
     mutationFn: async (input: ConnectInput): Promise<ConnectResult> => {
       if (!draft) throw new Error(t("common.errors.generic"));
-      const permissions = permissionsForConnectPreset(input.preset, draft.permissions);
+      const access = accessForConnectPreset(input.preset, {
+        permissions: draft.permissions,
+        grantRequestPolicy: draft.grantRequestPolicy,
+      });
       let settings: AgentAccessSettings | null = null;
-      if (!permissionsEqual(draft.permissions, permissions)) {
+      if (
+        !permissionsEqual(draft.permissions, access.permissions) ||
+        !grantRequestPoliciesEqual(draft.grantRequestPolicy, access.grantRequestPolicy)
+      ) {
         try {
           settings = await updateAgentAccessSettings({
             enabled: draft.enabled,
-            permissions,
+            permissions: access.permissions,
             limits: draft.limits,
             redaction: draft.redaction,
             automationApprovedRoots: draft.automationApprovedRoots,
             proxiedVerificationOrigins: draft.proxiedVerificationOrigins,
             automationCrossHostOrigins: draft.automationCrossHostOrigins,
-            grantRequestPolicy: draft.grantRequestPolicy,
+            grantRequestPolicy: access.grantRequestPolicy,
           });
         } catch (error) {
           throw new Error(coerceAppError(error).message || t("common.errors.generic"), {
@@ -714,7 +724,6 @@ export function AgentAccessSection({
   const connectedClientCount = settings.clients.filter((client) => client.configInstalled).length;
   const bodyDisabled = !settings.permissions.readBodies;
   const rawBodiesBlocked = hasUnmetPermissionDependencies(draft.permissions, "readRawBodies");
-  const currentPreset = presetForPermissions(draft.permissions);
   const visibleGrants = (grantsQuery.data?.grants ?? []).filter((grant) =>
     ["pending", "approved", "executing"].includes(grant.status),
   );
@@ -741,6 +750,7 @@ export function AgentAccessSection({
   );
 
   function updateCapabilityMode(key: keyof AgentAccessPermissions, mode: AgentCapabilityMode) {
+    setPresetSelection("custom");
     setDraft((current) => {
       if (!current) return current;
       return {
@@ -751,30 +761,32 @@ export function AgentAccessSection({
   }
 
   function applyPreset(preset: (typeof AGENT_PERMISSION_PRESETS)[number]) {
-    if (draft && currentPreset === "current") {
+    if (draft && presetSelection === "custom") {
       setCustomAccess(draftAccessSnapshot(draft));
     }
     setDraft((current) =>
       current
         ? {
             ...current,
-            permissions: permissionsForPreset(preset),
+            ...accessForPreset(preset),
           }
         : current,
     );
+    setPresetSelection(preset);
   }
 
-  function restoreCustomAccess() {
-    if (!customAccess) return;
+  function applyCustomPreset() {
+    const access = customAccess ?? accessForPreset("readOnly");
     setDraft((current) =>
       current
         ? {
             ...current,
-            permissions: { ...customAccess.permissions },
-            grantRequestPolicy: { ...customAccess.grantRequestPolicy },
+            permissions: { ...access.permissions },
+            grantRequestPolicy: { ...access.grantRequestPolicy },
           }
         : current,
     );
+    setPresetSelection("custom");
   }
 
   function enableAllAvailablePermissions() {
@@ -789,6 +801,7 @@ export function AgentAccessSection({
       }
       return { ...current, permissions, grantRequestPolicy };
     });
+    setPresetSelection("custom");
     setBulkGrantOpen(false);
     setPermissionsOpen(true);
   }
@@ -917,7 +930,10 @@ export function AgentAccessSection({
   function openConnectDialog(info: AgentClientInfo) {
     if (!draft) return;
     setConnectError(null);
-    setPendingConnect({ info, preset: presetForPermissions(draft.permissions) });
+    setPendingConnect({
+      info,
+      preset: presetForPermissions(draft.permissions),
+    });
   }
 
   function beginConfigWrite(info: AgentClientInfo) {
@@ -1262,21 +1278,19 @@ export function AgentAccessSection({
                     mt: 0.5,
                   }}
                 >
-                  {currentPreset === "current"
-                    ? t("settingsPage.agentAccess.presetCustomDescription")
-                    : t(presetDescriptionKey(currentPreset))}
+                  {t(presetDescriptionKey(presetSelection))}
                 </Typography>
               }
             >
               <TextField
                 select
                 size="small"
-                value={currentPreset}
+                value={presetSelection}
                 disabled={busy}
                 onChange={(event) => {
-                  const value = event.target.value as AgentConnectPreset;
-                  if (value === "current") {
-                    restoreCustomAccess();
+                  const value = event.target.value as AgentPresetSelection;
+                  if (value === "custom") {
+                    applyCustomPreset();
                     return;
                   }
                   applyPreset(value);
@@ -1293,9 +1307,7 @@ export function AgentAccessSection({
                     {t(presetLabelKey(preset))}
                   </MenuItem>
                 ))}
-                {customAccess || currentPreset === "current" ? (
-                  <MenuItem value="current">{t("settingsPage.agentAccess.presetCustom")}</MenuItem>
-                ) : null}
+                <MenuItem value="custom">{t("settingsPage.agentAccess.presetCustom")}</MenuItem>
               </TextField>
             </SettingsRow>
             <Alert severity="info" variant="outlined" sx={{ ...compactAlertSx, mt: 1.5 }}>

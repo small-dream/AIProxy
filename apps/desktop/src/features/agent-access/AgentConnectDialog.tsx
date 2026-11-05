@@ -19,12 +19,13 @@ import { useI18n } from "@/i18n";
 
 import {
   AGENT_PERMISSION_PRESETS,
-  permissionsForConnectPreset,
+  permissionsForPreset,
   presetDescriptionKey,
   presetLabelKey,
-  presetForPermissions,
   type AgentConnectPreset,
 } from "./agent-access.helpers";
+
+const CONNECT_PRESETS: readonly AgentConnectPreset[] = [...AGENT_PERMISSION_PRESETS, "custom"];
 
 type AgentConnectDialogProps = {
   busy: boolean;
@@ -57,11 +58,8 @@ export function AgentConnectDialog({
   preset,
 }: AgentConnectDialogProps) {
   const { t } = useI18n();
-  const selectedPermissions = permissionsForConnectPreset(preset, currentPermissions);
-  const hasCustomPermissions = presetForPermissions(currentPermissions) === "current";
-  const visiblePresets = hasCustomPermissions
-    ? (["current", ...AGENT_PERMISSION_PRESETS] as AgentConnectPreset[])
-    : [...AGENT_PERMISSION_PRESETS];
+  const selectedPermissions =
+    preset === "custom" ? currentPermissions : permissionsForPreset(preset);
 
   return (
     <Dialog fullWidth maxWidth="sm" onClose={onCancel} open={open}>
@@ -91,7 +89,7 @@ export function AgentConnectDialog({
               value={preset}
               onChange={(_, value) => onChangePreset(value as AgentConnectPreset)}
             >
-              {visiblePresets.map((option) => (
+              {CONNECT_PRESETS.map((option) => (
                 <FormControlLabel
                   key={option}
                   disabled={busy}
@@ -101,7 +99,11 @@ export function AgentConnectDialog({
                     <Box>
                       <Typography variant="body2">{t(presetLabelKey(option))}</Typography>
                       <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                        {t(presetDescriptionKey(option))}
+                        {t(
+                          option === "custom"
+                            ? "settingsPage.agentAccess.connectPresetCustomDescription"
+                            : presetDescriptionKey(option),
+                        )}
                       </Typography>
                     </Box>
                   }

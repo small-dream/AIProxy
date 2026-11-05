@@ -3,13 +3,15 @@ import { describe, expect, it } from "vitest";
 import type { AgentAccessPermissions } from "@aiproxy/shared-types";
 
 import {
-  permissionsForConnectPreset,
+  accessForConnectPreset,
+  accessForPreset,
+  deniedGrantRequestPolicy,
+  grantRequestPoliciesEqual,
   permissionsEqual,
   permissionsForPreset,
   presetForPermissions,
-  type AgentPermissionPreset,
 } from "./agent-access.helpers";
-import { AGENT_PERMISSION_KEYS } from "./agent-access.permissions";
+import { AGENT_PERMISSION_KEYS, availablePermissionDefinitions } from "./agent-access.permissions";
 
 function expectOnlyEnabled(
   permissions: AgentAccessPermissions,
@@ -21,77 +23,67 @@ function expectOnlyEnabled(
 }
 
 describe("Agent permission presets", () => {
-  it("maps each preset to a concrete, minimal scope", () => {
-    expectOnlyEnabled(permissionsForPreset("metadata"), ["readSessions"]);
-    expectOnlyEnabled(permissionsForPreset("readOnly"), ["readSessions", "readBodies"]);
-    expectOnlyEnabled(permissionsForPreset("debugReplay"), [
-      "readSessions",
-      "readBodies",
-      "sendRequests",
-    ]);
-    expectOnlyEnabled(permissionsForPreset("automationExperiment"), [
-      "readSessions",
-      "readBodies",
-      "manageAutomation",
-    ]);
+  it("keeps read-only analysis conservative and denies temporary escalation", () => {
+    const access = accessForPreset("readOnly");
+    expectOnlyEnabled(access.permissions, ["readSessions", "readBodies"]);
+    expect(access.grantRequestPolicy).toEqual(deniedGrantRequestPolicy());
   });
 
-  it("does not bundle unrelated control or optional capabilities into a preset", () => {
-    const debugReplay = permissionsForPreset("debugReplay");
-    expect(debugReplay.manageAutomation).toBe(false);
-    expect(debugReplay.controlCapture).toBe(false);
-    expect(debugReplay.controlSystemProxy).toBe(false);
-
-    const automation = permissionsForPreset("automationExperiment");
-    expect(automation.controlCapture).toBe(false);
-    expect(automation.controlSystemProxy).toBe(false);
-    expect(automation.manageCertificates).toBe(false);
-    expect(automation.manageUserAutomation).toBe(false);
-    expect(automation.manageProxiedVerification).toBe(false);
-    expect(automation.readRawBodies).toBe(false);
-    expect(automation.readWebSocket).toBe(false);
+  it("enables every capability available in this release for full control", () => {
+    const availableKeys = availablePermissionDefinitions().map((definition) => definition.key);
+    expectOnlyEnabled(permissionsForPreset("fullControl"), availableKeys);
+    expect(availableKeys).not.toContain("exportSnapshots");
+    expect(availableKeys).not.toContain("manageScripts");
+    expect(availableKeys).not.toContain("manageCrossHostMappings");
+    expect(availableKeys).not.toContain("manageGlobalAutomation");
   });
 
-  it("infers an exact preset or preserves custom permissions", () => {
-    for (const preset of [
-      "metadata",
-      "readOnly",
-      "debugReplay",
-      "automationExperiment",
-    ] as const satisfies readonly AgentPermissionPreset[]) {
-      expect(presetForPermissions(permissionsForPreset(preset))).toBe(preset);
+  it("infers an exact preset or marks the access as custom", () => {
+    for (const preset of ["readOnly", "fullControl"] as const) {
+      expect(presetForPermissions(accessForPreset(preset).permissions)).toBe(preset);
     }
     expect(
       presetForPermissions({
-        ...permissionsForPreset("metadata"),
-        readWebSocket: true,
-      }),
-    ).toBe("current");
-    expect(
-      presetForPermissions({
-        ...permissionsForPreset("readOnly"),
+        ...accessForPreset("readOnly").permissions,
         controlCapture: true,
       }),
-    ).toBe("current");
+    ).toBe("custom");
   });
 
-  it("keeps the exact custom permission mix when reconnecting", () => {
+  it("keeps the exact custom access mix when reconnecting", () => {
     const current = {
-      ...permissionsForPreset("readOnly"),
-      controlCapture: true,
-      deleteSessions: true,
+      permissions: {
+        ...accessForPreset("readOnly").permissions,
+        controlCapture: true,
+        deleteSessions: true,
+      },
+      grantRequestPolicy: {
+        ...deniedGrantRequestPolicy(),
+        deleteSessions: "ask" as const,
+      },
     };
-    expect(permissionsForConnectPreset("current", current)).toEqual(current);
-    expect(permissionsForConnectPreset("metadata", current)).toEqual(
-      permissionsForPreset("metadata"),
-    );
+    expect(accessForConnectPreset("custom", current)).toEqual(current);
+    expect(accessForConnectPreset("readOnly", current)).toEqual(accessForPreset("readOnly"));
   });
 
-  it("compares every permission flag", () => {
-    const base = permissionsForPreset("readOnly");
-    expect(permissionsEqual(base, { ...base })).toBe(true);
+  it("compares every permission flag and request policy", () => {
+    const base = accessForPreset("readOnly");
+    expect(permissionsEqual(base.permissions, { ...base.permissions })).toBe(true);
+    expect(grantRequestPoliciesEqual(base.grantRequestPolicy, { ...base.grantRequestPolicy })).toBe(
+      true,
+    );
     for (const key of AGENT_PERMISSION_KEYS) {
-      expect(permissionsEqual(base, { ...base, [key]: !base[key] }), key).toBe(false);
+      expect(
+        permissionsEqual(base.permissions, { ...base.permissions, [key]: !base.permissions[key] }),
+        key,
+      ).toBe(false);
+      expect(
+        grantRequestPoliciesEqual(base.grantRequestPolicy, {
+          ...base.grantRequestPolicy,
+          [key]: "ask",
+        }),
+        key,
+      ).toBe(base.grantRequestPolicy[key] === "ask");
     }
   });
 });

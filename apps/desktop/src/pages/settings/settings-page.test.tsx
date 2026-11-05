@@ -161,7 +161,7 @@ describe("SettingsPage navigation", () => {
     expect(await screen.findByText("Connect Codex")).toBeInTheDocument();
     expect(
       within(screen.getByRole("dialog")).getByRole("radio", {
-        name: /^Read-only analysis \(recommended\)/i,
+        name: /^Read-only analysis \(default\)/i,
       }),
     ).toBeChecked();
     expect(screen.queryByText("Write MCP configuration?")).not.toBeInTheDocument();
@@ -200,11 +200,11 @@ describe("SettingsPage navigation", () => {
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
     expect(
-      within(await screen.findByRole("dialog")).getByRole("radio", { name: /^Metadata only/i }),
+      within(await screen.findByRole("dialog")).getByRole("radio", { name: /^Custom/i }),
     ).toBeChecked();
     fireEvent.click(
       within(await screen.findByRole("dialog")).getByRole("radio", {
-        name: /Read-only analysis/,
+        name: /^Read-only analysis/,
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Connect and write" }));
@@ -281,45 +281,55 @@ describe("SettingsPage navigation", () => {
     const saved = await commands.getAgentAccessSettings();
     vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
       ...saved,
-      permissions: permissionsWith(["readSessions"]),
+      permissions: permissionsWith(["readSessions", "readBodies"]),
     });
     const updateSpy = vi.spyOn(commands, "updateAgentAccessSettings");
     renderSettings("/settings?section=agent");
 
     const presetSelect = await screen.findByRole("combobox", { name: "Permission preset" });
-    expect(presetSelect).toHaveTextContent("Metadata only");
+    expect(presetSelect).toHaveTextContent("Read-only analysis (default)");
 
-    await choosePermissionPreset("Read-only analysis (recommended)");
+    await choosePermissionPreset("Full control");
 
-    expect(presetSelect).toHaveTextContent("Read-only analysis (recommended)");
+    expect(presetSelect).toHaveTextContent("Full control");
     expect(screen.getByText("Unsaved")).toBeInTheDocument();
     expect(updateSpy).not.toHaveBeenCalled();
   });
 
-  it("hides the custom preset when there is no custom combination to restore", async () => {
-    const saved = await commands.getAgentAccessSettings();
-    vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
-      ...saved,
-      permissions: permissionsWith(["readSessions"]),
-    });
+  it("offers three presets and copies read-only analysis when Custom is selected first", async () => {
     renderSettings("/settings?section=agent");
 
-    fireEvent.mouseDown(await screen.findByRole("combobox", { name: "Permission preset" }));
+    const presetSelect = await screen.findByRole("combobox", { name: "Permission preset" });
+    expect(presetSelect).toHaveTextContent("Read-only analysis (default)");
+    fireEvent.mouseDown(presetSelect);
 
-    expect(await screen.findByRole("option", { name: "Metadata only" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Custom" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("option", { name: "Read-only analysis (default)" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Full control" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Custom" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "Custom" }));
+
+    expect(presetSelect).toHaveTextContent("Custom");
+    fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
+    expect(
+      screen.getByRole("combobox", { name: "Read bodies permission policy" }),
+    ).toHaveTextContent("Always allow");
+    expect(
+      screen.getByRole("combobox", { name: "Control the system proxy permission policy" }),
+    ).toHaveTextContent("Blocked");
   });
 
   it("switches to Custom after a manual permission change", async () => {
     const saved = await commands.getAgentAccessSettings();
     vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
       ...saved,
-      permissions: permissionsWith(["readSessions"]),
+      permissions: permissionsWith(["readSessions", "readBodies"]),
     });
     renderSettings("/settings?section=agent");
 
     const presetSelect = await screen.findByRole("combobox", { name: "Permission preset" });
-    expect(presetSelect).toHaveTextContent("Metadata only");
+    expect(presetSelect).toHaveTextContent("Read-only analysis (default)");
     fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
     await chooseCapabilityMode("Read WebSocket messages", "Always allow");
 
@@ -341,16 +351,11 @@ describe("SettingsPage navigation", () => {
     const presetSelect = await screen.findByRole("combobox", { name: "Permission preset" });
     expect(presetSelect).toHaveTextContent("Custom");
 
-    await choosePermissionPreset("Metadata only");
+    await choosePermissionPreset("Read-only analysis (default)");
     fireEvent.click(screen.getByRole("button", { name: "View permission groups" }));
     expect(
       screen.getByRole("combobox", { name: "Read WebSocket messages permission policy" }),
-    ).toHaveTextContent("Ask when requested");
-
-    await chooseCapabilityMode("Delete sessions", "Ask when requested");
-    expect(
-      screen.getByRole("combobox", { name: "Delete sessions permission policy" }),
-    ).toHaveTextContent("Ask when requested");
+    ).toHaveTextContent("Blocked");
 
     await choosePermissionPreset("Custom");
 
@@ -444,6 +449,15 @@ describe("SettingsPage navigation", () => {
   });
 
   it("shows field-level pending changes and confirms high-risk permissions on save", async () => {
+    const saved = await commands.getAgentAccessSettings();
+    vi.spyOn(commands, "getAgentAccessSettings").mockResolvedValue({
+      ...saved,
+      permissions: permissionsWith(["readSessions", "readBodies"]),
+      grantRequestPolicy: {
+        ...saved.grantRequestPolicy,
+        controlCapture: "ask",
+      },
+    });
     renderSettings("/settings?section=agent");
 
     await screen.findByText("Current Agent capabilities");

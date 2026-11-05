@@ -513,6 +513,8 @@ export const enMessages = {
         "Grants: {{permissions}}. You can adjust each permission group after connecting.",
       connectPresetGlobalHint:
         "Permissions are global to AIProxy. Choosing a mode here affects every connected client, not only this one.",
+      connectPresetCustomDescription:
+        "Keep the currently saved permissions and request policies without applying another preset; adjust the permission groups after connecting.",
       connectDialogScopeTitle: "What the Agent can access and control",
       connectDialogTitle: "Connect {{client}}",
       connectSuccess:
@@ -600,25 +602,16 @@ export const enMessages = {
       reconnect: "Reconnect",
       presetTitle: "Permission preset",
       presetDescription:
-        "Selecting a preset only fills the permission draft and does not save automatically. Changing any permission switches to Custom; after selecting another preset, choose Custom to restore the previous combination.",
+        "Presets only fill the permission draft and do not save automatically. The first Custom selection copies Read-only analysis; manual changes then switch to Custom and preserve the latest combination.",
       presetCustom: "Custom",
       presetCustomDescription:
-        "The current combination is custom. Keep adjusting the capabilities below, or select another preset and choose Custom again to return to this combination.",
-      presetCurrent: "Keep current permissions",
-      presetCurrentDescription:
-        "Preserves the exact permission mix saved in Settings, including any custom or partial control grants.",
-      presetMetadata: "Metadata only",
-      presetMetadataDescription:
-        "Session summaries, headers, query, timing, and rule traces. No bodies.",
-      presetReadOnly: "Read-only analysis (recommended)",
+        "Adjust capabilities as needed. The first selection starts from Read-only analysis; later selections restore your latest custom combination.",
+      presetReadOnly: "Read-only analysis (default)",
       presetReadOnlyDescription:
-        "Recommended default: read session metadata and redacted bodies to inspect response fields and errors.",
-      presetDebugReplay: "Debug and replay",
-      presetDebugReplayDescription:
-        "Adds replay to the original host on top of read-only analysis. Non-idempotent requests still require one approval per action.",
-      presetAutomationExperiment: "Automation experiment",
-      presetAutomationExperimentDescription:
-        "Allow Agent-owned Rewrite and Map Local resources to be created, verified, and rolled back. Capture, system proxy, and Map Local roots stay explicitly off.",
+        "Read session metadata and redacted bodies. Control, replay, and automation permissions stay off.",
+      presetFullControl: "Full control",
+      presetFullControlDescription:
+        "Enable every capability available in this release, including control, deletion, replay, automation, and unredacted bodies. Saving still requires the high-risk confirmation.",
       grantActionLabel: "What the Agent wants to do",
       grantAllowFifteenMinutes: "Allow for 15 minutes",
       grantAllowOnce: "Allow once",
