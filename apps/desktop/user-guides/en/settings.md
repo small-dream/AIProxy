@@ -8,7 +8,7 @@ The Settings page centralizes proxy parameters, upstream proxying, SSL proxy pol
 
 The page is organized into **Proxy Presets**, **Upstream Proxy**, **SSL / TLS**, **Agent Access**, **AI Model**, **Appearance & Language**, **Notifications & Confirmations**, **Updates**, and **About**. Use the section navigator on the left to jump directly. The top **search settings** field supports localized keywords and jumps to — and briefly highlights — the matching section row.
 
-> The system-proxy **on/off** toggle is not on this page — it's in the top control bar. This page only configures the proxy's own parameters.
+> The system-proxy **on/off** toggle is not on this page: use the Sessions top control bar, or the bottom status bar that stays visible on every page. This page only configures the proxy's own parameters.
 
 ## Proxy settings
 

@@ -9,7 +9,7 @@ Sessions is AIProxy's core page: every HTTP / HTTPS / WebSocket flow that goes t
 
 The page has two panes: the session browser (tree list + filters) on the left, and the inspector workspace for the selected session on the right.
 
-While the proxy is running, the top bar shows **Recording** and the elapsed recording time. If the proxy is running with the system proxy off, the status bar warns that only traffic explicitly pointed at the proxy port will be captured; turn on the system proxy when applications should be routed automatically.
+While the proxy is running, the Sessions top bar shows **Recording** and the elapsed recording time. If the proxy is running with the system proxy off, the status bar warns that only traffic explicitly pointed at the proxy port will be captured; turn on the system proxy when applications should be routed automatically.
 
 ## Session containers
 

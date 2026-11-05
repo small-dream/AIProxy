@@ -9,7 +9,10 @@ import { useState } from "react";
 import { WINDOWS_MENU_DEFINITIONS } from "@/components/layout/app-shell-windows-menu.definitions";
 import { useI18n } from "@/i18n";
 
-export const WINDOWS_TOP_CONTROLS_HEIGHT = 40;
+// Keep the bar taller than the 40px primary proxy button so the centered
+// controls keep a vertical inset; a 40px bar clipped the button's rounded top
+// edge against the window frame.
+export const WINDOWS_TOP_CONTROLS_HEIGHT = 48;
 
 type AppShellWindowsMenuBarProps = {
   centerControls: ReactNode;

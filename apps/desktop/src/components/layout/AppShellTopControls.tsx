@@ -27,6 +27,12 @@ type AppShellTopControlsProps = {
   proxyRunning: boolean;
   /** RFC3339 start timestamp used by the recording-duration indicator. */
   recordingStartedAt?: string | undefined;
+  /**
+   * Render the centered proxy/session controls. Only the Sessions workspace
+   * owns this row; other routes keep a clean menu bar and use the Proxy menu or
+   * the status bar instead.
+   */
+  showControls?: boolean;
   startProxyLabel: string;
   stopProxyLabel: string;
   systemProxyActionDisabled: boolean;
@@ -46,6 +52,7 @@ export function AppShellTopControls({
   onSystemProxyToggle,
   proxyRunning,
   recordingStartedAt,
+  showControls = true,
   startProxyLabel,
   stopProxyLabel,
   systemProxyActionDisabled,
@@ -55,6 +62,10 @@ export function AppShellTopControls({
   workspaceConfigUnavailable = false,
 }: AppShellTopControlsProps) {
   function renderControls(variant: "floating" | "commandBar") {
+    if (!showControls) {
+      return null;
+    }
+
     return (
       <Stack
         direction="row"

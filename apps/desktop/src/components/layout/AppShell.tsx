@@ -230,6 +230,7 @@ export function AppShell() {
         }}
         proxyRunning={proxyStatus?.running ?? false}
         recordingStartedAt={proxyStatus?.startedAt}
+        showControls={isSessionsWorkspace}
         startProxyLabel={
           certificateStatus?.trusted
             ? t("common.actions.startHttpsProxy")

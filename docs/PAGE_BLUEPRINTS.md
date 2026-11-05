@@ -66,6 +66,7 @@
 ### 3.6 全局录制状态反馈
 
 - 顶部控制的 Start/Stop Proxy 是全局唯一主操作，使用 medium 尺寸（40px）以区别于其他图标按钮；录制中在 Stop 按钮旁渲染 `RecordingDurationIndicator`（`components/layout/RecordingDurationIndicator.tsx`）：红色脉冲圆点 + 等宽字体已录制时长（`formatRecordingDuration`，mm:ss / h:mm:ss），数据来自 `proxyStatus.startedAt`，1s 本地计时，遵循 `prefers-reduced-motion`。
+- 这排居中控制（Start/Stop、录制时长、系统代理、会话级操作）只属于 Sessions 工作区（`/`）：`AppShell` 以 `showControls={isSessionsWorkspace}` 传给 `AppShellTopControls`，其它路由不渲染；Start/Stop 仍可从「代理」菜单触发，系统代理开关在底部状态栏常驻。Windows / Linux 菜单栏高度为 `48`，为 40px 主按钮留出上下内边距，避免贴顶裁切。
 - 底部状态栏的系统代理项：当 `proxyStatus.running && !systemProxyEnabled` 时图标显示 warning 色，tooltip 说明「仅抓取手动指向代理端口的流量」并引导点击开启——避免 Recording 被误解为整机抓包。
 
 ## 4. Sessions Page
