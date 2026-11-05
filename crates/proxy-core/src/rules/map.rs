@@ -93,18 +93,74 @@ fn join_remote_base_path(base: &str, request_path: &str) -> String {
     }
 }
 
-fn sanitize_request_path(path: &str) -> PathBuf {
+/// Reject request path segments that could escape the configured Map Local
+/// root. On Windows a segment such as `C:` is a drive prefix, which makes
+/// `PathBuf::push` replace the whole target; a colon also opens alternate data
+/// streams. Returning `None` fails the request instead of silently serving a
+/// different file.
+fn sanitize_request_path(path: &str) -> Option<PathBuf> {
     let mut relative = PathBuf::new();
 
     for segment in path.trim_start_matches('/').split('/') {
         if segment.is_empty() || segment == "." || segment == ".." {
             continue;
         }
+        if !is_safe_local_segment(segment) {
+            return None;
+        }
 
         relative.push(segment);
     }
 
-    relative
+    Some(relative)
+}
+
+fn is_safe_local_segment(segment: &str) -> bool {
+    if segment.contains('\0') {
+        return false;
+    }
+    // `components()` rejects Windows separators hidden in a segment as well as
+    // drive/UNC prefixes. Only a single `Normal` component may be appended
+    // below the mapped root.
+    let mut components = Path::new(segment).components();
+    match components.next() {
+        Some(std::path::Component::Normal(_)) if components.next().is_none() => {}
+        _ => return false,
+    }
+    #[cfg(windows)]
+    if segment.contains(':') {
+        return false;
+    }
+    true
+}
+
+fn path_is_within(path: &Path, root: &Path) -> bool {
+    path == root || path.starts_with(root)
+}
+
+/// Resolve a captured request path below the already-canonicalized Map Local
+/// root and refuse anything that canonicalizes outside it (including symlinks
+/// planted inside the directory).
+fn resolve_local_path(target_canon: &Path, request_path: &str) -> Result<PathBuf, String> {
+    let requested_path = sanitize_request_path(request_path)
+        .ok_or_else(|| format!("refusing unsafe Map Local request path '{request_path}'"))?;
+    let mut resolved_path = target_canon.to_path_buf();
+    if requested_path.as_os_str().is_empty() {
+        resolved_path.push("index.html");
+    } else {
+        resolved_path.push(&requested_path);
+    }
+    if resolved_path.is_dir() {
+        resolved_path.push("index.html");
+    }
+    let resolved_path = fs::canonicalize(&resolved_path).unwrap_or(resolved_path);
+    if !path_is_within(&resolved_path, target_canon) {
+        return Err(format!(
+            "Map Local path '{}' resolves outside the mapped root",
+            resolved_path.display()
+        ));
+    }
+    Ok(resolved_path)
 }
 
 fn guess_mime_type(path: &Path) -> &'static str {
@@ -175,8 +231,9 @@ fn apply_local_map_rule(
     // we actually read) and fails closed on a dangling link. Reading the
     // canonical path afterwards closes the TOCTOU window between the is_file
     // stat and fs::read (both operate on the same resolved inode with no
-    // further symlink resolution). The target_value is a user-configured,
-    // explicitly-trusted path; no root confinement is applied (documented).
+    // further symlink resolution). `target_value` is user-configured and
+    // trusted; captured request paths are confined below that root by
+    // `resolve_local_path`.
     let target_path = PathBuf::from(&rule.target_value);
     let target_canon = fs::canonicalize(&target_path).map_err(|error| {
         format!(
@@ -194,20 +251,7 @@ fn apply_local_map_rule(
     let mut resolved_path = target_canon.clone();
 
     if target_canon.is_dir() {
-        let requested_path = sanitize_request_path(request.url.path());
-
-        if requested_path.as_os_str().is_empty() {
-            resolved_path.push("index.html");
-        } else {
-            resolved_path.push(&requested_path);
-        }
-
-        if resolved_path.is_dir() {
-            resolved_path.push("index.html");
-        }
-        // Canonicalize the joined path so the final read also resolves symlinks
-        // and fails closed on a dangling link inside the served directory.
-        resolved_path = fs::canonicalize(&resolved_path).unwrap_or(resolved_path);
+        resolved_path = resolve_local_path(&target_canon, request.url.path())?;
     }
 
     if resolved_path.is_file() {
@@ -317,7 +361,7 @@ pub(crate) fn apply_map_rules_with_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use super::join_remote_base_path;
+    use super::{join_remote_base_path, resolve_local_path, sanitize_request_path};
 
     #[test]
     fn joins_root_and_nested_paths() {
@@ -328,5 +372,36 @@ mod tests {
         );
         assert_eq!(join_remote_base_path("/gateway", "/"), "/gateway/");
         assert_eq!(join_remote_base_path("", ""), "/");
+    }
+
+    #[test]
+    fn rejects_unsafe_local_segments() {
+        assert!(sanitize_request_path("/safe/file.txt").is_some());
+        // Parent segments are dropped rather than followed, so this stays
+        // relative to the mapped root.
+        assert_eq!(
+            sanitize_request_path("/../../etc/passwd"),
+            Some(std::path::PathBuf::from("etc/passwd"))
+        );
+        #[cfg(windows)]
+        {
+            assert!(sanitize_request_path("/C:Windows/win.ini").is_none());
+            assert!(sanitize_request_path("/D:secret.txt").is_none());
+        }
+    }
+
+    #[test]
+    fn local_paths_stay_inside_the_mapped_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(directory.path()).unwrap();
+        let file = root.join("asset.txt");
+        std::fs::write(&file, b"ok").unwrap();
+
+        assert_eq!(
+            resolve_local_path(&root, "/asset.txt").unwrap(),
+            std::fs::canonicalize(&file).unwrap()
+        );
+        #[cfg(windows)]
+        assert!(resolve_local_path(&root, "/C:Windows/win.ini").is_err());
     }
 }
