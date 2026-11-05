@@ -328,6 +328,8 @@ updater artifacts 为**条件性开启**：`release.yml` 检测到 `TAURI_SIGNIN
 6. 点击 `Install & Restart`
 7. 确认应用重启后版本已更新
 
+Windows 上应用内更新以静默模式运行：`tauri.conf.json` 的 `plugins.updater.windows.installMode` 为 `quiet`（NSIS `/S /R`），安装器不显示任何界面，安装成功后由安装器重新启动应用。前端 `relaunch()` 在 Windows 上执行不到，不要把它当作重启来源。安装参数由发起更新的旧版本决定，因此修改该配置后必须对下一个版本重新验证。
+
 若 `latest.json` 缺失、签名错误或 updater artifact 不完整，应用应显示失败状态，不应破坏当前安装。
 
 ## 10. 系统代理恢复验证
