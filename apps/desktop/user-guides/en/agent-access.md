@@ -38,7 +38,7 @@ For the complete local log, use **Help → Show log file**.
 1. Open **Settings → Agent Access**.
 2. Enable **Local Agent Access**, then click **Save changes**.
 3. Under **Connect an Agent client**, choose Codex, Claude Code, or Cursor and click **Connect**.
-4. Select **Read-only analysis (default)**, **Full control**, or **Custom**. New configurations select **Read-only analysis** by default, and the first **Custom** selection copies it. Review the target configuration path and backup note before continuing.
+4. Select **Read-only analysis (default)**, **Full control**, or **Custom**. New configurations select **Read-only analysis** by default, and the first **Custom** selection copies it. Review the target configuration path and backup note before continuing. Selecting **Full control**, or connecting while the draft contains unsaved high-risk permissions, asks for a separate high-risk confirmation before anything is written. Reconnecting with **Read-only analysis** keeps existing "ask when requested" policies instead of silently switching them to deny.
 5. Click **Connect and write**. AIProxy saves the permissions, writes the MCP configuration, and installs the current AIProxy Skill.
 6. Restart or reload the client as prompted so it discovers the new MCP server.
 
@@ -136,7 +136,7 @@ When a capability is **Ask** and the permanent permission is off, AIProxy shows 
 - **Allow for 15 minutes** permits up to 50 executions within 15 minutes; it is offered only for repeatable, non-high-risk actions.
 - Non-idempotent replay, deletion, certificate-trust removal, system-proxy changes, and user automation offer **Allow once** only.
 
-The approval wait is 30 seconds. After a denial, the same action does not prompt again for 60 seconds. A grant is bound to the current MCP sidecar instance, client name and version, capability, and action fingerprint; changing the action parameters or target requires a new approval. If one sidecar serves multiple conversations, they share the same temporary grants. All temporary grants become invalid when the app exits. These are **time-limited grants**, not grants that end when a task is considered complete.
+The approval wait is 30 seconds. After a denial, the same action does not prompt again for 60 seconds. You can choose **Later** to dismiss the card; the request keeps waiting until its 30-second window expires, then the Agent receives a timeout and must ask again. A grant is bound to the current MCP sidecar instance, client name and version, capability, and action fingerprint; changing the action parameters or target requires a new approval. If one sidecar serves multiple conversations, they share the same temporary grants. All temporary grants become invalid when the app exits. These are **time-limited grants**, not grants that end when a task is considered complete.
 
 If an action may have run but the response was lost, the audit write failed, or the result cannot be confirmed, the grant appears as **Result unknown**. Check the upstream or AIProxy state first; do not immediately retry a non-idempotent action. Sending it again requires a new approval.
 
