@@ -352,6 +352,16 @@ pub fn run() {
                     error = %error.message,
                     "automation_recovery_failed"
                 );
+                // Recovery can fail on a mixed change; still publish the DB
+                // view so Agent rules keep their exact host locks.
+                if let Err(publish_error) = state.republish_automation_runtime() {
+                    tracing::error!(
+                        component = "desktop.automation",
+                        event = "automation_republish_failed",
+                        error = %publish_error.message,
+                        "automation_republish_failed"
+                    );
+                }
             }
             automation::spawn_automation_maintenance(Arc::clone(state.inner()));
             agent_status::write_from_state(&state);

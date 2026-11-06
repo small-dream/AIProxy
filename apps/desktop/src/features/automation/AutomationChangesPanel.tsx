@@ -715,6 +715,7 @@ export function AutomationChangesPanel() {
         {...(dialog?.confirmLabel ? { confirmLabel: dialog.confirmLabel } : {})}
         isConfirming={isPending}
         message={dialog?.message ?? ""}
+        errorMessage={actionError ?? undefined}
         onCancel={() => {
           if (!isPending) setPendingAction(null);
         }}

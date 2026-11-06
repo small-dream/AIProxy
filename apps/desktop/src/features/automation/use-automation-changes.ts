@@ -32,7 +32,7 @@ export function useAutomationChanges(limit = 20) {
   return useQuery({
     queryKey: [...AUTOMATION_CHANGES_QUERY_KEY, limit],
     queryFn: () => listAutomationChanges(limit),
-    staleTime: Infinity,
+    staleTime: 30_000,
   });
 }
 
@@ -41,7 +41,7 @@ export function useAutomationChange(changeId: string | null) {
     queryKey: [...AUTOMATION_CHANGE_QUERY_KEY, changeId],
     queryFn: () => getAutomationChange(changeId!),
     enabled: Boolean(changeId),
-    staleTime: Infinity,
+    staleTime: 30_000,
   });
 }
 

@@ -467,7 +467,11 @@ impl AppState {
                 &conn,
                 scope_key.as_deref(),
                 kind,
-                params.lifecycle.as_deref(),
+                // Fetch every metadata row in scope: lifecycle is resolved from
+                // the owning change below, and user rules have no metadata row
+                // at all. Filtering here would hide the rows needed to classify
+                // agent resources.
+                None,
                 10_000,
             )
             .map_err(|error| {
@@ -488,25 +492,19 @@ impl AppState {
                     }
                 }
                 let metadata = metadata_by_id.get(&("rewrite".to_string(), rule.id.clone()));
-                if metadata.is_some_and(|row| row.owner_kind == "agent")
-                    && params.lifecycle.as_deref() == Some("persistent")
-                    && metadata.and_then(|row| self.change_lifecycle(row.change_id.as_deref()))
-                        == Some("ephemeral")
-                {
-                    continue;
-                }
-                if metadata.is_some_and(|row| row.owner_kind == "agent")
-                    && params.lifecycle.as_deref() == Some("ephemeral")
-                    && metadata.and_then(|row| self.change_lifecycle(row.change_id.as_deref()))
-                        != Some("ephemeral")
-                {
-                    continue;
-                }
-                summaries.push(resource_summary_for_rewrite(
+                let summary = resource_summary_for_rewrite(
                     &rule,
                     metadata,
                     self.change_lifecycle(metadata.and_then(|row| row.change_id.as_deref())),
-                )?);
+                )?;
+                if params
+                    .lifecycle
+                    .as_deref()
+                    .is_some_and(|lifecycle| summary.lifecycle != lifecycle)
+                {
+                    continue;
+                }
+                summaries.push(summary);
             }
         }
         if kind.is_none() || kind == Some("map") {
@@ -517,25 +515,19 @@ impl AppState {
                     }
                 }
                 let metadata = metadata_by_id.get(&("map".to_string(), rule.id.clone()));
-                if metadata.is_some_and(|row| row.owner_kind == "agent")
-                    && params.lifecycle.as_deref() == Some("persistent")
-                    && metadata.and_then(|row| self.change_lifecycle(row.change_id.as_deref()))
-                        == Some("ephemeral")
-                {
-                    continue;
-                }
-                if metadata.is_some_and(|row| row.owner_kind == "agent")
-                    && params.lifecycle.as_deref() == Some("ephemeral")
-                    && metadata.and_then(|row| self.change_lifecycle(row.change_id.as_deref()))
-                        != Some("ephemeral")
-                {
-                    continue;
-                }
-                summaries.push(resource_summary_for_map(
+                let summary = resource_summary_for_map(
                     &rule,
                     metadata,
                     self.change_lifecycle(metadata.and_then(|row| row.change_id.as_deref())),
-                )?);
+                )?;
+                if params
+                    .lifecycle
+                    .as_deref()
+                    .is_some_and(|lifecycle| summary.lifecycle != lifecycle)
+                {
+                    continue;
+                }
+                summaries.push(summary);
             }
         }
         summaries.sort_by(|a, b| {
@@ -989,6 +981,13 @@ impl AppState {
         })
     }
 
+    /// Publish the persisted automation rules after a recovery error so the
+    /// runtime still gets the database view (including exact host locks)
+    /// instead of starting with `set_rules` and losing every lock.
+    pub fn republish_automation_runtime(&self) -> Result<(), AutomationError> {
+        self.publish_current_runtime(None, None).map(|_| ())
+    }
+
     pub fn recover_automation_changes(&self) -> Result<(), AutomationError> {
         self.abandon_ephemeral_changes_after_restart()?;
         let changes = {
@@ -1185,11 +1184,20 @@ impl AppState {
         };
         let mut reverted = 0;
         for change in expired {
-            if self
-                .rollback_automation_change_locked(&change.id, None, "expired", None)
-                .is_ok()
-            {
-                reverted += 1;
+            match self.rollback_automation_change_locked(&change.id, None, "expired", None) {
+                Ok(_) => reverted += 1,
+                Err(error) => {
+                    // Do not hide a stuck TTL cleanup: the change stays active
+                    // and will be retried every maintenance tick.
+                    tracing::warn!(
+                        component = "desktop.automation",
+                        event = "automation_expiry_rollback_failed",
+                        change_id = %change.id,
+                        code = %error.code,
+                        error = %error.message,
+                        "automation_expiry_rollback_failed"
+                    );
+                }
             }
         }
         Ok(reverted)
@@ -1200,6 +1208,9 @@ impl AppState {
         params: VerifyAutomationChangeParams,
         permissions: AutomationPermissions,
     ) -> Result<AutomationVerificationResult, AutomationError> {
+        // Serialize with apply/rollback/clear so evidence cannot be bound to a
+        // change that was reverted while the verification was running.
+        let _guard = self.automation_mutation_lock().lock().await;
         if params.assertions.is_empty() || params.assertions.len() > MAX_VERIFICATION_ASSERTIONS {
             return Err(AutomationError::new(
                 "INVALID_ARGUMENT",
@@ -5982,6 +5993,86 @@ mod tests {
                 .code,
             "IDEMPOTENCY_CONFLICT"
         );
+    }
+
+    #[test]
+    fn lifecycle_filter_excludes_user_rules_from_ephemeral_results() {
+        let harness = test_harness();
+        let permissions = automation_permissions();
+        let user_rule = RewriteRule {
+            actions: Some(vec![json!({
+                "rewriteType": "header",
+                "payload": {
+                    "headerName": "X-User",
+                    "operation": "set",
+                    "target": "request",
+                    "value": "user"
+                }
+            })]),
+            enabled: true,
+            id: "user-list-1".to_string(),
+            name: "User rule".to_string(),
+            note: None,
+            payload: json!({}),
+            priority: 10,
+            r#match: RewriteRuleMatch {
+                methods: vec!["GET".to_string()],
+                stage: "request".to_string(),
+                url_pattern: "https://user.example.com/*".to_string(),
+                match_type: Some("wildcard".to_string()),
+            },
+            rewrite_type: "header".to_string(),
+            workspace_id: WORKSPACE_ID.to_string(),
+        };
+        harness
+            .state
+            .read_rewrite_manager()
+            .save_rule_with_host_lock(user_rule.clone(), "user.example.com");
+        {
+            let conn = harness.state.lock_db_for_ipc().unwrap();
+            aiproxy_db::rules::save_rewrite_rule(&conn, &rewrite_row(&user_rule)).unwrap();
+        }
+
+        let ephemeral = rewrite_plan(
+            "lifecycle-filter-0001",
+            "ephemeral",
+            rewrite_resource("Temporary", "api.example.com", true),
+        );
+        apply_validated(&harness, &ephemeral, &permissions).unwrap();
+        let ephemeral_rule = harness
+            .state
+            .read_rewrite_manager()
+            .list_rules()
+            .into_iter()
+            .find(|rule| rule.name == "Temporary")
+            .expect("ephemeral rule should exist");
+
+        let list = |lifecycle: &str| {
+            harness
+                .state
+                .list_automation_resources(ListAutomationResourcesParams {
+                    scope: Some("workspace".to_string()),
+                    workspace_id: Some(WORKSPACE_ID.to_string()),
+                    kind: Some("rewrite".to_string()),
+                    lifecycle: Some(lifecycle.to_string()),
+                    cursor: None,
+                    limit: 50,
+                })
+                .unwrap()
+                .items
+        };
+
+        let ephemeral_items = list("ephemeral");
+        assert!(ephemeral_items.iter().all(|item| item.id != user_rule.id));
+        assert!(ephemeral_items
+            .iter()
+            .any(|item| item.id == ephemeral_rule.id && item.lifecycle == "ephemeral"));
+
+        let persistent_items = list("persistent");
+        assert!(persistent_items.iter().any(|item| item.id == user_rule.id));
+        assert!(persistent_items
+            .iter()
+            .all(|item| item.id != ephemeral_rule.id));
     }
 
     #[test]

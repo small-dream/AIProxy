@@ -377,9 +377,11 @@ fn operation_non_idempotent(operation: &ControlOperation) -> bool {
         ControlOperation::DeleteSessions(_)
         | ControlOperation::ClearSessions
         | ControlOperation::RemoveCertificateTrust
-        | ControlOperation::ApplyAutomationPlan(_)
         | ControlOperation::RollbackAutomationChange(_)
         | ControlOperation::ClearAgentAutomation(_) => true,
+        // Proxy verification sends real requests; it must not receive the
+        // 15-minute / 50-use quota.
+        ControlOperation::VerifyAutomationChange(params) if params.mode == "proxy" => true,
         _ => false,
     }
 }
@@ -1294,6 +1296,25 @@ mod tests {
         assert_eq!(scope.methods, vec!["POST".to_string()]);
         assert_eq!(scope.host.as_deref(), Some("api.example.com"));
         assert_eq!(scope.path_prefix.as_deref(), Some("/v1/orders"));
+    }
+
+    #[test]
+    fn proxy_verification_is_non_idempotent_but_apply_is_not() {
+        let verify = ControlOperation::VerifyAutomationChange(
+            aiproxy_agent_control::VerifyAutomationChangeParams {
+                change_id: "change-1".to_string(),
+                mode: "proxy".to_string(),
+                baseline_session_ids: Vec::new(),
+                requests: Vec::new(),
+                external_session_ids: Vec::new(),
+                assertions: Vec::new(),
+            },
+        );
+        assert!(operation_non_idempotent(&verify));
+        assert_eq!(
+            approval_options(&verify, true),
+            vec![AgentGrantApprovalOption::Once]
+        );
     }
 
     #[test]
