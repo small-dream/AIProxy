@@ -342,3 +342,5 @@ Rollback targets one persistent change set and restores it through resource-leve
 ### Q: What does disconnecting remove?
 
 It removes the aiproxy MCP entry from the client configuration and deletes the Skill installed by AIProxy. The original configuration is backed up first; custom Skills not managed by AIProxy are preserved.
+
+Chinese diagnostics use **MCP 后台服务** for the sidecar, **数据库结构** for the database schema, and **站点来源白名单** for origin allowlists. Automation UI summaries use **变更集**, **运行时版本**, and **执行记录**; MCP field names, origin values, identifiers, and permissions remain unchanged.

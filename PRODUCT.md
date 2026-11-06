@@ -1,35 +1,85 @@
-# Product
+# AIProxy 产品说明
 
-## Register
+<!-- impeccable:product-schema 1 -->
 
-product
+## Platform
 
-## Users
+web
 
-Developers and QA engineers using AIProxy as a desktop HTTP/HTTPS interception proxy (Tauri + React). They work in technical, task-driven contexts: configuring the proxy, capturing traffic, writing rules, and diffing sessions. Settings are touched infrequently but must be scannable and trustworthy when they are.
+产品形态为基于 Tauri 2、React 和 MUI 的桌面应用，面向 Windows、macOS、Linux。沿用现有桌面优先的统一交互体系，并遵循各平台的系统权限、证书与代理行为。
 
-## Product Purpose
+## 用户与使用环境
 
-AIProxy is a desktop proxy/capture tool for inspecting and controlling HTTP(S) traffic. It exists to give developers precise, reliable control over requests and responses. Success = users find the setting they need in seconds, understand the consequence of each toggle (especially security-sensitive ones like TLS verification), and never lose work to unclear UI.
+主要用户是开发者、测试工程师与平台团队。用户在接口联调、移动端抓包、故障排查和回归验证中，需要快速配置代理、捕获流量、查看请求与响应、编写规则并对比会话。
 
-## Brand Personality
+这是任务导向的专业工具。高频工作应能快速扫描和连续操作；低频设置也必须容易定位，且能清楚解释更改的后果。
 
-Professional and restrained (Linear-like): precise, quiet, trustworthy. Three words: precise, calm, dependable. The UI should feel like a native macOS utility — grouped settings lists, inline controls, plain-spoken descriptions — not a marketing surface.
+## 产品目标与定位
 
-## Anti-references
+AIProxy 提供本地 HTTP / HTTPS / WebSocket 代理调试工作流，围绕抓包、检视、重放、改写、资源映射、断点与弱网模拟组织界面。产品方向对标 Charles，以跨平台一致体验降低网络调试成本。
 
-- SaaS-dashboard clichés: oversized hero metrics, decorative cards-in-cards, gradient accents, uppercase tracked eyebrows.
-- Over-rounded "playful" consumer UI; heavy shadows; glassmorphism as decoration.
-- Dense enterprise admin panels with walls of undifferentiated form fields.
+成功标准是用户能迅速找到所需能力、理解其生效范围与风险，并在编辑、切换和排障过程中保有清晰的状态反馈，不因模糊提示丢失工作。
 
-## Design Principles
+## 能力与边界
 
-- Design serves the task: every visual choice reduces time-to-setting or clarifies consequence.
-- Native over novel: prefer platform conventions (grouped lists, inline switches) users already know.
-- Say the consequence: security-sensitive options state what happens, in plain language, next to the control.
-- One accent, used sparingly: color communicates state and primary action only.
-- Quiet by default: no decoration that doesn't carry information.
+- 核心工作区包括会话、构造请求、集合、对比、规则、洞察、证书与设置；帮助文档支持离线阅读。
+- HTTPS 明文捕获依赖证书信任和 SSL 配置；系统代理与证书安装必须明确体现 Windows、macOS、Linux 的平台差异。
+- 本地 Agent 通过 MCP 读取流量或执行操作时，必须遵循应用的权限、临时审批和资源边界；预留能力不能被界面表述为已可用。
+- AI 会话总结依赖用户配置的模型服务；界面应明确发送内容、脱敏状态和结果限制。
+- 不把云端协作、账号体系、企业集中策略、深度安全扫描或全面替代 API 文档平台作为当前产品承诺。
 
-## Accessibility & Inclusion
+## 语言与术语
 
-WCAG 2.1 AA: body text ≥4.5:1 contrast, focus visible on all controls, full keyboard operability. Respect `prefers-reduced-motion`. Follow the system light/dark theme via the existing theme system.
+默认跟随系统语言，允许用户显式选择简体中文或 English。中文界面的导航、操作、说明、校验、空状态、动态摘要与帮助文档统一使用中文；英文界面保持完整英文体验。语言切换应同步作用于共享组件和动态生成内容。
+
+| 场景 | 中文界面用语 |
+|---|---|
+| 请求或响应的头与内容 | 请求头 / 响应头、请求体 / 响应体 |
+| 同时服务请求与响应的通用组件 | 消息头 / 消息体 |
+| 参数、原文与链路信息 | 查询参数、原始内容、尾部字段、时序、差异、载荷 |
+| 流量控制 | 改写、重定向、本地映射、远程映射、模拟响应 |
+| 主机分组与筛选 | 主机；域名语境下使用域名 |
+| AI 设置与版本信息 | API 密钥、服务地址、提交标识、构建号 |
+| 诊断与自动化摘要 | 后台服务、数据库结构、变更集、运行时版本、执行记录、站点来源 |
+
+构造请求与集合复用同一请求编辑器。标签统一为「请求头 / 请求体 / 查询参数」，请求体类型统一为「无 / 多部分表单 / URL 编码表单 / 原始内容」。悬浮说明补充完整协议类型 `multipart/form-data` 与 `application/x-www-form-urlencoded`，主标签不重复中英文括注。
+
+保留技术信息的准确性：HTTP 方法、协议名、URL、域名、端口、MIME 类型、实际消息头名称和值（如 `Content-Type`、`Authorization`、`Host`）、JSON 字段和路径、代码、命令、产品名、工具名、API 标识与用户输入保持原样。不得通过全局字符串替换修改原始抓包、导出内容或接口契约。
+
+空状态必须表达真实原因：
+
+- 「此请求不发送请求体」表示用户主动选择无请求体。
+- 「未捕获请求体 / 未捕获响应体」表示没有捕获到相关内容。
+- 「服务端未返回响应体（0 字节）」表示已确认响应为空。
+
+用户可见文案通过双语消息资源维护，禁止在组件中硬编码。新增或调整术语时，同步更新中英文帮助文档；测试覆盖消息键与插值一致性、关键术语、技术标识保留、语言切换及共享编辑器行为。
+
+## 品牌与表达
+
+保持专业、克制、精确、安静、可信的工具气质。沿用现有 MUI 视觉与桌面操作习惯，使用清晰分组、就近说明和明确的控制状态，让内容与任务成为注意力中心。
+
+避免营销式大标题、无信息价值的指标卡、层层嵌套的装饰卡片、装饰渐变、过度圆角、厚重阴影和玻璃效果；也避免没有层次的密集表单。
+
+## 产品原则
+
+1. 任务优先：每个界面选择都应缩短查找、判断或操作路径。
+2. 状态可信：清楚区分草稿、已保存、已生效、捕获缺失与结果为空。
+3. 后果就近说明：证书、TLS 校验、代理接管和权限操作在控件附近说明影响。
+4. 一致且可迁移：共享术语、组件与操作模式，保持三平台和双语体验一致。
+5. 安静且可控：颜色服务于状态和主要操作，保护未保存工作，避免无信息价值的装饰。
+
+## 无障碍与包容性
+
+以 WCAG 2.1 AA 为基线：正文对比度至少 4.5:1，交互控件具有清晰的焦点状态、可访问名称和键盘操作路径。遵循减少动态效果的系统偏好，通过现有主题体系支持浅色、深色与跟随系统。
+
+双语文案长度不同，布局必须容纳真实内容，不能截断关键操作或状态含义；协议说明不能替代控件本身的可访问名称。
+
+## 事实依据
+
+- 产品目标与范围：`docs/PRD.md`。
+- 系统结构与模块边界：`docs/ARCHITECTURE.md`、`docs/API_SPEC.md`。
+- 界面与页面规范：`docs/UI_GUIDELINES.md`、`docs/PAGE_BLUEPRINTS.md`。
+- 国际化约束：`docs/DECISIONS/ADR-001-frontend-i18n.md`。
+- 操作与能力边界：`apps/desktop/user-guides/{zh-CN,en}/*.md`。
+
+本文件记录长期产品原则；具体功能状态、权限要求和平台差异以上述事实源及当前实现为准。不得据此虚构能力、性能数据或验证结果。

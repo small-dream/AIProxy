@@ -1,8 +1,9 @@
 import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
+import { useAppPreferencesStore } from "@/app/store/app-preferences.store";
 import { AppProviders } from "@/app/providers/AppProviders";
 import {
   clearImportedSessions,
@@ -59,11 +60,46 @@ function renderCompareRoute(route: string) {
 }
 
 afterEach(() => {
+  useAppPreferencesStore.getState().setLanguagePreference("system");
   clearImportedSessions();
   syncSessionCompareScopes([]);
 });
 
 describe("ComparePage", () => {
+  it("localizes dynamic diff content while preserving captured field names and values", async () => {
+    useAppPreferencesStore.getState().setLanguagePreference("en");
+    renderCompare(
+      detail({
+        requestHeaders: [{ name: "X-Debug", value: "left-value" }],
+        requestBody: { inlineText: '{"user":"Ada"}', mimeType: "application/json", sizeBytes: 14 },
+      }),
+      detail({
+        summary: summary({ id: "right" }),
+        requestHeaders: [{ name: "X-Debug", value: "right-value" }],
+        requestBody: {
+          inlineText: '{"user":"Grace"}',
+          mimeType: "application/json",
+          sizeBytes: 16,
+        },
+      }),
+    );
+    expect(await screen.findByText(/Body detail is collapsed/)).toBeInTheDocument();
+    act(() => useAppPreferencesStore.getState().setLanguagePreference("zh-CN"));
+    expect(await screen.findByText(/消息体详情已折叠/)).toBeInTheDocument();
+    expect(screen.getByText("请求头")).toBeInTheDocument();
+    expect(screen.getByText("响应头")).toBeInTheDocument();
+    expect(screen.getByText("x-debug")).toBeInTheDocument();
+    expect(screen.getByText("left-value")).toBeInTheDocument();
+    expect(screen.getByText("right-value")).toBeInTheDocument();
+    expect(screen.getByText("14 字节")).toBeInTheDocument();
+    expect(screen.getByText("16 字节")).toBeInTheDocument();
+    expect(screen.queryByText("Request Headers")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "计算消息体差异" }));
+    expect(await screen.findByText("$.user")).toBeInTheDocument();
+    expect(screen.getAllByText("修改").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "收起消息体差异" })).toBeInTheDocument();
+  });
+
   it("shows collapsed body state and computes body diff on demand", async () => {
     renderCompare(
       detail({

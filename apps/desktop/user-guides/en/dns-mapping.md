@@ -139,3 +139,5 @@ Yes. Multiple rules are ordered by priority, and the highest-priority match wins
 ### Q: Does the mapping affect other apps?
 
 DNS mapping only takes effect within AIProxy's proxy scope. Only apps whose traffic goes through AIProxy (i.e. via the system proxy or a manual proxy pointing at AIProxy) are affected. Turning off the system proxy or stopping AIProxy disables the mapping.
+
+The Chinese guide and documentation entry use **DNS 映射**. The Chinese navigation path is **规则 → 映射 → DNS**, with **包含 / 通配符 / 精确 / 正则** as the match-type labels. DNS behavior and the original HTTP `Host` header are unchanged.

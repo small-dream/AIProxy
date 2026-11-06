@@ -23,7 +23,7 @@ API 集合（Collections）允许你将常用的 HTTP 请求保存、分组和�
 Collections 页面采用双栏布局：
 
 - **左栏**：集合 / 文件夹 / 请求组成的树，顶部有搜索框，底部是环境选择器
-- **右栏**：请求编辑器（名称、描述、方法、URL、Headers、Body）+ 响应预览
+- **右栏**：请求编辑器（名称、描述、方法、URL、消息头、消息体）+ 响应预览
 
 ## 创建集合与文件夹
 
@@ -37,7 +37,7 @@ Collections 页面采用双栏布局：
 
 1. 将鼠标悬停在某个集合/文件夹行上
 2. 点击右侧出现的 **+** 图标——会弹出一个小菜单
-3. 选择 **New Request（新建请求）** 或 **New Folder（新建文件夹）**
+3. 选择 **New 请求（新建请求）** 或 **New Folder（新建文件夹）**
 4. 文件夹输入名称后确认
 
 文件夹支持无限嵌套，用于组织大规模 API。
@@ -71,25 +71,25 @@ Collections 页面采用双栏布局：
 
 ### 在 Collections 页面新建请求
 
-1. 悬停集合/文件夹行，通过 **+** → **New Request** 菜单项新建——或选中某个集合后在右栏空态点击 **New Request** 按钮
+1. 悬停集合/文件夹行，通过 **+** → **New 请求** 菜单项新建——或选中某个集合后在右栏空态点击 **New 请求** 按钮
 2. 右栏会清空编辑器，进入新建模式
-3. 填写名称、描述（可选）、Method、URL、Headers、Body
+3. 填写名称、描述（可选）、方法、URL、消息头、消息体
 4. 点击 **Save as New**
 
 ### 从抓包流量保存（亮点功能）
 
-1. 打开 **Sessions** 页面
+1. 打开 **会话** 页面
 2. 找到想要保存的请求
 3. 右键点击该请求 → 选择 **Save to Collection**
 4. 在弹窗中选择目标集合
 5. 可修改请求名称，点击确认
 
-系统会自动识别方法、URL、Headers 和 Body，并按 `Content-Type` 推断 Body 类型：JSON 转为 raw/JSON，可解析的表单转为 URL-encoded 字段；其余（包括 multipart）一律保留为**原始文本 Body**——multipart 的文件附件本身不会被捕获，保存后如有需要请重新附加文件。
+系统会自动识别方法、URL、消息头和消息体，并按 `Content-Type` 推断消息体类型：JSON 转为原始内容/JSON，可解析的表单转为 URL-encoded 字段；其余（包括 multipart）一律保留为**原始内容**——multipart 的文件附件本身不会被捕获，保存后如有需要请重新附加文件。
 
 ## 编辑和发送集合中的请求
 
 1. 在左栏树中点击集合或请求，右栏编辑器加载其详情
-2. 修改名称、描述、URL、Headers 或 Body——form-data 支持**附加文件**，与 [Compose](./compose.md) 相同
+2. 修改名称、描述、URL、消息头或消息体——form-data 支持**附加文件**，与 [构造请求](./compose.md) 相同
 3. 点击 **Send** 发送请求
 4. 响应会显示在右栏下半部分
 
@@ -105,7 +105,7 @@ Collections 页面采用双栏布局：
 
 ### 变量语法
 
-在 URL、Headers、Body 中使用双花括号包裹变量名：
+在 URL、消息头、消息体中使用双花括号包裹变量名：
 
 ```
 https://{{baseUrl}}/api/users
@@ -162,9 +162,9 @@ Authorization: Bearer {{token}}
 变量替换会作用于以下位置：
 
 - URL：`https://{{baseUrl}}/api/users`
-- Header 值：`Authorization: Bearer {{token}}`
-- Header 名称：支持（较少使用）
-- Raw Body：`{ "userId": "{{userId}}" }`
+- 消息头值：`Authorization: Bearer {{token}}`
+- 消息头名称：支持（较少使用）
+- 原始内容：`{ "userId": "{{userId}}" }`
 - FormData 的字段名和值
 - URL-encoded 的字段名和值
 
@@ -172,7 +172,7 @@ Authorization: Bearer {{token}}
 
 ## 环境选择持久化
 
-当前选中的环境会自动保存，下次打开 AIProxy 时自动恢复——并且该选择**与 [Compose](./compose.md) 共享**：Compose 工具栏的环境选择器显示的是同一个环境。
+当前选中的环境会自动保存，下次打开 AIProxy 时自动恢复——并且该选择**与 [构造请求](./compose.md) 共享**：构造请求工具栏的环境选择器显示的是同一个环境。
 
 ## 常见问题
 
@@ -207,4 +207,4 @@ Authorization: Bearer {{token}}
 
 ### Q: 可以从抓包保存的请求直接发送吗？
 
-可以。从 Sessions 右键保存到集合的请求，可以在 Collections 页面直接点击发送。系统会自动替换当前激活环境中的变量。
+可以。从会话右键保存到集合的请求，可以在 Collections 页面直接点击发送。系统会自动替换当前激活环境中的变量。

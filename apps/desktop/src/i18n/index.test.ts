@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveLocale, translateMessage } from "./index";
+import { resolveLocale, translateMessage, type TranslationKey } from "./index";
 import { enMessages } from "./messages/en";
 import { zhCNMessages } from "./messages/zh-CN";
 
@@ -60,6 +60,92 @@ describe("list reorder hint", () => {
 
       expect(message).toContain("⌥↑/↓");
       expect(message).not.toContain("{{");
+    }
+  });
+});
+
+describe("localized HTTP terminology", () => {
+  it("keeps Chinese labels consistent across request editors and inspectors", () => {
+    const labels: Partial<Record<TranslationKey, string>> = {
+      "common.labels.host": "主机",
+      "settingsPage.aiApiKey": "API 密钥",
+      "settingsPage.aiBaseUrl": "服务地址",
+      "insightsPage.hosts.contextMenu.filterByHost": "按此主机过滤",
+      "docsPage.entries.dnsMapping": "DNS 映射",
+      "composePage.tabs.headers": "请求头",
+      "composePage.tabs.body": "请求体",
+      "composePage.tabs.query": "查询参数",
+      "composePage.bodyTypes.formdata": "多部分表单",
+      "composePage.bodyTypes.urlencoded": "URL 编码表单",
+      "composePage.bodyTypes.raw": "原始内容",
+      "inspector.request.tabs.headers": "请求头",
+      "inspector.request.tabs.body": "请求体",
+      "inspector.response.tabs.headers": "响应头",
+      "inspector.response.tabs.trailers": "尾部字段",
+      "breakpointPanel.requestBody": "请求体",
+      "breakpointPanel.responseBody": "响应体",
+      "rulesPage.rewrite.types.header": "消息头",
+      "rulesPage.rewrite.types.body": "消息体",
+      "settingsPage.agentAccess.readBodiesLabel": "读取消息体",
+    };
+    for (const [key, expected] of Object.entries(labels)) {
+      expect(translateMessage("zh-CN", key as TranslationKey)).toBe(expected);
+    }
+  });
+
+  it("distinguishes an absent request body, uncaptured content, and an empty response", () => {
+    expect(translateMessage("zh-CN", "composePage.noBody")).toBe("此请求不发送请求体。");
+    expect(translateMessage("zh-CN", "inspector.request.noBodyCaptured")).toBe("未捕获请求体");
+    expect(translateMessage("zh-CN", "inspector.response.noResponseBodyCaptured")).toBe(
+      "未捕获响应体",
+    );
+    expect(translateMessage("zh-CN", "inspector.response.emptyBodyReceived")).toContain("0 字节");
+  });
+
+  it("retains protocol identifiers and actual field examples", () => {
+    expect(zhCNMessages.composePage.bodyTypeDescriptions.formdata).toContain("multipart/form-data");
+    expect(zhCNMessages.composePage.bodyTypeDescriptions.urlencoded).toContain(
+      "application/x-www-form-urlencoded",
+    );
+    expect(zhCNMessages.rulesPage.rewrite.contentType).toBe("Content-Type");
+    expect(zhCNMessages.rulesPage.rewrite.headerNameExample).toBe("x-debug-mode");
+    expect(zhCNMessages.rulesPage.rewrite.bodyFieldPathExample).toBe("data.user.name");
+    expect(enMessages.composePage.tabs.headers).toBe("Headers");
+  });
+
+  it("does not leave standalone English HTTP UI terms in Chinese messages", () => {
+    const untranslated: string[] = [];
+    function visit(node: unknown, prefix = "") {
+      if (typeof node === "string") {
+        if (
+          /\b(?:Headers?|Body|Query|Raw|Trailers|Request|Response|Redirect|Timing|Diff|Host|domain|Snapshot|generation|schema|sidecar|trace)\b/.test(
+            node,
+          )
+        ) {
+          untranslated.push(prefix);
+        }
+      } else if (node && typeof node === "object") {
+        for (const [key, value] of Object.entries(node))
+          visit(value, prefix ? prefix + "." + key : key);
+      }
+    }
+    visit(zhCNMessages);
+    expect(untranslated).toEqual([]);
+  });
+
+  it("preserves interpolation placeholders in both message catalogs", () => {
+    for (const key of collectKeyPaths(enMessages)) {
+      const readValue = (catalog: typeof enMessages | typeof zhCNMessages) => {
+        const value = key
+          .split(".")
+          .reduce<unknown>((node, segment) => (node as Record<string, unknown>)[segment], catalog);
+        return Array.isArray(value) ? value.join("\n") : String(value);
+      };
+      const en = readValue(enMessages);
+      const zh = readValue(zhCNMessages);
+      expect(zh.match(/\{\{\s*\w+\s*\}\}/g)?.sort() ?? [], key).toEqual(
+        en.match(/\{\{\s*\w+\s*\}\}/g)?.sort() ?? [],
+      );
     }
   });
 });

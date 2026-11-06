@@ -12,6 +12,7 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
@@ -35,6 +36,13 @@ const BODY_TYPE_KEYS: Record<BodyType, TranslationKey> = {
   formdata: "composePage.bodyTypes.formdata",
   urlencoded: "composePage.bodyTypes.urlencoded",
   raw: "composePage.bodyTypes.raw",
+};
+
+const BODY_TYPE_DESCRIPTION_KEYS: Record<BodyType, TranslationKey> = {
+  none: "composePage.bodyTypeDescriptions.none",
+  formdata: "composePage.bodyTypeDescriptions.formdata",
+  urlencoded: "composePage.bodyTypeDescriptions.urlencoded",
+  raw: "composePage.bodyTypeDescriptions.raw",
 };
 
 type ComposeRequestSectionProps = {
@@ -194,9 +202,9 @@ export function ComposeRequestSection({
                   }}
                 >
                   {(["none", "formdata", "urlencoded", "raw"] as const).map((type) => (
-                    <ToggleButton key={type} value={type}>
-                      {t(BODY_TYPE_KEYS[type])}
-                    </ToggleButton>
+                    <Tooltip key={type} describeChild title={t(BODY_TYPE_DESCRIPTION_KEYS[type])}>
+                      <ToggleButton value={type}>{t(BODY_TYPE_KEYS[type])}</ToggleButton>
+                    </Tooltip>
                   ))}
                 </ToggleButtonGroup>
                 {bodyType === "raw" && (

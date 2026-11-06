@@ -6,10 +6,10 @@
 
 适用场景包括：
 
-- **动态改写**：根据 URL、方法、Header、Body 内容动态修改请求或响应
+- **动态改写**：根据 URL、方法、消息头、消息体内容动态修改请求或响应
 - **条件过滤**：只在满足特定条件时生效
-- **动态 Mock**：按条件直接返回自定义响应，不访问上游服务
-- **数据提取**：从响应中提取 token、ID、状态字段并记录下来
+- **动态模拟**：按条件直接返回自定义响应，不访问上游服务
+- **数据提取**：从响应中提取令牌、ID、状态字段并记录下来
 - **调试日志**：为特定请求打点，方便回看脚本命中情况
 
 ## 当前版本能力边界
@@ -21,7 +21,7 @@
 - 应用内编辑
 - 从本地 `.js / .mjs / .ts / .mts` 文件一次性导入
 - `async` hook 函数（内部可使用 `await`）
-- 会话级日志与提取结果查看；Automation 标签页会同时展示 Rewrite 命中记录和 Script trace
+- 会话级日志与提取结果查看；自动化标签页会同时展示改写命中记录和脚本执行记录
 
 `v1` 不支持：
 
@@ -35,28 +35,28 @@
 ## 入口位置
 
 1. 打开 AIProxy
-2. 在左侧导航栏点击 **Rules**
+2. 在左侧导航栏点击 **规则**
 3. 点击顶部 **Scripts** 标签页
 
 ### Agent 自动化边界
 
-首版 Agent 自动化工具不能创建、更新、编译、删除或执行 Script 资源，相关计划返回 `FEATURE_NOT_AVAILABLE`。`manageScripts` 是后续能力的预留授权位，开启后也不会改变这一限制。
+首版 Agent 自动化工具不能创建、更新、编译、删除或执行脚本资源，相关计划返回 `FEATURE_NOT_AVAILABLE`。`manageScripts` 是后续能力的预留授权位，开启后也不会改变这一限制。
 
-`get_automation_resource` 不返回 Script 源码；Agent 只能结合已捕获会话中的 Script log、extract 结果和 trace 分析一次请求的表现，不能读取或修改你的脚本源码。需要修改脚本时，请在本页手动编辑并保存。
+`get_automation_resource` 不返回脚本源码；Agent 只能结合已捕获会话中的脚本 log、extract 结果和执行记录分析一次请求的表现，不能读取或修改你的脚本源码。需要修改脚本时，请在本页手动编辑并保存。
 
 ## 创建脚本规则
 
-1. 点击 **New Script Rule**
+1. 点击 **New 脚本规则**
 2. 在右侧编辑器填写基础信息
 3. 选择脚本语言：
    - `TypeScript`
    - `JavaScript`
 4. 填写匹配条件：
-   - URL Pattern
-   - HTTP Methods
-   - Match Stage
+   - URL 模式
+   - HTTP 方法
+   - 匹配阶段
 5. 在脚本源码区域输入脚本
-6. 点击 **Save Rule**
+6. 点击 **Save 规则**
 
 保存成功后，规则会立即生效。
 
@@ -64,19 +64,19 @@
 
 | 字段 | 说明 | 示例 |
 |---|---|---|
-| Rule Name | 规则名称，便于搜索和识别 | `给 API 请求加调试头` |
+| 规则 Name | 规则名称，便于搜索和识别 | `给 API 请求加调试头` |
 | Enabled | 控制规则是否生效（列表内也可行内开关） | 开启 |
-| Priority | 数字越大优先级越高；可在列表里拖拽行调整顺序，优先级自动重排 | `100` |
-| URL Pattern | 匹配请求 URL，按 Match Type 解释 | `api.example.com/v1/` |
-| Match Type | 模式匹配方式：Contains（默认）/ Wildcard / Exact / Regex | Contains |
-| HTTP Methods | 只匹配指定方法，留空表示全部 | `GET, POST` |
-| Match Stage | `request`、`response`、`either` | `request` |
+| 优先级 | 数字越大优先级越高；可在列表里拖拽行调整顺序，优先级自动重排 | `100` |
+| URL 模式 | 匹配请求 URL，按匹配方式解释 | `api.example.com/v1/` |
+| 匹配方式 | 模式匹配方式：包含（默认）/ 通配符 / 精确 / 正则 | 包含 |
+| HTTP 方法 | 只匹配指定方法，留空表示全部 | `GET, POST` |
+| 匹配阶段 | `request`、`response`、`either` | `request` |
 | Language | `TypeScript` 或 `JavaScript` | `TypeScript` |
-| Script Source | 脚本正文 | 见下方示例 |
+| 脚本 Source | 脚本正文 | 见下方示例 |
 
 ## 规则管理
 
-勾选行前复选框可批量 **启用 / 禁用 / 删除**；拖动行首把手可排序——优先级自动重排，列表顺序即优先顺序。脚本规则包含在 Rules 页的[导入 / 导出](./rewrite-rules.md#规则导入--导出)中。
+勾选行前复选框可批量 **启用 / 禁用 / 删除**；拖动行首把手可排序——优先级自动重排，列表顺序即优先顺序。脚本规则包含在规则页的[导入 / 导出](./rewrite-rules.md#规则导入--导出)中。
 
 ## 导入本地脚本文件
 
@@ -100,8 +100,8 @@
 
 脚本规则页提供了几个快捷模板：
 
-- **Set Header**：给请求加 Header
-- **Mock Response**：按条件返回自定义响应
+- **Set 消息头**：给请求加消息头
+- **模拟响应**：按条件返回自定义响应
 - **Extract Data**：从响应中提取字段并记录日志
 
 建议先从模板开始，再逐步调整逻辑。
@@ -186,9 +186,9 @@ export function onResponse(ctx) {}
 - `ctx.response.setHeader(name, value)`
 - `ctx.response.removeHeader(name)`
 
-> Body 的字节语义：如果脚本只读取 body 或只修改 header、没有改 body，代理会按原始字节透传 body（包括 GBK、Latin-1 等非 UTF-8 编码的页面），不会把 `bodyText` 的 UTF-8 文本重新编码写回。只有当脚本通过 `setText()` / `setBase64()`（或直接赋值 `bodyText` / `bodyBase64`）真正改动 body 时，才会用改动后的内容替换。
+> 消息体的字节语义：如果脚本只读取消息体或只修改消息头、没有改消息体，代理会按原始字节透传消息体（包括 GBK、Latin-1 等非 UTF-8 编码的页面），不会把 `bodyText` 的 UTF-8 文本重新编码写回。只有当脚本通过 `setText()` / `setBase64()`（或直接赋值 `bodyText` / `bodyBase64`）真正改动消息体时，才会用改动后的内容替换。
 >
-> 编码相关：仅改 header 时，`content-encoding` 等描述原始字节的头也会一并保留；即使该编码无法解码（例如 `zstd`、解压后超过 64 MiB、压缩流损坏），代理也不会把压缩字节当明文发出去。改写 body 时，写回的是解码后的明文，代理会移除 `content-encoding` / `etag` / `content-md5` 等已不匹配的响应头。
+> 编码相关：仅改消息头时，`content-encoding` 等描述原始字节的头也会一并保留；即使该编码无法解码（例如 `zstd`、解压后超过 64 MiB、压缩流损坏），代理也不会把压缩字节当明文发出去。改写消息体时，写回的是解码后的明文，代理会移除 `content-encoding` / `etag` / `content-md5` 等已不匹配的响应头。
 
 ### `ctx.session`
 
@@ -234,7 +234,7 @@ ctx.respond({
 
 ## 常见示例
 
-### 示例 1：给请求加 Header
+### 示例 1：给请求加消息头
 
 ```ts
 export function onRequest(ctx) {
@@ -248,7 +248,7 @@ export function onRequest(ctx) {
 - 给请求打标记
 - 做灰度流量标识
 
-### 示例 2：按路径动态 Mock
+### 示例 2：按路径动态模拟
 
 ```ts
 export function onRequest(ctx) {
@@ -273,7 +273,7 @@ export function onRequest(ctx) {
 
 适用场景：
 
-- 前后端联调时临时 Mock
+- 前后端联调时临时模拟
 - 验证客户端在特殊返回数据下的行为
 
 ### 示例 3：从响应中提取 Token
@@ -320,9 +320,9 @@ export function onResponse(ctx) {
 
 脚本命中后的日志和提取结果可以在会话详情中查看：
 
-1. 打开 **Sessions**
+1. 打开 **会话**
 2. 选择一条命中过脚本规则的会话
-3. 在右侧 Inspector 的 Response 区域点击 **Automation** 标签页
+3. 在右侧 Inspector 的响应区域点击 **自动化** 标签页
 
 你会看到：
 
@@ -342,8 +342,8 @@ export function onResponse(ctx) {
 - 脚本报错时，请求不会因此整体失败
 - 脚本超时时，请求继续按原始链路执行
 - 返回结果非法时，该次修改会被丢弃
-- 错误信息会记录到 **Automation** 标签页，便于回看
-- 如果同一条请求也命中了 Rewrite，Automation 标签页会先展示 Rewrite 的 before / after diff，再展示 Script 日志
+- 错误信息会记录到 **自动化** 标签页，便于回看
+- 如果同一条请求也命中了改写，自动化标签页会先展示改写的 before / after 差异，再展示脚本日志
 
 这样可以避免一条脚本规则把整条代理链路卡死。
 
@@ -380,10 +380,10 @@ export function onResponse(ctx) {
 
 为了避免脚本规则“误伤”过多流量，建议：
 
-- URL Pattern 尽量具体，不要长期使用 `*`
-- 用 HTTP Methods 缩小匹配范围
-- 根据需要把 Match Stage 设为 `request` 或 `response`
-- 使用 Priority 控制多条脚本规则的顺序
+- URL 模式尽量具体，不要长期使用 `*`
+- 用 HTTP 方法缩小匹配范围
+- 根据需要把匹配阶段设为 `request` 或 `response`
+- 使用优先级控制多条脚本规则的顺序
 
 ## 常见问题
 
@@ -401,9 +401,9 @@ export function onResponse(ctx) {
 检查以下几点：
 
 1. 规则是否已启用
-2. URL Pattern 是否命中当前请求
-3. HTTP Methods 是否匹配
-4. Match Stage 是否正确
+2. URL 模式是否命中当前请求
+3. HTTP 方法是否匹配
+4. 匹配阶段是否正确
 5. 是否有更高优先级的脚本规则先修改了流量
 
 ### Q: `onRequest` 里为什么拿不到 `ctx.response`？

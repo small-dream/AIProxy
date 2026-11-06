@@ -5,7 +5,7 @@
 如果你是第一次接触脚本规则，建议顺序是：
 
 1. 先看“设置请求头”
-2. 再看“按条件 Mock”
+2. 再看“按条件模拟”
 3. 最后看“响应提取”和“响应改写”
 
 ## 示例 1：给所有 API 请求加调试头
@@ -18,8 +18,8 @@
 
 推荐匹配：
 
-- URL Pattern: `api.example.com`
-- Match Stage: `request`
+- URL 模式: `api.example.com`
+- 匹配阶段: `request`
 - Methods: 留空或按需选择
 
 ```ts
@@ -31,7 +31,7 @@ export function onRequest(ctx) {
 }
 ```
 
-## 示例 2：只在 POST 请求上加 Header
+## 示例 2：只在 POST 请求上加消息头
 
 用途：
 
@@ -40,8 +40,8 @@ export function onRequest(ctx) {
 
 推荐匹配：
 
-- URL Pattern: `api.example.com`
-- Match Stage: `request`
+- URL 模式: `api.example.com`
+- 匹配阶段: `request`
 - Methods: `POST`
 
 ```ts
@@ -54,17 +54,17 @@ export function onRequest(ctx) {
 }
 ```
 
-## 示例 3：根据 URL 参数切换到 Mock 响应
+## 示例 3：根据 URL 参数切换到模拟响应
 
 用途：
 
-- 临时打开 Mock
+- 临时打开模拟
 - 不改前端代码，通过请求参数控制是否命中脚本
 
 推荐匹配：
 
-- URL Pattern: `/api/user/profile`
-- Match Stage: `request`
+- URL 模式: `/api/user/profile`
+- 匹配阶段: `request`
 
 ```ts
 export function onRequest(ctx) {
@@ -89,17 +89,17 @@ export function onRequest(ctx) {
 }
 ```
 
-## 示例 4：按请求头决定是否 Mock
+## 示例 4：按请求头决定是否模拟
 
 用途：
 
-- 只有特定请求才返回 Mock
+- 只有特定请求才返回模拟
 - 配合前端开关或测试流量使用
 
 推荐匹配：
 
-- URL Pattern: `/api/orders`
-- Match Stage: `request`
+- URL 模式: `/api/orders`
+- 匹配阶段: `request`
 
 ```ts
 export function onRequest(ctx) {
@@ -137,8 +137,8 @@ export function onRequest(ctx) {
 
 推荐匹配：
 
-- URL Pattern: `/api/`
-- Match Stage: `request`
+- URL 模式: `/api/`
+- 匹配阶段: `request`
 - Methods: `POST`, `PUT`, `PATCH`
 
 ```ts
@@ -169,8 +169,8 @@ export function onRequest(ctx) {
 
 推荐匹配：
 
-- URL Pattern: `/feature-flags`
-- Match Stage: `response`
+- URL 模式: `/feature-flags`
+- 匹配阶段: `response`
 
 ```ts
 export function onResponse(ctx) {
@@ -188,7 +188,7 @@ export function onResponse(ctx) {
 }
 ```
 
-## 示例 7：从登录响应中提取 token
+## 示例 7：从登录响应中提取令牌
 
 用途：
 
@@ -197,8 +197,8 @@ export function onResponse(ctx) {
 
 推荐匹配：
 
-- URL Pattern: `/login`
-- Match Stage: `response`
+- URL 模式: `/login`
+- 匹配阶段: `response`
 - Methods: `POST`
 
 ```ts
@@ -222,12 +222,12 @@ export function onResponse(ctx) {
 用途：
 
 - 给排障留结构化字段
-- 在 Automation 标签页快速回看关键值
+- 在自动化标签页快速回看关键值
 
 推荐匹配：
 
-- URL Pattern: `/api/user/`
-- Match Stage: `response`
+- URL 模式: `/api/user/`
+- 匹配阶段: `response`
 
 ```ts
 export function onResponse(ctx) {
@@ -256,8 +256,8 @@ export function onResponse(ctx) {
 
 推荐匹配：
 
-- URL Pattern: `/api/`
-- Match Stage: `response`
+- URL 模式: `/api/`
+- 匹配阶段: `response`
 
 ```ts
 export function onResponse(ctx) {
@@ -290,8 +290,8 @@ export function onResponse(ctx) {
 
 推荐匹配：
 
-- URL Pattern: `/checkout`
-- Match Stage: `either`
+- URL 模式: `/checkout`
+- 匹配阶段: `either`
 
 ```ts
 export function onRequest(ctx) {
@@ -317,8 +317,8 @@ export function onResponse(ctx) {
 
 推荐匹配：
 
-- URL Pattern: `/announcement`
-- Match Stage: `response`
+- URL 模式: `/announcement`
+- 匹配阶段: `response`
 
 ```ts
 export function onResponse(ctx) {
@@ -350,15 +350,15 @@ export function onRequest(ctx) {
 写脚本时建议按这个顺序来：
 
 1. 先只写 `ctx.log.info(...)`
-2. 确认 Rules 页匹配条件正确
-3. 在 Sessions 里打开会话详情
-4. 到 **Automation** 标签页看日志
+2. 确认规则页匹配条件正确
+3. 在会话里打开会话详情
+4. 到 **自动化** 标签页看日志
 5. 再加入 `setHeader`、`setJson`、`respond` 等修改逻辑
 
 ## 推荐实践
 
 - 一条脚本规则只做一件事
-- URL Pattern 尽量具体
+- URL 模式尽量具体
 - 高频接口尽量避免复杂计算
 - 大对象日志只记录必要字段
 - 有条件判断时，尽早 `return`
@@ -368,7 +368,7 @@ export function onRequest(ctx) {
 如果脚本看起来“没生效”，优先检查：
 
 1. 规则是否已启用
-2. URL Pattern 是否命中
-3. Match Stage 是否正确
+2. URL 模式是否命中
+3. 匹配阶段是否正确
 4. Methods 是否匹配
-5. 是否在 **Automation** 标签页里看到了 `runtimeError` 或 `invalidResult`
+5. 是否在 **自动化** 标签页里看到了 `runtimeError` 或 `invalidResult`

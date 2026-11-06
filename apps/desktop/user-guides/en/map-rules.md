@@ -129,3 +129,7 @@ Use Map Remote to "silently swap upstream with the client unaware"; use Rewrite 
 ### Q: What does a folder map return at the root path?
 
 By default it returns `index.html` under the folder. `.` / `..` in the request path are stripped, so it can't escape the target folder.
+
+## Localized interface terminology
+
+The Chinese interface calls Map Local 本地映射 and Map Remote 远程映射. Preserve Query appears as 保留查询参数. These labels also apply to context menus and Agent access settings; target URLs, paths, and API field names remain unchanged.

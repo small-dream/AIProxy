@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RewriteRulesPanel,
   resolveRuleTestVerdict,
+  describeRewriteAction,
   type RewriteRulesPanelHandle,
 } from "./RewriteRulesPanel";
 import { useI18n } from "@/i18n";
@@ -652,5 +653,40 @@ describe("RewriteRulesPanel — rewriteSeed unsaved guard", () => {
     });
     expect(screen.queryByText("rulesPage.unsavedChangesTitle")).not.toBeInTheDocument();
     expect(navigateMock).toHaveBeenCalledWith("/rules", { replace: true, state: null });
+  });
+});
+
+describe("localized rewrite action summaries", () => {
+  it("translates targets and operations without changing actual header names or MIME values", async () => {
+    const { translateMessage } = await vi.importActual<typeof import("@/i18n")>("@/i18n");
+    const t: ReturnType<typeof useI18n>["t"] = (key, params) =>
+      translateMessage("zh-CN", key, params);
+    expect(describeRewriteAction(makeRule(), t)).toBe("请求头 设置：x-test。");
+    expect(
+      describeRewriteAction(
+        makeRule({
+          actions: [{ rewriteType: "query", payload: { operation: "remove", paramName: "debug" } }],
+        }),
+        t,
+      ),
+    ).toBe("查询参数 删除：debug。");
+    expect(
+      describeRewriteAction(
+        makeRule({
+          actions: [
+            {
+              rewriteType: "body",
+              payload: {
+                target: "response",
+                mode: "replace",
+                text: "{}",
+                contentType: "application/json",
+              },
+            },
+          ],
+        }),
+        t,
+      ),
+    ).toBe("响应体 -> application/json。");
   });
 });

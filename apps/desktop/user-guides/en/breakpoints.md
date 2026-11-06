@@ -123,3 +123,7 @@ Breakpoints trigger "first match wins": as soon as any rule matches, it pauses, 
 ### Q: How do I clean up after debugging?
 
 Disable or delete the rule in the breakpoint list, and resolve any leftover pending breakpoints so later requests aren't left hanging.
+
+## Localized interface terminology
+
+The Chinese interface uses 消息头 / 消息体 for shared editors, 请求头 / 请求体 or 响应头 / 响应体 for context-specific titles, 查询参数 for query editing, 原始内容 for raw editing, and 模拟响应 for mock responses. Protocol fields and edited data remain unchanged.

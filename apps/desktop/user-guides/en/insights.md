@@ -88,3 +88,5 @@ Yes. Use the host filter (keyword / exact match), or right-click a host in the t
 ### Q: The numbers don't match Sessions?
 
 Make sure you're looking at the same workspace and the same set of sessions. Clearing a Sessions container empties Insights too.
+
+In the Chinese interface, host tables and filters consistently use **主机**. The context menu labels are **按此主机过滤**, **排除此主机**, **复制主机**, and **查看此主机请求**; actual host values remain unchanged.

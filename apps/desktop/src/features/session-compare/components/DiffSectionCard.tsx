@@ -9,8 +9,54 @@ import {
   DIFF_SECTION_VISIBLE_CHANGE_LIMIT,
   LAZY_BODY_DIFF_SECTIONS,
 } from "@/features/session-compare/use-session-compare";
-import { useI18n } from "@/i18n";
+import { useI18n, type TranslationKey } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
+
+const SECTION_TITLE_KEYS: Record<string, TranslationKey> = {
+  summary: "comparePage.diffText.sections.summary",
+  query: "comparePage.diffText.sections.query",
+  requestHeaders: "comparePage.diffText.sections.requestHeaders",
+  requestBody: "comparePage.diffText.sections.requestBody",
+  responseHeaders: "comparePage.diffText.sections.responseHeaders",
+  responseBody: "comparePage.diffText.sections.responseBody",
+  timing: "comparePage.diffText.sections.timing",
+};
+
+const SUMMARY_FIELD_KEYS: Record<string, TranslationKey> = {
+  Method: "comparePage.diffText.fields.Method",
+  URL: "comparePage.diffText.fields.URL",
+  Status: "comparePage.diffText.fields.Status",
+  Duration: "comparePage.diffText.fields.Duration",
+  Size: "comparePage.diffText.fields.Size",
+  Protocol: "comparePage.diffText.fields.Protocol",
+  MIME: "comparePage.diffText.fields.MIME",
+};
+
+const TIMING_FIELD_KEYS: Record<string, TranslationKey> = {
+  connectionWaitMs: "inspector.request.overview.fields.connectionWait",
+  dnsMs: "inspector.request.overview.fields.dns",
+  connectMs: "inspector.request.overview.fields.connect",
+  tlsMs: "inspector.request.overview.fields.tlsHandshake",
+  requestSendMs: "composePage.requestSend",
+  waitingMs: "composePage.waiting",
+  responseReadMs: "composePage.responseRead",
+  totalMs: "composePage.timingTotal",
+};
+
+const BODY_METADATA_KEYS: Record<string, TranslationKey> = {
+  "body.sizeBytes": "comparePage.diffText.metadata.sizeBytes",
+  "body.mimeType": "comparePage.diffText.metadata.mimeType",
+  "body.encoding": "comparePage.diffText.metadata.encoding",
+  "body.text": "comparePage.diffText.metadata.text",
+  "body.truncated": "comparePage.diffText.metadata.truncated",
+};
+
+export const KIND_KEYS = {
+  added: "comparePage.diffText.kinds.added",
+  removed: "comparePage.diffText.kinds.removed",
+  changed: "comparePage.diffText.kinds.changed",
+  unchanged: "comparePage.diffText.kinds.unchanged",
+} as const satisfies Record<string, TranslationKey>;
 
 export function DiffSectionCard({
   bodyDiffExpanded,
@@ -26,6 +72,21 @@ export function DiffSectionCard({
   section: SessionDiffPayload["sections"][number];
 }) {
   const { t } = useI18n();
+  const fieldLabel = (path: string): string => {
+    if (section.key === "summary") {
+      const key = SUMMARY_FIELD_KEYS[path];
+      return key ? t(key) : path;
+    }
+    if (section.key === "timing") {
+      const key = TIMING_FIELD_KEYS[path];
+      return key ? t(key) : path;
+    }
+    if (LAZY_BODY_DIFF_SECTIONS.has(section.key)) {
+      const key = BODY_METADATA_KEYS[path];
+      return key ? t(key) : path;
+    }
+    return path;
+  };
   const isLazyBodySection = LAZY_BODY_DIFF_SECTIONS.has(section.key);
   const isCollapsedBodyMetadata = isLazyBodySection && !bodyDiffExpanded;
   const changedEntries = isCollapsedBodyMetadata
@@ -65,7 +126,7 @@ export function DiffSectionCard({
         ]}
       >
         <Typography variant="body2" sx={{ fontWeight: 750 }}>
-          {section.title}
+          {SECTION_TITLE_KEYS[section.key] ? t(SECTION_TITLE_KEYS[section.key]!) : section.title}
         </Typography>
         <Stack
           direction="row"
@@ -147,9 +208,9 @@ export function DiffSectionCard({
                   minWidth: 0,
                 }}
               >
-                <Chip size="small" label={entry.kind} />
+                <Chip size="small" label={t(KIND_KEYS[entry.kind])} />
                 <Typography variant="body2" sx={{ fontFamily: fontFamilies.mono }} noWrap>
-                  {entry.path}
+                  {fieldLabel(entry.path)}
                 </Typography>
               </Stack>
               <DiffValue value={entry.before} />
@@ -177,6 +238,7 @@ export function DiffSectionCard({
 }
 
 export function DiffValue({ value }: { value: string | undefined }) {
+  const { t } = useI18n();
   return (
     <Typography
       component="pre"
@@ -192,7 +254,7 @@ export function DiffValue({ value }: { value: string | undefined }) {
         whiteSpace: "pre-wrap",
       }}
     >
-      {value || "(empty)"}
+      {value || t("comparePage.diffText.empty")}
     </Typography>
   );
 }

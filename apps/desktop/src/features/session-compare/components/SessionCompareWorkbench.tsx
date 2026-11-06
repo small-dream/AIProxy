@@ -9,6 +9,7 @@ import {
   SESSION_TABLE_LIMIT,
 } from "@/features/session-compare/use-session-compare";
 import { useI18n, type TranslationKey, type TranslationParams } from "@/i18n";
+import { KIND_KEYS } from "./DiffSectionCard";
 import { fontFamilies } from "@/themes/fonts";
 
 export function SessionCompareWorkbench({
@@ -105,7 +106,7 @@ export function SessionCompareWorkbench({
             .slice(0, SESSION_TABLE_LIMIT)
             .map((row) => [
               row.endpoint,
-              row.kind,
+              t(KIND_KEYS[row.kind]),
               String(row.leftCount),
               String(row.rightCount),
               `${row.leftAverageDurationMs} ms -> ${row.rightAverageDurationMs} ms`,

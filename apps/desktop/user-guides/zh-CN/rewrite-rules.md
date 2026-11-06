@@ -1,46 +1,46 @@
-# Rewrite 改写规则使用指南
+# 改写规则使用指南
 
 ## 功能简介
 
-Rewrite 规则允许你在代理转发过程中自动修改命中的 HTTP 请求或响应。它适合联调、Mock、临时切环境、调试 Header、关闭缓存、替换响应内容等场景。
+改写规则允许你在代理转发过程中自动修改命中的 HTTP 请求或响应。它适合联调、模拟、临时切环境、调试消息头、关闭缓存、替换响应内容等场景。
 
-Rewrite 不是文本生成能力，而是代理层的自动改包能力。规则保存后会立即参与代理链路。
+改写不是文本生成能力，而是代理层的自动改包能力。规则保存后会立即参与代理链路。
 
 ## 典型用途
 
-- **临时加调试 Header**：例如给请求添加 `x-debug-mode: true`
-- **切换环境**：把命中的 API 请求 Redirect 到 staging 上游
-- **追加 Query 参数**：例如自动追加 `env=staging`
+- **临时加调试消息头**：例如给请求添加 `x-debug-mode: true`
+- **切换环境**：把命中的 API 请求重定向到 staging 上游
+- **追加查询参数**：例如自动追加 `env=staging`
 - **关闭响应缓存**：覆盖 `Cache-Control`
-- **Mock JSON 响应**：把响应 Body 替换为固定 JSON，或按字段路径修改/删除指定字段
-- **排查 CORS / 鉴权问题**：临时增删 Header，快速验证问题来源
+- **模拟 JSON 响应**：把响应体替换为固定 JSON，或按字段路径修改/删除指定字段
+- **排查 CORS / 鉴权问题**：临时增删消息头，快速验证问题来源
 
 ## 入口位置
 
 1. 打开 AIProxy
-2. 在左侧导航栏点击 **Rules**
-3. 点击顶部 **Rewrite** 标签页
+2. 在左侧导航栏点击 **规则**
+3. 点击顶部 **改写** 标签页
 
-也可以在 Sessions 列表中右键某条请求，点击 **Create Rewrite Rule**，AIProxy 会基于当前请求自动生成一条可编辑的 Rewrite 草稿。
+也可以在会话列表中右键某条请求，点击 **Create 改写规则**，AIProxy 会基于当前请求自动生成一条可编辑的改写草稿。
 
 ## 规则导入 / 导出
 
-**Rules** 页头部提供 **导出（Export） / 导入（Import）** 按钮（每个标签页都可用）。导出会下载单个 `aiproxy-rules-YYYY-MM-DD.json` 文件，包含全部规则种类——Rewrite、Map Local / Map Remote、DNS 映射、Script、断点，以及限速规则和 Profile（`aiproxy.rules` 格式，版本 1）。导入先选择本地 `.json` 文件，再在预览对话框中按类型勾选并确认；导入的规则会分配新 id、以 **禁用状态** 落到默认工作区——不会覆盖任何现有内容。
+**规则** 页头部提供 **导出 / 导入** 按钮（每个标签页都可用）。导出会下载单个 `aiproxy-rules-YYYY-MM-DD.json` 文件，包含全部规则种类——改写、本地映射 / 远程映射、DNS 映射、脚本、断点，以及限速规则和预设（`aiproxy.rules` 格式，版本 1）。导入先选择本地 `.json` 文件，再在预览对话框中按类型勾选并确认；导入的规则会分配新 id、以 **禁用状态** 落到默认工作区——不会覆盖任何现有内容。
 
 ## 当前版本能力
 
 当前版本支持：
 
-- Header 改写：新增 / 覆盖 / 删除请求或响应 Header
-- Query 改写：新增 / 覆盖 / 删除请求 URL Query 参数
-- Body 改写：整段替换请求或响应 Body，或按 JSON Path 修改/删除指定字段，并设置 `Content-Type`
-- Redirect 改写：把请求转发到另一个目标 URL，可选择保留原 path / query
-- 单条规则支持多个有序动作：Header / Query / Body / Redirect 步骤按顺序自上而下执行
-- URL Pattern、HTTP Method、Stage 匹配
+- 消息头改写：新增 / 覆盖 / 删除请求头或响应头
+- 查询参数改写：新增 / 覆盖 / 删除请求 URL 查询参数
+- 消息体改写：整段替换请求体或响应体，或按 JSON 路径修改/删除指定字段，并设置 `Content-Type`
+- 重定向改写：把请求转发到另一个目标 URL，可选择保留原 path / 查询参数
+- 单条规则支持多个有序动作：消息头 / 查询参数 / 消息体 / 重定向步骤按顺序自上而下执行
+- URL 模式、HTTP 方法、阶段匹配
 - 优先级与启停控制
 - 高频模板
 - 保存前规则测试器
-- Session Automation 标签页展示 Rewrite 命中记录与 before / after diff
+- 会话自动化标签页展示改写命中记录与 before / after 差异
 
 当前版本暂不支持：
 
@@ -48,98 +48,98 @@ Rewrite 不是文本生成能力，而是代理层的自动改包能力。规则
 - Cookie 专用编辑器
 - 正则捕获替换
 - 变量模板，例如 `{{timestamp}}`、`{{uuid}}`
-- Header / Query / Body 条件表达式
+- 消息头 / 查询参数 / 消息体条件表达式
 
 ## 规则工作台
 
-Rewrite 页面采用三段式工作台：
+改写页面采用三段式工作台：
 
 - **Templates**：从常见场景创建规则
 - **When**：配置匹配条件
 - **Then**：配置改写动作
-- **Test**：保存前用样例 URL、Method、Stage 测试是否命中
+- **Test**：保存前用样例 URL、方法、阶段测试是否命中
 
 ### Templates
 
 内置模板包括：
 
-- **Debug header**：给请求添加调试 Header
-- **Disable cache**：设置响应缓存 Header
-- **Env query**：追加环境 Query 参数
+- **Debug 消息头**：给请求添加调试消息头
+- **Disable cache**：设置响应缓存消息头
+- **Env 查询参数**：追加环境查询参数
 - **Staging redirect**：重定向到 staging 上游
-- **Mock JSON**：替换响应为固定 JSON
+- **模拟 JSON**：替换响应为固定 JSON
 
-建议新用户先从模板开始，再调整 URL Pattern、Method 和具体字段。
+建议新用户先从模板开始，再调整 URL 模式、方法和具体字段。
 
 ## 匹配条件
 
 | 字段 | 说明 | 示例 |
 |---|---|---|
-| Rule Name | 规则名称，便于搜索和识别 | `API 切 staging` |
+| 规则 Name | 规则名称，便于搜索和识别 | `API 切 staging` |
 | Enabled | 控制规则是否生效 | 开启 |
-| Priority | 数字越大优先级越高 | `100` |
-| URL Pattern | URL 匹配模式，按 Match Type 指定的方式解释 | `api.example.com/v1/*` |
-| Match Type | URL Pattern 的匹配方式，默认 Contains | `Wildcard` |
-| HTTP Methods | 只匹配指定方法，留空表示全部 | `GET, POST` |
-| Match Stage | 请求阶段、响应阶段，或两者 | `request` |
+| 优先级 | 数字越大优先级越高 | `100` |
+| URL 模式 | URL 匹配模式，按匹配方式指定的方式解释 | `api.example.com/v1/*` |
+| 匹配方式 | URL 模式的匹配方式，默认包含 | `Wildcard` |
+| HTTP 方法 | 只匹配指定方法，留空表示全部 | `GET, POST` |
+| 匹配阶段 | 请求阶段、响应阶段，或两者 | `request` |
 
-### URL Pattern 规则
+### URL 模式规则
 
-Match Type 控制 URL Pattern 如何与请求 URL 进行比对。可选四种方式：
+匹配方式控制 URL 模式如何与请求 URL 进行比对。可选四种方式：
 
-| Match Type | 行为 | Pattern 示例 | 匹配 `https://api.example.com/v1/users` |
+| 匹配方式 | 行为 | 模式示例 | 匹配 `https://api.example.com/v1/users` |
 |---|---|---|---|
-| **Contains** (默认) | URL 包含 Pattern 即命中（子串匹配） | `api.example.com` | ✓ |
-| **Wildcard** | `*` 作为通配符，匹配零个或多个字符；未以 `*` 开头的片段必须从 URL 起始处开始匹配 | `*api.example.com/v1/*` | ✓ |
-| **Exact** | URL 必须与 Pattern 完全相等 | `https://api.example.com/v1/users` | ✓ |
-| **Regex** | Pattern 作为正则表达式匹配 | `api\.example\.com/v1/.*` | ✓ |
+| **包含** (默认) | URL 包含模式即命中（子串匹配） | `api.example.com` | ✓ |
+| **通配符** | `*` 作为通配符，匹配零个或多个字符；未以 `*` 开头的片段必须从 URL 起始处开始匹配 | `*api.example.com/v1/*` | ✓ |
+| **精确** | URL 必须与模式完全相等 | `https://api.example.com/v1/users` | ✓ |
+| **正则** | 模式作为正则表达式匹配 | `api\.example\.com/v1/.*` | ✓ |
 
-Contains 模式下，空值或 `*` 表示匹配所有 URL。Wildcard 模式下，空值或 `*` 同样匹配所有 URL。
+包含模式下，空值或 `*` 表示匹配所有 URL。通配符模式下，空值或 `*` 同样匹配所有 URL。
 
-> Wildcard 的锚定规则：Pattern 的**首段**若不以 `*` 开头，它必须出现在 URL 的起始位置；**末段**若不以 `*` 结尾，它必须出现在 URL 的末尾。因此要匹配 URL 中任意位置的主机名，需要显式写成 `*api.example.com/v1/*`；写成 `api.example.com/v1/*` 只会匹配以 `api.example.com/v1/` 开头的 URL（实际是 `https://…` 开头，所以不会命中）。
+> 通配符的锚定规则：模式的**首段**若不以 `*` 开头，它必须出现在 URL 的起始位置；**末段**若不以 `*` 结尾，它必须出现在 URL 的末尾。因此要匹配 URL 中任意位置的主机名，需要显式写成 `*api.example.com/v1/*`；写成 `api.example.com/v1/*` 只会匹配以 `api.example.com/v1/` 开头的 URL（实际是 `https://…` 开头，所以不会命中）。
 
 示例：
 
-| Match Type | Pattern | 匹配示例 |
+| 匹配方式 | 模式 | 匹配示例 |
 |---|---|---|
-| Contains | `api.example.com` | `https://api.example.com/v1/users` |
-| Wildcard（不锚定前缀） | `*api.example.com/v1/*` | `https://api.example.com/v1/users?id=1` |
-| Wildcard（锚定 URL 开头） | `https://api.example.com/*` | 仅以 `https://api.example.com/` 开头的 URL |
-| Wildcard | `*login*` | 任意包含 `login` 的 URL |
-| Exact | `https://api.example.com/v1/users` | 仅完全相同的 URL |
-| Regex | `api\..*\.com/v[12]/` | `api.example.com/v1/users`、`api.staging.com/v2/items` |
+| 包含 | `api.example.com` | `https://api.example.com/v1/users` |
+| 通配符（不锚定前缀） | `*api.example.com/v1/*` | `https://api.example.com/v1/users?id=1` |
+| 通配符（锚定 URL 开头） | `https://api.example.com/*` | 仅以 `https://api.example.com/` 开头的 URL |
+| 通配符 | `*login*` | 任意包含 `login` 的 URL |
+| 精确 | `https://api.example.com/v1/users` | 仅完全相同的 URL |
+| 正则 | `api\..*\.com/v[12]/` | `api.example.com/v1/users`、`api.staging.com/v2/items` |
 
 ## 改写动作
 
-一条规则可以串联多个有序动作——例如先加一个 Header，再改 Body，再 Redirect。每个动作是一张编号卡片，带独立的类型下拉框（Header / Query / Body / Redirect）和对应的编辑器；用卡片上的上下箭头调整顺序，用 **+ 添加动作** 追加。动作严格自上而下执行；规则之间仍按优先级执行，后面的规则看到的是前面规则改写后的结果。
+一条规则可以串联多个有序动作——例如先加一个消息头，再改消息体，再重定向。每个动作是一张编号卡片，带独立的类型下拉框（消息头 / 查询参数 / 消息体 / 重定向）和对应的编辑器；用卡片上的上下箭头调整顺序，用 **+ 添加动作** 追加。动作严格自上而下执行；规则之间仍按优先级执行，后面的规则看到的是前面规则改写后的结果。
 
-某个动作失败时（例如 Fields 模式下 Body 不是合法 JSON），其余动作仍会继续执行，每个失败都会作为错误记录展示在 Automation 中——只有全部动作都失败时整条规则才算失败。与当前阶段不匹配的动作会被记为 skipped。
+某个动作失败时（例如 Fields 模式下消息体不是合法 JSON），其余动作仍会继续执行，每个失败都会作为错误记录展示在自动化中——只有全部动作都失败时整条规则才算失败。与当前阶段不匹配的动作会被记为 skipped。
 
-### Header Rewrite
+### 消息头改写
 
 可作用于 request 或 response。
 
 支持：
 
-- `set`：新增或覆盖 Header
-- `remove`：删除 Header
+- `set`：新增或覆盖消息头
+- `remove`：删除消息头
 
 示例：
 
-| 目标 | 操作 | Header | 值 |
+| 目标 | 操作 | 消息头 | 值 |
 |---|---|---|---|
 | request | set | `x-debug-mode` | `true` |
 | response | set | `Cache-Control` | `no-store` |
 | response | remove | `ETag` | - |
 
-### Query Rewrite
+### 查询参数改写
 
-Query Rewrite 只在请求发往上游前生效。
+查询参数改写只在请求发往上游前生效。
 
 支持：
 
-- `set`：新增或覆盖 Query 参数
-- `remove`：删除 Query 参数
+- `set`：新增或覆盖查询参数
+- `remove`：删除查询参数
 
 示例：
 
@@ -148,12 +148,12 @@ Query Rewrite 只在请求发往上游前生效。
 | set | `env` | `staging` |
 | remove | `utm_source` | - |
 
-### Body Rewrite
+### 消息体改写
 
 可作用于 request 或 response，支持两种模式：
 
 **Replace 模式**（整段替换）：
-- 用自定义内容替换整个 Body
+- 用自定义内容替换整个消息体
 - 同步设置 `Content-Type`
 
 示例响应 JSON：
@@ -166,7 +166,7 @@ Query Rewrite 只在请求发往上游前生效。
 ```
 
 **Fields 模式**（字段修改）：
-- 按 JSON Path 定位并修改/删除指定字段
+- 按 JSON 路径定位并修改/删除指定字段
 - 支持 `data.user.name` 对象路径和 `items[0].name` 数组下标
 - 支持 `$.` 前缀（如 `$.data.user.name`）
 - 每个字段可选操作：
@@ -182,7 +182,7 @@ Query Rewrite 只在请求发往上游前生效。
 | set | `user.enabled` | boolean | `true` |
 | remove | `debug` | — | — |
 
-原 Body：
+原消息体：
 
 ```json
 {"user":{"name":"Alice"},"debug":true}
@@ -194,14 +194,14 @@ Query Rewrite 只在请求发往上游前生效。
 {"user":{"name":"Jane","enabled":true}}
 ```
 
-### Redirect Rewrite
+### 重定向改写
 
-Redirect Rewrite 只在请求发往上游前生效。它会修改目标 URL。
+重定向改写只在请求发往上游前生效。它会修改目标 URL。
 
 可选项：
 
-- **Preserve Path**：保留原请求 path
-- **Preserve Query**：保留原请求 query
+- **Preserve 路径**：保留原请求 path
+- **Preserve 查询参数**：保留原请求查询参数
 
 示例：
 
@@ -217,7 +217,7 @@ https://api.example.com/v1/users?id=1
 https://staging.example.com
 ```
 
-如果同时保留 path 和 query，最终请求会变成：
+如果同时保留 path 和查询参数，最终请求会变成：
 
 ```text
 https://staging.example.com/v1/users?id=1
@@ -230,48 +230,48 @@ https://staging.example.com/v1/users?id=1
 输入：
 
 - Sample URL
-- Method
-- Stage
+- 方法
+- 阶段
 
 输出：
 
 - 是否命中
-- 不命中的原因，例如 Method 不匹配、URL 不匹配、Stage 不匹配
+- 不命中的原因，例如方法不匹配、URL 不匹配、阶段不匹配
 - 命中后预计执行的动作摘要
 
-## 从 Session 创建规则
+## 从会话创建规则
 
-在 Sessions 列表中右键某条请求，选择 **Create Rewrite Rule**。
+在会话列表中右键某条请求，选择 **Create 改写规则**。
 
 AIProxy 会自动带入：
 
 - 当前请求 URL
-- Host + Path 作为 URL Pattern
-- 当前 HTTP Method
+- 主机 + 路径作为 URL 模式
+- 当前 HTTP 方法
 - 默认请求阶段
-- 一个可立即保存的 Header Rewrite 草稿
+- 一个可立即保存的消息头改写草稿
 
 这是推荐的创建路径，尤其适合从真实流量快速生成规则。
 
-## 查看命中记录与 Diff
+## 查看命中记录与差异
 
-打开某条 Session 后，在 Response 区域点击 **Automation** 标签页。
+打开某条会话后，在响应区域点击 **自动化** 标签页。
 
-如果该请求命中过 Rewrite，页面会展示：
+如果该请求命中过改写，页面会展示：
 
 - 命中的规则名称和 ID
-- Rewrite 类型
+- 改写类型
 - 执行阶段
 - 执行结果：success / skipped / failed
 - 耗时
-- before / after diff
+- before / after 差异
 
-不同类型的 diff：
+不同类型的差异：
 
-- Header：原 Header 值与改写后 Header 值
-- Query：原参数值与改写后参数值
-- Body：原 Body 预览与改写后 Body 预览；字段模式下展示每个字段的 before / after 值
-- Redirect：原 URL 与改写后 URL
+- 消息头：原消息头值与改写后消息头值
+- 查询参数：原参数值与改写后参数值
+- 消息体：原消息体预览与改写后消息体预览；字段模式下展示每个字段的 before / after 值
+- 重定向：原 URL 与改写后 URL
 
 ## 执行顺序
 
@@ -289,44 +289,44 @@ Upstream / Local Response -> Response Rewrite -> Script(onResponse) -> Breakpoin
 
 补充说明：
 
-- `Map Local` 直接返回本地响应时，请求阶段 Script 不执行，但响应阶段 Rewrite / Script 仍可继续处理返回内容
-- 响应体超过捕获上限（当前为 20 MB）时，AIProxy 会跳过响应 Body 改写，避免大文件造成性能问题
-- HTTP/2 请求目前跳过 Body 改写（会记录一条 skipped 轨迹）
+- `Map Local` 直接返回本地响应时，请求阶段脚本不执行，但响应阶段改写 / 脚本仍可继续处理返回内容
+- 响应体超过捕获上限（当前为 20 MB）时，AIProxy 会跳过响应体改写，避免大文件造成性能问题
+- HTTP/2 请求目前跳过消息体改写（会记录一条 skipped 轨迹）
 
 ## 规则管理
 
 - **批量操作**：勾选行前的复选框会出现批量操作栏 **启用 / 禁用 / 删除 / 完成**；删除会先确认，部分失败时通过 toast 提示。
 - **拖拽排序**：行首有拖拽把手，拖动后会重算优先级，使列表顺序与执行顺序一致（越靠上优先级越高）。
-- **未保存草稿保护**：编辑器有未保存修改时，离开 Rules 页面、切换标签页、选择另一条规则、新建规则或套用模板，都会先弹「有未保存的更改……是否丢弃？」确认。
+- **未保存草稿保护**：编辑器有未保存修改时，离开规则页面、切换标签页、选择另一条规则、新建规则或套用模板，都会先弹「有未保存的更改……是否丢弃？」确认。
 - 字段级校验错误在首次尝试保存后显示在每个出错字段下方；Alert 仅用于保存失败和跨字段警告。
 
-### Agent Rewrite 规则
+### Agent 改写规则
 
-Rewrite 列表里可能出现两类来自 [Agent 接入](./agent-access.md) 的规则：旧版 `create_agent_rule` 创建的内存临时规则，以及自动化实验创建的常驻 / 临时 Rewrite。它们都会显示 **Agent** 标记，但生命周期不同：
+改写列表里可能出现两类来自 [Agent 接入](./agent-access.md) 的规则：旧版 `create_agent_rule` 创建的内存临时规则，以及自动化实验创建的常驻 / 临时改写。它们都会显示 **Agent** 标记，但生命周期不同：
 
 - **旧临时规则**：默认 600 秒后失效，最长 3600 秒；只存在内存中，应用重启后消失。仍通过 **清除全部 Agent 规则** 或 `remove_agent_rules` 清理。
 - **自动化临时规则**：带 `Agent · 临时` 标记与到期时间，TTL 为 60-3600 秒。只读，不能编辑、启停、拖拽或批量选择；到期、应用重启或清理实验时撤销。
-- **自动化常驻规则**：带 `Agent · 常驻` 标记，会持续影响匹配流量。规则列表中是只读的；请到 **Rules → Agent 实验** 回滚 change set，或由你点击 **转为我的规则** 后编辑。
+- **自动化常驻规则**：带 `Agent · 常驻` 标记，会持续影响匹配流量。规则列表中是只读的；请到 **规则 → Agent 实验** 回滚变更集，或由你点击 **转为我的规则** 后编辑。
 - 复制 Agent 规则会生成普通持久化规则，并去掉 Agent 来源与到期信息。复制不是回滚，原 Agent 资源仍会继续存在，确认不需要时应单独回滚或清理。
 
-Agent 应使用以下闭环验证自动化 Rewrite：
+Agent 应使用以下闭环验证自动化改写：
 
 1. `validate_automation_plan` 检查匹配条件、优先级、冲突与 `planHash`。
-2. `apply_automation_plan` 应用计划，并确认 change 为 `active`、运行时 generation 已发布。
+2. `apply_automation_plan` 应用计划，并确认 change 为 `active`、运行时版本已发布。
 3. `verify_automation_change` 选择 `offline`、`proxy` 或 `external` 记录断言。
 4. `get_automation_change` 查看资源前后版本、证据、限制与清理状态。
 5. 任务结束调用 `rollback_automation_change` 或 `clear_agent_automation`。
 
-`offline` 只证明离线匹配与变换；`proxy` 证明受控请求经过 AIProxy 后得到预期 HTTP 结果；`external` 证明真实客户端在 change 激活后产生了匹配会话。三者都不能单独证明页面已正确渲染。Agent 的 `replay_session` **不会经过 Rewrite 规则**，不能作为规则生效证据；使用 `external` 时，必须先让真实客户端或其他测试工具重新发起请求，再把新会话交给验证工具。
+`offline` 只证明离线匹配与变换；`proxy` 证明受控请求经过 AIProxy 后得到预期 HTTP 结果；`external` 证明真实客户端在 change 激活后产生了匹配会话。三者都不能单独证明页面已正确渲染。Agent 的 `replay_session` **不会经过改写规则**，不能作为规则生效证据；使用 `external` 时，必须先让真实客户端或其他测试工具重新发起请求，再把新会话交给验证工具。
 
 ## 无效组合保护
 
-当前版本直接拒绝保存以下容易误解的组合——在修正 Stage 或 Target 前 **Save** 按钮不会生效，同时会有警告说明原因：
+当前版本直接拒绝保存以下容易误解的组合——在修正阶段或 Target 前 **Save** 按钮不会生效，同时会有警告说明原因：
 
-- response 阶段的 Query Rewrite
-- response 阶段的 Redirect Rewrite
-- request 阶段规则却选择 response Header / Body target
-- response 阶段规则却选择 request Header / Body target
+- response 阶段的查询参数改写
+- response 阶段的重定向改写
+- request 阶段规则却选择 response 消息头 / 消息体 target
+- response 阶段规则却选择 request 消息头 / 消息体 target
 
 ## 常见问题
 
@@ -335,20 +335,20 @@ Agent 应使用以下闭环验证自动化 Rewrite：
 检查：
 
 1. 规则是否启用
-2. URL Pattern 是否匹配完整 URL
-3. HTTP Method 是否匹配
-4. Match Stage 是否匹配
+2. URL 模式是否匹配完整 URL
+3. HTTP 方法是否匹配
+4. 匹配阶段是否匹配
 5. 是否有更高优先级规则先修改了 URL 或相关字段
-6. Automation 标签页是否有 skipped / failed 记录
+6. 自动化标签页是否有 skipped / failed 记录
 
-### Q: 为什么 Query / Redirect 不能用于 response 阶段？
+### Q: 为什么查询参数 / 重定向不能用于 response 阶段？
 
-Query 和 Redirect 修改的是即将发往上游的请求 URL。响应回来时，请求目标已经确定，因此这两类动作只在 request 阶段有意义。
+查询参数和重定向修改的是即将发往上游的请求 URL。响应回来时，请求目标已经确定，因此这两类动作只在 request 阶段有意义。
 
-### Q: 多条 Rewrite 会怎么执行？
+### Q: 多条改写会怎么执行？
 
-同一阶段内，命中的 Rewrite 规则按优先级从高到低依次执行。后执行的规则可能看到前一条规则改写后的请求或响应。同一条规则内的多个动作则严格自上而下执行。
+同一阶段内，命中的改写规则按优先级从高到低依次执行。后执行的规则可能看到前一条规则改写后的请求或响应。同一条规则内的多个动作则严格自上而下执行。
 
-### Q: Rewrite 和 Script 有什么区别？
+### Q: 改写和脚本有什么区别？
 
-Rewrite 适合常见、结构化、低门槛的改写，例如 Header、Query、Body、Redirect。Script 适合复杂条件、动态逻辑、字段级处理和自定义 Mock。一般建议优先使用 Rewrite，复杂场景再使用 Script。
+改写适合常见、结构化、低门槛的改写，例如消息头、查询参数、消息体、重定向。脚本适合复杂条件、动态逻辑、字段级处理和自定义模拟。一般建议优先使用改写，复杂场景再使用脚本。

@@ -113,3 +113,7 @@ When the two bodies' combined text exceeds 256,000 chars the detailed diff is sk
 ### Q: Can I share a compare state?
 
 Yes. The compare mode plus Request Compare's left/right selections sync to URL params (`mode`, `left`, `right`, scopes and domain filters included); copying the current URL reproduces the same compare config.
+
+## Localized interface terminology
+
+The Chinese interface localizes section titles, change types, metadata labels, body availability, and truncation messages. Actual header names, query keys, JSON paths, captured values, and AI payload field names remain unchanged. Switching the display language updates the current comparison.

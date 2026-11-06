@@ -291,38 +291,58 @@ function getInvalidRewriteCombination(rule: RewriteRule, t: TranslationFn) {
   return undefined;
 }
 
-function describeRewriteAction(rule: RewriteRule, t: TranslationFn) {
+export function describeRewriteAction(rule: RewriteRule, t: TranslationFn) {
   const first = rule.actions[0];
   if (rule.actions.length > 1) {
     return t("rulesPage.rewrite.actionsSummary", { count: rule.actions.length });
   }
   if (first?.rewriteType === "header") {
     return t("rulesPage.rewrite.action.header", {
-      target: first.payload.target,
-      operation: first.payload.operation,
-      name: first.payload.headerName || "(name)",
+      target: t(
+        first.payload.target === "request"
+          ? "rulesPage.stages.request"
+          : "rulesPage.stages.response",
+      ),
+      operation: t(
+        first.payload.operation === "set"
+          ? "rulesPage.rewrite.operations.set"
+          : "rulesPage.rewrite.operations.remove",
+      ),
+      name: first.payload.headerName || t("common.placeholders.headerName"),
     });
   }
   if (first?.rewriteType === "query") {
     return t("rulesPage.rewrite.action.query", {
-      operation: first.payload.operation,
-      name: first.payload.paramName || "(param)",
+      operation: t(
+        first.payload.operation === "set"
+          ? "rulesPage.rewrite.operations.set"
+          : "rulesPage.rewrite.operations.remove",
+      ),
+      name: first.payload.paramName || t("common.placeholders.paramName"),
     });
   }
   if (first?.rewriteType === "body") {
     if ((first.payload.mode ?? "replace") === "fields") {
       return t("rulesPage.rewrite.action.bodyFields", {
-        target: first.payload.target,
+        target: t(
+          first.payload.target === "request"
+            ? "rulesPage.stages.request"
+            : "rulesPage.stages.response",
+        ),
         count: first.payload.fields?.length ?? 0,
       });
     }
     return t("rulesPage.rewrite.action.bodyReplace", {
-      target: first.payload.target,
+      target: t(
+        first.payload.target === "request"
+          ? "rulesPage.stages.request"
+          : "rulesPage.stages.response",
+      ),
       contentType: first.payload.contentType,
     });
   }
   return t("rulesPage.rewrite.action.redirect", {
-    target: first?.payload.targetUrl || "(target URL)",
+    target: first?.payload.targetUrl || t("rulesPage.rewrite.redirectTarget"),
   });
 }
 
@@ -387,7 +407,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
             return {
               ...rule,
               match: { methods: [], stage: "either", urlPattern: "*" },
-              name: "Add debug header",
+              name: t("rulesPage.rewrite.templates.debugHeader.label"),
               actions: [
                 {
                   rewriteType: "header",
@@ -412,7 +432,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
             return {
               ...rule,
               match: { methods: [], stage: "response", urlPattern: "*" },
-              name: "Disable response cache",
+              name: t("rulesPage.rewrite.templates.disableCache.label"),
               actions: [
                 {
                   rewriteType: "header",
@@ -437,7 +457,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
             return {
               ...rule,
               match: { methods: [], stage: "request", urlPattern: "*" },
-              name: "Route query to staging",
+              name: t("rulesPage.rewrite.templates.envQuery.label"),
               actions: [
                 {
                   rewriteType: "query",
@@ -457,7 +477,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
             return {
               ...rule,
               match: { methods: [], stage: "request", urlPattern: "api.example.com/*" },
-              name: "Redirect API to staging",
+              name: t("rulesPage.rewrite.templates.stagingRedirect.label"),
               actions: [
                 {
                   rewriteType: "redirect",
@@ -481,7 +501,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
             return {
               ...rule,
               match: { methods: [], stage: "response", urlPattern: "*" },
-              name: "Mock JSON response",
+              name: t("rulesPage.rewrite.templates.mockJson.label"),
               actions: [
                 {
                   rewriteType: "body",
@@ -502,7 +522,7 @@ export const RewriteRulesPanel = forwardRef<RewriteRulesPanelHandle>(
           type: "body",
         },
       ],
-      [],
+      [t],
     );
 
     const filteredRules = useMemo(() => {

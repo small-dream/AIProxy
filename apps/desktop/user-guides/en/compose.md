@@ -49,6 +49,12 @@ Pick a body type via the toggle at the top:
 | x-www-form-urlencoded | URL-encoded form, edited as key/value pairs |
 | raw | Raw text body |
 
+Hover over a body type to see its description and protocol identifier (`multipart/form-data` or `application/x-www-form-urlencoded`). Multipart forms support both text fields and file attachments.
+
+In the Chinese interface the tabs are **请求头 / 请求体 / 查询参数**, and body types are **无 / 多部分表单 / URL 编码表单 / 原始内容**. HTTP methods, header names and values, URLs, and code remain unchanged.
+
+Selecting **none** sends no request body. This differs from “No request body captured” in the session inspector, which reports missing captured content.
+
 **raw** mode picks a language (which sets the Content-Type):
 
 | Language | Content-Type |

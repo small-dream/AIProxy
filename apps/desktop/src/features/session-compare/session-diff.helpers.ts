@@ -8,13 +8,18 @@ import type {
   TimingBreakdown,
 } from "@aiproxy/shared-types";
 
+import { enMessages, type Messages } from "@/i18n/messages/en";
+
 import { redactDiffPayload } from "./redaction.helpers";
 
 const MAX_ENTRY_VALUE_LENGTH = 2_000;
 const MAX_BODY_ENTRIES_FOR_AI = 80;
 const DEFAULT_BODY_DIFF_CHAR_GUARD = 256_000;
 
+type DiffMessages = Messages["comparePage"]["diffText"];
+
 export type CompareBuildOptions = {
+  messages?: DiffMessages;
   bodyDiffMode?: "diff" | "summary";
   expandedBodySections?: Iterable<string>;
   includeBodyForAi: boolean;
@@ -28,14 +33,37 @@ export function buildSessionDiffPayload(
   right: SessionDetail,
   options: CompareBuildOptions,
 ): SessionDiffPayload {
+  const messages = options.messages ?? enMessages.comparePage.diffText;
   const sections = [
-    diffSummary(left.summary, right.summary),
-    diffEntries("query", "Query", left.queryParams, right.queryParams),
-    diffEntries("requestHeaders", "Request Headers", left.requestHeaders, right.requestHeaders),
-    diffBody("requestBody", "Request Body", left.requestBody, right.requestBody, options),
-    diffEntries("responseHeaders", "Response Headers", left.responseHeaders, right.responseHeaders),
-    diffBody("responseBody", "Response Body", left.responseBody, right.responseBody, options),
-    diffTiming(left.timing, right.timing),
+    diffSummary(left.summary, right.summary, messages),
+    diffEntries("query", messages.sections.query, left.queryParams, right.queryParams),
+    diffEntries(
+      "requestHeaders",
+      messages.sections.requestHeaders,
+      left.requestHeaders,
+      right.requestHeaders,
+    ),
+    diffBody(
+      "requestBody",
+      messages.sections.requestBody,
+      left.requestBody,
+      right.requestBody,
+      options,
+    ),
+    diffEntries(
+      "responseHeaders",
+      messages.sections.responseHeaders,
+      left.responseHeaders,
+      right.responseHeaders,
+    ),
+    diffBody(
+      "responseBody",
+      messages.sections.responseBody,
+      left.responseBody,
+      right.responseBody,
+      options,
+    ),
+    diffTiming(left.timing, right.timing, messages),
   ];
 
   const payload: SessionDiffPayload = {
@@ -68,7 +96,11 @@ function summaryIdentity(summary: SessionSummary) {
   };
 }
 
-function diffSummary(left: SessionSummary, right: SessionSummary): SessionDiffSection {
+function diffSummary(
+  left: SessionSummary,
+  right: SessionSummary,
+  messages: DiffMessages,
+): SessionDiffSection {
   const entries: SessionDiffEntry[] = [
     compareScalar("Method", left.method, right.method),
     compareScalar("URL", left.url, right.url),
@@ -79,12 +111,13 @@ function diffSummary(left: SessionSummary, right: SessionSummary): SessionDiffSe
     compareScalar("MIME", left.responseMimeType ?? "", right.responseMimeType ?? ""),
   ];
 
-  return buildSection("summary", "Summary", entries);
+  return buildSection("summary", messages.sections.summary, entries);
 }
 
 function diffTiming(
   left: TimingBreakdown | undefined,
   right: TimingBreakdown | undefined,
+  messages: DiffMessages,
 ): SessionDiffSection {
   // Millisecond phases only — `connectionReused` is a marker, not a duration.
   const keys = [
@@ -101,7 +134,7 @@ function diffTiming(
     compareScalar(key, formatTimingValue(left?.[key]), formatTimingValue(right?.[key])),
   );
 
-  return buildSection("timing", "Timing", entries);
+  return buildSection("timing", messages.sections.timing, entries);
 }
 
 function formatTimingValue(value: number | undefined) {
@@ -153,42 +186,27 @@ function diffBody(
   rightBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
   options: CompareBuildOptions,
 ): SessionDiffSection {
+  const messages = options.messages ?? enMessages.comparePage.diffText;
   const leftBodyText = getBodyText(leftBody);
   const rightBodyText = getBodyText(rightBody);
-  const metadataEntries = diffBodyMetadata(leftBody, rightBody);
+  const metadataEntries = diffBodyMetadata(leftBody, rightBody, messages);
 
   if (!leftBody && !rightBody) {
-    return buildSection(key, title, [], "No body captured on either side.");
+    return buildSection(key, title, [], messages.noneCaptured);
   }
 
   if (!options.includeBodyForAi) {
-    return buildSection(
-      key,
-      title,
-      metadataEntries,
-      "Body context is excluded from the AI payload.",
-    );
+    return buildSection(key, title, metadataEntries, messages.excluded);
   }
 
   if (!leftBodyText && !rightBodyText) {
-    return buildSection(
-      key,
-      title,
-      metadataEntries,
-      "Body is captured but is not available as renderable text, so text diff is unavailable.",
-    );
+    return buildSection(key, title, metadataEntries, messages.notText);
   }
 
   const expandedBodySections = new Set(options.expandedBodySections ?? []);
   const bodyDiffMode = options.bodyDiffMode ?? "diff";
   if (bodyDiffMode === "summary" && !expandedBodySections.has(key)) {
-    return buildSection(
-      key,
-      title,
-      metadataEntries,
-      "Body detail is collapsed. Expand to compute a bounded text or JSON diff.",
-      { canExpand: true },
-    );
+    return buildSection(key, title, metadataEntries, messages.collapsed, { canExpand: true });
   }
 
   const totalBodyChars = (leftBodyText?.length ?? 0) + (rightBodyText?.length ?? 0);
@@ -198,8 +216,10 @@ function diffBody(
       key,
       title,
       metadataEntries,
-      `Detailed body diff skipped because the captured text is ${formatNumber(totalBodyChars)} chars, above the ${formatNumber(maxBodyChars)} char guard.`,
-      { truncated: true, truncationReason: "Body diff skipped by size guard." },
+      messages.sizeGuard
+        .replace("{{total}}", formatNumber(totalBodyChars))
+        .replace("{{limit}}", formatNumber(maxBodyChars)),
+      { truncated: true, truncationReason: messages.sizeGuardReason },
     );
   }
 
@@ -217,13 +237,13 @@ function diffBody(
       key,
       title,
       entries.slice(0, entryLimit),
-      buildBodyNote(leftBody, rightBody),
+      buildBodyNote(leftBody, rightBody, messages),
       {
         counts: countEntries(entries),
         totalEntries: entries.length,
         truncated,
         ...(truncated
-          ? { truncationReason: `Showing the first ${entryLimit} body diff entries.` }
+          ? { truncationReason: messages.entryLimit.replace("{{count}}", String(entryLimit)) }
           : {}),
       },
     );
@@ -234,13 +254,13 @@ function diffBody(
     key,
     title,
     entries.slice(0, entryLimit),
-    buildBodyNote(leftBody, rightBody),
+    buildBodyNote(leftBody, rightBody, messages),
     {
       counts: countEntries(entries),
       totalEntries: entries.length,
       truncated,
       ...(truncated
-        ? { truncationReason: `Showing the first ${entryLimit} body diff entries.` }
+        ? { truncationReason: messages.entryLimit.replace("{{count}}", String(entryLimit)) }
         : {}),
     },
   );
@@ -249,15 +269,20 @@ function diffBody(
 function diffBodyMetadata(
   leftBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
   rightBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+  messages: DiffMessages,
 ): SessionDiffEntry[] {
   return [
-    compareScalar("body.sizeBytes", describeBodySize(leftBody), describeBodySize(rightBody)),
+    compareScalar(
+      "body.sizeBytes",
+      describeBodySize(leftBody, messages),
+      describeBodySize(rightBody, messages),
+    ),
     compareScalar("body.mimeType", leftBody?.mimeType ?? "", rightBody?.mimeType ?? ""),
     compareScalar("body.encoding", leftBody?.encoding ?? "", rightBody?.encoding ?? ""),
     compareScalar(
       "body.text",
-      describeTextAvailability(leftBody),
-      describeTextAvailability(rightBody),
+      describeTextAvailability(leftBody, messages),
+      describeTextAvailability(rightBody, messages),
     ),
     compareScalar(
       "body.truncated",
@@ -267,23 +292,27 @@ function diffBodyMetadata(
   ];
 }
 
-function describeBodySize(body: SessionDetail["requestBody"] | SessionDetail["responseBody"]) {
-  return body ? `${body.sizeBytes} bytes` : "No body";
+function describeBodySize(
+  body: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+  messages: DiffMessages,
+) {
+  return body ? messages.bytes.replace("{{value}}", String(body.sizeBytes)) : messages.noBody;
 }
 
 function describeTextAvailability(
   body: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+  messages: DiffMessages,
 ) {
   if (!body) {
-    return "No body";
+    return messages.noBody;
   }
   if (getBodyText(body)) {
-    return "Text available";
+    return messages.textAvailable;
   }
   if (body.textDeferred) {
-    return "Text deferred";
+    return messages.textDeferred;
   }
-  return "Non-text or binary";
+  return messages.binary;
 }
 
 function describeBoolean(value: boolean | undefined) {
@@ -293,10 +322,9 @@ function describeBoolean(value: boolean | undefined) {
 function buildBodyNote(
   leftBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
   rightBody: SessionDetail["requestBody"] | SessionDetail["responseBody"],
+  messages: DiffMessages,
 ) {
-  return leftBody?.truncated || rightBody?.truncated
-    ? "One or both captured bodies were truncated by the proxy."
-    : undefined;
+  return leftBody?.truncated || rightBody?.truncated ? messages.capturedTruncated : undefined;
 }
 
 function parseJson(value: string | undefined): { ok: true; value: unknown } | { ok: false } {

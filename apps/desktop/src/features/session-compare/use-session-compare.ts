@@ -22,6 +22,8 @@ import {
 } from "@/features/sessions/session-scope-registry";
 import { useSessions } from "@/features/sessions/use-sessions";
 import { useI18n } from "@/i18n";
+import { enMessages } from "@/i18n/messages/en";
+import { zhCNMessages } from "@/i18n/messages/zh-CN";
 import { getAiSettings, summarizeSessionDiff } from "@/services/commands";
 
 // --- Constants ---
@@ -213,9 +215,17 @@ export function useSessionCompare() {
       expandedBodySections,
       includeBodyForAi,
       maxBodyEntries: BODY_DIFF_DISPLAY_ENTRY_LIMIT,
+      messages: (locale === "zh-CN" ? zhCNMessages : enMessages).comparePage.diffText,
       redact: true,
     });
-  }, [compareMode, detailState.left, detailState.right, expandedBodySections, includeBodyForAi]);
+  }, [
+    compareMode,
+    detailState.left,
+    detailState.right,
+    expandedBodySections,
+    includeBodyForAi,
+    locale,
+  ]);
 
   const sessionPayload = useMemo(() => {
     if (

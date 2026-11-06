@@ -42,8 +42,8 @@ describe("DocsPage", () => {
     renderDocsAt("/docs?doc=rewrite-rules");
 
     await waitFor(() => {
-      // rewrite-rules.md H1 is "Rewrite 改写规则使用指南".
-      expect(articleHeading()).toHaveTextContent("Rewrite");
+      // The Chinese guide uses the same localized name as the rule editor.
+      expect(articleHeading()).toHaveTextContent("改写规则");
     });
   });
 
@@ -66,7 +66,7 @@ describe("DocsPage", () => {
 
   it("switches guides from the sidebar table of contents", async () => {
     renderDocsAt("/docs?doc=rewrite-rules");
-    await waitFor(() => expect(articleHeading()).toHaveTextContent("Rewrite"));
+    await waitFor(() => expect(articleHeading()).toHaveTextContent("改写规则"));
 
     // Entry titles come from docsPage.entries.* (en by default in jsdom); match both
     // locales so the assertion is stable regardless of the resolved language.
@@ -99,7 +99,7 @@ describe("DocsPage", () => {
 
   it("switches article content when the display language changes", async () => {
     renderDocsAt("/docs?doc=rewrite-rules");
-    // rewrite-rules.md Chinese H1 is "Rewrite 改写规则使用指南".
+    // The Chinese heading follows the localized rule terminology.
     await waitFor(() => expect(articleHeading()).toHaveTextContent("改写规则"));
 
     // Switching to English must reload the same guide in English (no fallback mixing).

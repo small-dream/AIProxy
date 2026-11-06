@@ -159,3 +159,7 @@ Yes. Requests sent from [Compose](./compose.md) are inserted into the list as se
 ### Q: How do I replay a captured request over and over?
 
 Right-click the request → **Save to Collection** (persist it into [Collections](./collections-and-environments.md)), or **Compose** (load it into Compose to resend directly).
+
+## Localized interface terminology
+
+In the Chinese interface, request tabs use 请求头, 请求体, 查询参数, and 原始内容; response tabs use 响应头 and 尾部字段 where applicable. Focus actions use 聚焦此域名 / 取消聚焦, and ignore actions use 忽略此域名 / 取消忽略. Actual header names, field values, URLs, and code stay unchanged.

@@ -187,3 +187,9 @@ Check the font name spelling and that the font is installed locally; if the cont
 ### Q: Where are settings stored? Can I migrate them across machines?
 
 Proxy and AI config travel with the workspace / backend; appearance and language preferences are local per machine. A new machine needs reconfiguration.
+
+## Localized interface terminology
+
+The Chinese Agent access interface uses 读取消息体, 读取未脱敏消息体（高风险）, 消息体分块上限, and 本地映射批准根目录. These are display labels; permission identifiers, configuration keys, and protocol values remain unchanged.
+
+In the Chinese interface, **API Key**, **Base URL**, and **Commit** appear as **API 密钥**, **服务地址**, and **提交标识**. **MCP sidecar** and database schema diagnostics appear as **MCP 后台服务** and **数据库结构**; their behavior and permissions are unchanged.

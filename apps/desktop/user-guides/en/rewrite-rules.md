@@ -352,3 +352,7 @@ Within the same stage, matched Rewrite rules run in priority order, high to low.
 ### Q: What's the difference between Rewrite and Script?
 
 Rewrite fits common, structured, low-barrier rewrites like Header, Query, Body, and Redirect. Script fits complex conditions, dynamic logic, field-level processing, and custom mocks. Prefer Rewrite in general; reach for Script for complex cases.
+
+## Localized interface terminology
+
+The Chinese interface uses 改写规则, 消息头, 查询参数, 消息体, and 重定向 for rule labels. Request and response targets use 请求 / 响应; preview summaries use 请求头 / 响应头 and 请求体 / 响应体. Actual rule values, API fields, and Content-Type identifiers remain unchanged.
