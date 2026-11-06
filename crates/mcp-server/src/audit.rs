@@ -107,6 +107,14 @@ pub fn is_agent_control_tool(tool: &str) -> bool {
             | "replay_session"
             | "create_agent_rule"
             | "remove_agent_rules"
+            | "list_automation_resources"
+            | "get_automation_resource"
+            | "validate_automation_plan"
+            | "apply_automation_plan"
+            | "verify_automation_change"
+            | "get_automation_change"
+            | "rollback_automation_change"
+            | "clear_agent_automation"
     )
 }
 
@@ -184,6 +192,8 @@ mod tests {
     fn control_tools_are_marked_without_marking_read_tools() {
         assert!(is_agent_control_tool("start_capture"));
         assert!(is_agent_control_tool("clear_sessions"));
+        assert!(is_agent_control_tool("apply_automation_plan"));
+        assert!(is_agent_control_tool("verify_automation_change"));
         assert!(!is_agent_control_tool("search_sessions"));
         assert!(!is_agent_control_tool("get_app_status"));
     }

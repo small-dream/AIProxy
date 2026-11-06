@@ -1572,9 +1572,15 @@ fn slice_text_page(text: &str, offset: u64, max_bytes: usize) -> Result<TextPage
 }
 
 fn validate_text_query(query: Option<&str>) -> Result<Option<&str>, ToolError> {
-    let Some(query) = query.map(str::trim).filter(|value| !value.is_empty()) else {
+    let Some(query) = query else {
         return Ok(None);
     };
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(ToolError::invalid(
+            "textQuery must not be empty or whitespace-only.",
+        ));
+    }
     if query.chars().count() > 256 {
         return Err(ToolError::invalid(
             "textQuery must be at most 256 characters.",
@@ -2226,6 +2232,14 @@ mod tests {
         let details = batch.details.unwrap();
         assert_eq!(details["reason"], "batchScanLimit");
         assert_eq!(details["batchScanLimitBytes"], MAX_BATCH_JSON_SCAN_BYTES);
+    }
+
+    #[test]
+    fn blank_text_query_is_rejected_instead_of_returning_a_page() {
+        assert!(validate_text_query(Some("")).is_err());
+        assert!(validate_text_query(Some("   ")).is_err());
+        assert!(validate_text_query(None).unwrap().is_none());
+        assert_eq!(validate_text_query(Some(" token ")).unwrap(), Some("token"));
     }
 
     // P3: hashing the ORIGINAL bytes next to a redacted view is a brute-force

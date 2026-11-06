@@ -3043,7 +3043,7 @@ type AutomationPlan = {
 验证证据：
 
 - `offline`：用与代理链路相同的规则匹配与变换实现处理基线请求/内联请求，不发网络请求；只能证明“会匹配并如何变换”，不能证明代理运行时、真实应用或客户端渲染。
-- `proxy`：通过当前 AIProxy 监听端口向精确 origin 白名单中的地址发送受控请求，只允许 `GET` / `HEAD` / `OPTIONS`，单批最多 20 个、每分钟最多 10 个请求；响应体上限 256 KiB。发送前会用同一套离线规则管线预检最终 URL 与 Redirect trace；发现跨 host 变换时拒绝验证。实际请求后还会检查捕获到的 Rewrite / Map trace，异常时把请求标记为 `rule_failed` 并写入 `limitations`，不得把它当作通过证据。需要代理正在运行；HTTPS 需要 SSL interception 与受信任根证书，否则返回 `PROXY_VERIFICATION_UNAVAILABLE`。目标不在 `proxiedVerificationOrigins` 中返回 `ORIGIN_NOT_ALLOWED`。
+- `proxy`：通过当前 AIProxy 监听端口向精确 origin 白名单中的地址发送受控请求，只允许 `GET` / `HEAD` / `OPTIONS`，单批最多 20 个、每分钟最多 20 个请求；响应体上限 256 KiB。发送前会用同一套离线规则管线预检最终 URL 与 Redirect trace；发现跨 host 变换时拒绝验证。实际请求后还会检查捕获到的 Rewrite / Map trace，异常时把请求标记为 `rule_failed` 并写入 `limitations`，不得把它当作通过证据。需要代理正在运行；HTTPS 需要 SSL interception 与受信任根证书，否则返回 `PROXY_VERIFICATION_UNAVAILABLE`。目标不在 `proxiedVerificationOrigins` 中返回 `ORIGIN_NOT_ALLOWED`。
 - `external`：读取真实客户端在 change 激活后产生的已持久化会话并检查规则 trace 与断言；`agentReplay` 会话被明确拒绝并返回 `INSUFFICIENT_EVIDENCE`。真实客户端证据也不能证明页面视觉渲染。
 - 每个断言使用 `subject`（`status`、`requestHeader`、`responseHeader`、`responseBody`、`queryParam`、`ruleTrace`、`durationMs`）、可选 `path`、`operator`（`equals`、`contains`、`exists`、`notExists`、`gte`、`lte`）与可选 `expected`；单次验证 1-100 条断言、`offline` / `proxy` 模式 1-20 个请求。
 - 每条断言结果必须返回原始 `subject` 与 `path`，用于说明 `actual` 来自哪个 Header、Query、JSON 字段或 trace。自动化输出按资源结构脱敏：同时识别 `{name,value}`、`{headerName,value}`、`{paramName,value}`，并按 JSON 属性名处理敏感字段；断言先根据 `subject/path` 判断敏感来源，再脱敏 `actual`、`expected` 与消息，避免抽取成裸字符串后丢失字段上下文。

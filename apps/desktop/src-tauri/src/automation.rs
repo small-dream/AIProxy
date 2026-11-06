@@ -34,7 +34,7 @@ const MAX_VERIFICATION_REQUESTS: usize = 20;
 const MIN_IDEMPOTENCY_KEY_BYTES: usize = 16;
 const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
 const MAX_PROXY_VERIFICATION_BODY_BYTES: usize = 256 * 1024;
-const MAX_PROXY_VERIFICATION_REQUESTS_PER_MINUTE: usize = 10;
+const MAX_PROXY_VERIFICATION_REQUESTS_PER_MINUTE: usize = 20;
 const PROXY_SESSION_WAIT: Duration = Duration::from_secs(5);
 
 static PROXY_VERIFICATION_TIMES: OnceLock<Mutex<VecDeque<Instant>>> = OnceLock::new();
@@ -2788,7 +2788,9 @@ impl AppState {
             if request_status != "passed" {
                 overall_passed = false;
             }
-            evidence.extend(assertions.iter().filter(|_| false).map(|_| String::new()));
+            if let Some(id) = baseline_id.as_ref() {
+                evidence.push(id.clone());
+            }
             request_results.push(AutomationVerificationRequestResult {
                 r#ref: request.r#ref.clone(),
                 status: request_status,
@@ -4122,6 +4124,12 @@ fn resolve_map_target(
     existing_target: Option<&str>,
     approved_roots: &[String],
 ) -> Result<String, AutomationError> {
+    if resource.managed_asset_ref.is_some() && resource.approved_path.is_some() {
+        return Err(AutomationError::new(
+            "INVALID_ARGUMENT",
+            "map resource must use either managedAssetRef or approvedPath, not both",
+        ));
+    }
     if let Some(asset_ref) = resource.managed_asset_ref.as_deref() {
         return asset_paths
             .get(asset_ref)
@@ -4164,16 +4172,22 @@ fn resolve_approved_path(
         .any(|component| matches!(component, std::path::Component::ParentDir))
     {
         return Err(AutomationError::new(
-            "INVALID_ARGUMENT",
+            "PATH_NOT_APPROVED",
             "approvedPath must not contain parent-directory traversal",
         ));
     }
     let requested = std::fs::canonicalize(requested).map_err(|error| {
         AutomationError::new(
-            "INVALID_ARGUMENT",
+            "PATH_NOT_APPROVED",
             format!("approvedPath does not resolve to a readable file: {error}"),
         )
     })?;
+    if !requested.is_file() {
+        return Err(AutomationError::new(
+            "PATH_NOT_APPROVED",
+            "approvedPath must resolve to a regular file",
+        ));
+    }
     let mut matched = false;
     for root in approved_roots {
         let Ok(root) = std::fs::canonicalize(root) else {
