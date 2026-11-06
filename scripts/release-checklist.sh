@@ -5,47 +5,8 @@ echo "=== AIProxy Release Checklist ==="
 echo ""
 
 echo "[1/9] Version consistency..."
-node <<'EOF'
-const fs = require("node:fs");
-
-const read = (p) => fs.readFileSync(p, "utf8");
-const entries = [
-  ["package.json", JSON.parse(read("package.json")).version],
-  ["apps/desktop/package.json", JSON.parse(read("apps/desktop/package.json")).version],
-  [
-    "apps/desktop/src-tauri/tauri.conf.json",
-    JSON.parse(read("apps/desktop/src-tauri/tauri.conf.json")).version,
-  ],
-  [
-    "Cargo.toml [workspace.package]",
-    (read("Cargo.toml").match(/^\[workspace\.package\][\s\S]*?^version = "([^"]+)"/m) || [])[1],
-  ],
-  [
-    "Cargo.lock (aiproxy-desktop)",
-    (read("Cargo.lock").match(/\[\[package\]\]\nname = "aiproxy-desktop"\nversion = "([^"]+)"/) ||
-      [])[1],
-  ],
-];
-
-let failed = false;
-for (const [file, version] of entries) {
-  if (!version) {
-    console.error(`✗ Could not read version from ${file}`);
-    failed = true;
-  }
-}
-if (new Set(entries.map(([, version]) => version)).size !== 1) {
-  console.error("✗ Version mismatch across release files:");
-  for (const [file, version] of entries) {
-    console.error(`    ${file}: ${version}`);
-  }
-  failed = true;
-}
-if (failed) {
-  process.exit(1);
-}
-console.log(`✓ Version consistency passed (${entries[0][1]})`);
-EOF
+node scripts/check-release-version.mjs
+echo "✓ Version consistency passed"
 echo ""
 
 echo "[2/9] Typecheck..."

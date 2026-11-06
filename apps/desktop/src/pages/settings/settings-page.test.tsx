@@ -153,7 +153,7 @@ describe("SettingsPage navigation", () => {
     expect(screen.getAllByText("Copy MCP config")).toHaveLength(1);
   });
 
-  it("preserves the default grant policies through the connect flow", async () => {
+  it("writes the Codex MCP config through the default read-only flow", async () => {
     renderSettings("/settings?section=agent");
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Connect" }))[0]!);
@@ -161,7 +161,7 @@ describe("SettingsPage navigation", () => {
     expect(await screen.findByText("Connect Codex")).toBeInTheDocument();
     expect(
       within(screen.getByRole("dialog")).getByRole("radio", {
-        name: /^Custom/,
+        name: /^Read-only analysis \(default\)/i,
       }),
     ).toBeChecked();
     expect(screen.queryByText("Write MCP configuration?")).not.toBeInTheDocument();

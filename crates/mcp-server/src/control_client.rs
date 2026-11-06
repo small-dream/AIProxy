@@ -965,6 +965,7 @@ mod tests {
     #[cfg(unix)]
     use aiproxy_agent_control::write_json_line;
 
+    #[cfg(unix)]
     fn write_enabled_access_config(
         paths: &AppPaths,
         permissions: crate::config::AgentAccessPermissions,

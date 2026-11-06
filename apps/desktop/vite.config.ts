@@ -82,6 +82,9 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
+    // The settings page suite renders the full permission matrix and can take
+    // longer than the default 5s when the whole suite runs in parallel.
+    testTimeout: 15_000,
     // MUI v9 ships internal ESM (internal/Transition.mjs) that imports
     // react-transition-group/TransitionGroupContext as a directory import.
     // vitest externalizes node_modules by default, so Node's strict ESM

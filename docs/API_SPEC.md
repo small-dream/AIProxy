@@ -2530,11 +2530,11 @@ type ApproveAgentAccessGrantInput = {
 
 ### `deny_agent_access_grant`
 
-请求：`{ requestId: string }`。响应：`AgentGrant`。拒绝后同一 sidecar、客户端、能力与动作指纹在 60 秒冷却期内不会再次弹卡。
+请求：`{ input: { requestId: string } }`（Tauri 参数名为 `input`）。响应：`AgentGrant`。拒绝后同一 sidecar、客户端、能力与动作指纹在 60 秒冷却期内不会再次弹卡。
 
 ### `revoke_agent_access_grant`
 
-请求：`{ grantId: string }`。响应：`AgentGrant`。撤销立即阻止后续调用，但不会撤销已经执行的动作、已发出的请求或已创建的资源。
+请求：`{ input: { grantId: string } }`（Tauri 参数名为 `input`）。响应：`AgentGrant`。撤销立即阻止后续调用，但不会撤销已经执行的动作、已发出的请求或已创建的资源。
 
 ### `revoke_agent_control_permissions`
 

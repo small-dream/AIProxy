@@ -96,17 +96,9 @@ export function accessForPreset(preset: AgentPermissionPreset): AgentPermissionA
   };
 }
 
-export function presetForPermissions(
-  permissions: AgentAccessPermissions,
-  grantRequestPolicy: AgentGrantRequestPolicyMap = deniedGrantRequestPolicy(),
-): AgentPresetSelection {
+export function presetForPermissions(permissions: AgentAccessPermissions): AgentPresetSelection {
   for (const preset of AGENT_PERMISSION_PRESETS) {
-    if (
-      permissionsEqual(permissions, permissionsForPreset(preset)) &&
-      grantRequestPoliciesEqual(grantRequestPolicy, deniedGrantRequestPolicy())
-    ) {
-      return preset;
-    }
+    if (permissionsEqual(permissions, permissionsForPreset(preset))) return preset;
   }
   return "custom";
 }
@@ -120,12 +112,25 @@ export function accessForConnectPreset(
   preset: AgentConnectPreset,
   current: AgentPermissionAccess,
 ): AgentPermissionAccess {
-  return preset === "custom"
-    ? {
-        permissions: { ...current.permissions },
-        grantRequestPolicy: { ...current.grantRequestPolicy },
-      }
-    : accessForPreset(preset);
+  if (preset === "custom") {
+    return {
+      permissions: { ...current.permissions },
+      grantRequestPolicy: { ...current.grantRequestPolicy },
+    };
+  }
+  // Reconnecting with the read-only preset must not silently turn existing
+  // "ask when requested" policies into "deny": the permissions already match,
+  // so keep the user's temporary-approval settings intact.
+  if (
+    preset === "readOnly" &&
+    permissionsEqual(current.permissions, permissionsForPreset("readOnly"))
+  ) {
+    return {
+      permissions: { ...current.permissions },
+      grantRequestPolicy: { ...current.grantRequestPolicy },
+    };
+  }
+  return accessForPreset(preset);
 }
 
 export function permissionsEqual(

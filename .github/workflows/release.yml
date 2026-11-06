@@ -219,6 +219,8 @@ jobs:
             exit 1
           fi
 
+          node scripts/check-release-version.mjs "${GITHUB_REF_NAME#v}"
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:

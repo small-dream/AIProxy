@@ -50,13 +50,18 @@ describe("Agent permission presets", () => {
     ).toBe("custom");
   });
 
-  it("treats a non-denied grant policy as custom even when permissions match", () => {
-    expect(
-      presetForPermissions(accessForPreset("readOnly").permissions, {
+  it("preserves existing grant policies when reconnecting with the read-only preset", () => {
+    const current = {
+      permissions: accessForPreset("readOnly").permissions,
+      grantRequestPolicy: {
         ...deniedGrantRequestPolicy(),
-        readBodies: "ask",
-      }),
-    ).toBe("custom");
+        readBodies: "ask" as const,
+      },
+    };
+    expect(accessForConnectPreset("readOnly", current)).toEqual(current);
+    expect(accessForConnectPreset("fullControl", current).grantRequestPolicy).toEqual(
+      deniedGrantRequestPolicy(),
+    );
   });
 
   it("keeps the exact custom access mix when reconnecting", () => {

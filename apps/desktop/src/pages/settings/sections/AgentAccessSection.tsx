@@ -295,7 +295,7 @@ export function AgentAccessSection({
 
   function replaceDraftFromSettings(settings: AgentAccessSettings) {
     const nextDraft = draftFromSettings(settings);
-    const nextPreset = presetForPermissions(nextDraft.permissions, nextDraft.grantRequestPolicy);
+    const nextPreset = presetForPermissions(nextDraft.permissions);
     setDraft(nextDraft);
     setPresetSelection(nextPreset);
     setCustomAccess((current) =>
@@ -961,7 +961,7 @@ export function AgentAccessSection({
     setConnectError(null);
     setPendingConnect({
       info,
-      preset: presetForPermissions(draft.permissions, draft.grantRequestPolicy),
+      preset: presetForPermissions(draft.permissions),
     });
   }
 
