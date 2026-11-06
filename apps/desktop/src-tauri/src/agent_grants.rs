@@ -639,7 +639,11 @@ fn persist(path: &Path, grants: &[AgentGrant]) -> Result<(), String> {
             .map_err(|error| format!("sync {}: {error}", temp.display()))?;
         replace_file(&temp, path)?;
         #[cfg(windows)]
-        restrict_windows_acl(path);
+        if let Err(error) = restrict_windows_acl(path) {
+            // Do not leave a grant store readable by other local accounts.
+            let _ = std::fs::remove_file(path);
+            return Err(error);
+        }
         Ok(())
     })();
     if result.is_err() {
@@ -649,14 +653,15 @@ fn persist(path: &Path, grants: &[AgentGrant]) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn restrict_windows_acl(path: &Path) {
+fn restrict_windows_acl(path: &Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let user = std::env::var("USERNAME").unwrap_or_default();
     if user.trim().is_empty() {
-        tracing::warn!("could not restrict Agent grant store ACL: USERNAME is unavailable");
-        return;
+        return Err(
+            "could not restrict Agent grant store ACL: USERNAME is unavailable".to_string(),
+        );
     }
     let domain = std::env::var("USERDOMAIN").unwrap_or_default();
     let principal = if domain.trim().is_empty() {
@@ -664,21 +669,22 @@ fn restrict_windows_acl(path: &Path) {
     } else {
         format!("{domain}\\{user}")
     };
-    let result = std::process::Command::new("icacls")
+    let output = std::process::Command::new("icacls")
         .arg(path)
         .arg("/inheritance:r")
         .arg("/grant:r")
         .arg(format!("{principal}:F"))
         .creation_flags(CREATE_NO_WINDOW)
-        .output();
-    match result {
-        Ok(output) if output.status.success() => {}
-        Ok(output) => tracing::warn!(
-            status = ?output.status.code(),
-            "failed to restrict Agent grant store ACL"
-        ),
-        Err(error) => tracing::warn!(%error, "failed to run icacls for Agent grant store"),
+        .output()
+        .map_err(|error| format!("run icacls for Agent grant store: {error}"))?;
+    if output.status.success() {
+        return Ok(());
     }
+    Err(format!(
+        "restrict Agent grant store ACL: icacls exited with {:?}: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
 }
 
 fn replace_file(from: &Path, to: &Path) -> Result<(), String> {

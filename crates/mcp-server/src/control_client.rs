@@ -233,22 +233,36 @@ async fn resolve_descriptor(
     paths: &AppPaths,
     allow_launch: bool,
 ) -> Result<ControlDescriptor, ToolError> {
-    match read_descriptor(&paths.data_dir).ok() {
-        Some(descriptor) => {
+    match read_descriptor(&paths.data_dir) {
+        Ok(descriptor) => {
             validate_descriptor(&descriptor)?;
             Ok(descriptor)
         }
-        None if allow_launch => {
+        Err(error) if descriptor_file_exists(paths) => Err(descriptor_unreadable_error(&error)),
+        Err(_) if allow_launch => {
             if desktop_is_already_running(paths) {
                 return Err(already_running_without_control_error());
             }
             launch_desktop(paths).await
         }
-        None => Err(ToolError::new(
+        Err(_) => Err(ToolError::new(
             "CONTROL_UNAVAILABLE",
             "AIProxy is not running or its local Agent control channel is unavailable. Start AIProxy, then retry.",
         )),
     }
+}
+
+fn descriptor_file_exists(paths: &AppPaths) -> bool {
+    paths.data_dir.join("agent-control.json").is_file()
+}
+
+fn descriptor_unreadable_error(error: &str) -> ToolError {
+    ToolError::new(
+        "CONTROL_UNAVAILABLE",
+        format!(
+            "AIProxy's control descriptor is unreadable ({error}); restart AIProxy so it can recreate the local control channel."
+        ),
+    )
 }
 
 async fn request_grant_with_descriptor(
@@ -529,16 +543,18 @@ pub async fn call_control(
     allow_launch: bool,
     caller: ControlCaller<'_>,
 ) -> Result<Value, ToolError> {
-    let descriptor = read_descriptor(&paths.data_dir).ok();
-    let descriptor = match descriptor {
-        Some(descriptor) => descriptor,
-        None if allow_launch => {
+    let descriptor = match read_descriptor(&paths.data_dir) {
+        Ok(descriptor) => descriptor,
+        Err(error) if descriptor_file_exists(paths) => {
+            return Err(descriptor_unreadable_error(&error));
+        }
+        Err(_) if allow_launch => {
             if desktop_is_already_running(paths) {
                 return Err(already_running_without_control_error());
             }
             launch_desktop(paths).await?
         }
-        None => {
+        Err(_) => {
             return Err(ToolError::new(
                 "CONTROL_UNAVAILABLE",
                 "AIProxy is not running or its local Agent control channel is unavailable. Start AIProxy, then retry.",
@@ -619,12 +635,18 @@ pub async fn try_control(
     paths: &AppPaths,
     operation: ControlOperation,
 ) -> Result<Value, ToolError> {
-    let descriptor = read_descriptor(&paths.data_dir).map_err(|_| {
-        ToolError::new(
-            "CONTROL_UNAVAILABLE",
-            "AIProxy is not running, so its local control channel is unavailable.",
-        )
-    })?;
+    let descriptor = match read_descriptor(&paths.data_dir) {
+        Ok(descriptor) => descriptor,
+        Err(error) if descriptor_file_exists(paths) => {
+            return Err(descriptor_unreadable_error(&error));
+        }
+        Err(_) => {
+            return Err(ToolError::new(
+                "CONTROL_UNAVAILABLE",
+                "AIProxy is not running, so its local control channel is unavailable.",
+            ))
+        }
+    };
     validate_descriptor(&descriptor)?;
     call_once(
         operation,
@@ -929,7 +951,7 @@ fn desktop_is_already_running(paths: &AppPaths) -> bool {
 fn already_running_without_control_error() -> ToolError {
     ToolError::new(
         "CONTROL_UNAVAILABLE",
-        "AIProxy is already running, but its Agent control channel is unavailable. Update AIProxy to the version that matches this MCP sidecar and restart the app before retrying a write tool.",
+        "AIProxy appears to be running, but its Agent control channel is unavailable. Restart AIProxy; if it keeps happening, make sure the desktop app and MCP sidecar are the same version before retrying a write tool.",
     )
 }
 
@@ -1085,8 +1107,8 @@ mod tests {
         .await
         .expect_err("a running app without control should not be launched again");
         assert_eq!(error.code, "CONTROL_UNAVAILABLE");
-        assert!(error.message.contains("already running"));
-        assert!(error.message.contains("Update AIProxy"));
+        assert!(error.message.contains("appears to be running"));
+        assert!(error.message.contains("same version"));
     }
 
     #[cfg(unix)]
