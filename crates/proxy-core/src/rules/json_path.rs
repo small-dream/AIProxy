@@ -1,6 +1,6 @@
 use super::types::RewriteBodyFieldPayload;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum JsonPathSegment {
     Index(usize),
     Key(String),

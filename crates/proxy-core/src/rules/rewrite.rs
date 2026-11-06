@@ -1,6 +1,6 @@
 use super::json_path::{
     coerce_body_field_value, get_json_path_value, json_value_preview, parse_json_field_path,
-    remove_json_path_value, set_json_path_value,
+    remove_json_path_value, set_json_path_value, JsonPathSegment,
 };
 use super::types::{
     RewriteBodyFieldPayload, RewriteBodyPayload, RewriteHeaderPayload, RewriteQueryPayload,
@@ -197,6 +197,231 @@ pub(crate) fn rebuild_request_runtime_state(
     Ok(())
 }
 
+/// Minimal span-preserving JSON reader used to patch individual field values
+/// without re-serializing the whole document. It only records byte spans; the
+/// body has already been validated by `serde_json` before this runs, so parse
+/// failures simply fall back to the lossy path.
+struct JsonSpanNode {
+    start: usize,
+    end: usize,
+    kind: JsonSpanKind,
+}
+
+enum JsonSpanKind {
+    Object(Vec<JsonSpanMember>),
+    Array(Vec<JsonSpanNode>),
+    Scalar,
+}
+
+struct JsonSpanMember {
+    key: String,
+    value: JsonSpanNode,
+}
+
+struct JsonSpanParser<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> JsonSpanParser<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            bytes: text.as_bytes(),
+            pos: 0,
+        }
+    }
+
+    fn parse_root(mut self) -> Result<JsonSpanNode, ()> {
+        self.skip_ws();
+        let node = self.parse_value()?;
+        self.skip_ws();
+        if self.pos == self.bytes.len() {
+            Ok(node)
+        } else {
+            Err(())
+        }
+    }
+
+    fn skip_ws(&mut self) {
+        while matches!(self.bytes.get(self.pos), Some(b' ' | b'\t' | b'\r' | b'\n')) {
+            self.pos += 1;
+        }
+    }
+
+    fn parse_value(&mut self) -> Result<JsonSpanNode, ()> {
+        self.skip_ws();
+        let start = self.pos;
+        let kind = match self.bytes.get(self.pos).copied() {
+            Some(b'{') => {
+                self.pos += 1;
+                let mut members = Vec::new();
+                self.skip_ws();
+                if self.bytes.get(self.pos) == Some(&b'}') {
+                    self.pos += 1;
+                } else {
+                    loop {
+                        self.skip_ws();
+                        let key = self.parse_string()?;
+                        self.skip_ws();
+                        self.expect(b':')?;
+                        let value = self.parse_value()?;
+                        members.push(JsonSpanMember { key, value });
+                        self.skip_ws();
+                        match self.bytes.get(self.pos).copied() {
+                            Some(b',') => self.pos += 1,
+                            Some(b'}') => {
+                                self.pos += 1;
+                                break;
+                            }
+                            _ => return Err(()),
+                        }
+                    }
+                }
+                JsonSpanKind::Object(members)
+            }
+            Some(b'[') => {
+                self.pos += 1;
+                let mut items = Vec::new();
+                self.skip_ws();
+                if self.bytes.get(self.pos) == Some(&b']') {
+                    self.pos += 1;
+                } else {
+                    loop {
+                        items.push(self.parse_value()?);
+                        self.skip_ws();
+                        match self.bytes.get(self.pos).copied() {
+                            Some(b',') => self.pos += 1,
+                            Some(b']') => {
+                                self.pos += 1;
+                                break;
+                            }
+                            _ => return Err(()),
+                        }
+                    }
+                }
+                JsonSpanKind::Array(items)
+            }
+            Some(b'"') => {
+                self.parse_string()?;
+                JsonSpanKind::Scalar
+            }
+            Some(b't') => {
+                self.expect_literal(b"true")?;
+                JsonSpanKind::Scalar
+            }
+            Some(b'f') => {
+                self.expect_literal(b"false")?;
+                JsonSpanKind::Scalar
+            }
+            Some(b'n') => {
+                self.expect_literal(b"null")?;
+                JsonSpanKind::Scalar
+            }
+            Some(b'-' | b'0'..=b'9') => {
+                while matches!(
+                    self.bytes.get(self.pos),
+                    Some(b'0'..=b'9' | b'-' | b'+' | b'.' | b'e' | b'E')
+                ) {
+                    self.pos += 1;
+                }
+                JsonSpanKind::Scalar
+            }
+            _ => return Err(()),
+        };
+        Ok(JsonSpanNode {
+            start,
+            end: self.pos,
+            kind,
+        })
+    }
+
+    fn parse_string(&mut self) -> Result<String, ()> {
+        let start = self.pos;
+        self.expect(b'"')?;
+        loop {
+            match self.bytes.get(self.pos).copied() {
+                Some(b'\\') => self.pos += 2,
+                Some(b'"') => {
+                    self.pos += 1;
+                    break;
+                }
+                Some(_) => self.pos += 1,
+                None => return Err(()),
+            }
+        }
+        let raw = std::str::from_utf8(&self.bytes[start..self.pos]).map_err(|_| ())?;
+        serde_json::from_str::<String>(raw).map_err(|_| ())
+    }
+
+    fn expect(&mut self, byte: u8) -> Result<(), ()> {
+        if self.bytes.get(self.pos) == Some(&byte) {
+            self.pos += 1;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    fn expect_literal(&mut self, literal: &[u8]) -> Result<(), ()> {
+        if self.bytes[self.pos..].starts_with(literal) {
+            self.pos += literal.len();
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+}
+
+fn json_span_value<'a>(
+    node: &'a JsonSpanNode,
+    segments: &[JsonPathSegment],
+) -> Option<&'a JsonSpanNode> {
+    let mut current = node;
+    for segment in segments {
+        current = match (&current.kind, segment) {
+            (JsonSpanKind::Object(members), JsonPathSegment::Key(key)) => {
+                &members.iter().find(|member| member.key == *key)?.value
+            }
+            (JsonSpanKind::Array(items), JsonPathSegment::Index(index)) => items.get(*index)?,
+            _ => return None,
+        };
+    }
+    Some(current)
+}
+
+/// Replace only the changed value spans. Returns `None` when any edit cannot be
+/// applied byte-precisely (missing path, removal, overlapping edits), in which
+/// case the caller keeps the existing serde round-trip behavior.
+fn patch_json_field_values(
+    body_text: &str,
+    edits: &[(Vec<JsonPathSegment>, Value)],
+) -> Option<String> {
+    if edits.is_empty() {
+        return None;
+    }
+    let root = JsonSpanParser::new(body_text).parse_root().ok()?;
+    let mut patches = Vec::with_capacity(edits.len());
+    for (segments, value) in edits {
+        let node = json_span_value(&root, segments)?;
+        patches.push((node.start, node.end, serde_json::to_string(value).ok()?));
+    }
+    patches.sort_by_key(|patch| patch.0);
+    for pair in patches.windows(2) {
+        if pair[0].0 == pair[1].0 || pair[0].1 > pair[1].0 {
+            return None;
+        }
+    }
+    let mut output = String::with_capacity(body_text.len());
+    let mut cursor = 0;
+    for (start, end, replacement) in patches {
+        output.push_str(&body_text[cursor..start]);
+        output.push_str(&replacement);
+        cursor = end;
+    }
+    output.push_str(&body_text[cursor..]);
+    Some(output)
+}
+
 fn apply_body_field_rewrite(
     body: &[u8],
     content_encoding: Option<&HeaderValue>,
@@ -217,6 +442,8 @@ fn apply_body_field_rewrite(
         .map_err(|error| format!("body field rewrite requires valid JSON body: {error}"))?;
     let original_json = json_body.clone();
     let mut entries = Vec::new();
+    let mut patches: Vec<(Vec<JsonPathSegment>, Value)> = Vec::new();
+    let mut can_patch = true;
 
     for (index, field) in fields.iter().enumerate() {
         let segments = parse_json_field_path(&field.path)?;
@@ -224,9 +451,13 @@ fn apply_body_field_rewrite(
         let operation = field.operation.as_deref().unwrap_or("set");
 
         if operation.eq_ignore_ascii_case("remove") {
+            can_patch = false;
             remove_json_path_value(&mut json_body, &segments)?;
         } else {
             let value = coerce_body_field_value(field)?;
+            if can_patch {
+                patches.push((segments.clone(), value.clone()));
+            }
             set_json_path_value(&mut json_body, &segments, value)?;
         }
 
@@ -246,6 +477,12 @@ fn apply_body_field_rewrite(
     // escaping and whitespace even though the semantic value is unchanged.
     if json_body == original_json {
         return Ok((decoded, entries));
+    }
+
+    if can_patch {
+        if let Some(patched) = patch_json_field_values(body_text, &patches) {
+            return Ok((patched.into_bytes(), entries));
+        }
     }
 
     let rewritten = serde_json::to_vec(&json_body)
@@ -1029,6 +1266,39 @@ mod tests {
     // P1-8: object key order must survive a Fields rewrite. serde_json's default
     // BTreeMap reordered every key, which breaks APIs that sign the raw JSON
     // string (the user edits one field, the whole body changes order).
+    #[test]
+    fn body_field_rewrite_patches_only_the_changed_value() {
+        let mut rule = response_body_field_rule();
+        rule.payload = serde_json::json!({
+            "contentType": "application/json",
+            "fields": [{
+                "operation": "set",
+                "path": "$.user.name",
+                "value": "ada",
+                "valueType": "string",
+            }],
+            "mode": "fields",
+            "target": "response",
+        });
+        let mut response = response_with_debug_header();
+        response.replace_response_body(
+            br#"{"user":{"name":"grace"},"amount":1.50,"note":"a\tb","flags":[1, 2.50]}"#.to_vec(),
+        );
+        response
+            .response_headers
+            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let mut entries = Vec::new();
+
+        let outcome = apply_one_response_rule(&rule, &mut response, false, &mut entries);
+
+        assert_eq!(outcome.ok(), Some("success"), "entries: {entries:?}");
+        assert_eq!(
+            String::from_utf8(response.response_body.clone()).unwrap(),
+            r#"{"user":{"name":"ada"},"amount":1.50,"note":"a\tb","flags":[1, 2.50]}"#,
+            "unrelated number literals, escapes and whitespace must be preserved"
+        );
+    }
+
     // P2: a no-op Fields rule must not rewrite the whole body just to normalize
     // numbers/whitespace/escapes; signature-sensitive payloads depend on it.
     #[test]

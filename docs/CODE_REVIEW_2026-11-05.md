@@ -334,8 +334,7 @@ legacy 规则被更新后再回滚时，`before_json` 里的 payload 对象被�
 |---|---|---|---|---|
 | 第 1 批 | P1-1、P1-2、P1-3 | ✅ | `153de22`、`a8c93ed`、`b7af898` | 契约检查通过；agent-control 11、map 3、agent_grants 8；`clippy -D warnings` 通过 |
 | 第 2 批 | P2-7、P2-8、P2-9、P2-12、P2-13、P2-14 | ✅ | `54d66b8` | automation 27 用例；全仓 cargo test 通过 |
-| 第 3 批 | P2-1、P2-2、P2-4、P2-5 | ✅ | `b6ecd52` | automation 27、mcp redaction 14、compare 集成用例通过 |
-| 第 3 批（部分） | P2-3 Body Fields 整体重写 | ◐ | `b6ecd52` | no-op 字段不再重写原始字节；**真正修改字段时仍会 JSON 规范化，字节级定点替换待后续** |
+| 第 3 批 | P2-1、P2-2、P2-3、P2-4、P2-5 | ✅ | `b6ecd52`、本提交 | automation 27、mcp redaction 14、compare 集成、body-field 字节保持用例 |
 | 第 4 批 | P2-18、P2-19、P2-20、P2-21、P2-22、P2-23 | ✅ | `8b589ce` | settings 32、agent-access 22、automation helpers 4 |
 | 第 5 批 | P2-26、P2-27、P2-28、P2-29、P2-30 | ✅ | `447b106` | 全量前端 119 文件 / 923 用例；全仓 `clippy -D warnings`；版本脚本正反对照 |
 | 第 6 批 | P2-10、P2-11、P2-15、P2-16、P2-24、P2-25、P2-31 | ✅ | `c08d68c` | automation 28；mcp control_client 7；全量 cargo/frontend 测试 |
@@ -346,5 +345,6 @@ legacy 规则被更新后再回滚时，`before_json` 里的 payload 对象被�
 
 - P2-19 最终采用“重连时保留已有 ask 策略”的实现，而不是让预设匹配包含 policy；这样默认预设标签与帮助文档保持一致，同时消除 Connect 静默把 ask 改成 deny 的问题。
 - 当前门禁：`pnpm typecheck`、`pnpm lint`、`pnpm check:api-contract`、`cargo fmt --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace`、桌面端全量 119 文件 / 923 用例、`node scripts/check-release-version.mjs` 均通过。
-- 仍未处理：P2-3 的完整字节级替换，以及 §4 的其余 P3（本轮已修掉审计去重、offline 证据、空白 `textQuery`、代理验证限流、Map 字段互斥/错误码 5 项；建议其余按“系统代理跨平台一致性”“MCP 脱敏规则集”“自动化证据口径”拆专项）。
+- P2-3 现已改为按原始字节定点替换被修改字段的值；只有路径不存在、remove 操作或 span 冲突时才回退到整份 JSON 重序列化。
+- 仍未处理：§4 的其余 P3（本轮已修掉审计去重、offline 证据、空白 `textQuery`、代理验证限流、Map 字段互斥/错误码 5 项；建议其余按“系统代理跨平台一致性”“MCP 脱敏规则集”“自动化证据口径”拆专项）。
 - `cargo audit` / `pnpm audit` 需在有审计数据库的网络环境补跑。
