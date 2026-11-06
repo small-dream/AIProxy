@@ -339,7 +339,8 @@ legacy 规则被更新后再回滚时，`before_json` 里的 payload 对象被�
 | 第 5 批 | P2-26、P2-27、P2-28、P2-29、P2-30 | ✅ | `447b106` | 全量前端 119 文件 / 923 用例；全仓 `clippy -D warnings`；版本脚本正反对照 |
 | 第 6 批 | P2-10、P2-11、P2-15、P2-16、P2-24、P2-25、P2-31 | ✅ | `c08d68c` | automation 28；mcp control_client 7；全量 cargo/frontend 测试 |
 | 第 7 批 | P2-6、P2-17 | ✅ | `5dadbd6` | 全仓 clippy/test；Windows icacls 实际执行 |
-| 第 8 批 | P3：自动化审计去重、offline 证据、空白 `textQuery`、代理验证限流、Map 互斥/错误码 | ✅ | 本提交 | mcp audit/body 用例；automation 28；全仓 clippy/test |
+| 第 8 批 | P3：自动化审计去重、offline 证据、空白 `textQuery`、代理验证限流、Map 互斥/错误码 | ✅ | `9bd76e1` | mcp audit/body 用例；automation 28；全仓 clippy/test |
+| 第 9 批 | 发布前复核修复：verify 锁缩短、自动化资源删除保护、重复 JSON key 回退、ACL 失败降级为内存、approve 文档、预发布 tag、Connect 失败提示、脱敏 `name`/path、版本脚本预发布 | ✅ | 发布提交 | 全仓 clippy/test；前端 119 文件 / 923 用例；版本脚本正反例 |
 
 **说明**：
 

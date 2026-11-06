@@ -33,7 +33,14 @@ const entries = [
 ];
 
 const expectedArg = process.argv[2]?.trim().replace(/^v/, "");
-const expected = expectedArg || entries[0][1];
+const core = (version) => version.split("-")[0];
+// Pre-release tags (`v0.4.2-test`, `v0.4.2-beta.1`) intentionally keep the five
+// release files on the stable core version; only the core must match. Stable
+// tags still require an exact match so a `-beta` file cannot ship as stable.
+const expectedIsPrerelease = Boolean(expectedArg && expectedArg.includes("-"));
+const expected = expectedArg ? (expectedIsPrerelease ? core(expectedArg) : expectedArg) : entries[0][1];
+const sameVersion = (version) =>
+  expectedIsPrerelease ? core(version) === expected : version === expected;
 let failed = false;
 
 for (const [file, version] of entries) {
@@ -42,13 +49,13 @@ for (const [file, version] of entries) {
     failed = true;
     continue;
   }
-  if (version !== expected) {
+  if (!sameVersion(version)) {
     console.error(`✗ ${file}: expected ${expected}, found ${version}`);
     failed = true;
   }
 }
 
-if (expectedArg && entries[0][1] !== expectedArg) {
+if (expectedArg && !sameVersion(entries[0][1])) {
   console.error(`✗ package.json version ${entries[0][1]} does not match tag ${expectedArg}`);
   failed = true;
 }

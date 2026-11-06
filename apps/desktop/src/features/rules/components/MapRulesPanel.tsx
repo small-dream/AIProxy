@@ -300,6 +300,8 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
 
     function handleDelete() {
       if (isRulesError) return;
+      const selectedRule = rules.find((rule) => rule.id === selectedRuleId);
+      if (selectedRule?.changeId) return;
       if (!selectedRuleId || !rules.some((r) => r.id === selectedRuleId)) {
         lastSyncedRuleIdRef.current = undefined;
         setDraft(createEmptyMapRule(mode));
@@ -774,7 +776,10 @@ export const MapRulesPanel = forwardRef<RulesPanelHandle, { mode: MapRule["mode"
             {t("rulesPage.duplicateRule")}
           </MenuItem>
           <MenuItem
-            disabled={deleteMutation.isPending}
+            disabled={
+              deleteMutation.isPending ||
+              Boolean(rules.find((rule) => rule.id === selectedRuleId)?.changeId)
+            }
             onClick={() => {
               setActionsMenuAnchor(null);
               handleDelete();

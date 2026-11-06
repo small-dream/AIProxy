@@ -826,9 +826,26 @@ pub async fn delete_rule(
             ))
         }
     }
-    // Deletion stays available for Agent rules: the rules page exposes Remove
-    // for them and cleans the registry/mock body afterwards. Only edits,
-    // toggles and reordering are read-only.
+    // Deletion stays available for legacy Agent rules and user rules. Rules
+    // owned by an automation change must be rolled back or cleared instead:
+    // deleting them would leave the change permanently un-rollbackable.
+    if matches!(input.rule_type.as_str(), "rewrite" | "map") {
+        let conn = shared_state
+            .lock_db_for_ipc()
+            .map_err(|error| app_error(ERR_INTERNAL, format!("Open rules database: {error}")))?;
+        let metadata = aiproxy_db::automation::load_automation_resource(
+            &conn,
+            &input.rule_type,
+            &input.rule_id,
+        )
+        .map_err(|error| app_error(ERR_INTERNAL, format!("Load rule ownership: {error}")))?;
+        if metadata.is_some_and(|row| row.owner_kind == "agent") {
+            return Err(app_error(
+                "RULE_READ_ONLY",
+                "Agent automation resources are managed by an experiment. Roll back or clear the experiment instead of deleting the rule.",
+            ));
+        }
+    }
 
     // Capture owned copies for the closure; `input` is reused for the
     // post-DB manager dispatch.

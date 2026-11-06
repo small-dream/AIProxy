@@ -619,10 +619,13 @@ export function AgentAccessSection({
         message: connectSuccessMessage(outcome, input.info, t),
       });
     },
-    onError: (error) => {
+    onError: (error, input) => {
       setConnectError(
         coerceAppError(error).message || t("settingsPage.agentAccess.configInstallFailed"),
       );
+      // The high-risk confirmation closes the connect dialog before writing;
+      // reopen it so the failure is visible and retryable.
+      setPendingConnect(input);
     },
     meta: { suppressGlobalErrorNotification: true },
   });
@@ -1235,7 +1238,7 @@ export function AgentAccessSection({
         >
           <AgentGrantList
             busy={revokeGrantMutation.isPending}
-            data={grantsQuery.data}
+            data={grantsQuery.data ? { ...grantsQuery.data, grants: visibleGrants } : undefined}
             loading={grantsQuery.isFetching}
             onRefresh={() => void grantsQuery.refetch()}
             onRevoke={setPendingRevokeGrant}
@@ -2137,7 +2140,7 @@ export function AgentAccessSection({
         confirmColor="warning"
         confirmLabel={t("settingsPage.agentAccess.highRiskConnectConfirm")}
         isConfirming={connectMutation.isPending}
-        message={t("settingsPage.agentAccess.highRiskSaveMessage", {
+        message={t("settingsPage.agentAccess.highRiskConnectMessage", {
           permissions: pendingHighRiskConnect?.items.map((item) => item.label).join(" · ") ?? "",
         })}
         onCancel={() => {

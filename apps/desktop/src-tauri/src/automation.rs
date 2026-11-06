@@ -1208,9 +1208,6 @@ impl AppState {
         params: VerifyAutomationChangeParams,
         permissions: AutomationPermissions,
     ) -> Result<AutomationVerificationResult, AutomationError> {
-        // Serialize with apply/rollback/clear so evidence cannot be bound to a
-        // change that was reverted while the verification was running.
-        let _guard = self.automation_mutation_lock().lock().await;
         if params.assertions.is_empty() || params.assertions.len() > MAX_VERIFICATION_ASSERTIONS {
             return Err(AutomationError::new(
                 "INVALID_ARGUMENT",
@@ -1248,7 +1245,7 @@ impl AppState {
 
         match params.mode.as_str() {
             "offline" => self.verify_offline(&change, &params).await,
-            "external" => self.verify_external(&change, &params),
+            "external" => self.verify_external(&change, &params).await,
             "proxy" => {
                 if !permissions.manage_proxied_verification {
                     return Err(AutomationError::new(
@@ -2810,10 +2807,13 @@ impl AppState {
         {
             limitations.push("No target rule matched the supplied request.".to_string());
         }
+        let _guard = self.automation_mutation_lock().lock().await;
+        self.ensure_change_still_active(&change.id)?;
+        self.ensure_verification_targets_current(change)?;
         self.persist_verification(change, params, &request_results, &evidence, &limitations)
     }
 
-    fn verify_external(
+    async fn verify_external(
         &self,
         change: &AutomationChangeSetRow,
         params: &VerifyAutomationChangeParams,
@@ -2918,6 +2918,9 @@ impl AppState {
             "It cannot prove visual rendering beyond the captured HTTP response.".to_string(),
         ];
         let _ = overall_passed;
+        let _guard = self.automation_mutation_lock().lock().await;
+        self.ensure_change_still_active(&change.id)?;
+        self.ensure_verification_targets_current(change)?;
         self.persist_verification(change, params, &request_results, &evidence, &limitations)
     }
 
@@ -3185,6 +3188,9 @@ impl AppState {
                 conflict,
             });
         }
+        let _guard = self.automation_mutation_lock().lock().await;
+        self.ensure_change_still_active(&change.id)?;
+        self.ensure_verification_targets_current(change)?;
         self.persist_verification(change, params, &request_results, &evidence, &limitations)
     }
 
@@ -3392,6 +3398,21 @@ impl AppState {
             winning_rule_id,
             candidates,
         })
+    }
+
+    fn ensure_change_still_active(&self, change_id: &str) -> Result<(), AutomationError> {
+        let conn = self.lock_db_for_ipc().map_err(AutomationError::internal)?;
+        let current = automation::load_automation_change_set(&conn, change_id)
+            .map_err(|error| AutomationError::internal(format!("load change: {error}")))?
+            .ok_or_else(|| AutomationError::new("NOT_FOUND", "automation change not found"))?;
+        if current.status != "active" {
+            return Err(AutomationError::new(
+                "STATE_CONFLICT",
+                "the automation change is no longer active; verification evidence was discarded",
+            )
+            .with_details(json!({ "changeId": change_id, "status": current.status })));
+        }
+        Ok(())
     }
 
     fn persist_verification(

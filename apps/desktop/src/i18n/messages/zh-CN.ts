@@ -364,6 +364,8 @@ export const zhCNMessages: Messages = {
       highRiskSaveConfirm: "保存并开启",
       highRiskConnectConfirm: "连接并开启",
       highRiskConnectTitle: "连接前开启高风险 Agent 权限？",
+      highRiskConnectMessage:
+        "连接将开启：{{permissions}}。只有确定要在写入客户端配置前授予这些权限时才继续。",
       highRiskSaveMessage:
         "本次保存将开启：{{permissions}}。这些权限允许 Agent 影响真实流量或执行不可恢复的操作。仅在当前任务确实需要时保存。",
       highRiskSaveTitle: "开启高风险 Agent 权限？",
@@ -592,7 +594,8 @@ export const zhCNMessages: Messages = {
       presetCustomDescription:
         "按需调整下列权限。首次进入时会从“只读分析”复制一份草稿；之后再选“自定义”会恢复最近一次组合。",
       presetReadOnly: "只读分析（默认值）",
-      presetReadOnlyDescription: "读取会话元数据与脱敏后的 Body；不授予控制、重放或自动化权限。",
+      presetReadOnlyDescription:
+        "读取会话元数据与脱敏后的 Body；不授予控制、重放或自动化权限；重连时保留已有的“请求时询问”策略。",
       presetFullControl: "完全控制",
       presetFullControlDescription:
         "启用本版全部可用能力，包括控制、删除、重放、自动化与未脱敏 Body。保存时仍会要求确认高风险权限。",
@@ -608,7 +611,7 @@ export const zhCNMessages: Messages = {
         "这是一次非幂等操作。批准只允许执行一次；如果结果未知，请先检查上游状态，不要直接重复提交。",
       grantNotificationBody: "Agent 请求临时权限：{{capability}}。请回到 AIProxy 审批。",
       grantNotificationTitle: "{{client}} 正在等待授权",
-      grantLater: "稍后处理",
+      grantLater: "关闭",
       grantRecordedAt: "记录于 {{time}}",
       grantUnknownWarning: "结果未知：该动作可能已经执行。重试前请先确认 AIProxy 中的实际状态。",
       grantPendingSince: "等待审批 · {{time}}",

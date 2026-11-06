@@ -7,9 +7,20 @@ const SENSITIVE_KEY_PATTERN = /authorization|cookie|password|secret|token|api[-_
 const MAX_DISPLAY_VALUE_LENGTH = 320;
 
 function hasSensitiveSibling(record: Record<string, unknown>): boolean {
-  return ["headerName", "paramName", "path"].some(
+  const namedKey = ["headerName", "paramName", "name"].find(
     (key) => typeof record[key] === "string" && SENSITIVE_KEY_PATTERN.test(record[key] as string),
   );
+  if (namedKey) return true;
+  // For body-field paths only the leaf decides: `$.user.password` is
+  // sensitive, `$.tokenCount` is not.
+  const path = record.path;
+  if (typeof path !== "string") return false;
+  const leaf =
+    path
+      .split(/[.[\]]/)
+      .filter(Boolean)
+      .at(-1) ?? "";
+  return SENSITIVE_KEY_PATTERN.test(leaf);
 }
 
 function maskValue(value: unknown, depth = 0): unknown {

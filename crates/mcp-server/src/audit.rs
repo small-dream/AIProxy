@@ -107,12 +107,11 @@ pub fn is_agent_control_tool(tool: &str) -> bool {
             | "replay_session"
             | "create_agent_rule"
             | "remove_agent_rules"
-            | "list_automation_resources"
-            | "get_automation_resource"
-            | "validate_automation_plan"
+            // Automation writes are audited by the desktop control channel.
+            // Read-only automation tools (list/get/validate/get change) stay
+            // audited here so they are not lost when no desktop write occurs.
             | "apply_automation_plan"
             | "verify_automation_change"
-            | "get_automation_change"
             | "rollback_automation_change"
             | "clear_agent_automation"
     )
@@ -194,6 +193,8 @@ mod tests {
         assert!(is_agent_control_tool("clear_sessions"));
         assert!(is_agent_control_tool("apply_automation_plan"));
         assert!(is_agent_control_tool("verify_automation_change"));
+        assert!(!is_agent_control_tool("list_automation_resources"));
+        assert!(!is_agent_control_tool("validate_automation_plan"));
         assert!(!is_agent_control_tool("search_sessions"));
         assert!(!is_agent_control_tool("get_app_status"));
     }

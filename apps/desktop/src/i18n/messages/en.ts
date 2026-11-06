@@ -370,6 +370,8 @@ export const enMessages = {
       highRiskSaveConfirm: "Save and enable",
       highRiskConnectConfirm: "Connect and enable",
       highRiskConnectTitle: "Enable high-risk Agent permissions before connecting?",
+      highRiskConnectMessage:
+        "Connecting will enable {{permissions}}. Confirm only if you intend to grant these permissions before writing the client configuration.",
       highRiskSaveMessage:
         "This save enables: {{permissions}}. These permissions allow actions with real traffic or destructive effects. Save only when the current task needs them.",
       highRiskSaveTitle: "Enable high-risk Agent permissions?",
@@ -610,7 +612,7 @@ export const enMessages = {
         "Adjust capabilities as needed. The first selection starts from Read-only analysis; later selections restore your latest custom combination.",
       presetReadOnly: "Read-only analysis (default)",
       presetReadOnlyDescription:
-        "Read session metadata and redacted bodies. Control, replay, and automation permissions stay off.",
+        'Read session metadata and redacted bodies. Control, replay, and automation permissions stay off; reconnecting keeps existing "ask when requested" policies.',
       presetFullControl: "Full control",
       presetFullControlDescription:
         "Enable every capability available in this release, including control, deletion, replay, automation, and unredacted bodies. Saving still requires the high-risk confirmation.",
@@ -627,7 +629,7 @@ export const enMessages = {
       grantNotificationBody:
         "The Agent requests temporary permission: {{capability}}. Return to AIProxy to review it.",
       grantNotificationTitle: "{{client}} is waiting for approval",
-      grantLater: "Later",
+      grantLater: "Dismiss",
       grantRecordedAt: "Recorded {{time}}",
       grantUnknownWarning:
         "The result is unknown: the action may already have run. Check AIProxy state before retrying.",

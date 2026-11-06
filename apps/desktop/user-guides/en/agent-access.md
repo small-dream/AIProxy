@@ -136,7 +136,7 @@ When a capability is **Ask** and the permanent permission is off, AIProxy shows 
 - **Allow for 15 minutes** permits up to 50 executions within 15 minutes; it is offered only for repeatable, non-high-risk actions.
 - Non-idempotent replay, deletion, certificate-trust removal, system-proxy changes, and user automation offer **Allow once** only.
 
-The approval wait is 30 seconds. After a denial, the same action does not prompt again for 60 seconds. You can choose **Later** to dismiss the card; the request keeps waiting until its 30-second window expires, then the Agent receives a timeout and must ask again. A grant is bound to the current MCP sidecar instance, client name and version, capability, and action fingerprint; changing the action parameters or target requires a new approval. If one sidecar serves multiple conversations, they share the same temporary grants. All temporary grants become invalid when the app exits. These are **time-limited grants**, not grants that end when a task is considered complete.
+The approval wait is 30 seconds. After a denial, the same action does not prompt again for 60 seconds. You can choose **Dismiss** to hide the card; the request keeps waiting until its 30-second window expires, then the Agent receives a timeout and must ask again. A grant is bound to the current MCP sidecar instance, client name and version, capability, and action fingerprint; changing the action parameters or target requires a new approval. If one sidecar serves multiple conversations, they share the same temporary grants. All temporary grants become invalid when the app exits. These are **time-limited grants**, not grants that end when a task is considered complete.
 
 If an action may have run but the response was lost, the audit write failed, or the result cannot be confirmed, the grant appears as **Result unknown**. Check the upstream or AIProxy state first; do not immediately retry a non-idempotent action. Sending it again requires a new approval.
 
@@ -168,7 +168,7 @@ The lifecycle is deliberately short:
 - Rules expire after 600 seconds by default, with a maximum TTL of 3600 seconds and at most 20 rules at once.
 - Rules exist only in AIProxy process memory. They are never written to the user rule database and disappear when the app restarts.
 - A matching rule affects real traffic passing through the proxy, just like a normal Rewrite or Map rule.
-- The Rules page shows a warning-colored **Agent** chip and the expiry time. These rows are read-only: you cannot edit, enable/disable, drag, or batch-select them, but you can delete, duplicate, or use **Clear all Agent rules**.
+- The Rules page shows a warning-colored **Agent** chip and the expiry time. These rows are read-only: you cannot edit, enable/disable, drag, or batch-select them. Legacy temporary rules can still be deleted, duplicated, or cleared with **Clear all Agent rules**; resources managed by an automation experiment must be rolled back or cleared through that experiment instead.
 - Duplicating an Agent rule creates a normal persistent rule and removes the temporary source and expiry metadata. Duplicate it explicitly if you want to keep it.
 
 Creating a rule beyond the limit returns `RULE_LIMIT_EXCEEDED`; editing one from the Rules page returns `RULE_READ_ONLY`. Call `remove_agent_rules` when the experiment ends rather than relying on expiry.

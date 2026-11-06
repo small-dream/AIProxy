@@ -125,8 +125,10 @@ export function AgentGrantApprovalHost() {
     meta: { suppressGlobalErrorNotification: true },
   });
 
-  const nextPending = grantsQuery.data?.grants.find((grant) => grant.status === "pending") ?? null;
-  const pending = nextPending && nextPending.requestId !== dismissedRequestId ? nextPending : null;
+  const pending =
+    grantsQuery.data?.grants.find(
+      (grant) => grant.status === "pending" && grant.requestId !== dismissedRequestId,
+    ) ?? null;
   const pendingCount = grantsQuery.data?.pendingCount ?? 0;
   const busy = approveMutation.isPending || denyMutation.isPending;
   const error = approveMutation.error ?? denyMutation.error;

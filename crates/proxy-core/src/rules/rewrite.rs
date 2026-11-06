@@ -277,6 +277,15 @@ impl<'a> JsonSpanParser<'a> {
                         }
                     }
                 }
+                // serde_json keeps the last duplicate key while `find` would
+                // patch the first one; fall back to the full rewrite instead of
+                // silently changing a value the client does not read.
+                let mut seen = std::collections::HashSet::new();
+                for member in &members {
+                    if !seen.insert(member.key.as_str()) {
+                        return Err(());
+                    }
+                }
                 JsonSpanKind::Object(members)
             }
             Some(b'[') => {
@@ -1297,6 +1306,34 @@ mod tests {
             r#"{"user":{"name":"ada"},"amount":1.50,"note":"a\tb","flags":[1, 2.50]}"#,
             "unrelated number literals, escapes and whitespace must be preserved"
         );
+    }
+
+    #[test]
+    fn body_field_rewrite_falls_back_for_duplicate_keys() {
+        let mut rule = response_body_field_rule();
+        rule.payload = serde_json::json!({
+            "contentType": "application/json",
+            "fields": [{
+                "operation": "set",
+                "path": "$.token",
+                "value": "patched",
+                "valueType": "string",
+            }],
+            "mode": "fields",
+            "target": "response",
+        });
+        let mut response = response_with_debug_header();
+        response.replace_response_body(br#"{"token":"old","token":"newer"}"#.to_vec());
+        response
+            .response_headers
+            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let mut entries = Vec::new();
+
+        let outcome = apply_one_response_rule(&rule, &mut response, false, &mut entries);
+
+        assert_eq!(outcome.ok(), Some("success"), "entries: {entries:?}");
+        let body: serde_json::Value = serde_json::from_slice(&response.response_body).unwrap();
+        assert_eq!(body["token"], "patched");
     }
 
     // P2: a no-op Fields rule must not rewrite the whole body just to normalize

@@ -2517,14 +2517,7 @@ type AgentGrant = {
 
 ### `approve_agent_access_grant`
 
-请求：
-
-```ts
-type ApproveAgentAccessGrantInput = {
-  requestId: string;
-  option: "once" | "fifteenMinutes";
-};
-```
+请求：`{ input: { requestId: string; option: "once" | "fifteenMinutes" } }`（Tauri 参数名为 `input`）。
 
 响应：`AgentGrant`。`once` 在批准后 60 秒内允许 1 次；`fifteenMinutes` 在 15 分钟内最多 50 次。非幂等动作和高风险能力只允许 `once`。批准会唤醒正在等待的 sidecar，原工具调用继续执行。
 
@@ -2999,7 +2992,7 @@ Body 与字段提取：
 | `list_automation_resources` | `manageAutomation` | 分页列出当前安装实例可见的 Rewrite / Map 资源摘要，含 `scope`、`owner`、`lifecycle`、`expiresAt`、`changeId`、`version`；首版只返回 `rewrite` 与 `map`，`limit` 默认 50、最大 100 |
 | `get_automation_resource` | `manageAutomation` | 按 `kind` + `id` 返回完整资源与当前版本；首版只支持 `rewrite` / `map`，不返回 Script 源码 |
 | `validate_automation_plan` | `manageAutomation`；如涉及用户资源还需 `manageUserAutomation` | 只校验不写库、不改规则、不发布运行时；返回 `planHash`、`scopeHash`、`canApply`、`warnings`、资源所有权与冲突摘要。首版只接受 Rewrite、Map Local 与常驻资源删除 |
-| `apply_automation_plan` | `manageAutomation`；更新 / 删除用户资源还需 `manageUserAutomation` | 校验 `expectedPlanHash` / `expectedScopeHash`，在共享写协调器内提交数据库并发布统一运行时；只有 change set 进入 `active` 才返回成功。安装实例级 `idempotencyKey` 长 16-128 字节，重试丢失响应的同一计划会返回 `idempotent=true` |
+| `apply_automation_plan` | `manageAutomation`；更新 / 删除用户资源还需 `manageUserAutomation` | 校验 `expectedPlanHash` / `expectedScopeHash`，在共享写协调器内提交数据库并发布统一运行时；只有 change set 进入 `active` 才返回成功。安装实例级 `idempotencyKey` 长 16-128 字节，重试丢失响应的同一计划会返回 `idempotent=true`；对已 `reverted` / `aborted` 的 change 重放返回 `CHANGE_NOT_APPLICABLE`，需要换新的 key |
 | `verify_automation_change` | `manageAutomation`；`mode=proxy` 还需 `manageProxiedVerification` | 对 `active` change 执行 `offline` / `proxy` / `external` 验证。返回 `evidenceLevel`、`runtimeGeneration`、断言结果、证据会话、规则 trace 引用、冲突诊断和 `limitations`；目标版本或 generation 已变化时不得复用旧证据 |
 | `get_automation_change` | `manageAutomation` | 返回 change set、资源 before/after 快照、实验状态、清理状态、验证记录、`runtimeGeneration` 与 `rollbackScopeHash`；回滚必须原样传回该哈希 |
 | `rollback_automation_change` | `manageAutomation`；涉及用户资源还需 `manageUserAutomation` | 只回滚常驻（`persistent`）且处于 `active` 的 change；按 change items 的资源版本与依赖检查，目标或依赖已变化返回 `ROLLBACK_CONFLICT`。无关资源的其他变化不应阻断回滚；临时资源通过 TTL / clear 处理 |

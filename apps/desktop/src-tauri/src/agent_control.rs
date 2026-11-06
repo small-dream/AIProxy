@@ -623,6 +623,14 @@ fn conditional_permissions(
 }
 
 fn operation_requires_user_automation(app: &AppHandle, operation: &ControlOperation) -> bool {
+    // Only automation operations touch this probe. Keep read/status traffic
+    // free of the global DB lock.
+    if !matches!(
+        operation,
+        ControlOperation::ApplyAutomationPlan(_) | ControlOperation::RollbackAutomationChange(_)
+    ) {
+        return false;
+    }
     let state = app.state::<Arc<AppState>>();
     let state = state.inner();
     let Ok(conn) = state.lock_db_for_ipc() else {

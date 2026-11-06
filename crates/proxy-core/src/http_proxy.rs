@@ -510,7 +510,9 @@ async fn stage_intercept_request_breakpoint(
                 &request_mut,
                 started_at,
                 started_at_instant,
+                breakpoint_drop_status(ctx),
                 message,
+                None,
                 map_traces,
                 rewrite_traces,
                 script_traces,
@@ -1104,7 +1106,9 @@ async fn stage_process_upstream_response(
                     request,
                     started_at,
                     started_at_instant,
+                    breakpoint_drop_status(ctx),
                     message,
+                    Some(&session_detail),
                     map_traces,
                     rewrite_traces,
                     script_traces,
@@ -1937,7 +1941,9 @@ fn build_breakpoint_drop_detail(
     request: &ParsedProxyRequest,
     started_at: DateTime<Utc>,
     started_at_instant: Instant,
+    status_code: u16,
     message: &str,
+    base: Option<&ProxySessionDetail>,
     map_traces: Vec<crate::MapTrace>,
     rewrite_traces: Vec<crate::RewriteTrace>,
     script_traces: Vec<crate::ScriptTrace>,
@@ -1945,7 +1951,7 @@ fn build_breakpoint_drop_detail(
 ) -> ProxySessionDetail {
     let mut detail = build_session_detail(
         request,
-        0,
+        status_code,
         &HeaderMap::new(),
         message.as_bytes(),
         message.len(),
@@ -1965,6 +1971,10 @@ fn build_breakpoint_drop_detail(
         false,
         false,
     );
+    if let Some(base) = base {
+        detail.via_upstream_proxy = base.via_upstream_proxy;
+        detail.timing_source = base.timing_source.clone();
+    }
     detail.map_traces = map_traces;
     detail.rewrite_traces = rewrite_traces;
     detail.script_traces = script_traces;
@@ -1974,6 +1984,13 @@ fn build_breakpoint_drop_detail(
         message.to_string(),
     )));
     detail
+}
+
+fn breakpoint_drop_status(ctx: &ConnectionContext) -> u16 {
+    match ctx.mode {
+        ConnectionMode::PlainHttp => 0,
+        ConnectionMode::MitmHttps { .. } => StatusCode::NO_CONTENT.as_u16(),
+    }
 }
 
 /// Handle a Drop breakpoint action.
@@ -2616,7 +2633,9 @@ mod tests {
             &request,
             Utc::now(),
             Instant::now(),
+            0,
             "The response was dropped by the active breakpoint rule.",
+            None,
             Vec::new(),
             Vec::new(),
             Vec::new(),
@@ -2631,5 +2650,24 @@ mod tests {
             .and_then(|body| body.inline_text())
             .unwrap_or_default();
         assert!(body.contains("dropped"), "unexpected body: {body:?}");
+    }
+
+    #[test]
+    fn breakpoint_drop_detail_records_the_mitm_204() {
+        let request = make_proxy_request_for_mock_drop_test("sess-drop-204");
+        let detail = build_breakpoint_drop_detail(
+            &request,
+            Utc::now(),
+            Instant::now(),
+            204,
+            "The response was dropped by the active breakpoint rule.",
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+
+        assert_eq!(detail.summary.status_code, 204);
     }
 }

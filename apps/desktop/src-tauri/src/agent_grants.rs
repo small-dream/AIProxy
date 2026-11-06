@@ -341,11 +341,20 @@ pub fn authorize(
 /// (a real approval error).
 pub fn has_grant_for_capability(grant_ids: &[String], capability: AgentCapability) -> bool {
     let guard = store().lock().unwrap_or_else(|error| error.into_inner());
+    let now = chrono::Utc::now();
     grant_ids.iter().any(|id| {
-        guard
-            .grants
-            .iter()
-            .any(|grant| grant.id == *id && grant.capability == capability)
+        guard.grants.iter().any(|grant| {
+            grant.id == *id
+                && grant.capability == capability
+                && grant.remaining_uses > 0
+                && matches!(
+                    grant.status,
+                    AgentGrantStatus::Approved | AgentGrantStatus::Executing
+                )
+                && chrono::DateTime::parse_from_rfc3339(&grant.expires_at)
+                    .map(|expires| expires.with_timezone(&chrono::Utc) > now)
+                    .unwrap_or(false)
+        })
     })
 }
 
@@ -640,9 +649,17 @@ fn persist(path: &Path, grants: &[AgentGrant]) -> Result<(), String> {
         replace_file(&temp, path)?;
         #[cfg(windows)]
         if let Err(error) = restrict_windows_acl(path) {
-            // Do not leave a grant store readable by other local accounts.
+            // Never leave a grant store readable by other local accounts. The
+            // in-memory store is authoritative for this process, so skipping
+            // the on-disk copy keeps approvals working without leaking data.
             let _ = std::fs::remove_file(path);
-            return Err(error);
+            tracing::warn!(
+                component = "desktop.agent_grants",
+                event = "grant_store_acl_failed",
+                error = %error,
+                "grant_store_acl_failed"
+            );
+            return Ok(());
         }
         Ok(())
     })();
