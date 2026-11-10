@@ -2,7 +2,7 @@
 
 This directory contains the design and architecture documentation for AIProxy. These documents serve as the source of truth for the project's structure and decisions.
 
-> **Note:** These documents are primarily written in Chinese (简体中文) as they are internal design references. The [README](../README.md) and [user guides](../apps/desktop/user-guides/) provide bilingual (English / Chinese) documentation for end users and contributors.
+> **Note:** These documents are primarily written in Chinese (简体中文) as they are internal design references. The [Chinese README](../README.md) is the default project entry point, the [English README](../README.en.md) mirrors it, and the [user guides](../apps/desktop/user-guides/) provide bilingual end-user documentation.
 
 ## Table of Contents
 
