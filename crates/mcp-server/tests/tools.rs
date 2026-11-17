@@ -52,6 +52,18 @@ const TEST_CALLER: ControlCaller<'static> = ControlCaller {
     version: "1.0",
 };
 
+/// Fixture sessions are pinned to 2026-10-17. A literal `30d` therefore stops
+/// matching them once the wall clock moves past mid-November and turns these
+/// tests red without any code change, so derive a lookback that always covers
+/// the fixture while still exercising relative-duration parsing.
+fn since_covering_fixture() -> String {
+    let fixture_start = chrono::DateTime::parse_from_rfc3339("2026-10-17T00:00:00Z")
+        .expect("fixture start timestamp must be valid")
+        .with_timezone(&chrono::Utc);
+    let days = (chrono::Utc::now() - fixture_start).num_days() + 1;
+    format!("{days}d")
+}
+
 async fn get_session_body(
     state: &AppContext,
     request: GetSessionBodyRequest,
@@ -730,7 +742,7 @@ async fn websocket_and_insights_use_permissions_and_scope() {
     let (by_since, _) = get_insights(
         &context,
         GetInsightsRequest {
-            since: Some("30d".to_string()),
+            since: Some(since_covering_fixture()),
             ..GetInsightsRequest::default()
         },
     )
@@ -741,7 +753,7 @@ async fn websocket_and_insights_use_permissions_and_scope() {
     let conflict = get_insights(
         &context,
         GetInsightsRequest {
-            since: Some("30d".to_string()),
+            since: Some(since_covering_fixture()),
             started_after: Some("2026-10-17T00:00:00Z".to_string()),
             ..GetInsightsRequest::default()
         },
@@ -810,7 +822,7 @@ async fn session_prefixes_and_since_are_resolved_safely() {
         &context,
         SearchSessionsRequest {
             host: Some("api.example.com".to_string()),
-            since: Some("30d".to_string()),
+            since: Some(since_covering_fixture()),
             compact: true,
             limit: Some(20),
             ..SearchSessionsRequest::default()
