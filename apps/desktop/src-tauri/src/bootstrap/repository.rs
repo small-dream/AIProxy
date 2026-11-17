@@ -1,4 +1,6 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
 use aiproxy_db::body_store::BodyStore;
 use aiproxy_db::rules::{
@@ -34,6 +36,10 @@ pub(crate) struct BodyDeleteFailure {
 pub(crate) struct ClearSessionsStorageResult {
     pub deleted_count: usize,
     pub body_cleanup_error: Option<String>,
+    pub db_lock_wait_ms: u64,
+    pub db_delete_ms: u64,
+    pub body_detach_ms: u64,
+    pub gc_scheduled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,9 +132,12 @@ impl Repository {
     /// successful clear. The reverse failure (bodies fail after the rows are
     /// gone) leaves harmless orphans; the background rescan retries it once.
     pub fn clear_all_sessions(&self) {
+        let started = Instant::now();
+
         // Fail-closed on poison (logged by lock_db_best_effort): skip the DB
         // clear rather than write through a potentially torn Connection — and
         // skip the body clear with it.
+        let db_started = Instant::now();
         let db_cleared = match self.lock_best_effort("session_clear") {
             Ok(conn) => match aiproxy_db::sessions::clear_all_sessions(&conn) {
                 Ok(()) => true,
@@ -144,18 +153,54 @@ impl Repository {
             },
             Err(()) => false,
         };
+        let db_delete_ms = db_started.elapsed().as_millis() as u64;
 
         if !db_cleared {
+            tracing::warn!(
+                component = "desktop.persistence",
+                event = "session_storage_clear_skipped",
+                db_delete_ms,
+                total_ms = started.elapsed().as_millis() as u64,
+                "session_storage_clear_skipped"
+            );
             return;
         }
 
-        if let Err(error) = self.body_store.clear_all() {
-            tracing::error!(
-                component = "desktop.persistence",
-                event = "clear_session_storage_bodies_failed",
-                error = %error,
-                "clear_session_storage_bodies_failed"
-            );
+        let detach_started = Instant::now();
+        let (gc_scheduled, body_cleanup_error) = match self.body_store.detach_all_for_gc() {
+            Ok(Some(tombstone)) => {
+                tracing::info!(
+                    component = "desktop.persistence",
+                    event = "body_detach_succeeded",
+                    tombstone = %tombstone.display(),
+                    "body_detach_succeeded"
+                );
+                spawn_gc_purge(Arc::clone(&self.body_store), tombstone);
+                (true, None)
+            }
+            Ok(None) => (false, None),
+            Err(detach_error) => {
+                tracing::warn!(
+                    component = "desktop.persistence",
+                    event = "body_detach_failed_falling_back",
+                    error = %detach_error,
+                    "body_detach_failed_falling_back"
+                );
+                let fallback_error = self.body_store.clear_all().err().map(|error| {
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "clear_session_storage_bodies_failed",
+                        error = %error,
+                        "clear_session_storage_bodies_failed"
+                    );
+                    error.to_string()
+                });
+                (false, fallback_error)
+            }
+        };
+        let body_detach_ms = detach_started.elapsed().as_millis() as u64;
+
+        if body_cleanup_error.is_some() {
             // M29: fire-and-forget rescan so a transient FS error does not
             // leave orphan blobs indefinitely. The cloned Arcs keep the store
             // alive for the background task.
@@ -165,6 +210,10 @@ impl Repository {
         tracing::info!(
             component = "desktop.persistence",
             event = "session_storage_cleared",
+            db_delete_ms,
+            body_detach_ms,
+            gc_scheduled,
+            total_ms = started.elapsed().as_millis() as u64,
             "session_storage_cleared"
         );
     }
@@ -176,7 +225,11 @@ impl Repository {
         let db = Arc::clone(&self.db);
         let body_store = Arc::clone(&self.body_store);
         tauri::async_runtime::spawn_blocking(move || {
+            let lock_started = Instant::now();
             let conn = lock_for_ipc_helper(&db)?;
+            let db_lock_wait_ms = lock_started.elapsed().as_millis() as u64;
+
+            let db_started = Instant::now();
             let count = conn
                 .query_row("SELECT COUNT(*) FROM session_summaries", [], |row| {
                     row.get::<_, i64>(0)
@@ -187,29 +240,94 @@ impl Repository {
             aiproxy_db::sessions::clear_all_sessions(&conn).map_err(|error| {
                 persistence_error("DB_ERROR", format!("clear sessions: {error}"))
             })?;
+            let db_delete_ms = db_started.elapsed().as_millis() as u64;
             // Release the global DB lock before deleting potentially many
             // body files. The database rows are already committed and the
             // body store has its own path isolation, so holding the connection
             // mutex here would only block unrelated reads and writes.
             drop(conn);
-            let body_cleanup_error = body_store.clear_all().err().map(|error| {
-                tracing::error!(
-                    component = "desktop.persistence",
-                    event = "clear_session_storage_bodies_failed",
-                    error = %error,
-                    "clear_session_storage_bodies_failed"
-                );
-                error.to_string()
-            });
+
+            let detach_started = Instant::now();
+            let (gc_scheduled, body_cleanup_error) = match body_store.detach_all_for_gc() {
+                Ok(Some(tombstone)) => {
+                    tracing::info!(
+                        component = "desktop.persistence",
+                        event = "body_detach_succeeded",
+                        tombstone = %tombstone.display(),
+                        "body_detach_succeeded"
+                    );
+                    spawn_gc_purge(Arc::clone(&body_store), tombstone);
+                    (true, None)
+                }
+                Ok(None) => (false, None),
+                Err(detach_error) => {
+                    tracing::warn!(
+                        component = "desktop.persistence",
+                        event = "body_detach_failed_falling_back",
+                        error = %detach_error,
+                        "body_detach_failed_falling_back"
+                    );
+                    let fallback_error = body_store.clear_all().err().map(|error| {
+                        tracing::error!(
+                            component = "desktop.persistence",
+                            event = "clear_session_storage_bodies_failed",
+                            error = %error,
+                            "clear_session_storage_bodies_failed"
+                        );
+                        error.to_string()
+                    });
+                    (false, fallback_error)
+                }
+            };
+            let body_detach_ms = detach_started.elapsed().as_millis() as u64;
+
             Ok(ClearSessionsStorageResult {
                 deleted_count: count,
                 body_cleanup_error,
+                db_lock_wait_ms,
+                db_delete_ms,
+                body_detach_ms,
+                gc_scheduled,
             })
         })
         .await
         .map_err(|error| {
             persistence_error("INTERNAL_ERROR", format!("clear sessions task: {error}"))
         })?
+    }
+
+    /// Remove tombstones left by a previous process before a new clear runs.
+    /// Best-effort: a locked tombstone is reported but does not block startup.
+    pub fn cleanup_stale_body_gc_dirs(&self) {
+        match self.body_store.cleanup_stale_gc_dirs() {
+            Ok(outcome) if outcome.failed > 0 => {
+                tracing::warn!(
+                    component = "desktop.persistence",
+                    event = "body_gc_startup_cleanup_incomplete",
+                    removed = outcome.removed,
+                    failed = outcome.failed,
+                    first_error = outcome.first_error.as_deref().unwrap_or(""),
+                    "body_gc_startup_cleanup_incomplete"
+                );
+            }
+            Ok(outcome) if outcome.removed > 0 => {
+                tracing::info!(
+                    component = "desktop.persistence",
+                    event = "body_gc_startup_cleanup_completed",
+                    removed = outcome.removed,
+                    "body_gc_startup_cleanup_completed"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(
+                    component = "desktop.persistence",
+                    event = "body_gc_startup_cleanup_failed",
+                    error = %error,
+                    "body_gc_startup_cleanup_failed"
+                );
+            }
+        }
     }
 
     /// M29: spawn a background task that retries `body_store.clear_all()` once
@@ -701,8 +819,6 @@ fn persist_throttle_traces_impl(
 // High-level convenience methods — full session persistence
 // ---------------------------------------------------------------------------
 
-use std::time::Instant;
-
 use aiproxy_db::sessions::SessionDetailRow;
 use aiproxy_proxy_core::ProxySessionDetail;
 
@@ -974,6 +1090,46 @@ fn log_storage_stats(
     );
 }
 
+/// Delete a detached body directory in the background.
+///
+/// The caller has already atomically moved the live `bodies/` directory to a
+/// sibling tombstone and recreated an empty live directory. A failure here is
+/// intentionally non-fatal for the clear command: the DB is already committed
+/// and old bodies are no longer reachable, so the tombstone is simply retried
+/// by startup cleanup on the next run.
+fn spawn_gc_purge(body_store: Arc<BodyStore>, tombstone: PathBuf) {
+    let label = tombstone
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| tombstone.display().to_string());
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        tracing::info!(
+            component = "desktop.persistence",
+            event = "body_gc_started",
+            tombstone = %label,
+            "body_gc_started"
+        );
+        match body_store.purge_gc_dir(&tombstone) {
+            Ok(()) => tracing::info!(
+                component = "desktop.persistence",
+                event = "body_gc_succeeded",
+                tombstone = %label,
+                duration_ms = started.elapsed().as_millis() as u64,
+                "body_gc_succeeded"
+            ),
+            Err(error) => tracing::error!(
+                component = "desktop.persistence",
+                event = "body_gc_failed",
+                tombstone = %label,
+                duration_ms = started.elapsed().as_millis() as u64,
+                error = %error,
+                "body_gc_failed"
+            ),
+        }
+    });
+}
+
 fn delete_sessions_impl(
     db: &Arc<Mutex<aiproxy_db::rusqlite::Connection>>,
     body_store: &Arc<BodyStore>,
@@ -1129,11 +1285,41 @@ mod tests {
 
         repository.clear_all_sessions();
 
+        // The live directory is detached synchronously, so the old session
+        // path is unreachable as soon as clear_all_sessions returns. The
+        // tombstone itself is deleted later by the background GC.
         assert!(
             !body_store_dir.join("session-1").exists(),
-            "body files must be reclaimed once DB rows are gone"
+            "detached body files must leave the live directory immediately"
         );
         assert!(repository.body_store().read_body(&relative_path).is_err());
+        assert!(
+            body_store_dir.is_dir(),
+            "a fresh live body directory must be recreated"
+        );
+
+        let prefix = format!(
+            "{}.gc-",
+            body_store_dir
+                .file_name()
+                .expect("body store dir name")
+                .to_string_lossy()
+        );
+        let deadline = Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let has_tombstone = std::fs::read_dir(body_store_dir.parent().unwrap())
+                .unwrap()
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_name().to_string_lossy().starts_with(&prefix));
+            if !has_tombstone {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "background GC did not remove the detached body directory in time"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
 
         let _ = std::fs::remove_dir_all(body_store_dir);
     }

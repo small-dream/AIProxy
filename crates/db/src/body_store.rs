@@ -19,6 +19,25 @@ pub struct BodyRange {
     pub truncated: bool,
 }
 
+/// Result of reclaiming body directories left behind by a previous
+/// "detach then delete in background" clear.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct GcCleanupOutcome {
+    pub removed: usize,
+    pub failed: usize,
+    pub first_error: Option<String>,
+}
+
+/// Infix that marks a detached body directory awaiting deletion, e.g.
+/// `bodies.gc-1700000000000-4242-0`. Tombstones are siblings of the live store
+/// (never children), so reads and writes can never mistake one for a session
+/// directory.
+const GC_DIR_INFIX: &str = ".gc-";
+
+/// Disambiguates tombstones created within the same millisecond by the same
+/// process (a test can clear twice in quick succession).
+static GC_DIR_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl BodyStore {
     pub fn new(base_dir: PathBuf) -> Self {
         Self { base_dir }
@@ -163,6 +182,146 @@ impl BodyStore {
             }
         }
         Ok(())
+    }
+
+    /// Detach the whole body directory for background deletion.
+    ///
+    /// The live directory is renamed to a sibling tombstone and immediately
+    /// recreated empty. The caller gets the tombstone back and must hand it to
+    /// [`Self::purge_gc_dir`] (typically from a background thread). Because the
+    /// rename is atomic, this is O(1) regardless of how many body files exist:
+    /// a clear of a multi-gigabyte store no longer waits for thousands of
+    /// per-session `remove_dir_all` calls.
+    ///
+    /// Ordering guarantee: the live directory is empty before this returns, so
+    /// body writes that start after the caller releases its session-lifecycle
+    /// lock land in the new directory and can never be removed by the
+    /// background GC of the tombstone.
+    ///
+    /// Returns `Ok(None)` when the store did not exist yet (nothing to
+    /// reclaim).
+    ///
+    /// Platform note: a directory rename fails while another handle is open
+    /// without delete sharing, which is the common Windows case for a body
+    /// still mapped by the inspector. Callers must fall back to
+    /// [`Self::clear_all`] on error; that path keeps working, just more slowly.
+    pub fn detach_all_for_gc(&self) -> Result<Option<PathBuf>, DbError> {
+        match fs::metadata(&self.base_dir) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(DbError::Validation(format!(
+                    "body store path is not a directory: {}",
+                    self.base_dir.display()
+                )));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.ensure_dir()?;
+                return Ok(None);
+            }
+            Err(error) => return Err(DbError::Io(error)),
+        }
+
+        let tombstone = self.next_gc_dir();
+        fs::rename(&self.base_dir, &tombstone).map_err(DbError::Io)?;
+
+        if let Err(error) = fs::create_dir_all(&self.base_dir) {
+            // Put the old directory back so the store stays usable; the caller
+            // then falls back to the slow per-entry delete.
+            let _ = fs::rename(&tombstone, &self.base_dir);
+            return Err(DbError::Io(error));
+        }
+
+        Ok(Some(tombstone))
+    }
+
+    /// Delete one tombstone produced by [`Self::detach_all_for_gc`].
+    ///
+    /// The path is validated to be a sibling tombstone of this store so a bug
+    /// in a caller can never turn the background GC into an arbitrary
+    /// recursive delete. A tombstone that already vanished counts as success.
+    pub fn purge_gc_dir(&self, tombstone: &Path) -> Result<(), DbError> {
+        if !self.is_gc_dir_path(tombstone) {
+            return Err(DbError::Validation(format!(
+                "refusing to purge a non-tombstone path: {}",
+                tombstone.display()
+            )));
+        }
+        remove_entry(tombstone).map_err(DbError::Io)
+    }
+
+    /// Remove tombstones left by a previous run or by a GC that did not
+    /// finish before the process exited. Called at startup, before any capture
+    /// writes, so there is no live handle that could block the delete.
+    ///
+    /// Every matching entry is attempted even when one fails, so a single
+    /// locked directory does not strand the rest.
+    pub fn cleanup_stale_gc_dirs(&self) -> Result<GcCleanupOutcome, DbError> {
+        let parent = self.base_dir.parent().ok_or_else(|| {
+            DbError::Validation(format!(
+                "body store directory has no parent: {}",
+                self.base_dir.display()
+            ))
+        })?;
+        let prefix = self.gc_dir_prefix();
+
+        let entries = match fs::read_dir(parent) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(GcCleanupOutcome::default());
+            }
+            Err(error) => return Err(DbError::Io(error)),
+        };
+
+        let mut outcome = GcCleanupOutcome::default();
+        for entry in entries {
+            let entry = entry.map_err(DbError::Io)?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !name.starts_with(&prefix) {
+                continue;
+            }
+            match remove_entry(&entry.path()) {
+                Ok(()) => outcome.removed += 1,
+                Err(error) => {
+                    outcome.failed += 1;
+                    if outcome.first_error.is_none() {
+                        outcome.first_error = Some(format!("{name}: {error}"));
+                    }
+                }
+            }
+        }
+        Ok(outcome)
+    }
+
+    fn gc_dir_prefix(&self) -> String {
+        let base_name = self
+            .base_dir
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "bodies".to_string());
+        format!("{base_name}{GC_DIR_INFIX}")
+    }
+
+    fn next_gc_dir(&self) -> PathBuf {
+        let parent = self.base_dir.parent().unwrap_or_else(|| Path::new("."));
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+        let sequence = GC_DIR_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        parent.join(format!(
+            "{}{millis}-{}-{sequence}",
+            self.gc_dir_prefix(),
+            std::process::id()
+        ))
+    }
+
+    fn is_gc_dir_path(&self, path: &Path) -> bool {
+        let parent_matches = path.parent() == self.base_dir.parent();
+        let name_matches = path
+            .file_name()
+            .map(|name| name.to_string_lossy().starts_with(&self.gc_dir_prefix()))
+            .unwrap_or(false);
+        parent_matches && name_matches
     }
 
     /// Check whether a relative body path points to an existing file.
@@ -352,6 +511,22 @@ fn write_body_file_atomic(file_path: &Path, data: &[u8]) -> std::io::Result<()> 
         let _ = fs::remove_file(&temp_path);
     }
     write_result
+}
+
+/// Remove a file, directory, or symlink without following links.
+///
+/// GC paths are AIProxy-owned, but startup cleanup also inspects sibling
+/// entries. Using `symlink_metadata` keeps a malicious or accidental symlink
+/// from turning cleanup into a delete outside the body store.
+fn remove_entry(path: &Path) -> std::io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            fs::remove_dir_all(path)
+        }
+        Ok(_) => fs::remove_file(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
 }
 
 /// Minimum body size (bytes) to store on disk instead of inline in the DB.
@@ -749,5 +924,128 @@ mod tests {
         assert!(store
             .read_body_range("linked-session/response.body", 0, 16)
             .is_err());
+    }
+
+    #[test]
+    fn detach_all_for_gc_moves_live_bodies_and_allows_new_writes() {
+        let dir = test_dir("detach_gc");
+        let live_dir = dir.join("bodies");
+        let store = BodyStore::new(live_dir.clone());
+        store.ensure_dir().unwrap();
+        let old_path = store
+            .write_body("old-session", "request", b"old payload")
+            .unwrap();
+
+        let tombstone = store
+            .detach_all_for_gc()
+            .unwrap()
+            .expect("existing body store must yield a tombstone");
+
+        assert!(live_dir.is_dir(), "live directory must be recreated");
+        assert!(
+            !live_dir.join("old-session").exists(),
+            "old bodies must leave the live directory immediately"
+        );
+        assert!(store.read_body(&old_path).is_err());
+        assert_eq!(
+            fs::read(tombstone.join("old-session").join("request.body")).unwrap(),
+            b"old payload"
+        );
+
+        let new_path = store
+            .write_body("new-session", "request", b"new payload")
+            .unwrap();
+        assert_eq!(store.read_body(&new_path).unwrap(), b"new payload");
+
+        store.purge_gc_dir(&tombstone).unwrap();
+        assert!(!tombstone.exists());
+        assert_eq!(
+            store.read_body(&new_path).unwrap(),
+            b"new payload",
+            "purging the tombstone must not touch bodies written after detach"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn detach_all_for_gc_creates_empty_live_dir_when_missing() {
+        let dir = test_dir("detach_gc_missing");
+        let live_dir = dir.join("bodies");
+        let store = BodyStore::new(live_dir.clone());
+
+        assert!(store.detach_all_for_gc().unwrap().is_none());
+        assert!(live_dir.is_dir());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purge_gc_dir_rejects_non_tombstone_paths() {
+        let dir = test_dir("purge_reject");
+        let store = BodyStore::new(dir.join("bodies"));
+        store.ensure_dir().unwrap();
+        let unrelated = dir.join("unrelated");
+        fs::create_dir_all(&unrelated).unwrap();
+        fs::write(unrelated.join("keep.txt"), b"keep").unwrap();
+
+        assert!(store.purge_gc_dir(&unrelated).is_err());
+        assert!(unrelated.join("keep.txt").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cleanup_stale_gc_dirs_removes_only_tombstones() {
+        let dir = test_dir("cleanup_stale");
+        let live_dir = dir.join("bodies");
+        let store = BodyStore::new(live_dir.clone());
+        store.ensure_dir().unwrap();
+
+        let tombstone_dir = dir.join("bodies.gc-100-1-0");
+        fs::create_dir_all(tombstone_dir.join("session")).unwrap();
+        fs::write(tombstone_dir.join("session").join("request.body"), b"old").unwrap();
+        let tombstone_file = dir.join("bodies.gc-101-1-1");
+        fs::write(&tombstone_file, b"stale marker").unwrap();
+
+        let unrelated_dir = dir.join("other-data");
+        fs::create_dir_all(&unrelated_dir).unwrap();
+        fs::write(unrelated_dir.join("keep.txt"), b"keep").unwrap();
+        let unrelated_file = dir.join("keep.txt");
+        fs::write(&unrelated_file, b"keep").unwrap();
+
+        let outcome = store.cleanup_stale_gc_dirs().unwrap();
+        assert_eq!(outcome.removed, 2);
+        assert_eq!(outcome.failed, 0);
+        assert!(!tombstone_dir.exists());
+        assert!(!tombstone_file.exists());
+        assert!(unrelated_dir.join("keep.txt").is_file());
+        assert!(unrelated_file.is_file());
+        assert!(live_dir.is_dir());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_stale_gc_dirs_removes_symlink_without_following_it() {
+        use std::os::unix::fs::symlink;
+
+        let dir = test_dir("cleanup_symlink");
+        let store = BodyStore::new(dir.join("bodies"));
+        store.ensure_dir().unwrap();
+        let outside = dir.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("keep.txt"), b"keep").unwrap();
+        let tombstone_link = dir.join("bodies.gc-link");
+        symlink(&outside, &tombstone_link).unwrap();
+
+        let outcome = store.cleanup_stale_gc_dirs().unwrap();
+        assert_eq!(outcome.removed, 1);
+        assert_eq!(outcome.failed, 0);
+        assert!(fs::symlink_metadata(&tombstone_link).is_err());
+        assert!(outside.join("keep.txt").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

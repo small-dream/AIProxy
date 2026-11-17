@@ -48,7 +48,7 @@ Each row shows:
 - **Failure lookup**: use status codes and keywords in this page for a quick search. Through [Agent Access](./agent-access.md), the Agent can additionally filter with `failedOnly`, `failureKind`, and `failureOrigin` for connection, TLS, timeout, and upstream failures
 - **Focus / Ignore chips**: focused and ignored hosts render as removable chips above the list (an active throttle as a warning chip); a category with many hosts collapses into one summary chip whose popover lists each host individually
 - **Throttled / All Sessions**: toggle at the top to show only requests affected by [throttling](./throttling.md)
-- **Clear Session**: clears all sessions in the current container; tick "clear without asking again" in the confirm dialog to skip it from then on (re-enable the confirmation in Settings → Notifications & confirmations)
+- **Clear Session**: clears all sessions in the current container. Database rows are cleared immediately, while large body files are released in the background, so the UI recovers faster when many sessions are present. Disk usage may stay elevated briefly until that finishes, and the next launch resumes cleanup of any temporary directory left behind. Tick "clear without asking again" in the confirm dialog to skip it from then on (re-enable the confirmation in Settings → Notifications & confirmations)
 
 ### Focus & ignore
 

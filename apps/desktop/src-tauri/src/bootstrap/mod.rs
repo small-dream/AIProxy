@@ -37,6 +37,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
+    time::Instant,
 };
 use tauri::async_runtime::JoinHandle;
 
@@ -231,6 +232,7 @@ impl AppState {
 
     /// Load all persisted data from SQLite into the in-memory managers.
     fn init_from_db(&self) {
+        self.repository.cleanup_stale_body_gc_dirs();
         self.clear_session_storage();
 
         let conn = self.repository.lock_or_recover("startup_load");
@@ -374,20 +376,60 @@ impl AppState {
     // ── session lifecycle ───────────────────────────────────────────
 
     pub async fn clear_sessions(&self) -> Result<ClearSessionsResult, String> {
+        let started = Instant::now();
         self.session_generation.fetch_add(1, Ordering::AcqRel);
+        let lock_started = Instant::now();
         let _lifecycle_guard = self.session_lifecycle_lock.lock().await;
+        let lock_wait_ms = lock_started.elapsed().as_millis() as u64;
+        tracing::info!(
+            component = "desktop.sessions",
+            event = "clear_sessions_started",
+            lock_wait_ms,
+            "clear_sessions_started"
+        );
         // The repository only returns after the SQLite transaction commits.
         // Once it does, mirror the durable state in the cache and emit the
         // clear event even if body-file cleanup fails.
-        let storage_result = self.repository.clear_all_sessions_result().await?;
+        let storage_result = match self.repository.clear_all_sessions_result().await {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::error!(
+                    component = "desktop.sessions",
+                    event = "clear_sessions_failed",
+                    lock_wait_ms,
+                    total_ms = started.elapsed().as_millis() as u64,
+                    error = %error,
+                    "clear_sessions_failed"
+                );
+                return Err(error);
+            }
+        };
+        let body_cleanup_error = storage_result.body_cleanup_error.clone();
+
+        let cache_started = Instant::now();
         let ids_to_clear = self.cache.clear_summaries();
         let ids_set: HashSet<String> = ids_to_clear.iter().cloned().collect();
         self.cache.remove_details(&ids_set);
+        let cache_clear_ms = cache_started.elapsed().as_millis() as u64;
 
         if let Some(handle) = self.read_app_handle() {
             emit_sessions_cleared(&handle);
         }
-        if let Some(body_cleanup_error) = storage_result.body_cleanup_error {
+        if let Some(body_cleanup_error) = body_cleanup_error {
+            tracing::warn!(
+                component = "desktop.sessions",
+                event = "clear_sessions_completed_with_body_cleanup_error",
+                deleted_count = storage_result.deleted_count,
+                lock_wait_ms,
+                db_lock_wait_ms = storage_result.db_lock_wait_ms,
+                db_delete_ms = storage_result.db_delete_ms,
+                body_detach_ms = storage_result.body_detach_ms,
+                cache_clear_ms,
+                gc_scheduled = storage_result.gc_scheduled,
+                total_ms = started.elapsed().as_millis() as u64,
+                error = %body_cleanup_error,
+                "clear_sessions_completed_with_body_cleanup_error"
+            );
             return Err(serde_json::json!({
                 "code": "BODY_DELETE_FAILED",
                 "message": format!(
@@ -402,6 +444,19 @@ impl AppState {
             })
             .to_string());
         }
+        tracing::info!(
+            component = "desktop.sessions",
+            event = "clear_sessions_completed",
+            deleted_count = storage_result.deleted_count,
+            lock_wait_ms,
+            db_lock_wait_ms = storage_result.db_lock_wait_ms,
+            db_delete_ms = storage_result.db_delete_ms,
+            body_detach_ms = storage_result.body_detach_ms,
+            cache_clear_ms,
+            gc_scheduled = storage_result.gc_scheduled,
+            total_ms = started.elapsed().as_millis() as u64,
+            "clear_sessions_completed"
+        );
         Ok(ClearSessionsResult {
             deleted_count: storage_result.deleted_count,
         })

@@ -1066,8 +1066,11 @@ type ClearSessionsOutput = void;
 说明：
 
 - 清空全局全部会话（含 SQLite 与 Body Store）；内部会统计实际删除的数据库 Session 数供 Agent 控制返回。UI 侧需先做危险操作确认。
+- SQLite 删除在命令内同步提交，提交成功后旧会话不会在重启后复活。Body Store 不再逐个同步删除消息体文件：后端把整个 `bodies/` 目录原子重命名为同级的 GC tombstone，并立即重建空目录，然后由后台线程删除 tombstone。因此清空耗时不随消息体文件数量线性增长，命令返回也不依赖所有文件已从磁盘释放。
+- 后台删除失败不会把已经提交的数据库清空回滚：旧消息体已不在活动目录中，残留 tombstone 会在下次启动时继续清理；只有目录摘除失败且同步回退删除也失败时，才返回 `BODY_DELETE_FAILED`。
 - 数据库清理失败时不更新缓存、不发射事件。数据库已提交但 Body 清理失败时返回 `BODY_DELETE_FAILED`，`details` 含 `deletedCount`、`sessionsCleared=true` 和 `bodyCleanupError`；此时缓存与 `sessions-cleared` 事件仍按数据库的最终状态同步，避免 UI 长期显示已不存在的 Session。
 - Session 生命周期锁覆盖持久化、缓存和 Body 写入，保证清理期间不会与新的 Session 写入交叉污染。
+- 可观测性：清空命令记录 `clear_sessions_started`、`clear_sessions_completed`、`clear_sessions_completed_with_body_cleanup_error` 与 `clear_sessions_failed`；完成日志包含 `lock_wait_ms`、`db_lock_wait_ms`、`db_delete_ms`、`body_detach_ms`、`cache_clear_ms`、`gc_scheduled` 与 `total_ms`。后台 GC 记录 `body_gc_started` / `body_gc_succeeded` / `body_gc_failed`，启动清理记录 `body_gc_startup_cleanup_*`。
 
 ### `delete_sessions`
 
