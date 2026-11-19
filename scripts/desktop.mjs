@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -11,6 +13,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const desktopDir = path.join(repoRoot, "apps", "desktop");
 const tauriDir = path.join(desktopDir, "src-tauri");
 const cargoManifestPath = path.join(tauriDir, "Cargo.toml");
+const rustToolchainPath = path.join(repoRoot, "rust-toolchain.toml");
 
 const hostPlatform = normalizePlatform(process.platform);
 const cli = parseCommandLine(process.argv.slice(2));
@@ -39,6 +42,8 @@ if (cli.platform) {
     process.exit(1);
   }
 }
+
+ensureRustToolchain();
 
 if (cli.action === "bundle" && !hasCargoTauri()) {
   console.error(
@@ -131,6 +136,119 @@ function sidecarStep(profile) {
     cwd: repoRoot,
     label: `Building aiproxy-mcp sidecar (${profile})`,
   };
+}
+
+/**
+ * Fails fast when the `rustc` resolved from PATH is older than the version
+ * pinned in rust-toolchain.toml.
+ *
+ * The pin only takes effect through rustup's shims: a standalone toolchain
+ * (Homebrew's `rust` formula, a distro `rustc` package, an MSVC-side manual
+ * install) shadows those shims and silently ignores rust-toolchain.toml.
+ * Without this guard the mismatch only surfaces minutes later, deep inside a
+ * dependency build script — e.g. libsqlite3-sys 0.38 uses `cfg_select!`
+ * (stable since Rust 1.95) and fails with a bare E0658 that says nothing
+ * about the real cause.
+ */
+function ensureRustToolchain() {
+  const pinnedVersion = readPinnedRustVersion();
+  if (!pinnedVersion) {
+    return;
+  }
+
+  const activeVersion = runSilent("rustc", ["--version"], repoRoot)?.match(
+    /^rustc (\d+\.\d+\.\d+)/,
+  )?.[1];
+
+  if (!activeVersion) {
+    console.error(
+      `[aiproxy-scripts] Could not resolve \`rustc\` from PATH. Install rustup (or put its shims on PATH) so it can provide the toolchain pinned in rust-toolchain.toml (${pinnedVersion}).`,
+    );
+    process.exit(1);
+  }
+
+  const comparison = compareVersions(activeVersion, pinnedVersion);
+  if (comparison === 0) {
+    return;
+  }
+
+  const sysroot = runSilent("rustc", ["--print", "sysroot"], repoRoot);
+  const sysrootLabel = sysroot ?? "unknown sysroot";
+
+  if (comparison > 0) {
+    // Newer than the pin still compiles, but it proves rust-toolchain.toml is
+    // being bypassed, so local builds no longer match CI.
+    console.warn(
+      `[aiproxy-scripts] rustc ${activeVersion} is newer than the pinned ${pinnedVersion} (${sysrootLabel}); rust-toolchain.toml is not in effect.`,
+    );
+    return;
+  }
+
+  const mismatch = `[aiproxy-scripts] Rust toolchain mismatch: rust-toolchain.toml pins ${pinnedVersion}, but \`rustc\` on PATH is ${activeVersion} (${sysrootLabel}).`;
+
+  // rustup itself lets RUSTUP_TOOLCHAIN and `rustup override set` take
+  // precedence over rust-toolchain.toml, so the PATH advice would not help.
+  if (isRustupToolchain(sysroot)) {
+    console.error(
+      [
+        mismatch,
+        "[aiproxy-scripts] rustup selected this toolchain over rust-toolchain.toml. Unset RUSTUP_TOOLCHAIN or remove the directory override (`rustup override list`), then re-run.",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
+
+  console.error(
+    [
+      mismatch,
+      "[aiproxy-scripts] This is a non-rustup toolchain, which ignores rust-toolchain.toml. Put the rustup shims ahead of it on PATH, then re-run:",
+      "[aiproxy-scripts]   - rustup installer: $HOME/.cargo/bin (Windows: %USERPROFILE%\\.cargo\\bin)",
+      "[aiproxy-scripts]   - Homebrew rustup:  $(brew --prefix rustup)/bin",
+      "[aiproxy-scripts] Uninstalling the standalone toolchain (e.g. `brew uninstall rust`) also works.",
+    ].join("\n"),
+  );
+  process.exit(1);
+}
+
+function isRustupToolchain(sysroot) {
+  if (!sysroot) {
+    return false;
+  }
+
+  const rustupHome = process.env.RUSTUP_HOME || path.join(os.homedir(), ".rustup");
+  const toolchainsDir = path.join(path.resolve(rustupHome), "toolchains") + path.sep;
+  return path.resolve(sysroot).startsWith(toolchainsDir);
+}
+
+/**
+ * Reads the exact version pinned by rust-toolchain.toml. Returns undefined for
+ * floating channels (`stable`, `nightly`, ...) or a missing file, since there
+ * is nothing to compare against in those cases.
+ */
+function readPinnedRustVersion() {
+  let contents;
+  try {
+    contents = fs.readFileSync(rustToolchainPath, "utf8");
+  } catch {
+    return undefined;
+  }
+
+  const channel = contents.match(/^\s*channel\s*=\s*"([^"]+)"/m)?.[1];
+  return channel && /^\d+\.\d+(\.\d+)?$/.test(channel) ? channel : undefined;
+}
+
+function compareVersions(left, right) {
+  const leftParts = left.split(".").map(Number);
+  const rightParts = right.split(".").map(Number);
+
+  for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (delta !== 0) {
+      return delta > 0 ? 1 : -1;
+    }
+  }
+
+  return 0;
 }
 
 function hasCargoTauri() {

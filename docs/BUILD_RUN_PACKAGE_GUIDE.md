@@ -28,7 +28,7 @@
 
 - Node.js
 - `pnpm`（通过 `corepack` 启用）
-- Rust stable toolchain
+- Rust toolchain（版本由 `rust-toolchain.toml` 钉住，通过 rustup 安装）
 - `cargo-tauri`
 - 平台自己的桌面运行时依赖
 
@@ -36,13 +36,37 @@
 
 - `Node.js 25.2.1`
 - `pnpm 10.0.0`
-- `cargo 1.94.1`
+- `cargo 1.96.0`（与 `rust-toolchain.toml` 的 `channel` 一致）
 - `tauri-cli 2.10.1`
+
+### Rust 工具链必须由 rustup 提供
+
+`rust-toolchain.toml` 钉住了具体版本（例如 `1.96.0`），依赖链对此有硬要求：`rusqlite 0.40` → `libsqlite3-sys 0.38` 的 build script 使用了 `cfg_select!`，该宏在 Rust 1.95 才稳定。
+
+**这个 pin 只有在使用 rustup shims 时才生效。** 独立安装的工具链（macOS Homebrew 的 `rust` formula、Linux 发行版的 `rustc` 包、手动安装的 MSVC 工具链）会遮蔽 rustup shims，并且完全忽略 `rust-toolchain.toml`，症状是在 `libsqlite3-sys` 的 build script 里报 `error[E0658]: use of unstable library feature 'cfg_select'`。
+
+排查与修复：
+
+```bash
+rustc --version          # 必须与 rust-toolchain.toml 的 channel 一致
+rustc --print sysroot    # 应指向 rustup 的 toolchain 目录，而不是 /opt/homebrew、/usr 等
+```
+
+把 rustup shims 放到 PATH 更靠前的位置：
+
+- rustup 官方安装：`$HOME/.cargo/bin`（Windows：`%USERPROFILE%\.cargo\bin`）
+- Homebrew 安装 rustup：`$(brew --prefix rustup)/bin`
+
+或者直接卸载被遮蔽的独立工具链（macOS：`brew uninstall rust`）。
+
+如果 `sysroot` 已经在 rustup 的 toolchain 目录下，版本仍然不对，说明 rustup 的覆盖设置优先于 `rust-toolchain.toml`：取消 `RUSTUP_TOOLCHAIN` 环境变量，或用 `rustup override list` 找到并移除目录覆盖。
+
+`scripts/desktop.mjs` 在执行任何 cargo 步骤前会做这项校验，版本低于 pin 会立即失败并给出上述提示，不会等到依赖编译到一半才报错。
 
 推荐：
 
 - 优先使用 Node.js LTS
-- Rust 使用 stable
+- Rust 版本跟随 `rust-toolchain.toml`，不要在本地固定成 `stable`
 - `cargo-tauri` 安装命令使用官方 v2 方式：
 
 ```bash
