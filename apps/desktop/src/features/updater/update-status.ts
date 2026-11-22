@@ -1,6 +1,7 @@
 import { coerceAppError } from "@aiproxy/shared-types";
 
 import { useAppShellStore } from "@/app/store/app-shell.store";
+import { logDevError, logDevWarn } from "@/services/logger/dev-logger";
 import { checkForAppUpdate, installPendingAppUpdate } from "@/services/updater/app-updater";
 
 /**
@@ -19,8 +20,11 @@ export async function checkForUpdateAndStore(): Promise<boolean> {
     store.setLastCheckFailed(false);
     ok = true;
   } catch (error) {
-    // Non-fatal: the app works without update info.
-    console.warn("[updater] check failed:", coerceAppError(error).message);
+    // Non-fatal: the app works without update info. Structured log so the
+    // failure is diagnosable in the packaged app too (review M-8).
+    logDevWarn("ui.updater", "update_check_failed", {
+      error: coerceAppError(error).message,
+    });
     store.setAvailableUpdate(null);
     store.setLastCheckFailed(true);
   } finally {
@@ -37,10 +41,16 @@ export async function installUpdateAndStore(): Promise<void> {
   const store = useAppShellStore.getState();
   store.setUpdateInstalling(true);
   store.setUpdateProgress(null);
+  store.setInstallError(null);
   try {
     await installPendingAppUpdate((progress) => store.setUpdateProgress(progress));
   } catch (error) {
-    console.warn("[updater] install failed:", coerceAppError(error).message);
+    const message = coerceAppError(error).message;
+    // Structured log AND a store-visible failure state: without the latter
+    // the install UI silently snapped back to idle and the user could not
+    // tell a failed install from a deferred one (review M-8).
+    logDevError("ui.updater", "update_install_failed", { error: message });
+    store.setInstallError(message);
     store.setUpdateInstalling(false);
     throw error;
   }

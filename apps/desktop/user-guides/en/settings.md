@@ -97,7 +97,7 @@ The exclude list ships with recommended entries for services that commonly use c
 ## Software updates
 
 - **Check for Updates**: manually check GitHub Releases for a new version — also reachable from the update icon button in the top bar and **Help → Check for Updates** (Windows/Linux menu)
-- With a new version available, click **Install & Restart** to download a signed update and auto-restart; download progress is shown
+- With a new version available, click **Install & Restart** to download a signed update and auto-restart; download progress is shown. If the download or install fails, an error message with the failure reason is shown and you can click again to retry
 
 ## About
 

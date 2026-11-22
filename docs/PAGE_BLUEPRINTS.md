@@ -63,7 +63,7 @@
 
 - `AppShell` 启动时静默检查更新；发现可用版本后写入 shell 级 `availableUpdate` 状态。
 - macOS 将紧凑的蓝色更新主按钮（参考 VS Code）放在窗口控制区左侧，Windows/Linux 放在右上角窗口控制按钮左侧；无更新时不占位，版本号仅在 `UpdateDialog` 中展示。
-- 点击入口打开 `UpdateDialog`，复用已有更新说明、下载进度、安装和重启流程；安装中隐藏入口，避免重复触发。
+- 点击入口打开 `UpdateDialog`，复用已有更新说明、下载进度、安装和重启流程；安装中隐藏入口，避免重复触发。下载或安装失败时在对话框内渲染 error Alert（`installError`，含失败原因，随下一次安装尝试或重新打开对话框清除），设置页路径则以 error Snackbar 反馈同一失败，用户可直接重试。
 - `UpdateDialog` 用 `pickLocalizedChangelog` 从双语 `body` 中按当前语言提取小节（`## 更新内容` / `## What's new`），经 `MarkdownRenderer` 渲染；缺失时显示「暂无更新说明」。
 
 ### 3.5 全局系统代理警告

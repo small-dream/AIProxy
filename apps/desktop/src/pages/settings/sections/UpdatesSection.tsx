@@ -35,7 +35,14 @@ export function UpdatesSection() {
     try {
       await installUpdateAndStore();
     } catch {
-      // helper logs + resets isInstalling
+      // The helper logs structurally and stores installError. Surface the
+      // same failure here: this section previously swallowed the rejection
+      // and the button silently returned to idle (review M-8).
+      const message = useAppShellStore.getState().installError;
+      setCheckToast({
+        message: message ?? t("common.errors.generic"),
+        severity: "error",
+      });
     }
   }
 

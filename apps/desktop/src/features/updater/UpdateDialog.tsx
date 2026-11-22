@@ -1,6 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import SystemUpdateAltRoundedIcon from "@mui/icons-material/SystemUpdateAltRounded";
 import {
+  Alert,
   Box,
   Button,
   CircularProgress,
@@ -12,6 +13,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
+import { useEffect } from "react";
 
 import { useAppShellStore } from "@/app/store/app-shell.store";
 import { MarkdownRenderer } from "@/components/shared/MarkdownRenderer";
@@ -25,9 +27,21 @@ export function UpdateDialog() {
   const isChecking = useAppShellStore((s) => s.isChecking);
   const isInstalling = useAppShellStore((s) => s.isInstalling);
   const lastCheckFailed = useAppShellStore((s) => s.lastCheckFailed);
+  // M-8: a failed install (download/verify/relaunch) must be visible here —
+  // previously the spinner just stopped and the buttons returned to idle with
+  // no explanation.
+  const installError = useAppShellStore((s) => s.installError);
   const updateProgress = useAppShellStore((s) => s.updateProgress);
   const isOpen = useAppShellStore((s) => s.isUpdateDialogOpen);
   const setUpdateDialogOpen = useAppShellStore((s) => s.setUpdateDialogOpen);
+
+  // N-6: clear a stale install failure from a PREVIOUS dialog session when
+  // the dialog opens. This component renders null while closed, so it mounts
+  // exactly when the dialog opens; an error set during the CURRENT session
+  // lands after this effect and still displays.
+  useEffect(() => {
+    useAppShellStore.getState().setInstallError(null);
+  }, []);
 
   if (!isOpen) {
     return null;
@@ -60,8 +74,8 @@ export function UpdateDialog() {
       await installUpdateAndStore();
       // installPendingAppUpdate relaunches the app on success.
     } catch {
-      // Error already logged by the helper; keep dialog open so the user sees
-      // the failure state and can retry or dismiss.
+      // The helper records the failure in the store (installError) and the
+      // dialog renders it above; stay open so the user can retry or dismiss.
     }
   }
 
@@ -126,6 +140,14 @@ export function UpdateDialog() {
               />
             ) : null}
           </Box>
+        ) : null}
+        {installError ? (
+          <Alert severity="error" sx={{ mt: 1.5 }}>
+            <Typography variant="body2">{t("settingsPage.updateDialogInstallFailed")}</Typography>
+            <Typography variant="caption" sx={{ display: "block", opacity: 0.85 }}>
+              {installError}
+            </Typography>
+          </Alert>
         ) : null}
         {availableUpdate ? (
           <Box sx={{ mt: isChecking ? 2 : 0 }}>
