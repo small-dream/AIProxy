@@ -296,7 +296,7 @@ fn remove_cert_trust_windows(cert_path: &Path) -> TrustRemovalReport {
             tracing::warn!(
                 event = "windows_cert_removal_thumbprint_failed",
                 path = %cert_path.to_string_lossy(),
-                error,
+                error = %error,
                 "windows_cert_removal_thumbprint_failed"
             );
             report.record(
@@ -368,10 +368,35 @@ fn is_trusted_macos(cert_path: &Path) -> bool {
         .output()
     {
         Ok(output) => output,
-        Err(_) => return false,
+        Err(error) => {
+            // Mirror the Windows check: a failed spawn (Gatekeeper/EDR
+            // blocking /usr/bin/security, missing binary) must leave a log
+            // trail — otherwise the UI just says "not trusted" with no
+            // diagnostic when the user believes the cert is installed
+            // (review M-4).
+            tracing::warn!(
+                event = "macos_cert_trust_check_spawn_failed",
+                error = %error,
+                "macos_cert_trust_check_spawn_failed"
+            );
+            return false;
+        }
     };
 
-    output.status.success()
+    if !output.status.success() {
+        // verify-cert's stderr names the rejection reason (untrusted root,
+        // expired, policy mismatch). Aligned with the Windows check, which
+        // logs the equivalent outcome at warn.
+        tracing::warn!(
+            event = "macos_cert_trust_check_failed",
+            status = ?output.status.code(),
+            stderr = %String::from_utf8_lossy(&output.stderr).trim(),
+            "macos_cert_trust_check_failed"
+        );
+        return false;
+    }
+
+    true
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -478,8 +503,27 @@ fn remove_cert_trust_macos(_cert_path: &Path) -> TrustRemovalReport {
 #[cfg(target_os = "linux")]
 fn is_trusted_linux(cert_path: &Path) -> bool {
     let cert_pem = match std::fs::read_to_string(cert_path) {
-        Ok(p) => p,
-        Err(_) => return false,
+        Ok(pem) => pem,
+        Err(error) => {
+            // A missing cert file is the normal pre-generation state; other
+            // failures (permissions, a file locked by AV) deserve a trail so
+            // "not trusted" is diagnosable (review M-4).
+            if error.kind() == std::io::ErrorKind::NotFound {
+                tracing::debug!(
+                    event = "linux_cert_trust_read_missing",
+                    path = %cert_path.to_string_lossy(),
+                    "linux_cert_trust_read_missing"
+                );
+            } else {
+                tracing::warn!(
+                    event = "linux_cert_trust_read_failed",
+                    path = %cert_path.to_string_lossy(),
+                    error = %error,
+                    "linux_cert_trust_read_failed"
+                );
+            }
+            return false;
+        }
     };
 
     // M9: a PEM file may contain MULTIPLE concatenated certificates (e.g. the
@@ -508,8 +552,31 @@ fn is_trusted_linux(cert_path: &Path) -> bool {
     let live_dir: &str = "/etc/ssl/certs/";
 
     let check_dir = |dir: &str, require_cert_ext: bool| -> bool {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return false;
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            // Distros ship only a subset of these directories (Debian lacks
+            // the RHEL anchor dir and vice versa); absence is normal, not a
+            // trust-check failure.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!(
+                    event = "linux_cert_trust_dir_missing",
+                    dir,
+                    "linux_cert_trust_dir_missing"
+                );
+                return false;
+            }
+            Err(error) => {
+                // A readable-in-principle trust directory that cannot be
+                // listed (permissions, I/O error) previously made the whole
+                // check silently report "not trusted" (review M-4).
+                tracing::warn!(
+                    event = "linux_cert_trust_dir_read_failed",
+                    dir,
+                    error = %error,
+                    "linux_cert_trust_dir_read_failed"
+                );
+                return false;
+            }
         };
         for entry in entries.flatten() {
             let path = entry.path();
@@ -748,8 +815,13 @@ fn remove_cert_trust_linux(_cert_path: &Path) -> TrustRemovalReport {
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
-fn certificate_sha1_thumbprint(cert_path: &Path) -> Result<String, &'static str> {
-    let cert_pem = std::fs::read_to_string(cert_path).map_err(|_| "read certificate")?;
+fn certificate_sha1_thumbprint(cert_path: &Path) -> Result<String, String> {
+    // Carry the underlying failure and the path into the error string: it
+    // flows into TrustRemovalFailure messages shown to the user and into the
+    // warn logs, and the old static "read certificate" could not tell a
+    // missing file from a permission or lock failure (review M-5).
+    let cert_pem = std::fs::read_to_string(cert_path)
+        .map_err(|error| format!("read {}: {error}", cert_path.to_string_lossy()))?;
     // Reuse the bundle-aware parser: concatenating every non-fence line of a
     // multi-certificate PEM into one blob would hash ALL certs together and
     // yield a thumbprint matching none of them. Take the first certificate in
@@ -757,14 +829,14 @@ fn certificate_sha1_thumbprint(cert_path: &Path) -> Result<String, &'static str>
     let fingerprint = pem_sha1_fingerprints(&cert_pem)
         .into_iter()
         .next()
-        .ok_or("decode certificate")?;
+        .ok_or_else(|| "decode certificate: no PEM CERTIFICATE block found".to_string())?;
     // pem_sha1_fingerprints emits colon-separated uppercase hex; the
     // thumbprint consumers (Windows PowerShell, macOS `security -Z`) expect
     // bare uppercase hex.
     let thumbprint = fingerprint.replace(':', "");
 
     if !thumbprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("invalid thumbprint");
+        return Err("invalid thumbprint".to_string());
     }
 
     Ok(thumbprint)

@@ -256,7 +256,11 @@ impl CertStorage {
         }
 
         let cert_pem = self.load_root_cert_pem()?;
-        std::fs::write(&self.root_cert_install_path, cert_pem).map_err(|e| {
+        // M13 (review low): write through the atomic helper, not a direct
+        // overwrite — a crash mid-write used to leave a truncated .cer that
+        // the ADB/HDC push actions then installed onto a phone as a corrupt
+        // certificate. Not a secret file (it is the public install copy).
+        write_file_atomic(&self.root_cert_install_path, &cert_pem, false).map_err(|e| {
             TlsManagerError::StorageError(format!("failed to backfill installable root cert: {e}"))
         })
     }

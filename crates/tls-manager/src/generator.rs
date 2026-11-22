@@ -36,8 +36,13 @@ impl RootCaPair {
         params.key_usages.push(KeyUsagePurpose::KeyCertSign);
         params.key_usages.push(KeyUsagePurpose::CrlSign);
 
-        let now = chrono::Utc::now();
-        params.not_before = rcgen::date_time_ymd(now.year(), now.month() as u8, now.day() as u8);
+        // L21 (review low): mirror the leaf certificate's one-day back-date —
+        // the old code took UTC midnight of TODAY, so a client whose clock
+        // lagged behind (by up to the elapsed-since-midnight margin) judged
+        // the root NotYetValid during full-chain validation, failing every
+        // MITM handshake while the UI still reported the CA as trusted.
+        let (nb_year, nb_month, nb_day) = leaf_not_before_ymd();
+        params.not_before = rcgen::date_time_ymd(nb_year, nb_month, nb_day);
         // H1: use the leap-day-safe helper so Feb 29 does not panic inside
         // rcgen::date_time_ymd.
         let (na_year, na_month, na_day) = not_after_ymd(ROOT_CA_VALIDITY_YEARS);
@@ -222,11 +227,13 @@ fn host_san(hostname: &str) -> Result<SanType, TlsManagerError> {
     dns_san(hostname)
 }
 
-/// `rcgen::date_time_ymd` values for a leaf cert's not_before, rolled back one
-/// day to tolerate client clocks that lag the proxy host (or cross a date/timezone
-/// boundary). `date_time_ymd` truncates to midnight, so without this rollback a
-/// client whose clock is a few hours behind could see the cert as NotYetValid
-/// (L21). Chrono's date arithmetic handles month/year rollover correctly.
+/// `rcgen::date_time_ymd` values for a certificate's not_before, rolled back
+/// one day to tolerate client clocks that lag the proxy host (or cross a
+/// date/timezone boundary). Shared by leaf certificates and the root CA
+/// (review low: the root used to skip the rollback). `date_time_ymd`
+/// truncates to midnight, so without this rollback a client whose clock is a
+/// few hours behind could see the cert as NotYetValid (L21). Chrono's date
+/// arithmetic handles month/year rollover correctly.
 fn leaf_not_before_ymd() -> (i32, u8, u8) {
     let backdated = chrono::Utc::now() - chrono::Duration::days(1);
     (
