@@ -23,7 +23,11 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import { coerceAppError, type ApiCollectionItem } from "@aiproxy/shared-types";
+import {
+  coerceAppError,
+  DEFAULT_WORKSPACE_ID,
+  type ApiCollectionItem,
+} from "@aiproxy/shared-types";
 
 import { encodeComposedRequest } from "@/features/compose/encode-request";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
@@ -75,10 +79,13 @@ import {
 } from "@/features/sessions/components/context-menu.styles";
 import { readStoredNumber, readStorageValue, writeStorageValue } from "@/lib/storage";
 import { useI18n } from "@/i18n";
+import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 
 export function CollectionsPage() {
   const { t } = useI18n();
   const theme = useTheme();
+  // M-7: collection sends must target the active workspace (see handleSend).
+  const { data: proxyStatus } = useProxyStatus();
 
   // --- Data queries ---
 
@@ -257,7 +264,11 @@ export function CollectionsPage() {
     );
 
     sendMutation.mutate({
-      workspaceId: "default",
+      // M-7: send to the CURRENTLY ACTIVE workspace, not a hardcoded
+      // "default" — a collection request would otherwise land in the wrong
+      // workspace when the user runs the proxy under another one (matches
+      // the repeat flow's contract, see use-session-context-actions.ts).
+      workspaceId: proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID,
       method: editor.method,
       url: finalUrl,
       headers: finalHeaders,

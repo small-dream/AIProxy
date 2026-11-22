@@ -46,9 +46,12 @@ import {
 import { generateCurlCommand } from "@/features/compose/curl-export";
 import { CurlImportDialog } from "@/features/compose/components/CurlImportDialog";
 import { useSendComposedRequest } from "@/features/compose/use-compose-request";
+import { DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
+import { useProxyStatus } from "@/features/proxy-status/use-proxy-status";
 import { SaveToCollectionDialog } from "@/features/collections/components/SaveToCollectionDialog";
 import { useUpsertCollectionItem } from "@/features/collections/use-collection-items";
 import { useNotificationStore } from "@/services/notification.store";
+import { logDevWarn } from "@/services/logger/dev-logger";
 import { useI18n } from "@/i18n";
 import { readStoredNumber, writeStorageValue } from "@/lib/storage";
 import { appFontCssVars } from "@/themes/fonts";
@@ -80,6 +83,8 @@ export function ComposePage() {
   const { t } = useI18n();
   const sendMutation = useSendComposedRequest();
   const upsertItemMutation = useUpsertCollectionItem();
+  // M-7: composed sends must target the active workspace (see handleSend).
+  const { data: proxyStatus } = useProxyStatus();
 
   const environmentsQuery = useEnvironments();
   const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(() =>
@@ -123,6 +128,7 @@ export function ComposePage() {
   const responseDetail = sendMutation.data;
   const [responseTab, setResponseTab] = useState<ComposeResponseTab>("overview");
   const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState("");
   // P2-4: read the saved split lazily so a missing key keeps the designed
   // default (the old effect parsed `Number(null)` as 0 and clamped to 15%).
   const [splitRatio, setSplitRatio] = useState(() =>
@@ -186,17 +192,21 @@ export function ComposePage() {
       headers: finalHeaders,
       url: finalUrl,
     } = encodeBody();
+    // M-7: send to the CURRENTLY ACTIVE workspace, not a hardcoded
+    // "default" — a composed request would otherwise land in the wrong
+    // workspace when the user runs the proxy under another one (matches
+    // the repeat flow's contract, see use-session-context-actions.ts).
     sendMutation.mutate({
-      workspaceId: "default",
+      workspaceId: proxyStatus?.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID,
       method,
       url: finalUrl,
       headers: finalHeaders,
       ...(encodedBody !== undefined ? { body: encodedBody } : {}),
       ...(multipartEntries && multipartEntries.length > 0 ? { multipartEntries } : {}),
     });
-  }, [sendMutation, method, encodeBody]);
+  }, [sendMutation, method, encodeBody, proxyStatus]);
 
-  const handleExportCurl = useCallback(() => {
+  const handleExportCurl = useCallback(async () => {
     const {
       multipartEntries,
       textBody: encodedBody,
@@ -210,9 +220,19 @@ export function ComposePage() {
       ...(encodedBody !== undefined ? { body: encodedBody } : {}),
       ...(multipartEntries && multipartEntries.length > 0 ? { multipartEntries } : {}),
     });
-    void navigator.clipboard?.writeText(cmd);
-    setSnackbarOpen(true);
-  }, [method, encodeBody]);
+    // P2 4.3-9 (M-low): clipboard writes reject when the document loses
+    // focus — await and only announce success when it actually landed,
+    // matching the sessions-side copyToClipboard fix.
+    try {
+      await navigator.clipboard?.writeText(cmd);
+      setSnackbarMessage(t("composePage.copiedCurl"));
+      setSnackbarOpen(true);
+    } catch (error) {
+      logDevWarn("ui.compose", "copy_curl_failed", { error: String(error) });
+      setSnackbarMessage(t("contextMenu.copyFailed"));
+      setSnackbarOpen(true);
+    }
+  }, [method, encodeBody, t]);
 
   const handleSaveToCollection = useCallback(
     (collectionId: string, name?: string) => {
@@ -375,7 +395,10 @@ export function ComposePage() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && url.trim()) handleSend();
+              // M-low: match the send button's disabled guard — a request
+              // in flight plus repeated Enter used to bypass it and fire
+              // concurrent duplicate sends.
+              if (e.key === "Enter" && url.trim() && !sendMutation.isPending) handleSend();
             }}
           />
           <EnvironmentSelector
@@ -427,7 +450,7 @@ export function ComposePage() {
               <span style={{ display: "flex" }}>
                 <IconButton
                   disabled={!url.trim()}
-                  onClick={handleExportCurl}
+                  onClick={() => void handleExportCurl()}
                   size="small"
                   sx={composeToolbarActionSx}
                 >
@@ -556,7 +579,7 @@ export function ComposePage() {
       <Snackbar
         anchorOrigin={{ horizontal: "center", vertical: "bottom" }}
         autoHideDuration={2000}
-        message={t("composePage.copiedCurl")}
+        message={snackbarMessage}
         onClose={() => setSnackbarOpen(false)}
         open={snackbarOpen}
       />
