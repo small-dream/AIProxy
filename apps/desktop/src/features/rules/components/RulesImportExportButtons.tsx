@@ -2,7 +2,12 @@ import { useState } from "react";
 import FileDownloadRoundedIcon from "@mui/icons-material/FileDownloadRounded";
 import FileUploadRoundedIcon from "@mui/icons-material/FileUploadRounded";
 import { Button, Stack, Tooltip } from "@mui/material";
-import { coerceAppError, parseRulesExportFile, type RulesExportFile } from "@aiproxy/shared-types";
+import {
+  coerceAppError,
+  parseRulesExportFile,
+  UNSUPPORTED_RULES_VERSION_CODE,
+  type RulesExportFile,
+} from "@aiproxy/shared-types";
 import { DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
 
 import { useBreakpointRules } from "@/features/breakpoints/use-breakpoint-rules";
@@ -32,7 +37,6 @@ export function RulesImportExportButtons() {
   const { data: throttle = [] } = useThrottleRules();
   const { data: throttleProfiles = [] } = useThrottleProfiles();
   const [previewFile, setPreviewFile] = useState<RulesExportFile | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
 
   async function handleExport() {
     const file = collectRulesForExport({
@@ -45,29 +49,41 @@ export function RulesImportExportButtons() {
       throttleProfiles,
     });
     const date = new Date().toISOString().slice(0, 10);
-    await downloadTextFile(
-      `aiproxy-rules-${date}.json`,
-      JSON.stringify(file, null, 2),
-      "application/json",
-    );
-    useNotificationStore.getState().push(t("rulesPage.importExport.exported"));
+    try {
+      await downloadTextFile(
+        `aiproxy-rules-${date}.json`,
+        JSON.stringify(file, null, 2),
+        "application/json",
+      );
+      useNotificationStore.getState().push(t("rulesPage.importExport.exported"));
+    } catch (error) {
+      // M-11: a cancelled save dialog or a disk/permission failure used to
+      // become an unhandled rejection with zero user feedback (the import
+      // path already had this catch — this mirrors it).
+      const message = coerceAppError(error).message;
+      useNotificationStore.getState().push(message || t("common.errors.generic"));
+    }
   }
 
   async function handleImport() {
-    setImportError(null);
     try {
       const picked = await pickAndReadRulesFile(t("rulesPage.importExport.previewTitle"));
       if (!picked) return;
       const file = parseRulesExportFile(JSON.parse(picked.contents));
       setPreviewFile(file);
     } catch (error) {
-      const message = coerceAppError(error).message;
-      setImportError(
-        message?.includes("unsupported")
-          ? t("rulesPage.importExport.unsupportedVersion")
-          : t("rulesPage.importExport.invalidFile"),
-      );
-      useNotificationStore.getState().push(t("rulesPage.importExport.invalidFile"));
+      // N-3: branch on the structured error code — the old check matched the
+      // English substring "unsupported", which the parser's generic
+      // UNKNOWN_ERROR could never contain, so the version-specific guidance
+      // was unreachable dead code.
+      const appError = coerceAppError(error);
+      useNotificationStore
+        .getState()
+        .push(
+          appError.code === UNSUPPORTED_RULES_VERSION_CODE
+            ? t("rulesPage.importExport.unsupportedVersion")
+            : t("rulesPage.importExport.invalidFile"),
+        );
     }
   }
 
@@ -75,11 +91,6 @@ export function RulesImportExportButtons() {
 
   return (
     <Stack direction="row" spacing={0.75} sx={{ alignItems: "center", px: 1, py: 0.5 }}>
-      {importError && (
-        <Tooltip title={importError}>
-          <span />
-        </Tooltip>
-      )}
       <Button
         size="small"
         variant="outlined"

@@ -287,6 +287,34 @@ describe("dns mapping validation", () => {
     expect(errors.targetIp).toBe("rulesPage.validation.dnsTargetIpInvalid");
     expect(errors.name).toBeUndefined();
   });
+
+  // Review low: the old IPv6 regex accepted repeated empty hextets.
+  const dnsRuleWithIp = (targetIp: string) => ({
+    id: "1",
+    workspaceId: "default",
+    name: "ok",
+    enabled: true,
+    priority: 100,
+    hostPattern: "example.com",
+    targetIp,
+    note: "",
+  });
+
+  it.each(["::::", ":1:2", "1:2", "1::2::3", "12345::"])(
+    "rejects malformed IPv6 targetIp %s",
+    (targetIp) => {
+      const errors = getDnsMappingValidationErrors(dnsRuleWithIp(targetIp), t);
+      expect(errors.targetIp).toBe("rulesPage.validation.dnsTargetIpInvalid");
+    },
+  );
+
+  it.each(["fe80::1", "::1", "1::", "::", "2001:db8:1234:5678:9abc:def0:1234:5678"])(
+    "accepts valid IPv6 targetIp %s",
+    (targetIp) => {
+      const errors = getDnsMappingValidationErrors(dnsRuleWithIp(targetIp), t);
+      expect(errors.targetIp).toBeUndefined();
+    },
+  );
 });
 
 describe("script rule validation", () => {

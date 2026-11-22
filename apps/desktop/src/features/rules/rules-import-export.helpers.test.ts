@@ -1,4 +1,9 @@
-import { parseRulesExportFile, type RulesExportFile } from "@aiproxy/shared-types";
+import {
+  coerceAppError,
+  parseRulesExportFile,
+  UNSUPPORTED_RULES_VERSION_CODE,
+  type RulesExportFile,
+} from "@aiproxy/shared-types";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -67,6 +72,33 @@ describe("parseRulesExportFile", () => {
 
   it("rejects an unsupported version", () => {
     expect(() => parseRulesExportFile(sampleExport({ version: 99 as 1 }))).toThrow();
+  });
+
+  // N-3: a recognized aiproxy.rules file with an unsupported version must
+  // carry the structured code so the import UI can show version-specific
+  // guidance; every other malformed input keeps the generic error.
+  it("classifies an unsupported version with a structured error code (N-3)", () => {
+    let thrown: unknown;
+    try {
+      parseRulesExportFile(sampleExport({ version: 99 as 1 }));
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeDefined();
+    const appError = coerceAppError(thrown);
+    expect(appError.code).toBe(UNSUPPORTED_RULES_VERSION_CODE);
+    expect(appError.details).toMatchObject({ version: 99 });
+  });
+
+  it("keeps the generic error for a wrong format (N-3)", () => {
+    let thrown: unknown;
+    try {
+      parseRulesExportFile(sampleExport({ format: "other" as "aiproxy.rules" }));
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeDefined();
+    expect(coerceAppError(thrown).code).not.toBe(UNSUPPORTED_RULES_VERSION_CODE);
   });
 });
 

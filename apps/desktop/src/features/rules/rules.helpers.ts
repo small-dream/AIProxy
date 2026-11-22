@@ -274,9 +274,53 @@ function isValidIpAddress(ip: string): boolean {
       return n >= 0 && n <= 255;
     });
   }
-  // IPv6 (basic check)
-  const ipv6 = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
-  return ipv6.test(ip);
+  return isValidIpv6Address(ip);
+}
+
+/**
+ * IPv6 validation (review low): the old regex allowed repeated empty hextets
+ * (`"::::"`, `":1:2"`), accepting garbage that then failed at runtime when the
+ * mapping was applied. Rules: exactly 8 groups when fully written, or 1–7
+ * groups plus a single "::" compression (which may also lead or trail).
+ */
+function isValidIpv6Address(ip: string): boolean {
+  const value = ip.toLowerCase();
+  if (!/^[0-9a-f:.]+$/.test(value)) {
+    return false;
+  }
+  if (!value.includes(":")) {
+    return false;
+  }
+  const doubleColonCount = (value.match(/::/g) ?? []).length;
+  if (doubleColonCount > 1) {
+    return false;
+  }
+  const [left, right] = doubleColonCount === 1 ? value.split("::") : [value, undefined];
+  const groups: string[] = [];
+  for (const side of [left, right]) {
+    if (side === undefined) {
+      continue;
+    }
+    // "::" at the start/end yields an empty side — that side contributes no
+    // groups. A single bare ":" (e.g. ":1:2") fails the group checks below.
+    if (side === "") {
+      continue;
+    }
+    if (side.startsWith(":") || side.endsWith(":")) {
+      return false;
+    }
+    for (const group of side.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(group)) {
+        return false;
+      }
+      groups.push(group);
+    }
+  }
+  if (doubleColonCount === 1) {
+    // 0 groups is the bare "::" (unspecified address) — valid, if unusual.
+    return groups.length <= 7;
+  }
+  return groups.length === 8;
 }
 
 function isValidHttpUrl(value: string): boolean {

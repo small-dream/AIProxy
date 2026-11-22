@@ -22,6 +22,15 @@ export const RULES_EXPORT_FORMAT = "aiproxy.rules" as const;
 export const RULES_EXPORT_VERSION = 1 as const;
 
 /**
+ * Error code thrown by `parseRulesExportFile` when the file IS an
+ * `aiproxy.rules` export but its version is not one this build understands.
+ * Import UIs branch on this code to show version-specific guidance instead of
+ * the generic invalid-file message (review N-3: the old throw collapsed every
+ * failure into UNKNOWN_ERROR, making that distinction unreachable).
+ */
+export const UNSUPPORTED_RULES_VERSION_CODE = "UNSUPPORTED_RULES_VERSION";
+
+/**
  * Single-file rules export (R2). `throttleProfiles` must travel with the
  * throttle rules, otherwise the rules reference missing profiles and are dead
  * configuration.
@@ -70,6 +79,26 @@ function isRulesExportFile(value: unknown): value is RulesExportFile {
 }
 
 export function parseRulesExportFile(value: unknown): RulesExportFile {
+  // Recognized format + wrong version: a structured, code-bearing error so
+  // callers can branch on UNSUPPORTED_RULES_VERSION_CODE (review N-3). This
+  // runs BEFORE the shape check, which would otherwise collapse it into a
+  // generic UNKNOWN_ERROR whose message never mentions "unsupported".
+  if (typeof value === "object" && value !== null) {
+    const candidate = value as Partial<RulesExportFile>;
+    if (
+      candidate.format === RULES_EXPORT_FORMAT &&
+      typeof candidate.version === "number" &&
+      candidate.version !== RULES_EXPORT_VERSION
+    ) {
+      throw {
+        code: UNSUPPORTED_RULES_VERSION_CODE,
+        message:
+          `Rules export version ${candidate.version} is not supported; ` +
+          `this build supports version ${RULES_EXPORT_VERSION}.`,
+        details: { version: candidate.version },
+      };
+    }
+  }
   if (!isRulesExportFile(value)) {
     throw coerceAppError(value);
   }
