@@ -43,12 +43,15 @@ const profilesState: { current: ThrottleProfile[] } = {
 // Mock the query/mutation hooks so we control array identity exactly.
 // M23: setActiveMutation.mutate is exposed via a holder so the temporary-
 // enable test can assert whether the timeout callback deactivated the profile.
+// N-1: saveProfileMutation.mutate likewise, so the save path can be driven
+// with a controlled onSuccess.
 const setActiveMutateMock = vi.fn();
+const saveProfileMutateMock = vi.fn();
 vi.mock("./use-throttle-profiles", () => ({
   useThrottleProfiles: () => ({ data: profilesState.current, isError: false }),
   useThrottleRules: () => ({ data: rulesState.current, isError: false }),
   useThrottleRuntimeStats: () => ({ data: undefined }),
-  useSaveThrottleProfile: () => ({ mutate: vi.fn() }),
+  useSaveThrottleProfile: () => ({ mutate: saveProfileMutateMock }),
   useSaveThrottleRule: () => ({ mutate: vi.fn() }),
   useDeleteThrottleRule: () => ({ mutate: vi.fn() }),
   useSetActiveThrottleProfile: () => ({ mutate: setActiveMutateMock }),
@@ -122,6 +125,7 @@ function resetFixtures() {
 beforeEach(() => {
   resetFixtures();
   setActiveMutateMock.mockReset();
+  saveProfileMutateMock.mockReset();
   tMock.mockClear();
   mockLocation.state = null;
 });
@@ -229,6 +233,128 @@ describe("useThrottleEditor draft sync (H1/H2)", () => {
     // id (mirroring handleNewRule), so the profile-sync effect early-returns
     // and does not clobber the in-flight empty draft.
     expect(result.current.profileDraft?.id).toBe(result.current.selectedProfileId);
+  });
+
+  it("handleNewProfile keeps the empty draft even when profiles exist (H-1 regression)", () => {
+    // Review H-1: with a non-empty profiles list (the normal steady state
+    // once the user has saved anything), the auto-select effect used to
+    // immediately overwrite the fresh draft with the active/first profile —
+    // turning "New Custom" into an edit of that profile whose save would
+    // silently upsert over its data.
+    profilesState.current = [
+      {
+        id: "p1",
+        name: "Enabled Custom",
+        workspaceId: "default",
+        latencyMs: 0,
+        uploadKbps: 1,
+        downloadKbps: 1,
+        packetLossRatio: 0,
+        enabled: true, // activeProfile branch of the fallback
+        preset: false,
+        note: "",
+      },
+      {
+        id: "p2",
+        name: "Fast 4G",
+        workspaceId: "default",
+        latencyMs: 0,
+        uploadKbps: 1,
+        downloadKbps: 1,
+        packetLossRatio: 0,
+        enabled: false,
+        preset: true,
+        note: "",
+      },
+    ];
+
+    const { result, rerender } = renderHook(() => useThrottleEditor(), {
+      wrapper: createWrapper(),
+    });
+
+    // Wait for the initial auto-select (mount) to settle on p1.
+    expect(result.current.selectedProfileId).toBe("p1");
+
+    act(() => result.current.handleNewProfile());
+
+    // A refetch/rerender must NOT let the auto-select effect clobber the
+    // fresh draft with the active profile (p1) or a preset (p2).
+    rerender();
+    rerender();
+
+    const draft = result.current.profileDraft!;
+    expect(draft.name).toBe("");
+    expect(draft.preset).toBe(false);
+    expect(draft.enabled).toBe(false);
+    expect(result.current.selectedProfileId).toBe(draft.id);
+    expect(draft.id).not.toBe("p1");
+    expect(draft.id).not.toBe("p2");
+    expect(
+      profilesState.current.some((profile) => profile.id === draft.id),
+      "the new draft id must not collide with an existing profile id",
+    ).toBe(false);
+
+    // Selecting an existing profile ends the new-draft window and restores
+    // the auto-select protection for future unsaved drafts.
+    act(() => result.current.selectProfile(profilesState.current[0]!));
+    expect(result.current.selectedProfileId).toBe("p1");
+    expect(result.current.profileDraft?.id).toBe("p1");
+  });
+
+  it("keeps the selection on the freshly saved profile (N-1 regression)", () => {
+    // N-1: saving a NEW profile used to snap the selection back to the
+    // previously active profile — the profiles cache is refreshed by
+    // invalidate-only, so at the moment handleSaveProfile.onSuccess ran the
+    // list still lacked the saved id and the auto-select effect fell back to
+    // the active profile. The save mutation now writes the saved entity into
+    // the cache in its mutation-level onSuccess BEFORE the per-call
+    // onSuccess; this test emulates exactly that ordering.
+    profilesState.current = [
+      {
+        id: "p1",
+        name: "Enabled Custom",
+        workspaceId: "default",
+        latencyMs: 0,
+        uploadKbps: 1,
+        downloadKbps: 1,
+        packetLossRatio: 0,
+        enabled: true,
+        preset: false,
+        note: "",
+      },
+    ];
+
+    const { result, rerender } = renderHook(() => useThrottleEditor(), {
+      wrapper: createWrapper(),
+    });
+    expect(result.current.selectedProfileId).toBe("p1");
+
+    act(() => result.current.handleNewProfile());
+    act(() =>
+      result.current.setProfileDraft({ ...result.current.profileDraft!, name: "Brand New" }),
+    );
+    act(() => result.current.handleSaveProfile());
+
+    const call = saveProfileMutateMock.mock.calls.at(-1)!;
+    const [input, options] = call as [
+      ThrottleProfile,
+      { onSuccess: (saved: ThrottleProfile) => void },
+    ];
+    const saved: ThrottleProfile = { ...input };
+
+    act(() => {
+      // Emulate the fixed mutation pipeline (N-1): the mutation-level cache
+      // write happens BEFORE the per-call onSuccess, so the profiles list
+      // gains the saved id in the same tick.
+      profilesState.current = [...profilesState.current, saved];
+      options.onSuccess(saved);
+    });
+    rerender();
+    rerender();
+
+    expect(result.current.selectedProfileId).toBe(saved.id);
+    expect(result.current.profileDraft?.id).toBe(saved.id);
+    expect(result.current.profileDraft?.name).toBe("Brand New");
   });
 });
 

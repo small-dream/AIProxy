@@ -140,6 +140,15 @@ export function useThrottleEditor() {
   // changes (H1).
   const lastSyncedRuleIdRef = useRef<string | undefined>(undefined);
   const lastSyncedProfileIdRef = useRef<string | undefined>(undefined);
+  // True while the editor holds an unsaved "New Custom" profile draft whose
+  // id intentionally does not exist in profiles yet. The auto-select effect
+  // must not run its "fall back to an existing profile" branch during that
+  // window: it used to overwrite both the selection and the draft with
+  // `activeProfile ?? presetProfiles[0]`, turning "New Custom" into an edit
+  // of an existing profile — and a save then upserted over that profile's
+  // data instead of creating a new one (review H-1). Mirrors the
+  // lastSyncedRuleIdRef guard that protects handleNewRule.
+  const draftIsNewProfileRef = useRef(false);
   // M23: the profile id that the current temporary-enable window targets.
   // The timeout callback only deactivates the profile if it is STILL the one
   // the user temporarily enabled — if the user manually switched to a
@@ -218,6 +227,10 @@ export function useThrottleEditor() {
 
   // Effects
   useEffect(() => {
+    // An unsaved new-profile draft is intentionally absent from profiles —
+    // skip the auto-select fallback so the empty draft survives until the
+    // user saves it or selects an existing profile (H-1).
+    if (draftIsNewProfileRef.current) return;
     if (selectedProfileId && profiles.some((profile) => profile.id === selectedProfileId)) return;
     const next = activeProfile ?? presetProfiles[0] ?? customProfiles[0];
     if (!next) return;
@@ -299,6 +312,8 @@ export function useThrottleEditor() {
   // Actions
   function selectProfile(profile: ThrottleProfile) {
     setMode("profiles");
+    // Selecting an existing profile ends the "unsaved new draft" window.
+    draftIsNewProfileRef.current = false;
     setSelectedProfileId(profile.id);
     lastSyncedProfileIdRef.current = profile.id;
     setProfileDraft(profile);
@@ -334,6 +349,10 @@ export function useThrottleEditor() {
   function handleNewProfile() {
     const draft = createEmptyThrottleProfile();
     setMode("profiles");
+    // Mark the fresh draft as "new" so the auto-select effect's existing-
+    // profile fallback (H-1) cannot overwrite it until it is saved or
+    // abandoned via selectProfile.
+    draftIsNewProfileRef.current = true;
     setSelectedProfileId(draft.id);
     // Pre-mark as synced so the id-based profile-sync effect doesn't overwrite
     // the fresh empty draft we are about to set. Mirrors handleNewRule (H1/H2).
@@ -350,6 +369,9 @@ export function useThrottleEditor() {
       { ...profileDraft, enabled: enableAfterSave ? true : profileDraft.enabled },
       {
         onSuccess: (saved) => {
+          // The draft is now persisted — the auto-select guard no longer
+          // needs to protect it (H-1).
+          draftIsNewProfileRef.current = false;
           setSelectedProfileId(saved.id);
           setProfileDraft(saved);
           setValidationAttempted(false);
