@@ -14,11 +14,12 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import type {
-  AutomationChangeItem,
-  AutomationChangeView,
-  AutomationVerificationRecord,
-  AutomationVerificationRequestResult,
+import {
+  coerceAppError,
+  type AutomationChangeItem,
+  type AutomationChangeView,
+  type AutomationVerificationRecord,
+  type AutomationVerificationRequestResult,
 } from "@aiproxy/shared-types";
 import { useEffect, useMemo, useState } from "react";
 
@@ -595,7 +596,10 @@ export function AutomationChangesPanel() {
   }
 
   if (changesQuery.isError) {
-    return <Alert severity="error">{String(changesQuery.error)}</Alert>;
+    // M-10: listAutomationChanges rejects with a plain coerceAppError object;
+    // String(...) of it renders "[object Object]". Use the coerced message
+    // (same pattern as the rest of this file) so the failure is readable.
+    return <Alert severity="error">{coerceAppError(changesQuery.error).message}</Alert>;
   }
 
   if (changes.length === 0) {

@@ -27,6 +27,7 @@ import {
   listAgentAccessGrants,
 } from "@/services/commands";
 import { onAgentGrantChanged, onAgentGrantRequested } from "@/services/events";
+import { logDevWarn } from "@/services/logger/dev-logger";
 import { sendSystemNotification } from "@/services/notifications/system-notifications";
 
 import { AGENT_GRANTS_QUERY_KEY } from "./agent-access-query-keys";
@@ -63,6 +64,10 @@ export function AgentGrantApprovalHost() {
       );
       void queryClient.invalidateQueries({ queryKey: AGENT_GRANTS_QUERY_KEY });
     };
+    // M-low: a failed event registration used to become an unhandled
+    // rejection with no trace — the approval dialog and system
+    // notifications then silently never appeared and the requesting agent
+    // stayed pending forever. Log it (matching use-agent-control-events).
     void onAgentGrantRequested((grant) => {
       if (cancelled) return;
       update(grant);
@@ -75,16 +80,24 @@ export function AgentGrantApprovalHost() {
           }),
         );
       }
-    }).then((unlisten) => {
-      if (cancelled) unlisten();
-      else unlisteners.push(unlisten);
-    });
+    })
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlisteners.push(unlisten);
+      })
+      .catch((error) => {
+        logDevWarn("events", "agent_grant_requested_listen_failed", { error: String(error) });
+      });
     void onAgentGrantChanged((grant) => {
       if (!cancelled) update(grant);
-    }).then((unlisten) => {
-      if (cancelled) unlisten();
-      else unlisteners.push(unlisten);
-    });
+    })
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlisteners.push(unlisten);
+      })
+      .catch((error) => {
+        logDevWarn("events", "agent_grant_changed_listen_failed", { error: String(error) });
+      });
     return () => {
       cancelled = true;
       unlisteners.forEach((unlisten) => unlisten());

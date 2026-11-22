@@ -8,6 +8,7 @@ import {
   setAndroidProxyViaAdb,
 } from "@/services/commands";
 
+import { pickPhoneReachableLocalIp } from "./adb-local-ip.helpers";
 import { getErrorMessage } from "./helpers";
 
 interface ProxyStatusLike {
@@ -59,7 +60,9 @@ export function useAdbActions({
         }
 
         const localIps = await getLocalIp();
-        const localIp = localIps[0];
+        // M-low: localIps[0] is frequently a virtual adapter (VPN, docker,
+        // WSL bridge) the phone cannot route to — prefer a private IPv4.
+        const localIp = pickPhoneReachableLocalIp(localIps);
 
         if (!localIp) {
           throw new Error(t("certificatesPage.mobile.adbProxyRequiresLocalIp"));

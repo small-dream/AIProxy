@@ -8,6 +8,7 @@ import { checkForUpdateAndStore } from "@/features/updater/update-status";
 import type { ProxyStatus } from "@aiproxy/shared-types";
 import { useI18n } from "@/i18n";
 import { onMenuEvent } from "@/services/events";
+import { logDevWarn } from "@/services/logger/dev-logger";
 import { showLogFile } from "@/services/commands";
 
 import { getErrorMessage } from "./helpers";
@@ -62,15 +63,22 @@ export function useMenuActions(deps: MenuHandlerDeps) {
 
     onMenuEvent((payload) => {
       handleMenuCommand(payload.menuId);
-    }).then((fn) => {
-      // If the component unmounted before the listener registered, tear it
-      // down immediately so the Tauri menu-event listener does not leak (M8).
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
+    })
+      .then((fn) => {
+        // If the component unmounted before the listener registered, tear it
+        // down immediately so the Tauri menu-event listener does not leak (M8).
+        if (cancelled) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      })
+      // M-low: this listener is the sole bridge to the native menu bar. A
+      // failed registration used to become an unhandled rejection with no
+      // trace — the whole menu (including its shortcuts) silently died.
+      .catch((error) => {
+        logDevWarn("events", "menu_event_listen_failed", { error: String(error) });
+      });
 
     return () => {
       cancelled = true;

@@ -26,6 +26,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useThrottledValue } from "@/hooks/use-throttled-value";
 import { useI18n } from "@/i18n";
 import { invokeGetInsights } from "@/services/commands/sessions";
+import { logDevWarn } from "@/services/logger/dev-logger";
 
 export function useInsightsData() {
   const { t } = useI18n();
@@ -127,9 +128,17 @@ export function useInsightsData() {
   );
 
   const handleCopyHost = useCallback(
-    (host: string) => {
-      void navigator.clipboard?.writeText(host);
-      setSnackbarMessage(t("contextMenu.copiedToClipboard"));
+    async (host: string) => {
+      // P2 4.3-9 (M-low): clipboard writes reject when the document loses
+      // focus — await and only announce success when it actually landed,
+      // matching the sessions-side copyToClipboard fix.
+      try {
+        await navigator.clipboard?.writeText(host);
+        setSnackbarMessage(t("contextMenu.copiedToClipboard"));
+      } catch (error) {
+        logDevWarn("ui.insights", "copy_host_failed", { error: String(error) });
+        setSnackbarMessage(t("contextMenu.copyFailed"));
+      }
     },
     [t],
   );
