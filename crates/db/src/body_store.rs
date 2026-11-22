@@ -154,6 +154,11 @@ impl BodyStore {
     /// the writes); the old remove-then-recreate left a window in which a
     /// concurrent `write_body` hit a missing parent dir (NotFound). Keeping the
     /// dir present eliminates that window.
+    ///
+    /// A single unreadable entry or a real per-entry failure does not abort
+    /// the sweep: every entry is attempted, and the FIRST error is reported
+    /// at the end so one locked entry cannot strand the rest (review M-1
+    /// fallback hardening).
     pub fn clear_all(&self) -> Result<(), DbError> {
         let entries = match fs::read_dir(&self.base_dir) {
             Ok(entries) => entries,
@@ -165,8 +170,19 @@ impl BodyStore {
             Err(error) => return Err(DbError::Io(error)),
         };
 
+        let mut first_error: Option<std::io::Error> = None;
         for entry in entries {
-            let entry = entry.map_err(DbError::Io)?;
+            let entry = match entry {
+                Ok(entry) => entry,
+                // One unreadable entry must not abort the sweep; the caller
+                // still learns about it via the first_error report below.
+                Err(error) => {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                    continue;
+                }
+            };
             let path = entry.path();
             let result = if path.is_dir() {
                 fs::remove_dir_all(&path)
@@ -176,12 +192,65 @@ impl BodyStore {
             // A concurrent writer may create/remove entries while we iterate;
             // treat a vanished entry (NotFound) as success.
             if let Err(error) = result {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    return Err(DbError::Io(error));
+                if error.kind() != std::io::ErrorKind::NotFound && first_error.is_none() {
+                    first_error = Some(error);
                 }
             }
         }
-        Ok(())
+        match first_error {
+            Some(error) => Err(DbError::Io(error)),
+            None => Ok(()),
+        }
+    }
+
+    /// Snapshot the top-level entry names currently present in the live
+    /// store.
+    ///
+    /// The clear-fallback retry path (repository `spawn_body_rescan`) deletes
+    /// ONLY the names captured here, snapshotted at the point the fallback
+    /// clear failed: sessions captured afterwards get fresh UUID-named
+    /// directories that are never in the list, so the un-serialized retry
+    /// thread cannot wipe their bodies (review M-1).
+    pub fn snapshot_entry_names(&self) -> Result<Vec<String>, DbError> {
+        let entries = match fs::read_dir(&self.base_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Vec::new());
+            }
+            Err(error) => return Err(DbError::Io(error)),
+        };
+        let mut names = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(DbError::Io)?;
+            // read_dir never yields "." / ".."; the names are only ever
+            // joined back onto base_dir by `remove_snapshotted_entries`, so
+            // they cannot escape the store.
+            names.push(entry.file_name().to_string_lossy().into_owned());
+        }
+        Ok(names)
+    }
+
+    /// Remove only the top-level entries named in `names` — the survivors of
+    /// a failed clear, captured by [`Self::snapshot_entry_names`].
+    ///
+    /// Unlike [`Self::clear_all`] this never touches entries created after
+    /// the snapshot. Per-entry failures are aggregated (first one reported)
+    /// so a single locked entry does not strand the rest; an entry that
+    /// vanished since the snapshot counts as success.
+    pub fn remove_snapshotted_entries(&self, names: &[String]) -> Result<(), String> {
+        let mut first_error: Option<String> = None;
+        for name in names {
+            let path = self.base_dir.join(name);
+            if let Err(error) = remove_entry(&path) {
+                if first_error.is_none() {
+                    first_error = Some(format!("{name}: {error}"));
+                }
+            }
+        }
+        match first_error {
+            Some(first_error) => Err(first_error),
+            None => Ok(()),
+        }
     }
 
     /// Detach the whole body directory for background deletion.
@@ -226,9 +295,25 @@ impl BodyStore {
 
         if let Err(error) = fs::create_dir_all(&self.base_dir) {
             // Put the old directory back so the store stays usable; the caller
-            // then falls back to the slow per-entry delete.
-            let _ = fs::rename(&tombstone, &self.base_dir);
-            return Err(DbError::Io(error));
+            // then falls back to the slow per-entry delete. If the rollback
+            // ALSO fails, the old bodies stay parked in the tombstone until
+            // the next startup sweep — carry that context in the error so the
+            // detach-failure log points at the parked directory instead of
+            // looking like a clean fallback (review M-3).
+            let rollback = fs::rename(&tombstone, &self.base_dir).map_err(|rollback_error| {
+                format!(
+                    "and rolling the tombstone back from {} also failed: {rollback_error} — \
+                     old bodies stay parked there until the next startup sweep",
+                    tombstone.display()
+                )
+            });
+            let message = match rollback {
+                Ok(()) => format!("recreate the live body store: {error}"),
+                Err(rollback_context) => {
+                    format!("recreate the live body store: {error} ({rollback_context})")
+                }
+            };
+            return Err(DbError::Io(std::io::Error::other(message)));
         }
 
         Ok(Some(tombstone))
@@ -274,7 +359,20 @@ impl BodyStore {
 
         let mut outcome = GcCleanupOutcome::default();
         for entry in entries {
-            let entry = entry.map_err(DbError::Io)?;
+            // Contract (see doc above): every matching entry is attempted even
+            // when one fails — that includes an entry the directory iterator
+            // itself cannot read. Count it and keep sweeping the rest instead
+            // of aborting the whole cleanup (review M-2).
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    outcome.failed += 1;
+                    if outcome.first_error.is_none() {
+                        outcome.first_error = Some(format!("read entry: {error}"));
+                    }
+                    continue;
+                }
+            };
             let name = entry.file_name().to_string_lossy().into_owned();
             if !name.starts_with(&prefix) {
                 continue;
@@ -1045,6 +1143,58 @@ mod tests {
         assert_eq!(outcome.failed, 0);
         assert!(fs::symlink_metadata(&tombstone_link).is_err());
         assert!(outside.join("keep.txt").is_file());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // M-1 core protection: the delayed clear-fallback retry deletes ONLY the
+    // snapshotted entries — bodies of sessions captured after the snapshot
+    // must never be wiped by the un-serialized retry thread.
+    #[test]
+    fn snapshot_entry_names_lists_the_current_top_level_entries() {
+        let dir = test_dir("snapshot_names");
+        let store = BodyStore::new(dir.join("bodies"));
+        store.ensure_dir().unwrap();
+        store.write_body("sess-1", "request", b"a").unwrap();
+        store.write_body("sess-2", "request", b"b").unwrap();
+
+        let names = store.snapshot_entry_names().unwrap();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"sess-1".to_string()));
+        assert!(names.contains(&"sess-2".to_string()));
+
+        // A store that does not exist yet yields no names, no error.
+        let absent = BodyStore::new(dir.join("absent"));
+        assert!(absent.snapshot_entry_names().unwrap().is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_snapshotted_entries_deletes_only_the_snapshot_not_later_writes() {
+        let dir = test_dir("remove_snapshot_entries");
+        let store = BodyStore::new(dir.join("bodies"));
+        store.ensure_dir().unwrap();
+        store.write_body("stale-1", "request", b"a").unwrap();
+        store.write_body("stale-2", "request", b"b").unwrap();
+
+        // The retry path snapshots at the point the fallback clear failed;
+        // a session captured AFTER that point lands in a fresh UUID dir that
+        // is not in the snapshot.
+        let snapshot = store.snapshot_entry_names().unwrap();
+        store.write_body("fresh-1", "response", b"c").unwrap();
+
+        store.remove_snapshotted_entries(&snapshot).unwrap();
+
+        assert!(!store.exists("stale-1/request.body"));
+        assert!(!store.exists("stale-2/request.body"));
+        assert!(store.exists("fresh-1/response.body"));
+
+        // An entry that vanished since the snapshot counts as success (a
+        // concurrent writer may have removed it).
+        store
+            .remove_snapshotted_entries(&["gone".to_string()])
+            .unwrap();
 
         let _ = fs::remove_dir_all(&dir);
     }

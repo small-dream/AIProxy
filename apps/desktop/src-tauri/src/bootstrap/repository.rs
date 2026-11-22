@@ -204,7 +204,39 @@ impl Repository {
             // M29: fire-and-forget rescan so a transient FS error does not
             // leave orphan blobs indefinitely. The cloned Arcs keep the store
             // alive for the background task.
-            self.spawn_body_rescan();
+            //
+            // M-1: snapshot the survivors at the point of failure. The retry
+            // thread deletes ONLY these names, so bodies written by sessions
+            // captured after this clear can never be wiped by the un-serialized
+            // retry (fresh session directories have new UUID names that are
+            // not in the snapshot).
+            match self.body_store.snapshot_entry_names() {
+                Ok(stale_entries) if !stale_entries.is_empty() => {
+                    self.spawn_body_rescan(stale_entries);
+                }
+                Ok(_) => {
+                    // Nothing survived the failed fallback clear — either the
+                    // clear removed everything before its final (reported)
+                    // error, or the store was empty. No retry target list, so
+                    // nothing to rescan.
+                    tracing::debug!(
+                        component = "desktop.persistence",
+                        event = "body_rescan_skipped_empty_snapshot",
+                        "body rescan skipped: no stale body entries left to retry"
+                    );
+                }
+                Err(error) => {
+                    // No snapshot → no safe retry target list. Skip the retry
+                    // entirely: orphan blobs persist until the next clear or
+                    // the startup sweep, which is safer than an un-scoped wipe.
+                    tracing::warn!(
+                        component = "desktop.persistence",
+                        event = "body_rescan_snapshot_failed",
+                        error = %error,
+                        "body rescan skipped: could not snapshot stale body entries"
+                    );
+                }
+            }
         }
 
         tracing::info!(
@@ -330,29 +362,38 @@ impl Repository {
         }
     }
 
-    /// M29: spawn a background task that retries `body_store.clear_all()` once
-    /// after a short delay. Used when the synchronous clear failed, to avoid
-    /// leaving orphan blob files behind without blocking the UI/clear command.
-    /// Idempotent and best-effort — a second failure is logged and abandoned.
-    fn spawn_body_rescan(&self) {
+    /// M29: spawn a background task that retries the removal of body-store
+    /// entries that survived a failed fallback clear, once after a short
+    /// delay. Idempotent and best-effort — a second failure is logged and
+    /// abandoned.
+    ///
+    /// M-1: `stale_entries` is the snapshot taken when the fallback clear
+    /// failed. The retry deletes ONLY those names — it never runs a full
+    /// `clear_all()`, which raced against sessions captured after the clear
+    /// command returned and deleted their bodies while their DB rows stayed
+    /// committed.
+    fn spawn_body_rescan(&self, stale_entries: Vec<String>) {
         let body_store = Arc::clone(&self.body_store);
         std::thread::spawn(move || {
             // Brief back-off so a transient FS condition (e.g. an in-flight
             // writer finishing a create_dir_all) can clear before the retry.
             std::thread::sleep(std::time::Duration::from_millis(500));
-            if let Err(error) = body_store.clear_all() {
-                tracing::error!(
-                    component = "desktop.persistence",
-                    event = "body_rescan_clear_failed",
-                    error = %error,
-                    "body rescan retry failed; orphan blobs may persist until next clear"
-                );
-            } else {
-                tracing::info!(
-                    component = "desktop.persistence",
-                    event = "body_rescan_clear_succeeded",
-                    "body rescan retry cleared orphan blobs after initial failure"
-                );
+            match body_store.remove_snapshotted_entries(&stale_entries) {
+                Ok(()) => {
+                    tracing::info!(
+                        component = "desktop.persistence",
+                        event = "body_rescan_clear_succeeded",
+                        "body rescan retry cleared orphan blobs after initial failure"
+                    );
+                }
+                Err(error) => {
+                    tracing::error!(
+                        component = "desktop.persistence",
+                        event = "body_rescan_clear_failed",
+                        error = %error,
+                        "body rescan retry failed; orphan blobs may persist until next clear"
+                    );
+                }
             }
         });
     }
