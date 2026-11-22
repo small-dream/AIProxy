@@ -934,7 +934,7 @@ async fn stage_forward_upstream(
                         "upstream_timeout",
                         format!("The upstream did not respond within {timeout_secs}s."),
                     )));
-                    let _ = ctx.session_sender.send(detail).await;
+                    log_session_send_dropped(ctx.session_sender.send(detail).await);
                     cancellation_guard.disarm();
                     let response =
                         build_plain_text_response(StatusCode::GATEWAY_TIMEOUT, &response_message)?;
@@ -1026,7 +1026,7 @@ async fn stage_process_upstream_response(
                     "rewrite_failed",
                     error.to_string(),
                 )));
-                let _ = ctx.session_sender.send(detail).await;
+                log_session_send_dropped(ctx.session_sender.send(detail).await);
                 tracing::error!(
                     event = "response_processing_failed",
                     request_id = %request.request_id,
@@ -1091,7 +1091,7 @@ async fn stage_process_upstream_response(
         {
             Ok(resolution) => resolution,
             Err(error) => {
-                let _ = ctx.session_sender.send(session_detail).await;
+                log_session_send_dropped(ctx.session_sender.send(session_detail).await);
                 cancellation_guard.disarm();
                 return Err(crate::ProxyError::Other(error));
             }
@@ -1931,6 +1931,22 @@ pub(crate) fn build_hyper_response_from_upstream(
     builder
         .body(body)
         .map_err(crate::ProxyError::ResponseBuildError)
+}
+
+/// Log a dropped session send on the failure paths that used to swallow it.
+///
+/// The success/terminal paths all record `session_send_dropped` when the
+/// collector has disconnected; these three failure-path sends silently
+/// dropped the same condition (review low batch). Kept tiny so each call
+/// site stays readable.
+fn log_session_send_dropped(send_result: Result<(), mpsc::error::SendError<ProxySessionDetail>>) {
+    if send_result.is_err() {
+        tracing::debug!(
+            event = "session_send_dropped",
+            reason = "receiver_disconnected",
+            "session_send_dropped"
+        );
+    }
 }
 
 /// Build the session detail for a breakpoint Drop. The client receives no

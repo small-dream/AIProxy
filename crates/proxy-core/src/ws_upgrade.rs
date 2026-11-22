@@ -470,6 +470,18 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
         // waiting for frames that will never arrive. Treat it as an upstream
         // protocol error and respond 502 Bad Gateway instead.
         let malformed_101 = status_code == 101;
+        // M-13: the mime was set to "websocket" before this branch resolved,
+        // mislabeling genuine refusals (403/404/...) in the Inspector. Take
+        // the upstream Content-Type instead; a malformed 101's "body" is
+        // stray WS frames, so it gets none.
+        detail.summary.response_mime_type = if malformed_101 {
+            None
+        } else {
+            upstream_headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+                .map(|(_, value)| value.clone())
+        };
         let forwarded_status = if malformed_101 {
             tracing::warn!(
                 event = "ws_hyper_upstream_malformed_101",
@@ -478,11 +490,11 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
             );
             // Reflect the synthesized 502 in the captured session detail too,
             // so the Inspector does not show a misleading 101 for a connection
-            // the proxy never upgraded. Clear the WS mime type for the same
-            // reason. The captured head/headers are rebuilt below, once the body
-            // length the client receives is known (P3).
+            // the proxy never upgraded. The mime is already cleared by the
+            // branch classification above. The captured head/headers are
+            // rebuilt below, once the body length the client receives is
+            // known (P3).
             detail.summary.status_code = StatusCode::BAD_GATEWAY.as_u16();
-            detail.summary.response_mime_type = None;
 
             StatusCode::BAD_GATEWAY.as_u16()
         } else {
@@ -541,6 +553,9 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
             }
         };
         let body_length = body_bytes.len();
+        // M-13: keep a reference-counted copy for the session attach below —
+        // the original `body_bytes` is moved into the response body.
+        let body_for_session = body_bytes.clone();
         let mut builder = hyper::Response::builder()
             .status(StatusCode::from_u16(forwarded_status).unwrap_or(StatusCode::BAD_GATEWAY))
             .header("Content-Length", body_length);
@@ -611,6 +626,20 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
                 &forwarded_entries,
             ));
         }
+
+        // M-13: attach the refusal body the client actually received — the
+        // session used to be sent with an empty body even though the bytes
+        // were forwarded on the wire, so the Inspector never showed what the
+        // upstream answered. read_full_response_body caps at
+        // MAX_CAPTURED_BODY_BYTES, so this is bounded.
+        detail.response_body = build_body_reference(
+            &body_for_session,
+            upstream_header_map.get(CONTENT_TYPE),
+            upstream_header_map.get(CONTENT_ENCODING),
+            body_length,
+            false,
+        );
+        detail.summary.size_bytes = body_length;
 
         if ctx.session_sender.send(detail).await.is_err() {
             tracing::debug!(
@@ -711,7 +740,16 @@ pub(crate) async fn handle_ws_upgrade_via_hyper(
     detail.script_traces = script_traces;
     detail.throttle_traces = throttle_traces;
 
-    let _ = ctx.session_sender.send(detail).await;
+    // M-low: a dropped session send on the 101 success path used to be
+    // swallowed silently (the other send sites log session_send_dropped) —
+    // the WS session then vanished from the capture list with no trace.
+    if ctx.session_sender.send(detail).await.is_err() {
+        tracing::debug!(
+            event = "session_send_dropped",
+            reason = "receiver_disconnected",
+            "session_send_dropped"
+        );
+    }
 
     let ws_message_sender = ctx.ws_message_sender.clone();
     let event_emitter = ctx.event_emitter.clone();
@@ -1012,11 +1050,23 @@ pub(crate) fn parse_upstream_response_head(
     let mut lines = head.lines();
     let status_line = lines.next().unwrap_or("");
 
-    let status_code: u16 = status_line
+    let parsed_status = status_line
         .split_whitespace()
         .nth(1)
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(502);
+        .and_then(|v| v.parse().ok());
+    // M-low: an unparsable status line previously fell back to 502 without a
+    // trace, masking the upstream's real behavior behind a synthesized code.
+    let status_code: u16 = match parsed_status {
+        Some(code) => code,
+        None => {
+            tracing::warn!(
+                event = "ws_upgrade_status_line_unparsed",
+                status_line,
+                "ws_upgrade_status_line_unparsed; responding 502"
+            );
+            502
+        }
+    };
 
     let mut headers: Vec<(String, String)> = Vec::new();
     for line in lines {

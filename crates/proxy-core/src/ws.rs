@@ -527,6 +527,45 @@ fn build_ws_message_raw(
     }
 }
 
+/// Hand one captured WS message to the bounded capture channel.
+///
+/// The capture pipeline is a side channel: a stalled consumer (full bounded
+/// channel, stopped UI collector) must never freeze frame forwarding, which
+/// used to hold the whole relay select loop — and its connection permit —
+/// indefinitely. The send is bounded by the centralized
+/// [`crate::TimeoutKind::WsCaptureSend`] deadline; on timeout or channel
+/// closure the single frame is dropped with a debug log (capture continuity
+/// for that frame is lost, forwarding is not) (review M-12).
+async fn send_capture_message(
+    ws_sender: &mpsc::Sender<WsMessageData>,
+    session_id: &str,
+    direction: WsDirection,
+    msg: WsMessageData,
+) {
+    let deadline = crate::timeout_for(crate::TimeoutKind::WsCaptureSend);
+    match tokio::time::timeout(deadline, ws_sender.send(msg)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(_)) => {
+            tracing::debug!(
+                event = "ws_capture_send_dropped",
+                session_id = %session_id,
+                direction = ?direction,
+                reason = "receiver_disconnected",
+                "ws_capture_send_dropped"
+            );
+        }
+        Err(_) => {
+            tracing::debug!(
+                event = "ws_capture_send_dropped",
+                session_id = %session_id,
+                direction = ?direction,
+                reason = "capture_consumer_stalled",
+                "ws_capture_send_dropped"
+            );
+        }
+    }
+}
+
 /// Feed one data frame into the assembler and return the reassembled message to
 /// emit, if any.
 ///
@@ -937,7 +976,7 @@ pub async fn relay_websocket_frames<C, U>(
                             &frame,
                             &mut client_assembler,
                         );
-                        let _ = ws_sender.send(msg).await;
+                        send_capture_message(ws_sender, session_id, WsDirection::ClientToServer, msg).await;
 
                         if frame.opcode == WsOpcode::Close {
                             // Legitimate Close from the client: forward masked
@@ -1007,7 +1046,7 @@ pub async fn relay_websocket_frames<C, U>(
                             &frame,
                             &mut upstream_assembler,
                         );
-                        let _ = ws_sender.send(msg).await;
+                        send_capture_message(ws_sender, session_id, WsDirection::ServerToClient, msg).await;
 
                         if frame.opcode == WsOpcode::Close {
                             // Legitimate Close from the upstream: forward to the
@@ -1081,7 +1120,7 @@ pub async fn relay_websocket_frames<C, U>(
                             break;
                         }
                         let msg = build_ws_message(session_id, req.direction, &frame);
-                        let _ = ws_sender.send(msg).await;
+                        send_capture_message(ws_sender, session_id, req.direction, msg).await;
                     }
                     None => {
                         // Injection channel closed; stop listening for injects
@@ -1112,6 +1151,73 @@ mod tests {
         assert_eq!(WsOpcode::from_u8(8), WsOpcode::Close);
         assert_eq!(WsOpcode::from_u8(9), WsOpcode::Ping);
         assert_eq!(WsOpcode::from_u8(10), WsOpcode::Pong);
+    }
+
+    // M-12 guard: a stalled capture consumer (full bounded channel) must
+    // never freeze the relay — the bounded send drops the frame after the
+    // WsCaptureSend deadline instead of parking forever.
+    #[tokio::test]
+    async fn send_capture_message_drops_the_frame_when_the_channel_is_stalled() {
+        let (sender, receiver) = tokio::sync::mpsc::channel::<WsMessageData>(1);
+        // Occupy the single slot so the next send would park.
+        let filler = build_ws_message(
+            "filler",
+            WsDirection::ClientToServer,
+            &WsFrame {
+                fin: true,
+                opcode: WsOpcode::Text,
+                mask: false,
+                payload: b"first".to_vec(),
+            },
+        );
+        sender
+            .send(filler)
+            .await
+            .expect("channel has capacity for the filler");
+
+        let _guard = crate::override_timeout_for_test(
+            crate::TimeoutKind::WsCaptureSend,
+            Duration::from_millis(100),
+        );
+
+        let stalled = build_ws_message(
+            "sess-1",
+            WsDirection::ClientToServer,
+            &WsFrame {
+                fin: true,
+                opcode: WsOpcode::Text,
+                mask: false,
+                payload: b"second".to_vec(),
+            },
+        );
+        // Must return (not hang) and drop the stalled frame.
+        send_capture_message(&sender, "sess-1", WsDirection::ClientToServer, stalled).await;
+        assert_eq!(
+            receiver.len(),
+            1,
+            "the stalled frame must be dropped, not queued"
+        );
+    }
+
+    // M-12 guard: a disconnected capture consumer resolves immediately
+    // instead of hanging the relay.
+    #[tokio::test]
+    async fn send_capture_message_returns_promptly_when_the_receiver_is_gone() {
+        let (sender, receiver) = tokio::sync::mpsc::channel::<WsMessageData>(1);
+        drop(receiver);
+
+        let message = build_ws_message(
+            "sess-1",
+            WsDirection::ServerToClient,
+            &WsFrame {
+                fin: true,
+                opcode: WsOpcode::Binary,
+                mask: false,
+                payload: b"x".to_vec(),
+            },
+        );
+        send_capture_message(&sender, "sess-1", WsDirection::ServerToClient, message).await;
+        assert!(sender.is_closed());
     }
 
     // H5: the `ws-connection-status` payload must match the contract in

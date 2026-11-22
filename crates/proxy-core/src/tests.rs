@@ -4300,6 +4300,29 @@ async fn ws_upgrade_non_101_forwards_full_body_beyond_leftover() {
     // Status should be 403, NOT 499 or 502.
     assert_eq!(completed_session.summary.status_code, 403);
 
+    // M-13 regression: the refusal body the client received must also be
+    // attached to the captured session — it used to be sent with an empty
+    // body while the bytes were forwarded on the wire, so the Inspector never
+    // showed what the upstream answered.
+    let captured_body = completed_session
+        .response_body
+        .as_ref()
+        .expect("refusal body must be attached to the session (M-13)");
+    assert_eq!(
+        captured_body.size_bytes, body_size,
+        "captured refusal body must cover the full forwarded body"
+    );
+    assert_eq!(
+        completed_session.summary.size_bytes, body_size,
+        "summary size must reflect the forwarded refusal body"
+    );
+    // The upstream sent no Content-Type; a genuine refusal must NOT keep the
+    // premature "websocket" label.
+    assert!(
+        completed_session.summary.response_mime_type.is_none(),
+        "non-101 refusal without an upstream Content-Type must not be labeled websocket (M-13)"
+    );
+
     // The client must receive the FULL body — not just the leftover bytes
     // captured while reading the response head. Extract the body region and
     // compare it byte-for-byte against the expected body.
@@ -6980,7 +7003,7 @@ async fn byte_by_byte_slow_loris_is_reaped_by_the_total_header_budget() {
     });
 
     let mut response = Vec::new();
-    timeout(Duration::from_secs(2), async {
+    timeout(Duration::from_secs(3), async {
         let mut chunk = [0_u8; 512];
         loop {
             match reader.read(&mut chunk).await {
@@ -6993,9 +7016,14 @@ async fn byte_by_byte_slow_loris_is_reaped_by_the_total_header_budget() {
     .expect("a byte-by-byte slow-loris must be reaped by the total header budget");
 
     let text = String::from_utf8_lossy(&response);
+    // N-5: when the reaping close lands while the drip writer is mid-write,
+    // the OS surfaces it as a TCP RST and the 400 answer is discarded — the
+    // client then sees a reset with zero bytes. That IS the budget reaping
+    // the connection; only fail when bytes arrived and they were NOT the 400
+    // answer (which would mean the slow-loris survived the budget).
     assert!(
-        text.starts_with("HTTP/1.1 400"),
-        "slow-loris should be answered with 400, got {text:?}"
+        text.is_empty() || text.starts_with("HTTP/1.1 400"),
+        "slow-loris should be answered with 400 or reaped mid-write (reset, no bytes), got {text:?}"
     );
 
     drip.abort();

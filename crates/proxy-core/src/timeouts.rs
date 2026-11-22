@@ -13,6 +13,7 @@ pub(crate) enum TimeoutKind {
     WsCloseGrace,
     WsFrameIdle,
     WsFrameRead,
+    WsCaptureSend,
     ResponseBodyReadIdle,
     WsUpstreamBodyReadIdle,
     UpstreamProxyDial,
@@ -41,6 +42,13 @@ impl TimeoutKind {
             Self::WsCloseGrace => Duration::from_secs(5),
             Self::WsFrameIdle => Duration::from_secs(5 * 60),
             Self::WsFrameRead => Duration::from_secs(30),
+            // Bounds how long the relay may wait to hand one captured WS
+            // message to the (bounded) capture channel. Capture is a side
+            // channel: a stalled consumer must never freeze frame
+            // forwarding, which pins the whole relay loop and its
+            // connection permit (review M-12). Short — the frame is simply
+            // dropped on timeout.
+            Self::WsCaptureSend => Duration::from_secs(2),
             Self::ResponseBodyReadIdle => Duration::from_secs(30),
             Self::WsUpstreamBodyReadIdle => Duration::from_secs(10),
             Self::UpstreamProxyDial => Duration::from_secs(20),
@@ -64,6 +72,7 @@ impl TimeoutKind {
         static WS_CLOSE_GRACE_MS: AtomicU64 = AtomicU64::new(0);
         static WS_FRAME_IDLE_MS: AtomicU64 = AtomicU64::new(0);
         static WS_FRAME_READ_MS: AtomicU64 = AtomicU64::new(0);
+        static WS_CAPTURE_SEND_MS: AtomicU64 = AtomicU64::new(0);
         static RESPONSE_BODY_READ_IDLE_MS: AtomicU64 = AtomicU64::new(0);
         static WS_UPSTREAM_BODY_READ_IDLE_MS: AtomicU64 = AtomicU64::new(0);
         static UPSTREAM_PROXY_DIAL_MS: AtomicU64 = AtomicU64::new(0);
@@ -83,6 +92,7 @@ impl TimeoutKind {
             Self::WsCloseGrace => &WS_CLOSE_GRACE_MS,
             Self::WsFrameIdle => &WS_FRAME_IDLE_MS,
             Self::WsFrameRead => &WS_FRAME_READ_MS,
+            Self::WsCaptureSend => &WS_CAPTURE_SEND_MS,
             Self::ResponseBodyReadIdle => &RESPONSE_BODY_READ_IDLE_MS,
             Self::WsUpstreamBodyReadIdle => &WS_UPSTREAM_BODY_READ_IDLE_MS,
             Self::UpstreamProxyDial => &UPSTREAM_PROXY_DIAL_MS,
@@ -146,6 +156,7 @@ mod tests {
             TimeoutKind::WsCloseGrace,
             TimeoutKind::WsFrameIdle,
             TimeoutKind::WsFrameRead,
+            TimeoutKind::WsCaptureSend,
             TimeoutKind::ResponseBodyReadIdle,
             TimeoutKind::WsUpstreamBodyReadIdle,
             TimeoutKind::UpstreamProxyDial,
