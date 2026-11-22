@@ -780,6 +780,7 @@ export const enMessages = {
     updateDialogChangelog: "What's new",
     updateDialogCheckFailed: "Could not check for updates. Check your connection and try again.",
     updateDialogCurrentVersion: "Current version: {{currentVersion}}",
+    updateDialogInstallFailed: "The update could not be installed.",
     updateDialogLater: "Later",
     updateDialogNoChangelog: "No release notes are available for this version.",
     updateDialogNoUpdate: "AIProxy is up to date.",
@@ -1810,6 +1811,8 @@ export const enMessages = {
     batchDeleteFailed: "Failed to delete the selected sessions",
     batchDeleteTitle: "Delete selected sessions?",
     batchSaveResponsesDone: "Saved {{count}} responses",
+    batchSaveResponsesDoneWithFailures:
+      "Saved {{count}} responses; {{failedCount}} failed (see the log for reasons)",
     clearOthersFailed: "Failed to clear the other sessions",
     clearSessionsConfirm:
       "This permanently deletes every captured session. This action cannot be undone.",
@@ -2027,6 +2030,11 @@ export const enMessages = {
     invalidFileType: "Please choose a .har file.",
     messages: {
       importedHar: "Imported {{count}} HAR entrie(s).",
+      invalidEntry: "Entry {{index}} is missing a valid request method or URL.",
+      invalidHar: "The selected file is not a valid HAR archive.",
+      invalidJson: "The selected file is not valid JSON.",
+      invalidUrl: "Entry {{index}} has an invalid request URL.",
+      noEntries: "The selected HAR archive does not contain any entries.",
     },
     title: "Import HAR",
   },

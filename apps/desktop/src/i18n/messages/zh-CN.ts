@@ -752,6 +752,7 @@ export const zhCNMessages: Messages = {
     updateDialogChangelog: "更新内容",
     updateDialogCheckFailed: "检查更新失败，请检查网络后重试。",
     updateDialogCurrentVersion: "当前版本：{{currentVersion}}",
+    updateDialogInstallFailed: "更新安装失败。",
     updateDialogLater: "稍后",
     updateDialogNoChangelog: "此版本暂无更新说明。",
     updateDialogNoUpdate: "AIProxy 已是最新版本。",
@@ -1736,6 +1737,8 @@ export const zhCNMessages: Messages = {
     batchDeleteFailed: "删除选中会话失败",
     batchDeleteTitle: "删除选中的会话？",
     batchSaveResponsesDone: "已保存 {{count}} 个响应",
+    batchSaveResponsesDoneWithFailures:
+      "已保存 {{count}} 个响应，{{failedCount}} 个失败（原因见日志）",
     clearOthersFailed: "清除其他会话失败",
     clearSessionsConfirm: "将永久删除所有已捕获的会话，此操作无法撤销。",
     clearSessionsDontAskAgain: "不再确认清空会话",
@@ -1942,6 +1945,11 @@ export const zhCNMessages: Messages = {
     invalidFileType: "请选择 .har 文件。",
     messages: {
       importedHar: "已导入 {{count}} 条 HAR 记录。",
+      invalidEntry: "第 {{index}} 条记录缺少有效的请求方法或 URL。",
+      invalidHar: "所选文件不是有效的 HAR 归档。",
+      invalidJson: "所选文件不是有效的 JSON。",
+      invalidUrl: "第 {{index}} 条记录的请求 URL 无效。",
+      noEntries: "所选 HAR 归档不包含任何记录。",
     },
     title: "导入 HAR",
   },
