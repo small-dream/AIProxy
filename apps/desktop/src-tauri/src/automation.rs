@@ -3007,26 +3007,44 @@ impl AppState {
                     "Enable SSL interception before proxying HTTPS verification requests.",
                 ));
             }
-            let storage = aiproxy_tls_manager::CertStorage::resolve().map_err(|error| {
+            // M-6: the platform trust probe is blocking FS/subprocess work —
+            // on Linux it reads every file under /etc/ssl/certs and on Windows
+            // it launches PowerShell. This fn runs on the async runtime, so
+            // offload the probe to the blocking pool (mirroring the
+            // certificates command's run_blocking_command pattern) instead
+            // of parking a tokio worker for seconds.
+            tauri::async_runtime::spawn_blocking(|| -> Result<(), AutomationError> {
+                let storage = aiproxy_tls_manager::CertStorage::resolve().map_err(|error| {
+                    proxy_verification_unavailable(
+                        "CERTIFICATE_UNAVAILABLE",
+                        format!("Resolve the AIProxy root certificate: {error}"),
+                    )
+                })?;
+                if !storage.root_cert_exists() {
+                    return Err(proxy_verification_unavailable(
+                        "CERTIFICATE_UNAVAILABLE",
+                        "Generate an AIProxy root certificate before HTTPS proxy verification.",
+                    ));
+                }
+                let platform = aiproxy_tls_manager::detect_platform();
+                if !aiproxy_tls_manager::is_cert_trusted_on_platform(
+                    storage.root_cert_path(),
+                    platform,
+                ) {
+                    return Err(proxy_verification_unavailable(
+                        "CERTIFICATE_UNTRUSTED",
+                        "Trust the AIProxy root certificate before HTTPS proxy verification.",
+                    ));
+                }
+                Ok(())
+            })
+            .await
+            .map_err(|error| {
                 proxy_verification_unavailable(
                     "CERTIFICATE_UNAVAILABLE",
-                    format!("Resolve the AIProxy root certificate: {error}"),
+                    format!("Certificate trust probe task failed: {error}"),
                 )
-            })?;
-            if !storage.root_cert_exists() {
-                return Err(proxy_verification_unavailable(
-                    "CERTIFICATE_UNAVAILABLE",
-                    "Generate an AIProxy root certificate before HTTPS proxy verification.",
-                ));
-            }
-            let platform = aiproxy_tls_manager::detect_platform();
-            if !aiproxy_tls_manager::is_cert_trusted_on_platform(storage.root_cert_path(), platform)
-            {
-                return Err(proxy_verification_unavailable(
-                    "CERTIFICATE_UNTRUSTED",
-                    "Trust the AIProxy root certificate before HTTPS proxy verification.",
-                ));
-            }
+            })??;
         }
 
         let client = self.proxy_verification_client(status.port, needs_https)?;
