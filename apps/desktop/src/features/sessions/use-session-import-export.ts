@@ -13,7 +13,7 @@ import {
   buildHarExportFilename,
   loadSessionDetailsBatched,
 } from "@/features/sessions/session-export.helpers";
-import { parseHarArchive } from "@/features/sessions/session-import.helpers";
+import { HarImportError, parseHarArchive } from "@/features/sessions/session-import.helpers";
 import {
   type SessionExportDialogScope,
   type SessionExportHostScope,
@@ -155,6 +155,34 @@ export function useSessionImportExport({
       const details = parseHarArchive(result.contents);
       handleImportSessions(details);
     } catch (error) {
+      // M-9: parse failures carry a structured kind — render them through
+      // the bilingual message catalog instead of the parser's internal
+      // English text so the zh-CN UI shows Chinese messages.
+      if (error instanceof HarImportError) {
+        const index = error.entryIndex !== undefined ? String(error.entryIndex + 1) : undefined;
+        switch (error.kind) {
+          case "invalidJson":
+            setImportSnackbarMessage(t("sessionsImport.messages.invalidJson"));
+            break;
+          case "invalidHar":
+            setImportSnackbarMessage(t("sessionsImport.messages.invalidHar"));
+            break;
+          case "noEntries":
+            setImportSnackbarMessage(t("sessionsImport.messages.noEntries"));
+            break;
+          case "invalidEntry":
+            setImportSnackbarMessage(
+              t("sessionsImport.messages.invalidEntry", { index: index ?? "1" }),
+            );
+            break;
+          case "invalidUrl":
+            setImportSnackbarMessage(
+              t("sessionsImport.messages.invalidUrl", { index: index ?? "1" }),
+            );
+            break;
+        }
+        return;
+      }
       setImportSnackbarMessage(
         error instanceof Error ? error.message : t("common.errors.unexpected"),
       );

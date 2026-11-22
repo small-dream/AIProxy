@@ -578,15 +578,31 @@ export function SessionsPage() {
     if (selectedMultiSessions.length === 0) return;
 
     let savedCount = 0;
+    let failedCount = 0;
     for (const session of selectedMultiSessions) {
       try {
         if (await handleSaveResponse(session)) {
           savedCount += 1;
         }
-      } catch {
-        // A failed download (e.g. detail load error) is skipped; sessions
-        // without a captured response body return false and are not counted.
+      } catch (error) {
+        // M-low: a failed save (e.g. detail load error) used to be skipped
+        // silently — the user only saw "saved N" with no hint that any
+        // failed or why. Log each failure and surface the count.
+        failedCount += 1;
+        logDevWarn("ui.sessions", "batch_save_response_failed", {
+          error: String(error),
+          sessionId: session.id,
+        });
       }
+    }
+    if (failedCount > 0) {
+      showSnackbar(
+        t("sessionsPage.batchSaveResponsesDoneWithFailures", {
+          count: savedCount,
+          failedCount: String(failedCount),
+        }),
+      );
+      return;
     }
     showSnackbar(t("sessionsPage.batchSaveResponsesDone", { count: savedCount }));
   }, [handleSaveResponse, selectedMultiSessions, showSnackbar, t]);
@@ -816,7 +832,14 @@ export function SessionsPage() {
             host,
           }),
         );
-      } catch {
+      } catch (error) {
+        // M-low: the failure spans two commands (workspace update + proxy
+        // restart); the old catch dropped the reason for both.
+        logDevWarn("ui.sessions", "ssl_decrypt_toggle_failed", {
+          error: coerceAppError(error).message,
+          host,
+          workspaceId: currentWorkspace.id,
+        });
         showSnackbar(t("sessionsPage.sslDecryptToggleFailed"));
       }
     },
@@ -883,7 +906,14 @@ export function SessionsPage() {
         }
 
         showSnackbar(t("sessionsPage.addedToIncludeList", { host }));
-      } catch {
+      } catch (error) {
+        // M-low: the failure spans two commands (workspace update + proxy
+        // restart); the old catch dropped the reason for both.
+        logDevWarn("ui.sessions", "add_to_include_list_failed", {
+          error: coerceAppError(error).message,
+          host,
+          workspaceId: currentWorkspace.id,
+        });
         showSnackbar(t("sessionsPage.addedToIncludeListFailed"));
       }
     },

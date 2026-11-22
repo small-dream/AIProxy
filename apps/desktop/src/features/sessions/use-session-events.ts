@@ -19,6 +19,34 @@ import {
 
 const FLUSH_INTERVAL_MS = 100;
 
+/**
+ * Cap for the removed-session tombstone set. IDs are UUIDs and never reused,
+ * so the oldest tombstones only protect against upserts that have long since
+ * been flushed or dropped — evicting them cannot resurrect anything. The cap
+ * bounds an otherwise unbounded Set in long capture sessions with many
+ * clears/batch deletes (review low).
+ */
+export const REMOVED_SESSION_TOMBSTONE_LIMIT = 5000;
+
+/**
+ * Record session ids removed by a destructive operation (pure, exported for
+ * tests). Evicts the OLDEST tombstones (insertion order) once the cap is
+ * exceeded.
+ */
+export function rememberRemovedSessionIds(tombstones: Set<string>, newIds: Iterable<string>): void {
+  for (const id of newIds) {
+    tombstones.add(id);
+  }
+  if (tombstones.size > REMOVED_SESSION_TOMBSTONE_LIMIT) {
+    for (const id of tombstones) {
+      if (tombstones.size <= REMOVED_SESSION_TOMBSTONE_LIMIT) {
+        break;
+      }
+      tombstones.delete(id);
+    }
+  }
+}
+
 export function useSessionEvents() {
   const queryClient = useQueryClient();
 
@@ -94,7 +122,7 @@ export function useSessionEvents() {
 
     onSessionRemove((sessionId) => {
       if (cancelled) return;
-      removedSessionIds.add(sessionId);
+      rememberRemovedSessionIds(removedSessionIds, [sessionId]);
       // P1-15: drop any still-buffered upsert for this id. Upserts flush on a
       // 100ms timer while removes apply immediately, so without this a summary
       // buffered BEFORE the remove would flush AFTER it and resurrect the
@@ -120,7 +148,7 @@ export function useSessionEvents() {
           (summary) => summary.id,
         ),
       ]);
-      for (const id of currentIds) removedSessionIds.add(id);
+      rememberRemovedSessionIds(removedSessionIds, currentIds);
       upsertBuffer = [];
       if (flushTimer) {
         clearTimeout(flushTimer);
@@ -139,7 +167,7 @@ export function useSessionEvents() {
       // P1-15: same buffered-upsert race as onSessionRemove — drop buffered
       // entries for the removed ids so a later flush cannot resurrect them.
       const removedIds = new Set(ids);
-      for (const id of removedIds) removedSessionIds.add(id);
+      rememberRemovedSessionIds(removedSessionIds, removedIds);
       upsertBuffer = upsertBuffer.filter((summary) => !removedIds.has(summary.id));
       for (const id of ids) {
         useSessionContainerStore.getState().removeSummary(id);

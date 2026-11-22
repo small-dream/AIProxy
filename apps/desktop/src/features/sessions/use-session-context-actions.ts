@@ -1,5 +1,5 @@
 import type { ComposedRequestInput, HeaderEntry, SessionSummary } from "@aiproxy/shared-types";
-import { DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
+import { coerceAppError, DEFAULT_WORKSPACE_ID } from "@aiproxy/shared-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import type { Dispatch, MouseEvent as ReactMouseEvent, SetStateAction } from "react";
@@ -386,7 +386,14 @@ export function useSessionContextActions({
         callbacks.onSuccess?.(pendingSessionId, repeatedDetail.summary);
         showSnackbar(t("contextMenu.repeatSucceeded"));
         return repeatedDetail.summary;
-      } catch {
+      } catch (error) {
+        // M-low: the catch used to discard the error object entirely —
+        // neither a log nor the message reached the user, so a repeat
+        // failure (detail load, network, command error) was undiagnosable.
+        logDevWarn("ui.sessions", "repeat_session_failed", {
+          error: coerceAppError(error).message,
+          sessionId: pendingSessionId,
+        });
         queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, (currentSessions = []) =>
           removeSessionSummary(currentSessions, pendingSessionId),
         );
@@ -509,7 +516,14 @@ export function useSessionContextActions({
         });
         showSnackbar(t("collectionsPage.saved"));
         setSaveToCollectionSession(null);
-      } catch {
+      } catch (error) {
+        // M-low: surface the failure reason (session detail load, DB write,
+        // command error) — the old catch dropped the error entirely.
+        logDevWarn("ui.sessions", "save_to_collection_failed", {
+          error: coerceAppError(error).message,
+          sessionId: saveToCollectionSession.id,
+          collectionId,
+        });
         showSnackbar(t("collectionsPage.saveFailed"));
       }
     },

@@ -1,6 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { parseHarArchive } from "./session-import.helpers";
+import { HarImportError, parseHarArchive } from "./session-import.helpers";
+
+/** Capture the thrown error so tests can assert on its structured kind. */
+function captureImportError(contents: string): HarImportError {
+  try {
+    parseHarArchive(contents);
+  } catch (error) {
+    expect(error).toBeInstanceOf(HarImportError);
+    return error as HarImportError;
+  }
+  throw new Error("expected parseHarArchive to throw");
+}
 
 describe("parseHarArchive", () => {
   it("maps HAR entries into session details", () => {
@@ -86,9 +97,44 @@ describe("parseHarArchive", () => {
   });
 
   it("rejects files without HAR entries", () => {
-    expect(() => parseHarArchive(JSON.stringify({ log: { entries: [] } }))).toThrow(
-      "does not contain any entries",
+    const error = captureImportError(JSON.stringify({ log: { entries: [] } }));
+    expect(error.kind).toBe("noEntries");
+  });
+
+  it("classifies non-JSON and non-HAR inputs by kind", () => {
+    // M-9: parse failures are structured so the UI can localize them —
+    // never asserted as hardcoded English strings again.
+    expect(captureImportError("{not json").kind).toBe("invalidJson");
+    expect(captureImportError(JSON.stringify({ no: "log" })).kind).toBe("invalidHar");
+  });
+
+  it("names the offending entry kind when a request URL is invalid", () => {
+    const error = captureImportError(
+      JSON.stringify({
+        log: {
+          entries: [
+            {
+              request: { headers: [], method: "GET", url: "not a url" },
+              response: { content: {}, headers: [], status: 200 },
+            },
+          ],
+        },
+      }),
     );
+    expect(error.kind).toBe("invalidUrl");
+    expect(error.entryIndex).toBe(0);
+  });
+
+  it("names the offending entry kind when a request has no method or URL", () => {
+    const error = captureImportError(
+      JSON.stringify({
+        log: {
+          entries: [{ request: { headers: [] } }],
+        },
+      }),
+    );
+    expect(error.kind).toBe("invalidEntry");
+    expect(error.entryIndex).toBe(0);
   });
 
   // P3: `text.length` counts UTF-16 code units, not bytes, so CJK bodies were
@@ -171,23 +217,8 @@ describe("parseHarArchive", () => {
   });
 
   // P3: a bare `Invalid URL` from `new URL` aborted the whole import with no
-  // hint about which record was broken.
-  it("names the offending entry when a request URL is invalid", () => {
-    expect(() =>
-      parseHarArchive(
-        JSON.stringify({
-          log: {
-            entries: [
-              {
-                request: { headers: [], method: "GET", url: "not a url" },
-                response: { content: {}, headers: [], status: 200 },
-              },
-            ],
-          },
-        }),
-      ),
-    ).toThrow(/Entry 1 has an invalid request URL/);
-  });
+  // hint about which record was broken. The kind + entryIndex above carry
+  // that hint through the localized UI message.
 
   it("parses HTTP/2 version from HAR entry", () => {
     const details = parseHarArchive(

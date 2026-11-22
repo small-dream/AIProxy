@@ -155,6 +155,39 @@ function buildImportedId(index: number) {
 }
 
 /**
+ * Structured HAR import failure kinds. The UI maps `kind` (plus
+ * `entryIndex`) to a localized message — the parser itself must never
+ * hardcode user-visible English text (review M-9).
+ */
+export type HarImportErrorKind =
+  | "invalidJson"
+  | "invalidHar"
+  | "noEntries"
+  | "invalidEntry"
+  | "invalidUrl";
+
+export class HarImportError extends Error {
+  readonly kind: HarImportErrorKind;
+  // Zero-based index of the offending entry, when one can be named.
+  // Declared `number | undefined` (not `?:`) because the repo compiles with
+  // exactOptionalPropertyTypes.
+  readonly entryIndex: number | undefined;
+
+  constructor(kind: HarImportErrorKind, entryIndex?: number) {
+    // English internal message: it surfaces in logs/dev console only — the
+    // snackbar renders the localized message for `kind` instead.
+    super(
+      entryIndex === undefined
+        ? `HAR import failed: ${kind}`
+        : `HAR import failed: ${kind} (entry ${entryIndex + 1})`,
+    );
+    this.name = "HarImportError";
+    this.kind = kind;
+    this.entryIndex = entryIndex;
+  }
+}
+
+/**
  * Parse an entry's request URL.
  *
  * P3: a single malformed URL used to throw the browser's bare `Invalid URL`
@@ -165,7 +198,7 @@ function parseRequestUrl(url: string, index: number): URL {
   try {
     return new URL(url);
   } catch {
-    throw new Error(`Entry ${index + 1} has an invalid request URL: ${url}`);
+    throw new HarImportError("invalidUrl", index);
   }
 }
 
@@ -173,7 +206,7 @@ function parseHarEntry(entry: HarEntry, index: number): SessionDetail {
   const request = entry.request;
 
   if (!request || typeof request.method !== "string" || typeof request.url !== "string") {
-    throw new Error(`Entry ${index + 1} is missing a valid request method or URL.`);
+    throw new HarImportError("invalidEntry", index);
   }
 
   const parsedUrl = parseRequestUrl(request.url, index);
@@ -238,7 +271,7 @@ export function parseHarArchive(contents: string): SessionDetail[] {
   try {
     parsed = JSON.parse(contents);
   } catch {
-    throw new Error("The selected file is not valid JSON.");
+    throw new HarImportError("invalidJson");
   }
 
   if (
@@ -250,11 +283,11 @@ export function parseHarArchive(contents: string): SessionDetail[] {
     !("entries" in parsed.log) ||
     !Array.isArray(parsed.log.entries)
   ) {
-    throw new Error("The selected file is not a valid HAR archive.");
+    throw new HarImportError("invalidHar");
   }
 
   if (parsed.log.entries.length === 0) {
-    throw new Error("The selected HAR archive does not contain any entries.");
+    throw new HarImportError("noEntries");
   }
 
   return parsed.log.entries.map((entry, index) => parseHarEntry(entry as HarEntry, index));
