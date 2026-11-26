@@ -358,7 +358,7 @@ export function decodeResponse(ctx) {
 - 只在打开「解码」标签时执行，不在抓包时执行，也不改动任何流量；对 `ctx.request` / `ctx.response` 的修改和 `ctx.respond()` 都会被忽略
 - 对历史会话同样有效；保存或启停脚本规则后，已打开的解码结果会自动重新计算，也可以点刷新按钮重新解码
 - `ctx.log.*` 的输出可以在「解码」标签中点 **日志** 查看
-- 匹配条件与其他脚本规则相同（URL、方法、阶段）；多条规则匹配时，按优先级取第一条返回了结果的规则
+- 按规则的 URL 和方法条件匹配；阶段设置只决定 `onRequest` / `onResponse` 是否运行，不影响解码 hook。多条规则匹配时，按优先级取第一条返回了结果的规则
 
 与 `ctx.extract` 相比，解码视图没有 8 KB 的单值上限，适合查看完整的解密报文。导入的会话文件不支持解码视图。
 
@@ -386,7 +386,7 @@ export function decodeResponse(ctx) {
 - 单条日志或提取值序列化上限：`8 KB`
 - 单次运行内存上限：`16 MB`——超出后该次 hook 失败（fail-open）
 - 最多 64 个 hook 并发执行；超出的运行等待空闲槽位，未及时等到则跳过（fail-open）
-- 解码 hook（`decodeRequest` / `decodeResponse`）不在代理链路上运行，限制单独计算：超时 `5 s`，内存 `64 MB`，返回内容最多显示 `8 MB`，超出部分截断并提示
+- 解码 hook（`decodeRequest` / `decodeResponse`）不在代理链路上运行，限制单独计算：超时 `5 s`，内存 `128 MB`，返回内容最多显示 `8 MB`，超出部分截断并提示
 
 建议：
 

@@ -358,7 +358,7 @@ export function decodeResponse(ctx) {
 - The hook runs only when you open the Decoded tab, never while capturing, and never changes traffic; changes to `ctx.request` / `ctx.response` and `ctx.respond()` are ignored
 - It works on past sessions too; saving or toggling a script rule re-decodes open results automatically, and the refresh button decodes again on demand
 - `ctx.log.*` output is available under **Logs** in the Decoded tab
-- Matching works like other script rules (URL, method, stage); when several rules match, the first one by priority that returns a value wins
+- Matching uses the rule's URL and method conditions; the stage setting only decides whether `onRequest` / `onResponse` run and does not affect decode hooks. When several rules match, the first one by priority that returns a value wins
 
 Unlike `ctx.extract`, the Decoded view has no 8 KB per-value cap, so it can show the full decrypted payload. Imported session files do not support the Decoded view.
 
@@ -386,7 +386,7 @@ To keep the proxy stable, scripts are bounded:
 - Max serialization size per log entry or extract value: `8 KB`
 - Per-run memory cap: `16 MB` — exceeding it fails that hook, fail-open
 - Up to 64 hooks run concurrently; excess runs wait for a free slot and are skipped when one doesn't free up in time
-- Decode hooks (`decodeRequest` / `decodeResponse`) never run on the proxy path and have their own limits: `5 s` timeout, `64 MB` memory, and up to `8 MB` of returned content shown (the rest is cut and flagged)
+- Decode hooks (`decodeRequest` / `decodeResponse`) never run on the proxy path and have their own limits: `5 s` timeout, `128 MB` memory, and up to `8 MB` of returned content shown (the rest is cut and flagged)
 
 Recommendations:
 

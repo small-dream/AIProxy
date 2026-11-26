@@ -168,6 +168,24 @@ describe("SessionInspectorAutomationPane", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('{\n    "tabId": 9\n}'));
   });
 
+  it("shows rewrite values verbatim", async () => {
+    const rewrite: RewriteSessionTrace = {
+      durationMs: 0,
+      entries: [{ after: '"v2"', before: '"33a64df5"', kind: "header", key: "etag", sequence: 0 }],
+      outcome: "success",
+      rewriteType: "header",
+      ruleId: "rewrite-1",
+      ruleName: "etag",
+      stage: "response",
+    };
+    vi.mocked(listRewriteSessionTrace).mockResolvedValue([rewrite]);
+
+    renderPane();
+
+    const values = await screen.findAllByTestId("trace-payload");
+    expect(values.map((value) => value.textContent)).toEqual(['"33a64df5"', '"v2"']);
+  });
+
   it("collapses long rewrite values such as encrypted header values", async () => {
     const rewrite: RewriteSessionTrace = {
       durationMs: 0,

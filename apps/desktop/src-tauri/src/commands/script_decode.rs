@@ -11,6 +11,7 @@ use aiproxy_rule_engine::{
     ScriptRequest, ScriptResponse, ScriptRunEntry, ScriptRunOutcome, ScriptSessionInfo,
     ScriptTraceStage,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,18 +170,43 @@ fn script_headers(entries: &[ProxyHeaderEntry]) -> Vec<ScriptHeader> {
         .collect()
 }
 
-/// `(body_text, body_base64, mime_type)` the way live hooks receive them:
-/// captured bodies are stored already content-decoded.
+/// `(body_text, body_base64, mime_type)` for a captured (already
+/// content-decoded) body. Unlike live hooks, only one representation is sent
+/// when it is lossless: bodies reach 20 MB and a second copy would eat the
+/// decode hook's heap. The bridge derives the other on demand
+/// (`getBase64()` from text, `getText()` from base64).
 fn script_body(
     body: Option<&ProxyBodyReference>,
 ) -> (Option<String>, Option<String>, Option<String>) {
-    match body {
-        Some(body) => (
-            body.inline_text(),
-            body.base64_text(),
-            body.mime_type.clone(),
-        ),
-        None => (None, None, None),
+    let Some(body) = body else {
+        return (None, None, None);
+    };
+    let mime_type = body.mime_type.clone();
+    if !body.can_render_as_text() {
+        return (None, body.base64_text(), mime_type);
+    }
+    match body.read_bytes() {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => (Some(text), None, mime_type),
+            // Not valid UTF-8: keep the exact bytes next to the lossy text.
+            Err(error) => {
+                let bytes = error.into_bytes();
+                (
+                    Some(String::from_utf8_lossy(&bytes).into_owned()),
+                    Some(BASE64_STANDARD.encode(&bytes)),
+                    mime_type,
+                )
+            }
+        },
+        Err(error) => {
+            tracing::warn!(
+                component = "desktop.script_decode",
+                event = "read_body_failed",
+                error = %error,
+                "read_body_failed"
+            );
+            (None, None, mime_type)
+        }
     }
 }
 
@@ -342,6 +368,51 @@ mod tests {
         assert!(payload.response.is_none());
         assert_eq!(payload.session.workspace_id, "ws-1");
         assert_eq!(payload.session.stage, ScriptTraceStage::Request);
+    }
+
+    #[test]
+    fn bodies_are_sent_once_unless_text_would_lose_bytes() {
+        let text = text_body("plain", "text/plain");
+        assert_eq!(
+            script_body(Some(&text)),
+            (
+                Some("plain".to_string()),
+                None,
+                Some("text/plain".to_string())
+            )
+        );
+
+        let binary = ProxyBodyReference::from_decoded_bytes(
+            vec![0, 159, 146, 150],
+            Some("application/octet-stream".to_string()),
+            4,
+            false,
+            false,
+        );
+        assert_eq!(
+            script_body(Some(&binary)),
+            (
+                None,
+                Some("AJ+Slg==".to_string()),
+                Some("application/octet-stream".to_string())
+            )
+        );
+
+        let invalid_utf8 = ProxyBodyReference::from_decoded_bytes(
+            vec![b'a', 0xff],
+            Some("text/plain".to_string()),
+            2,
+            false,
+            true,
+        );
+        assert_eq!(
+            script_body(Some(&invalid_utf8)),
+            (
+                Some("a\u{fffd}".to_string()),
+                Some("Yf8=".to_string()),
+                Some("text/plain".to_string())
+            )
+        );
     }
 
     #[test]

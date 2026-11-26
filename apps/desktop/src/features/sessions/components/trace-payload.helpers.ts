@@ -1,4 +1,4 @@
-import { formatJsonText, type JsonValue } from "./session-inspector.helpers";
+import { reindentJsonText, type JsonValue } from "./session-inspector.helpers";
 
 export type TracePayloadView = {
   language: "json" | "plain";
@@ -28,26 +28,34 @@ function isJsonContainer(value: JsonValue): boolean {
 
 /**
  * Turn a recorded trace value into display text. JSON documents are
- * pretty-printed like the JSON text tab; a serialized string is shown as its
- * content (and pretty-printed when it holds a JSON document itself); anything
- * unparseable, such as a value cut at the size limit, is kept verbatim.
+ * pretty-printed like the JSON text tab (re-indented, so 64-bit numbers keep
+ * their digits); a serialized string is shown as its content (and
+ * pretty-printed when it holds a JSON document itself); anything unparseable,
+ * such as a value cut at the size limit, is kept verbatim.
+ *
+ * `raw` values (rewrite before/after, recorded as plain header or body text)
+ * are never reformatted or unquoted, only highlighted when they are JSON.
  */
-export function formatTracePayload(raw: string): TracePayloadView {
+export function formatTracePayload(raw: string, options: { raw?: boolean } = {}): TracePayloadView {
   const parsed = tryParseJson(raw);
   if (!parsed.ok) {
     return { language: "plain", text: raw };
   }
 
+  if (options.raw) {
+    return { language: "json", text: raw };
+  }
+
   if (typeof parsed.value === "string") {
     const inner = tryParseJson(parsed.value);
     if (inner.ok && isJsonContainer(inner.value)) {
-      return { language: "json", text: formatJsonText(inner.value) };
+      return { language: "json", text: reindentJsonText(parsed.value) };
     }
     return { language: "plain", text: parsed.value };
   }
 
   if (isJsonContainer(parsed.value)) {
-    return { language: "json", text: formatJsonText(parsed.value) };
+    return { language: "json", text: reindentJsonText(raw) };
   }
 
   return { language: "json", text: raw };

@@ -17,12 +17,12 @@ import {
   type ScriptDecoderRef,
   type SessionSummary,
 } from "@aiproxy/shared-types";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { useI18n } from "@/i18n";
 import { fontFamilies } from "@/themes/fonts";
 import { useScriptDecode, type DecodeStage } from "../use-script-decode";
-import { resolveDecodedBodyView } from "./decoded-body.helpers";
+import type { DecodedBodyView } from "./decoded-body.helpers";
 import { formatCompactBytes, type SearchMatcher } from "./session-inspector.helpers";
 import { SearchableCodeBlock } from "./SessionInspectorShared";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
@@ -55,12 +55,12 @@ export function SessionInspectorDecodedView({
   stage: DecodeStage;
 }) {
   const { t } = useI18n();
-  const query = useScriptDecode(session, stage, true);
+  const query = useScriptDecode(session, stage, decoder.ruleId);
   const [viewMode, setViewMode] = useState<ViewMode>("tree");
   const [logsOpen, setLogsOpen] = useState(false);
-  const result = query.data;
+  const result = query.data?.result;
   const decoded = result?.decoded ?? null;
-  const view = useMemo(() => (decoded ? resolveDecodedBodyView(decoded) : null), [decoded]);
+  const view = query.data?.view ?? null;
   const treeAvailable = view?.language === "json" && view.treeAvailable;
   const effectiveMode: ViewMode = treeAvailable ? viewMode : "text";
   const ruleName = result?.ruleName ?? decoder.ruleName;
@@ -207,7 +207,7 @@ function DecodedContent({
   result: ScriptDecodeResult | null | undefined;
   ruleName: string;
   searchMatcher: SearchMatcher | null;
-  view: ReturnType<typeof resolveDecodedBodyView> | null;
+  view: DecodedBodyView | null;
 }) {
   const { t } = useI18n();
 

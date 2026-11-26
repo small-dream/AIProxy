@@ -29,6 +29,16 @@ describe("resolveDecodedBodyView", () => {
     expect(view.language).toBe("json");
   });
 
+  it("keeps 64-bit integers exact in the text view", () => {
+    const view = resolveDecodedBodyView({
+      kind: "text",
+      sizeBytes: 30,
+      text: '{"id":1234567890123456789}',
+      truncated: false,
+    });
+    expect(view.text).toBe('{\n    "id": 1234567890123456789\n}');
+  });
+
   it("keeps other text results as plain text", () => {
     expect(
       resolveDecodedBodyView({ kind: "text", sizeBytes: 5, text: "hello", truncated: false }),

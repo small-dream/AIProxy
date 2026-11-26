@@ -13,8 +13,10 @@ import {
   isResponseBodyStillLoading,
   parseFormEntries,
   parseJsonBody,
+  reindentJsonText,
   resolveResponseEmptyStateMessage,
   serializeJsonNode,
+  type JsonValue,
 } from "./session-inspector.helpers";
 
 function createBodyReference(overrides: Partial<BodyReference> = {}): BodyReference {
@@ -470,5 +472,31 @@ describe("isResponseBodyStillLoading", () => {
         isDetailFetching: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("reindentJsonText", () => {
+  it("matches the JSON text tab's formatting", () => {
+    const source = '{"a":1,"b":[true,null,{"c":"d"}],"e":{},"f":[],"g":"x"}';
+    expect(reindentJsonText(source)).toBe(formatJsonText(JSON.parse(source) as JsonValue));
+  });
+
+  it("keeps number tokens exactly, unlike a parse round-trip", () => {
+    expect(reindentJsonText('{"id":1234567890123456789,"price":1.10}')).toBe(
+      '{\n    "id": 1234567890123456789,\n    "price": 1.10\n}',
+    );
+  });
+
+  it("leaves punctuation and whitespace inside strings alone", () => {
+    expect(reindentJsonText('{"s":"a, {b}: [c]\\"  q"}')).toBe(
+      '{\n    "s": "a, {b}: [c]\\"  q"\n}',
+    );
+  });
+
+  it("normalizes existing indentation and keeps scalars as they are", () => {
+    expect(reindentJsonText('{\n  "a" :  [ 1 ,2 ]\n}')).toBe(
+      '{\n    "a": [\n        1,\n        2\n    ]\n}',
+    );
+    expect(reindentJsonText("42")).toBe("42");
   });
 });

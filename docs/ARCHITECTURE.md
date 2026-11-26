@@ -275,7 +275,7 @@ QuickJS 沙箱资源限制：
 - 每次代理 hook 执行 heap 上限 16MB、GC 阈值 8MB、执行超时 500ms
 - `rquickjs` 不启用 `allocator` feature，使用 QuickJS 默认分配器以确保内存追踪可靠
 - 超限行为与脚本异常一致：fail-open，仅记录 trace 不中断代理链
-- 解码 hook 单独限额：heap 64MB、执行超时 5s、返回内容最多 8MB（超出截断并标记）
+- 解码 hook 单独限额：heap 128MB（足够处理 20MB 捕获上限的消息体）、执行超时 5s、返回内容最多 8MB（超出截断并标记）
 
 断点实现机制：
 

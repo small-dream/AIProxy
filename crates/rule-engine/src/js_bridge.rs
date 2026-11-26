@@ -168,9 +168,14 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
     });
   };
 
-  const request = __aiproxyAttachBodyHelpers(__aiproxyClone(payload.request));
-  const response = payload.response ? __aiproxyAttachBodyHelpers(__aiproxyClone(payload.response)) : null;
-  const session = __aiproxyClone(payload.session);
+  // Decode hooks are read-only and get whole captured bodies (up to 20 MB):
+  // skip the defensive deep copies and mutation snapshots proxy hooks need,
+  // which would otherwise multiply the body's footprint on the heap.
+  const isDecodeHook = hookName === "decodeRequest" || hookName === "decodeResponse";
+  const copy = isDecodeHook ? function identity(value) { return value; } : __aiproxyClone;
+  const request = __aiproxyAttachBodyHelpers(copy(payload.request));
+  const response = payload.response ? __aiproxyAttachBodyHelpers(copy(payload.response)) : null;
+  const session = copy(payload.session);
 
   // Capture a pre-hook snapshot of the request/response so we can tell whether
   // the hook actually mutated them. The body helpers (setText/setHeader/...)
@@ -180,8 +185,8 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
   // actually rewritten, otherwise a log-only/no-op script on a gzip response
   // would decode the body, replace it, and drop content-encoding — changing
   // wire behavior for every matched script, not just body edits.
-  const requestSnapshot = JSON.stringify(request);
-  const responseSnapshot = response ? JSON.stringify(response) : null;
+  const requestSnapshot = isDecodeHook ? null : JSON.stringify(request);
+  const responseSnapshot = response && !isDecodeHook ? JSON.stringify(response) : null;
 
   const ctx = {
     request,
@@ -247,7 +252,6 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
   };
 
   const fn = globalThis.__aiproxyScriptExports[hookName];
-  const isDecodeHook = hookName === "decodeRequest" || hookName === "decodeResponse";
   if (typeof fn !== "function") {
     return JSON.stringify({
       skipped: true,
@@ -299,7 +303,7 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
       // and strip content-encoding. Unchanged request/response are sent back as
       // null so the Rust side no-ops on them (preserving the original wire
       // bytes/headers, including content-encoding).
-      const requestChanged = JSON.stringify(ctx.request) !== requestSnapshot;
+      const requestChanged = !isDecodeHook && JSON.stringify(ctx.request) !== requestSnapshot;
       const responseChanged =
         responseSnapshot !== null && JSON.stringify(ctx.response) !== responseSnapshot;
       // Decode hooks are read-only: only their return value is used. A

@@ -500,9 +500,9 @@ Sessions Page
 
 - Request：`Query / Form / Body / Decoded / Headers / Raw`
 - Response：`Overview / Preview / Messages / Headers / Text / JSON / JSON Text / Decoded / Raw / Automation / Trailers`（按 MIME 类型与协议动态显示；`Messages` 仅 WebSocket 会话，`Trailers` 仅响应携带 HTTP trailer 时显示，`Automation` 展示规则命中记录）
-- `Decoded`（解码）标签只在当前 workspace 有启用的脚本规则为该阶段导出 `decodeRequest` / `decodeResponse` 且匹配该会话时显示，位于原始消息体视图之后；导入的会话和 WebSocket 会话不显示。选中 `Decoded` 后切换会话，在新会话的解码规则查询完成前保持选中，确认没有解码规则后再回退（响应回到默认标签，请求回到 `Body`）
+- `Decoded`（解码）标签只在当前 workspace 有启用的脚本规则为该阶段导出 `decodeRequest` / `decodeResponse` 且 URL、方法匹配该会话时显示（忽略规则的阶段设置；每次挂载重新匹配，匹配只查内存），位于原始消息体视图之后；导入的会话和 WebSocket 会话不显示。选中 `Decoded` 后切换会话，在新会话的解码规则查询完成前保持选中，确认没有解码规则后再回退（响应回到默认标签，请求回到 `Body`）
 - `Decoded` 标签打开时才执行解码 hook，结果按「会话 + 阶段」缓存；保存、启停、删除脚本规则会让结果失效并重新解码，刷新按钮可手动重新解码。顶部一行从左到右为「树形 / 文本」切换（仅 JSON 结果且未超过 2 MB）、刷新、「日志（n）」按钮，右侧是规则名 · 耗时 · 大小；控件放在左侧，避免被浮动搜索栏遮挡
-- `Decoded` 复用 JSON 树与 `SearchableCodeBlock`：支持面板搜索、复制（复制格式化后的文本）、右键复制 Key / Value / Path。脚本失败显示 error Alert 与脚本抛出的消息，没有返回值、没有匹配规则、结果被截断或过大无法用树形显示时分别给出 info / warning 说明
+- `Decoded` 复用 JSON 树与 `SearchableCodeBlock`：支持面板搜索、复制（复制格式化后的文本）、右键复制 Key / Value / Path。文本视图与复制对解码结果原文只重排缩进，数字保持原文；树形视图展示解析后的值。解码结果按「会话 + 阶段 + 匹配规则」缓存，匹配规则变化（如切换 workspace）会重新解码；显示格式在查询内只计算一次。脚本失败显示 error Alert 与脚本抛出的消息，没有返回值、没有匹配规则、结果被截断或过大无法用树形显示时分别给出 info / warning 说明
 - `Preview` Tab 仅在响应 MIME 类型为图片（`image/*`）、音频（`audio/*`）或视频（`video/*`）时显示
 - 图片预览使用 `<img>` 渲染 data URI，支持 `object-fit: contain` 自适应容器，底部展示尺寸、MIME 类型、文件大小
 - 音频 / 视频预览使用原生 HTML5 `<audio>` / `<video>` 控件
@@ -880,7 +880,7 @@ Throttling Page
 - Session Automation tab 应展示 Throttling trace，让用户确认 profile / rule 是否命中
 - Automation tab 自身是滚动容器，内容高于面板时可以滚动查看，不得被裁切
 - 脚本 trace 卡片标题显示规则名称，规则 ID 作为次级文字；规则名称不可用时回退为规则 ID
-- trace 值（脚本日志 / 提取值、改写前后值）统一用 `TracePayloadBlock` 渲染：JSON 按 JSON Text 标签的缩进格式化并高亮；序列化字符串显示其内容，内容本身是 JSON 时再格式化；无法解析的值（例如截断后的值）原样显示。超过 8 行或 600 个字符的值默认折叠到 8 行并渐隐，下方提供「展开全部 / 收起」按钮（`aria-expanded` 同步状态）；右上角复制按钮复制格式化后的文本，成功或失败都在 tooltip 中反馈。长 token（base64、密文）强制换行，不出现横向滚动
+- trace 值（脚本日志 / 提取值、改写前后值）统一用 `TracePayloadBlock` 渲染：脚本日志 / 提取值中的 JSON 按 JSON Text 标签的缩进重排并高亮（只重排缩进，不经过解析再序列化，64 位整数等数字保持原文）；序列化字符串显示其内容，内容本身是 JSON 时再格式化；无法解析的值（例如截断后的值）原样显示。改写前后值、映射地址按原文显示（`raw`），不去引号、不重排，JSON 只做高亮。超过 8 行或 600 个字符的值默认折叠到 8 行并渐隐，下方提供「展开全部 / 收起」按钮（`aria-expanded` 同步状态）；右上角复制按钮复制格式化后的文本，成功或失败都在 tooltip 中反馈。长 token（base64、密文）强制换行，不出现横向滚动
 - 后端截断过的值（`payloadOriginalBytes` 存在）在值下方用 warning 色说明「仅保留前 8 KB，原始 N」，不得把前缀当作完整值展示
 
 ## 9.6 Sessions Export

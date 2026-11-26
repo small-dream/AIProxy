@@ -368,6 +368,77 @@ export function formatJsonText(value: JsonValue) {
   return JSON.stringify(value, null, JSON_TEXT_INDENT_SPACES);
 }
 
+/**
+ * Pretty-print JSON text with the same layout as `formatJsonText`, but by
+ * re-indenting the tokens instead of a parse/stringify round-trip, so values
+ * such as 64-bit IDs (`1234567890123456789`) and `1.10` keep their exact
+ * digits. The input must already be valid JSON.
+ */
+export function reindentJsonText(text: string): string {
+  const parts: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  const newline = (level: number) => `\n${" ".repeat(level * JSON_TEXT_INDENT_SPACES)}`;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index] as string;
+
+    if (inString) {
+      parts.push(char);
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    switch (char) {
+      case '"':
+        inString = true;
+        parts.push(char);
+        break;
+      case "{":
+      case "[": {
+        const close = char === "{" ? "}" : "]";
+        let next = index + 1;
+        while (next < text.length && /\s/.test(text[next] as string)) next += 1;
+        if (text[next] === close) {
+          parts.push(char, close);
+          index = next;
+        } else {
+          depth += 1;
+          parts.push(char, newline(depth));
+        }
+        break;
+      }
+      case "}":
+      case "]":
+        depth -= 1;
+        parts.push(newline(depth), char);
+        break;
+      case ",":
+        parts.push(",", newline(depth));
+        break;
+      case ":":
+        parts.push(": ");
+        break;
+      case " ":
+      case "\n":
+      case "\r":
+      case "\t":
+        break;
+      default:
+        parts.push(char);
+    }
+  }
+
+  return parts.join("");
+}
+
 export function normalizeSearch(searchQuery: string | undefined) {
   return searchQuery?.trim().toLocaleLowerCase() ?? "";
 }

@@ -34,14 +34,17 @@ type CopyState = "idle" | "copied" | "failed";
  */
 export function TracePayloadBlock({
   originalBytes,
+  raw = false,
   value,
 }: {
   originalBytes?: number | null | undefined;
+  /** Show the value verbatim (no unquoting or re-indenting), e.g. rewrite diffs. */
+  raw?: boolean;
   value: string;
 }) {
   const { t } = useI18n();
   const paletteMode = useTheme().palette.mode;
-  const view = useMemo(() => formatTracePayload(value), [value]);
+  const view = useMemo(() => formatTracePayload(value, { raw }), [raw, value]);
   const collapsible = useMemo(() => shouldCollapseTracePayload(view.text), [view.text]);
   const [expanded, setExpanded] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>("idle");

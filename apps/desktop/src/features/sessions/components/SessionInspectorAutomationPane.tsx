@@ -222,7 +222,7 @@ function DiffValue({ label, value }: { label: string; value: string | undefined 
           {t("automationTab.emptyValue")}
         </Typography>
       ) : (
-        <TracePayloadBlock value={value} />
+        <TracePayloadBlock raw value={value} />
       )}
     </Stack>
   );

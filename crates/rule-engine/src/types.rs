@@ -20,7 +20,8 @@ pub(crate) const SCRIPT_MEMORY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 /// Decode hooks run on demand when the user opens the Decoded tab, never on
 /// the proxy path, so they get room for pure-JS decryption of large bodies.
 pub(crate) const DECODE_EXECUTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-pub(crate) const DECODE_MEMORY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
+/// Room for a body at the 20 MB capture limit plus the hook's own decoding.
+pub(crate) const DECODE_MEMORY_LIMIT_BYTES: usize = 128 * 1024 * 1024;
 /// Upper bound for the text a decode hook hands back to the inspector.
 pub const MAX_DECODED_BODY_BYTES: usize = 8 * 1024 * 1024;
 

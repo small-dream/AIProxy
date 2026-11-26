@@ -39,6 +39,32 @@ describe("formatTracePayload", () => {
   });
 });
 
+describe("formatTracePayload precision and raw values", () => {
+  it("keeps 64-bit integers exact when pretty-printing", () => {
+    expect(formatTracePayload('{"id":1234567890123456789}').text).toBe(
+      '{\n    "id": 1234567890123456789\n}',
+    );
+    expect(formatTracePayload(JSON.stringify('{"id":1234567890123456789}')).text).toBe(
+      '{\n    "id": 1234567890123456789\n}',
+    );
+  });
+
+  it("shows raw values verbatim, such as quoted header values and rewritten bodies", () => {
+    expect(formatTracePayload('"33a64df5"', { raw: true })).toEqual({
+      language: "json",
+      text: '"33a64df5"',
+    });
+    expect(formatTracePayload('{"price":1.0}', { raw: true })).toEqual({
+      language: "json",
+      text: '{"price":1.0}',
+    });
+    expect(formatTracePayload("BYP5APNO8D/co", { raw: true })).toEqual({
+      language: "plain",
+      text: "BYP5APNO8D/co",
+    });
+  });
+});
+
 describe("shouldCollapseTracePayload", () => {
   it("leaves short values expanded", () => {
     expect(shouldCollapseTracePayload('{"tabId":9}')).toBe(false);

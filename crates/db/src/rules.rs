@@ -1276,11 +1276,23 @@ pub fn load_script_run_entries(
         return Ok(Vec::new());
     }
 
-    let sql = "SELECT id, run_id, kind, level, key, message, payload_json, seq,
-                      payload_original_bytes
-               FROM script_run_entries
-               WHERE run_id IN ({})
-               ORDER BY seq ASC, id ASC";
+    // The read-only MCP server never migrates, so a database last written by
+    // an older app version may lack this column; read it as NULL then.
+    let original_bytes_column = if crate::connection::table_has_columns(
+        conn,
+        "script_run_entries",
+        &["payload_original_bytes"],
+    )? {
+        "payload_original_bytes"
+    } else {
+        "NULL"
+    };
+    let sql = format!(
+        "SELECT id, run_id, kind, level, key, message, payload_json, seq, {original_bytes_column}
+         FROM script_run_entries
+         WHERE run_id IN ({{}})
+         ORDER BY seq ASC, id ASC"
+    );
 
     let mut entries = Vec::new();
     // Query in batches so the placeholder count stays under SQLite's
@@ -2204,6 +2216,35 @@ mod tests {
         assert_eq!(loaded_entries.len(), 1);
         assert_eq!(loaded_entries[0].message.as_deref(), Some("hello"));
         assert_eq!(loaded_entries[0].payload_original_bytes, Some(20_002));
+    }
+
+    // The MCP server opens the database read-only and never migrates it, so
+    // reading traces from a database written by an older app version (before
+    // `payload_original_bytes` existed) must still work.
+    #[test]
+    fn loads_script_run_entries_from_a_database_without_original_size_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE script_run_entries (
+                id TEXT NOT NULL PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                level TEXT,
+                key TEXT,
+                message TEXT,
+                payload_json TEXT,
+                seq INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO script_run_entries (id, run_id, kind, payload_json, seq)
+            VALUES ('entry-1', 'run-1', 'extraction', '{\"ok\":true}', 0);",
+        )
+        .unwrap();
+
+        let entries = load_script_run_entries(&conn, &["run-1".into()]).unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].payload_json.as_deref(), Some(r#"{"ok":true}"#));
+        assert_eq!(entries[0].payload_original_bytes, None);
     }
 
     // Regression for H6: `load_script_run_entries` must chunk the `IN (...)`

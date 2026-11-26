@@ -1030,4 +1030,63 @@ export function decodeResponse(ctx) { return { decoded: true }; }
         assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
         assert!(result.response.is_none());
     }
+
+    // Decode hooks receive whole captured bodies; the bridge must not burn the
+    // heap on defensive copies, or multi-megabyte bodies fail before the hook
+    // even runs.
+    #[test]
+    fn decode_hook_handles_multi_megabyte_bodies() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function decodeResponse(ctx) { return String(ctx.response.getText().length); }",
+        ))
+        .unwrap();
+
+        // Up to the 20 MB capture limit, ASCII and CJK alike.
+        for (body, chars) in [
+            ("a".repeat(20 * 1024 * 1024), 20 * 1024 * 1024),
+            ("字".repeat(6 * 1024 * 1024), 6 * 1024 * 1024),
+        ] {
+            let mut input = response_payload();
+            input.response.as_mut().unwrap().body_text = Some(body);
+
+            let result = execute_decode_hook(&compiled, ScriptTraceStage::Response, input);
+
+            assert_eq!(
+                result.trace.outcome,
+                ScriptRunOutcome::Success,
+                "{:?}",
+                result.trace.entries
+            );
+            assert_eq!(
+                result.decoded.expect("decoded body").text,
+                chars.to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn memory_exhaustion_is_reported_as_such() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function decodeResponse() { const parts = []; for (;;) parts.push('x'.repeat(1024 * 1024) + parts.length); }",
+        ))
+        .unwrap();
+
+        let result = execute_decode_hook(&compiled, ScriptTraceStage::Response, response_payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::RuntimeError);
+        let messages: Vec<_> = result
+            .trace
+            .entries
+            .iter()
+            .filter_map(|entry| entry.message.as_deref())
+            .collect();
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("128 MB memory limit")),
+            "got: {messages:?}"
+        );
+    }
 }

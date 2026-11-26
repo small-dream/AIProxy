@@ -58,7 +58,6 @@ import { SearchBar } from "./SearchBar";
 import { useSearchController } from "./use-search-controller";
 import { useSessionDetailFetching } from "../use-session-detail";
 import { useScriptDecode, useScriptDecoders } from "../use-script-decode";
-import { resolveDecodedBodyView } from "./decoded-body.helpers";
 
 export type ResponsePaneHandle = {
   activateSearch: () => void;
@@ -189,7 +188,7 @@ export const SessionInspectorResponsePane = forwardRef<
   const decodeQuery = useScriptDecode(
     session,
     "response",
-    activeResponseTab === "decoded" && responseDecoder !== null,
+    activeResponseTab === "decoded" ? (responseDecoder?.ruleId ?? null) : null,
   );
 
   useEffect(() => {
@@ -251,10 +250,7 @@ export const SessionInspectorResponsePane = forwardRef<
         : activeResponseTab === "raw"
           ? t("inspector.response.rawSearchPlaceholder")
           : t("inspector.response.rawSearchPlaceholder");
-  const decodedCopyText = useMemo(() => {
-    const decoded = decodeQuery.data?.decoded;
-    return decoded ? resolveDecodedBodyView(decoded).text : "";
-  }, [decodeQuery.data]);
+  const decodedCopyText = decodeQuery.data?.view?.text ?? "";
   const copyValue = useMemo(() => {
     if (activeResponseTab === "decoded") {
       return decodedCopyText;

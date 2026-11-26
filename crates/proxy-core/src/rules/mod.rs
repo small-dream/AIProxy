@@ -203,7 +203,7 @@ fn active_script_rules_for_stage(
     matching_script_rules(
         manager,
         workspace_id,
-        stage,
+        Some(stage),
         request.method.as_str(),
         request.url.as_str(),
     )
@@ -213,7 +213,9 @@ fn active_script_rules_for_stage(
 }
 
 /// Enabled script rules whose decode hook applies to a captured message,
-/// highest priority first. Used by the inspector's Decoded view.
+/// highest priority first. Used by the inspector's Decoded view. The rule's
+/// stage setting is ignored: it selects which proxy hook runs, while decode
+/// hooks already name their stage.
 pub fn script_decoders_for(
     manager: &ScriptManager,
     workspace_id: &str,
@@ -221,11 +223,7 @@ pub fn script_decoders_for(
     method: &str,
     url: &str,
 ) -> Vec<CompiledScriptRule> {
-    let stage_name = match stage {
-        ScriptTraceStage::Request => "request",
-        ScriptTraceStage::Response => "response",
-    };
-    matching_script_rules(manager, workspace_id, stage_name, method, url)
+    matching_script_rules(manager, workspace_id, None, method, url)
         .into_iter()
         .filter(|rule| rule.rule.entrypoints.decodes(&stage))
         .collect()
@@ -234,7 +232,7 @@ pub fn script_decoders_for(
 fn matching_script_rules(
     manager: &ScriptManager,
     workspace_id: &str,
-    stage: &str,
+    stage: Option<&str>,
     method: &str,
     url: &str,
 ) -> Vec<CompiledScriptRule> {
@@ -246,7 +244,9 @@ fn matching_script_rules(
         .iter()
         .filter(|rule| rule.rule.enabled)
         .filter(|rule| rule.rule.workspace_id == workspace_id)
-        .filter(|rule| rule_stage_matches(&rule.rule.r#match.stage, stage))
+        .filter(|rule| {
+            stage.is_none_or(|stage| rule_stage_matches(&rule.rule.r#match.stage, stage))
+        })
         .filter(|rule| {
             let methods = &rule.rule.r#match.methods;
             methods.is_empty() || methods.iter().any(|m| m.eq_ignore_ascii_case(method))
@@ -511,10 +511,21 @@ mod tests {
                 5,
                 "export function onResponse(ctx) {}\nexport function decodeResponse(ctx) { return 1; }",
             ),
+            {
+                // The stage setting picks which proxy hook runs; decode hooks
+                // already name their stage, so it must not hide them.
+                let mut rule = script_rule(
+                    "request-decoder",
+                    1,
+                    "export function decodeRequest(ctx) { return 1; }",
+                );
+                rule.rule.r#match.stage = "response".to_string();
+                rule
+            },
         ]);
         let url = "https://api.example.com/app/data";
 
-        let proxy_rules = matching_script_rules(&manager, "default", "request", "POST", url)
+        let proxy_rules = matching_script_rules(&manager, "default", Some("request"), "POST", url)
             .into_iter()
             .filter(|rule| rule.rule.entrypoints.has_proxy_hook())
             .collect::<Vec<_>>();
@@ -523,9 +534,15 @@ mod tests {
         let decoders =
             script_decoders_for(&manager, "default", ScriptTraceStage::Response, "post", url);
         assert_eq!(rule_ids(&decoders), ["decoder", "both"]);
-        assert!(
-            script_decoders_for(&manager, "default", ScriptTraceStage::Request, "POST", url)
-                .is_empty()
+        assert_eq!(
+            rule_ids(&script_decoders_for(
+                &manager,
+                "default",
+                ScriptTraceStage::Request,
+                "POST",
+                url
+            )),
+            ["request-decoder"]
         );
         assert!(
             script_decoders_for(&manager, "default", ScriptTraceStage::Response, "GET", url)
