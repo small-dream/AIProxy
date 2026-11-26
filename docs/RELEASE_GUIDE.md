@@ -32,6 +32,8 @@
 
 > 说明：`81dfbfdc4fb91459630b8268308596d8cf9b29ce` 这次发版就是按这 5 处一起改的。以后发新版本先把这 5 个地方统一更新，再跑下面的检查和打包，避免版本号不一致导致 Settings 一直误报有新版本。
 
+**版本号取值：** 先 `git fetch --tags` 以**远程**最新 tag 为准，目标版本 = 远程最新发布 tag + 1。本地 clone 可能落后远程（v0.4.6 发布时就出现过：远程已发布该版本而本地 master 无其历史），按本地历史定版本号会撞掉已发布的版本号。动手前用 `git ls-remote --tags origin` 确认目标版本不存在。
+
 ### Build Number 与唯一标识
 
 - 桌面端 build script 会在编译时执行 `git rev-list --count HEAD`，并写入 `AIPROXY_BUILD_NUMBER`。
@@ -316,6 +318,8 @@ updater artifacts 为**条件性开启**：`release.yml` 检测到 `TAURI_SIGNIN
 
 如果未配置平台签名证书，Release workflow 仍允许产出未签名安装包。工作流会仅针对受影响的平台追加用户可执行的风险提示；不会生成单独的签名状态表格。
 
+> 注意：`cargo audit` 只在 `ci.yml` 质量门禁中执行，`release.yml` **不跑**。RustSec advisory 数据库滚动更新，新的已披露漏洞会随时让 master CI 变红（与代码改动无关，v0.4.6 / v0.4.7 发布时都遇到）。处理方式是 `cargo update -p <crate> --precise <patched>` 补丁升级、本地测试通过后推送到 `master`，CI 即恢复绿色；`release.yml` 不受影响，无需为此阻塞发布。
+
 ## 9. 自动更新验证
 
 每次发布前至少验证：
@@ -350,6 +354,18 @@ Windows 上应用内更新以静默模式运行：`tauri.conf.json` 的 `plugins
 2. 将 `latest.json` 回滚到上一稳定版本
 3. 发布修复版本，例如 `v0.1.1`
 4. 在 Release Notes 中说明受影响版本、回滚建议和系统代理手动恢复方式
+
+### 已发布版本需要补充修复（重打 tag）
+
+如果 tag 已推送并触发发布，但随后需要把一个补丁纳入**同一版本**（例如发布后 master CI 才被新的 RustSec advisory 挂红，v0.4.6 / v0.4.7 均按此处理）：
+
+1. 先把补丁提交推送到 `master`，确认 CI 转绿
+2. 等当前 release workflow 跑完、GitHub Release 发布完成——**不要在首次构建仍在进行时移动 tag**，两个 run 会竞争发布
+3. 本地删除并重建同名 annotated tag 指向含补丁的 commit：`git tag -d vX.Y.Z && git tag -a vX.Y.Z -m "Release vX.Y.Z" <commit>`
+4. `git push origin vX.Y.Z --force` 重新触发 release workflow，`softprops/action-gh-release` 会覆盖资产与 `latest.json`（双语发布摘要取自新的 tag 指向的 `docs/releases/vX.Y.Z.md`）
+5. 重跑完成后按第 9 节验证 `latest.json` 与各平台包 URL
+
+窗口期说明：重打 tag 期间已自动更新的客户端可能拿到首次构建，两个构建功能等价、只差补丁，可接受；如果补丁本身是行为修复而非安全补丁，也可以选择不重打 tag，让补丁随下一版本发布。
 
 ## 12. 当前仓库的已知发布边界
 
