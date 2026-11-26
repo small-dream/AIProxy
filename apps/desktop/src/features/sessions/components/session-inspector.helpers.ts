@@ -86,11 +86,12 @@ export function buildSearchMatcher(query: string, options: SearchOptions): Searc
   };
 }
 
-export type RequestInspectorTab = "query" | "headers" | "body" | "form" | "raw";
+export type RequestInspectorTab = "query" | "headers" | "body" | "form" | "raw" | "decoded";
 
 export type ResponseInspectorTab =
   | "overview"
   | "automation"
+  | "decoded"
   | "headers"
   | "messages"
   | "preview"
@@ -159,7 +160,7 @@ export type JsonValue =
   | { [key: string]: JsonValue };
 
 const LARGE_JSON_SOFT_LIMIT = 256 * 1024;
-const LARGE_JSON_HARD_LIMIT = 2 * 1024 * 1024;
+export const LARGE_JSON_HARD_LIMIT = 2 * 1024 * 1024;
 const JSON_TEXT_INDENT_SPACES = 4;
 const DEFAULT_JSON_PARSE_MESSAGES = enMessages.inspector.jsonParse;
 const DEFAULT_COMMON_MESSAGES = enMessages.common;

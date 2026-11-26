@@ -558,6 +558,8 @@ pub(crate) fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
         serde_json::from_str(&row.entrypoints).unwrap_or(ScriptEntrypoints {
             on_request: false,
             on_response: false,
+            decode_request: false,
+            decode_response: false,
         });
 
     CompiledScriptRule {

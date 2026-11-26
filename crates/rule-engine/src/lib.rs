@@ -5,15 +5,18 @@ mod types;
 
 // Public API re-exports — consumers use `aiproxy_rule_engine::ScriptRule` etc.
 pub use types::{
-    CompiledScriptRule, ScriptEntrypoints, ScriptHeader, ScriptHookPayload, ScriptHookResult,
-    ScriptLogLevel, ScriptManager, ScriptRequest, ScriptResponse, ScriptResponseOverride,
-    ScriptRule, ScriptRuleLanguage, ScriptRuleMatch, ScriptRuleSourceType, ScriptRunEntry,
-    ScriptRunEntryKind, ScriptRunOutcome, ScriptSessionInfo, ScriptTrace, ScriptTraceStage,
+    CompiledScriptRule, ScriptDecodeResult, ScriptDecodedBody, ScriptDecodedKind,
+    ScriptEntrypoints, ScriptHeader, ScriptHookPayload, ScriptHookResult, ScriptLogLevel,
+    ScriptManager, ScriptRequest, ScriptResponse, ScriptResponseOverride, ScriptRule,
+    ScriptRuleLanguage, ScriptRuleMatch, ScriptRuleSourceType, ScriptRunEntry, ScriptRunEntryKind,
+    ScriptRunOutcome, ScriptSessionInfo, ScriptTrace, ScriptTraceStage,
 };
 
 pub use compile::compile_script_rule;
-pub use execute::{execute_request_hook, execute_response_hook, trim_to_byte_limit};
-pub use types::MAX_LOG_ENTRY_BYTES;
+pub use execute::{
+    execute_decode_hook, execute_request_hook, execute_response_hook, trim_to_byte_limit,
+};
+pub use types::{MAX_DECODED_BODY_BYTES, MAX_LOG_ENTRY_BYTES};
 
 #[cfg(test)]
 mod tests {
@@ -40,6 +43,8 @@ mod tests {
             entrypoints: ScriptEntrypoints {
                 on_request: false,
                 on_response: false,
+                decode_request: false,
+                decode_response: false,
             },
         }
     }
@@ -833,5 +838,196 @@ export function onRequest() {
             error_messages.iter().any(|m| m.contains("never settled")),
             "expected an error mentioning 'never settled', got: {error_messages:?}"
         );
+    }
+
+    fn response_payload() -> ScriptHookPayload {
+        let mut input = payload();
+        input.session.stage = ScriptTraceStage::Response;
+        input
+    }
+
+    #[test]
+    fn detects_decode_entrypoints_without_proxy_hooks() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            r#"
+export function decodeRequest(ctx) { return ctx.request.getJson(); }
+export async function decodeResponse(ctx) { return ctx.response.getText(); }
+"#,
+        ))
+        .expect("decode-only scripts compile");
+
+        let entrypoints = &compiled.rule.entrypoints;
+        assert!(!entrypoints.on_request && !entrypoints.on_response);
+        assert!(entrypoints.decode_request && entrypoints.decode_response);
+        assert!(!entrypoints.has_proxy_hook());
+        assert!(compiled
+            .compiled_code
+            .contains("__aiproxyScriptExports.decodeResponse = async function decodeResponse("));
+    }
+
+    #[test]
+    fn rejects_scripts_without_any_supported_export() {
+        let error = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "function helper() { return 1; }",
+        ))
+        .unwrap_err();
+
+        assert!(error.contains("decodeResponse"), "got: {error}");
+    }
+
+    #[test]
+    fn decode_hook_returns_objects_as_json() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            r#"
+export function decodeResponse(ctx) {
+  ctx.log.info("decoding", { status: ctx.response.status });
+  return { token: ctx.response.getJson().token, decoded: true };
+}
+"#,
+        ))
+        .unwrap();
+
+        let result = execute_decode_hook(&compiled, ScriptTraceStage::Response, response_payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
+        let decoded = result.decoded.expect("decoded body");
+        assert_eq!(decoded.kind, ScriptDecodedKind::Json);
+        assert_eq!(decoded.text, r#"{"token":"abc","decoded":true}"#);
+        assert_eq!(decoded.size_bytes, decoded.text.len() as u64);
+        assert!(!decoded.truncated);
+        assert_eq!(result.trace.entries.len(), 1);
+    }
+
+    #[test]
+    fn decode_hook_returns_strings_as_text() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function decodeRequest(ctx) { return 'plain: ' + ctx.request.getText(); }",
+        ))
+        .unwrap();
+
+        let result = execute_decode_hook(&compiled, ScriptTraceStage::Request, payload());
+
+        let decoded = result.decoded.expect("decoded body");
+        assert_eq!(decoded.kind, ScriptDecodedKind::Text);
+        assert_eq!(decoded.text, r#"plain: {"ok":true}"#);
+    }
+
+    #[test]
+    fn decode_hook_without_a_result_reports_success_without_body() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function decodeResponse(ctx) { if (!ctx.response.getText().includes('cipher')) return; }",
+        ))
+        .unwrap();
+
+        let result = execute_decode_hook(&compiled, ScriptTraceStage::Response, response_payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
+        assert!(result.decoded.is_none());
+    }
+
+    #[test]
+    fn decode_hook_for_a_missing_stage_is_skipped() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function decodeResponse(ctx) { return 1; }",
+        ))
+        .unwrap();
+
+        let result = execute_decode_hook(&compiled, ScriptTraceStage::Request, payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Skipped);
+        assert!(result.decoded.is_none());
+    }
+
+    #[test]
+    fn decode_hook_errors_surface_as_runtime_errors() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function decodeResponse(ctx) { throw new Error('bad key'); }",
+        ))
+        .unwrap();
+
+        let result = execute_decode_hook(&compiled, ScriptTraceStage::Response, response_payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::RuntimeError);
+        assert!(result.decoded.is_none());
+        assert!(result
+            .trace
+            .entries
+            .iter()
+            .any(|entry| entry.message.as_deref() == Some("bad key")));
+    }
+
+    #[test]
+    fn decode_hook_rejects_values_that_cannot_be_serialized() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function decodeResponse() { return function nope() {}; }",
+        ))
+        .unwrap();
+
+        let result = execute_decode_hook(&compiled, ScriptTraceStage::Response, response_payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::RuntimeError);
+        assert!(result.decoded.is_none());
+    }
+
+    // Decoding runs on demand, off the proxy path, so it gets a longer budget
+    // than the 500 ms proxy hooks: pure-JS decryption of a large body is slow.
+    #[test]
+    fn decode_hook_outlives_the_proxy_hook_time_budget() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function decodeResponse() { const end = Date.now() + 700; while (Date.now() < end) {} return 'done'; }",
+        ))
+        .unwrap();
+
+        let result = execute_decode_hook(&compiled, ScriptTraceStage::Response, response_payload());
+
+        assert_eq!(
+            result.trace.outcome,
+            ScriptRunOutcome::Success,
+            "{:?}",
+            result.trace.entries
+        );
+        assert_eq!(result.decoded.expect("decoded body").text, "done");
+    }
+
+    #[test]
+    fn oversized_decode_output_is_truncated_and_flagged() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            "export function decodeResponse() { return 'x'.repeat(9 * 1024 * 1024); }",
+        ))
+        .unwrap();
+
+        let result = execute_decode_hook(&compiled, ScriptTraceStage::Response, response_payload());
+
+        let decoded = result.decoded.expect("decoded body");
+        assert!(decoded.truncated);
+        assert_eq!(decoded.text.len(), MAX_DECODED_BODY_BYTES);
+        assert_eq!(decoded.size_bytes, 9 * 1024 * 1024);
+    }
+
+    #[test]
+    fn proxy_hooks_ignore_decode_return_values() {
+        let compiled = compile_script_rule(base_rule(
+            ScriptRuleLanguage::JavaScript,
+            r#"
+export function onResponse(ctx) { return { ignored: true }; }
+export function decodeResponse(ctx) { return { decoded: true }; }
+"#,
+        ))
+        .unwrap();
+
+        let result = execute_response_hook(&compiled, response_payload());
+
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
+        assert!(result.response.is_none());
     }
 }

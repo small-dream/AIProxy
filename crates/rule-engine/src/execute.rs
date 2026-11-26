@@ -106,35 +106,94 @@ impl Drop for ScriptPermitGuard<'_> {
 /// Process-wide gate. `static` is fine: the gate holds no per-request state.
 static SCRIPT_GATE: ScriptConcurrencyGate = ScriptConcurrencyGate::new();
 
+/// Wall-clock and heap budget for one hook run.
+#[derive(Clone, Copy)]
+struct ExecutionLimits {
+    timeout: Duration,
+    memory_limit_bytes: usize,
+}
+
+const PROXY_HOOK_LIMITS: ExecutionLimits = ExecutionLimits {
+    timeout: SCRIPT_EXECUTION_TIMEOUT,
+    memory_limit_bytes: SCRIPT_MEMORY_LIMIT_BYTES,
+};
+
+const DECODE_HOOK_LIMITS: ExecutionLimits = ExecutionLimits {
+    timeout: DECODE_EXECUTION_TIMEOUT,
+    memory_limit_bytes: DECODE_MEMORY_LIMIT_BYTES,
+};
+
 pub fn execute_request_hook(
     rule: &CompiledScriptRule,
     payload: ScriptHookPayload,
 ) -> ScriptHookResult {
-    execute_hook(rule, "onRequest", ScriptTraceStage::Request, payload)
+    let hook_enabled = rule.rule.entrypoints.on_request;
+    execute_hook(
+        rule,
+        "onRequest",
+        ScriptTraceStage::Request,
+        hook_enabled,
+        payload,
+        PROXY_HOOK_LIMITS,
+    )
+    .0
 }
 
 pub fn execute_response_hook(
     rule: &CompiledScriptRule,
     payload: ScriptHookPayload,
 ) -> ScriptHookResult {
-    execute_hook(rule, "onResponse", ScriptTraceStage::Response, payload)
+    let hook_enabled = rule.rule.entrypoints.on_response;
+    execute_hook(
+        rule,
+        "onResponse",
+        ScriptTraceStage::Response,
+        hook_enabled,
+        payload,
+        PROXY_HOOK_LIMITS,
+    )
+    .0
+}
+
+/// Run the rule's read-only `decodeRequest` / `decodeResponse` hook against a
+/// captured message. Only the hook's return value is used: mutations and
+/// `ctx.respond()` are ignored, and nothing is sent on the wire.
+pub fn execute_decode_hook(
+    rule: &CompiledScriptRule,
+    stage: ScriptTraceStage,
+    payload: ScriptHookPayload,
+) -> ScriptDecodeResult {
+    let hook_name = match stage {
+        ScriptTraceStage::Request => "decodeRequest",
+        ScriptTraceStage::Response => "decodeResponse",
+    };
+    let hook_enabled = rule.rule.entrypoints.decodes(&stage);
+    let (result, decoded) = execute_hook(
+        rule,
+        hook_name,
+        stage,
+        hook_enabled,
+        payload,
+        DECODE_HOOK_LIMITS,
+    );
+    ScriptDecodeResult {
+        decoded,
+        trace: result.trace,
+    }
 }
 
 fn execute_hook(
     rule: &CompiledScriptRule,
     hook_name: &'static str,
     stage: ScriptTraceStage,
+    hook_enabled: bool,
     payload: ScriptHookPayload,
-) -> ScriptHookResult {
+    limits: ExecutionLimits,
+) -> (ScriptHookResult, Option<ScriptDecodedBody>) {
     let start = Instant::now();
 
-    let hook_enabled = match stage {
-        ScriptTraceStage::Request => rule.rule.entrypoints.on_request,
-        ScriptTraceStage::Response => rule.rule.entrypoints.on_response,
-    };
-
     if !hook_enabled {
-        return ScriptHookResult {
+        let skipped = ScriptHookResult {
             request: None,
             response: None,
             response_override: None,
@@ -147,17 +206,21 @@ fn execute_hook(
                 stage,
             },
         };
+        return (skipped, None);
     }
 
     let payload_json = match serde_json::to_string(&payload) {
         Ok(value) => value,
         Err(error) => {
-            return runtime_failure_trace(
-                rule,
-                stage,
-                ScriptRunOutcome::InvalidResult,
-                format!("failed to serialize script payload: {error}"),
-                start.elapsed().as_millis(),
+            return (
+                runtime_failure_trace(
+                    rule,
+                    stage,
+                    ScriptRunOutcome::InvalidResult,
+                    format!("failed to serialize script payload: {error}"),
+                    start.elapsed().as_millis(),
+                ),
+                None,
             );
         }
     };
@@ -174,16 +237,19 @@ fn execute_hook(
     let permit = match SCRIPT_GATE.acquire(start + SCRIPT_SLOT_ACQUIRE_TIMEOUT) {
         Some(permit) => permit,
         None => {
-            return runtime_failure_trace(
-                rule,
-                stage,
-                ScriptRunOutcome::RuntimeError,
-                format!(
-                    "script concurrency limit ({} concurrent) reached; hook skipped to avoid \
-                     thread exhaustion",
-                    MAX_CONCURRENT_SCRIPT_THREADS
+            return (
+                runtime_failure_trace(
+                    rule,
+                    stage,
+                    ScriptRunOutcome::RuntimeError,
+                    format!(
+                        "script concurrency limit ({} concurrent) reached; hook skipped to avoid \
+                         thread exhaustion",
+                        MAX_CONCURRENT_SCRIPT_THREADS
+                    ),
+                    start.elapsed().as_millis(),
                 ),
-                start.elapsed().as_millis(),
+                None,
             );
         }
     };
@@ -202,116 +268,119 @@ fn execute_hook(
             hook_name,
             &payload_json,
             thread_cancel_flag,
-            SCRIPT_EXECUTION_TIMEOUT,
+            limits,
         );
         let _ = sender.send(execution);
     });
 
-    match receiver.recv_timeout(SCRIPT_EXECUTION_TIMEOUT + Duration::from_millis(10)) {
-        Ok(Ok(result)) => {
-            let mut entries = sanitize_entries(result.entries);
-            // The JS bridge catches hook throws/rejections and re-resolves with
-            // `runtimeError: true` so the pre-throw entries survive (M3). Such
-            // a result is a deliberate failure: mark it RuntimeError and, to
-            // preserve the fail-open semantics shared with `runtime_failure_trace`,
-            // drop any request/response mutations the script made before throwing
-            // — but keep the entries (logs/extractions) the user needs to debug.
-            let outcome = if result.runtime_error {
-                ScriptRunOutcome::RuntimeError
-            } else if result.skipped {
-                ScriptRunOutcome::Skipped
-            } else {
-                ScriptRunOutcome::Success
-            };
-            let (request, response, response_override) = if result.runtime_error {
-                (None, None, None)
-            } else {
-                (result.request, result.response, result.response_override)
-            };
+    // Classify a failed run by the error content: a genuine timeout surfaces
+    // as QuickJS "interrupted" from the interrupt handler. Judging by
+    // wall-clock `start.elapsed()` mislabels fast failures as TimedOut under
+    // load, because `start` also covers the SCRIPT_GATE acquire wait.
+    let failure = |error: String| {
+        let outcome = if error.contains("interrupted") {
+            ScriptRunOutcome::TimedOut
+        } else {
+            ScriptRunOutcome::RuntimeError
+        };
+        (
+            runtime_failure_trace(rule, stage, outcome, error, start.elapsed().as_millis()),
+            None,
+        )
+    };
 
-            ScriptHookResult {
-                request,
-                response,
-                response_override,
-                trace: ScriptTrace {
-                    duration_ms: start.elapsed().as_millis(),
-                    entries: std::mem::take(&mut entries),
-                    outcome,
-                    rule_id: rule.rule.id.clone(),
-                    rule_name: rule.rule.name.clone(),
-                    stage,
-                },
-            }
-        }
-        Ok(Err(error)) => runtime_failure_trace(
-            rule,
-            stage,
-            // Classify by the error content (mirrors the timeout-eviction path
-            // below): a genuine timeout surfaces as QuickJS "interrupted" from
-            // the interrupt handler. Judging by wall-clock `start.elapsed()`
-            // mislabels fast failures as TimedOut under load, because `start`
-            // also covers the SCRIPT_GATE acquire wait.
-            if error.contains("interrupted") {
-                ScriptRunOutcome::TimedOut
-            } else {
-                ScriptRunOutcome::RuntimeError
-            },
-            error,
-            start.elapsed().as_millis(),
-        ),
+    match receiver.recv_timeout(limits.timeout + Duration::from_millis(10)) {
+        Ok(Ok(result)) => finish_invocation(rule, stage, start, result),
+        Ok(Err(error)) => failure(error),
         Err(_) => {
             cancel_flag.store(true, Ordering::Relaxed);
             match receiver.recv_timeout(Duration::from_millis(100)) {
-                Ok(Ok(result)) => {
-                    let mut entries = sanitize_entries(result.entries);
-                    let (request, response, response_override) = if result.runtime_error {
-                        (None, None, None)
-                    } else {
-                        (result.request, result.response, result.response_override)
-                    };
-                    ScriptHookResult {
-                        request,
-                        response,
-                        response_override,
-                        trace: ScriptTrace {
-                            duration_ms: start.elapsed().as_millis(),
-                            entries: std::mem::take(&mut entries),
-                            outcome: if result.runtime_error {
-                                ScriptRunOutcome::RuntimeError
-                            } else if result.skipped {
-                                ScriptRunOutcome::Skipped
-                            } else {
-                                ScriptRunOutcome::Success
-                            },
-                            rule_id: rule.rule.id.clone(),
-                            rule_name: rule.rule.name.clone(),
-                            stage,
-                        },
-                    }
-                }
-                Ok(Err(error)) => runtime_failure_trace(
-                    rule,
-                    stage,
-                    if error.contains("interrupted") {
-                        ScriptRunOutcome::TimedOut
-                    } else {
-                        ScriptRunOutcome::RuntimeError
-                    },
-                    error,
-                    start.elapsed().as_millis(),
-                ),
-                Err(_) => runtime_failure_trace(
-                    rule,
-                    stage,
-                    ScriptRunOutcome::TimedOut,
-                    format!(
-                        "script exceeded the {}ms execution limit",
-                        SCRIPT_EXECUTION_TIMEOUT.as_millis()
+                Ok(Ok(result)) => finish_invocation(rule, stage, start, result),
+                Ok(Err(error)) => failure(error),
+                Err(_) => (
+                    runtime_failure_trace(
+                        rule,
+                        stage,
+                        ScriptRunOutcome::TimedOut,
+                        format!(
+                            "script exceeded the {}ms execution limit",
+                            limits.timeout.as_millis()
+                        ),
+                        start.elapsed().as_millis(),
                     ),
-                    start.elapsed().as_millis(),
+                    None,
                 ),
             }
         }
+    }
+}
+
+/// Turn a settled bridge result into the hook result.
+///
+/// The JS bridge catches hook throws/rejections and re-resolves with
+/// `runtimeError: true` so the pre-throw entries survive (M3). Such a result is
+/// a deliberate failure: mark it RuntimeError and, to preserve the fail-open
+/// semantics shared with `runtime_failure_trace`, drop any request/response
+/// mutations (and decoded value) — but keep the entries the user needs to debug.
+fn finish_invocation(
+    rule: &CompiledScriptRule,
+    stage: ScriptTraceStage,
+    start: Instant,
+    result: ScriptInvocationResult,
+) -> (ScriptHookResult, Option<ScriptDecodedBody>) {
+    let entries = sanitize_entries(result.entries);
+    let outcome = if result.runtime_error {
+        ScriptRunOutcome::RuntimeError
+    } else if result.skipped {
+        ScriptRunOutcome::Skipped
+    } else {
+        ScriptRunOutcome::Success
+    };
+    let (request, response, response_override, decoded) = if result.runtime_error {
+        (None, None, None, None)
+    } else {
+        (
+            result.request,
+            result.response,
+            result.response_override,
+            result.decoded.map(cap_decoded_body),
+        )
+    };
+
+    (
+        ScriptHookResult {
+            request,
+            response,
+            response_override,
+            trace: ScriptTrace {
+                duration_ms: start.elapsed().as_millis(),
+                entries,
+                outcome,
+                rule_id: rule.rule.id.clone(),
+                rule_name: rule.rule.name.clone(),
+                stage,
+            },
+        },
+        decoded,
+    )
+}
+
+fn cap_decoded_body(decoded: ScriptBridgeDecoded) -> ScriptDecodedBody {
+    let ScriptBridgeDecoded { kind, mut text } = decoded;
+    let size_bytes = text.len() as u64;
+    let truncated = text.len() > MAX_DECODED_BODY_BYTES;
+    if truncated {
+        let mut end = MAX_DECODED_BODY_BYTES;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+    ScriptDecodedBody {
+        kind,
+        text,
+        size_bytes,
+        truncated,
     }
 }
 
@@ -350,15 +419,16 @@ fn run_script_in_thread(
     hook_name: &str,
     payload_json: &str,
     cancel_flag: Arc<AtomicBool>,
-    timeout: Duration,
+    limits: ExecutionLimits,
 ) -> Result<ScriptInvocationResult, String> {
     let runtime = Runtime::new().map_err(|error| format!("create runtime: {error}"))?;
 
-    // Limit QuickJS heap to 16MB per script execution.
-    // Scripts may access request/response bodies containing large JSON payloads.
-    // 16MB provides headroom while still preventing runaway allocation.
-    runtime.set_memory_limit(16 * 1024 * 1024);
-    runtime.set_gc_threshold(8 * 1024 * 1024);
+    // Cap the QuickJS heap per execution (16MB for proxy hooks). Scripts may
+    // access request/response bodies containing large JSON payloads; the cap
+    // leaves headroom while still preventing runaway allocation.
+    runtime.set_memory_limit(limits.memory_limit_bytes);
+    runtime.set_gc_threshold(limits.memory_limit_bytes / 2);
+    let timeout = limits.timeout;
 
     let started_at = Instant::now();
     // Records that the interrupt handler aborted execution (cancel request or
@@ -627,6 +697,8 @@ mod tests {
                 entrypoints: ScriptEntrypoints {
                     on_request: true,
                     on_response: true,
+                    decode_request: false,
+                    decode_response: false,
                 },
             },
             compiled_code: Arc::new(source.to_string()),

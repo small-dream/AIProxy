@@ -17,6 +17,19 @@ function __aiproxyStringifyEntryData(value) {
   }
 }
 
+// Convert a decode hook's return value into the decoded view. null/undefined
+// means "nothing to show"; strings are shown as text; anything else must be
+// JSON-serializable (a function or symbol would otherwise vanish silently).
+function __aiproxyDecodedResult(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string") return { kind: "text", text: value };
+  const text = JSON.stringify(value);
+  if (typeof text !== "string") {
+    throw new Error("decode hooks must return a string or a JSON-serializable value");
+  }
+  return { kind: "json", text: text };
+}
+
 function __aiproxyNormalizeHeaders(headers) {
   if (!Array.isArray(headers)) return [];
   return headers
@@ -234,10 +247,12 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
   };
 
   const fn = globalThis.__aiproxyScriptExports[hookName];
+  const isDecodeHook = hookName === "decodeRequest" || hookName === "decodeResponse";
   if (typeof fn !== "function") {
     return JSON.stringify({
       skipped: true,
       runtimeError: false,
+      decoded: null,
       // No mutation possible (hook not defined); send null so the Rust side
       // no-ops and preserves the original wire request/response.
       request: null,
@@ -277,7 +292,7 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
     .then(function runHook() {
       return fn(ctx);
     })
-    .then(function serializeResult() {
+    .then(function serializeResult(returned) {
       // Compare against the pre-hook snapshots. A mutation (via the body
       // helpers OR direct field writes) flips the corresponding flag, which the
       // Rust side uses to decide whether to apply the returned request/response
@@ -287,9 +302,13 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
       const requestChanged = JSON.stringify(ctx.request) !== requestSnapshot;
       const responseChanged =
         responseSnapshot !== null && JSON.stringify(ctx.response) !== responseSnapshot;
+      // Decode hooks are read-only: only their return value is used. A
+      // non-serializable value throws here and is reported by the catch below.
+      const decoded = isDecodeHook ? __aiproxyDecodedResult(returned) : null;
       return JSON.stringify({
         skipped: false,
         runtimeError: false,
+        decoded: decoded,
         request: requestChanged ? ctx.request : null,
         response: responseChanged ? ctx.response : null,
         responseOverride: responseOverride,
@@ -318,6 +337,7 @@ globalThis.__aiproxyInvoke = function __aiproxyInvoke(hookName, payloadJson) {
       return JSON.stringify({
         skipped: false,
         runtimeError: true,
+        decoded: null,
         // On a thrown/rejected hook we do NOT apply any (possibly partial)
         // mutation: send null so the Rust side preserves the original wire
         // request/response. The error entry above records what happened.

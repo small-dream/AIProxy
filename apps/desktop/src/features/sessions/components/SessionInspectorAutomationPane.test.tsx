@@ -150,7 +150,9 @@ describe("SessionInspectorAutomationPane", () => {
     renderPane();
 
     expect(
-      await screen.findByText("Truncated: only the first 8.00 KB was kept (original 283.39 KB)."),
+      await screen.findByText(
+        /^Truncated: only the first 8\.00 KB was kept \(original 283\.39 KB\)\./,
+      ),
     ).toBeInTheDocument();
   });
 

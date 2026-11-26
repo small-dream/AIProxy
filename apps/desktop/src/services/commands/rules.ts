@@ -9,6 +9,8 @@ import {
   parseBreakpointRules,
   parseRewriteRules,
   parseRewriteSessionTrace,
+  parseScriptDecodeResult,
+  parseScriptDecoders,
   parseScriptRules,
   parseScriptSessionTrace,
   parseScriptSourceFile,
@@ -19,6 +21,8 @@ import {
   type MapRule,
   type RewriteRule,
   type RewriteSessionTrace,
+  type ScriptDecodeResult,
+  type ScriptDecoders,
   type ScriptRule,
   type ScriptSessionTrace,
   type ScriptSourceFile,
@@ -412,6 +416,43 @@ export async function listScriptSessionTrace(sessionId: string): Promise<ScriptS
     return parseScriptSessionTrace(payload);
   } catch (error) {
     reportCommandFailure("list_script_session_trace", error, { sessionId });
+    throw coerceAppError(error);
+  }
+}
+
+const NO_SCRIPT_DECODERS: ScriptDecoders = { request: null, response: null };
+
+/** Which script rule (if any) can decode this message's request / response. */
+export async function findScriptDecoders(method: string, url: string): Promise<ScriptDecoders> {
+  if (!isTauriRuntime()) {
+    return NO_SCRIPT_DECODERS;
+  }
+
+  try {
+    const payload = await invoke<unknown>("find_script_decoders", { input: { method, url } });
+    return parseScriptDecoders(payload);
+  } catch (error) {
+    reportCommandFailure("find_script_decoders", error, { method, url });
+    throw coerceAppError(error);
+  }
+}
+
+/** Run the matching decode hook on a captured body; `null` when none applies. */
+export async function decodeSessionBody(
+  sessionId: string,
+  stage: "request" | "response",
+): Promise<ScriptDecodeResult | null> {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  try {
+    const payload = await invoke<unknown>("decode_session_body", {
+      input: { sessionId, stage },
+    });
+    return parseScriptDecodeResult(payload);
+  } catch (error) {
+    reportCommandFailure("decode_session_body", error, { sessionId, stage });
     throw coerceAppError(error);
   }
 }

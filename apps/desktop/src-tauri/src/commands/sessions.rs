@@ -231,7 +231,7 @@ pub async fn get_session_detail_content(
     .await
 }
 
-fn session_not_found_error(session_id: &str) -> String {
+pub(super) fn session_not_found_error(session_id: &str) -> String {
     app_error_with_details(
         SESSION_NOT_FOUND_CODE,
         &format!("Captured session {session_id} was not found."),

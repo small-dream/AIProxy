@@ -498,8 +498,11 @@ Sessions Page
 
 ### 详情面板标签
 
-- Request：`Query / Form / Body / Headers / Raw`
-- Response：`Overview / Preview / Messages / Headers / Text / JSON / JSON Text / Raw / Automation / Trailers`（按 MIME 类型与协议动态显示；`Messages` 仅 WebSocket 会话，`Trailers` 仅响应携带 HTTP trailer 时显示，`Automation` 展示规则命中记录）
+- Request：`Query / Form / Body / Decoded / Headers / Raw`
+- Response：`Overview / Preview / Messages / Headers / Text / JSON / JSON Text / Decoded / Raw / Automation / Trailers`（按 MIME 类型与协议动态显示；`Messages` 仅 WebSocket 会话，`Trailers` 仅响应携带 HTTP trailer 时显示，`Automation` 展示规则命中记录）
+- `Decoded`（解码）标签只在当前 workspace 有启用的脚本规则为该阶段导出 `decodeRequest` / `decodeResponse` 且匹配该会话时显示，位于原始消息体视图之后；导入的会话和 WebSocket 会话不显示。选中 `Decoded` 后切换会话，在新会话的解码规则查询完成前保持选中，确认没有解码规则后再回退（响应回到默认标签，请求回到 `Body`）
+- `Decoded` 标签打开时才执行解码 hook，结果按「会话 + 阶段」缓存；保存、启停、删除脚本规则会让结果失效并重新解码，刷新按钮可手动重新解码。顶部一行从左到右为「树形 / 文本」切换（仅 JSON 结果且未超过 2 MB）、刷新、「日志（n）」按钮，右侧是规则名 · 耗时 · 大小；控件放在左侧，避免被浮动搜索栏遮挡
+- `Decoded` 复用 JSON 树与 `SearchableCodeBlock`：支持面板搜索、复制（复制格式化后的文本）、右键复制 Key / Value / Path。脚本失败显示 error Alert 与脚本抛出的消息，没有返回值、没有匹配规则、结果被截断或过大无法用树形显示时分别给出 info / warning 说明
 - `Preview` Tab 仅在响应 MIME 类型为图片（`image/*`）、音频（`audio/*`）或视频（`video/*`）时显示
 - 图片预览使用 `<img>` 渲染 data URI，支持 `object-fit: contain` 自适应容器，底部展示尺寸、MIME 类型、文件大小
 - 音频 / 视频预览使用原生 HTML5 `<audio>` / `<video>` 控件

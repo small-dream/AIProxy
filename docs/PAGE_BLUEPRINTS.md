@@ -201,8 +201,8 @@ type SessionsPageState = {
     requestCollapsed: boolean; // localStorage: aiproxy.sessions.requestCollapsed
   };
   ui: {
-    requestTab: "overview" | "query" | "headers" | "body" | "form" | "raw";
-    responseTab: "overview" | "headers" | "text" | "json" | "jsonText" | "raw";
+    requestTab: "overview" | "query" | "headers" | "body" | "form" | "raw" | "decoded";
+    responseTab: "overview" | "headers" | "text" | "json" | "jsonText" | "decoded" | "raw";
     jsonTreeColumnRatios?: {
       nameRatio: number;
       typeRatio: number;
