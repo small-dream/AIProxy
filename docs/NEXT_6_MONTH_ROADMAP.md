@@ -1,578 +1,221 @@
 # AIProxy 下个阶段半年 Roadmap
 
-更新日期：2026-08-20
-执行周期：2026-06-01 至 2026-11-30  
+更新日期：2026-11-26
+执行周期：2026-12-01 至 2027-05-31
 文档定位：未来半年产品与研发执行事实源，负责阶段取舍、优先级、里程碑和验收口径。
-
-> 状态标注说明（2026-08-20）：M1–M3 的完成状态以仓库实现核验为准，不再使用不可追溯的完成日期。M3.5 已完成代码与自动化回归门槛，三端原生宿主机冒烟作为 `v0.1.20` 发布前的最后人工证据；在三端冒烟记录齐全前，M4 不进入主线 Beta。
 
 ## 1. 结论先行
 
-未来半年，AIProxy 的核心目标不是继续堆更多零散功能，而是从“P0 功能闭环”升级为“可长期日常使用的现代协议调试工作台”。发布节奏采用“主题型功能版本 + 高频维护版本”：大版本交付可验证的工作流，小版本集中修复协议正确性、异常恢复、诊断和跨平台发布问题。
+上一周期（2026-06-01 至 2026-11-30）的计划主线是“协议深度 + 可复现工作流”，但 8 月中旬起实际主线转向了**AI Agent 集成**（MCP sidecar、受控自动化），并已形成产品差异化。本周期不推翻这一转向：Agent 自动化仍是当前最活跃、最具差异化的方向；同时把被顺延的“现代协议”与“可复现工作流”缺口重新排期，避免它们无限期漂移。
 
-产品主线采用三条并行但有先后依赖的路线：
+三条主线并行：
 
-1. **可靠性与性能产品化**：高流量、大 body、长连接、跨平台代理/证书/发布链路必须稳定。
-2. **现代协议能力**：HTTP/2、Protobuf、gRPC-Web / gRPC 是下一阶段竞争门槛，不是锦上添花。
-3. **可复用调试工作流**：统计洞察、Waterfall、Collection 增强、Scenario Replay、分享导出，把一次性抓包变成可沉淀、可复现、可协作的资产。
-4. **维护版本驱动质量**：对已实现能力持续做协议回归、错误恢复、日志诊断和安装升级验证，不以新功能数量代替产品成熟度。
+1. **Agent 自动化扩展**：按已定序（Map Remote → DNS → Throttle → Script）逐步放开写能力，每项独立权限、验证与回滚。
+2. **现代协议**：Protobuf descriptor 解码与 gRPC-Web 检查仍是与 Charles/mitmproxy/Fiddler 竞争的门槛项，连续两个半年未启动，本周期必须交付技术预览到可用级。
+3. **可复现工作流**：Collections 导入导出、Postman 导入、Scenario Replay、Snapshot 脱敏导出——把一次性抓包变成可沉淀资产。
+4. **维护节奏固化**：周期性全仓 review → 修复版本的模式已被证明有效（六轮审查驱动了 v0.4.5–v0.4.7），保持；RustSec 滚动补丁、三端冒烟与开源化收尾并入常态。
 
-半年结束时的目标版本定义为：
+## 2. 上周期复盘（2026-06 至 2026-11）
 
-- AIProxy 可以作为开发者日常 HTTP/HTTPS/WebSocket 调试主工具。
-- 对 HTTP/2 有可用级支持；Protobuf/gRPC-Web 完成可验证的技术预览，Native gRPC 仅保留实验性技术预览，不把字段级改写或完整 streaming 作为稳定版承诺。
-- 高流量场景下 Sessions 工作台、WebSocket 面板、导出与大 body 捕获不再成为主要阻塞。
-- Collection、Replay、规则/弱网导入导出形成文件级协作闭环；Session Snapshot 脱敏导出作为 P1 交付，未完成时不阻塞 HTTP/2 与代理稳定性版本。
-- macOS / Windows / Linux 具备可重复发布、升级、冒烟验证和用户指南。
+### 2.1 按计划完成（2026-06 至 08）
 
-## 2. 当前产品现状
+- M1 可靠性与性能产品化：事件批量化、虚拟滚动、tracing 日志、TLS 证书缓存 LRU、持久化批量化、压测 fixture。✅
+- M2 Timing / Waterfall / Insights 首版。✅
+- M3 HTTP/2 可用级捕获（hyper 重写、ALPN、连接池、trailers/pseudo headers）。✅
+- M3.5 协议正确性与发布稳定性收口。✅
 
-### 2.1 已经具备的基础盘
+### 2.2 计划外主线（2026-08 末至 11，实际发生）
 
-根据当前仓库实现与文档，AIProxy 已经完成了一个很完整的 P0 调试闭环：
+原 M4（Protobuf/gRPC）、M5（Replay/Postman）、M6（协作 Beta）未启动，主线转向 Agent 集成，并沿四级台阶演进：
 
-- Tauri 2 + React 19 + Rust + SQLite 的跨平台桌面架构。
-- HTTP / HTTPS / WebSocket 抓包、MITM 解密、系统代理接管、手机端抓包辅助。
-- Sessions、Compose、Collections、Rules、Throttling、Certificates、Settings、Compare 等核心页面。
-- Rewrite / Map Local / Map Remote / DNS Mapping / Script Rules / Breakpoints / Throttling 的规则体系。
-- WebSocket 消息查看、搜索与活跃连接注入。
-- Session 持久化、HAR 导入与 HAR 导出；Sessions 右键支持复制单条 cURL，Compose 支持 cURL 导入/导出。Snapshot helper 已存在，但当前没有接入 Sessions 导出 UI。
-- API Collections、环境变量、变量替换、批量执行、从 Session 保存请求。
-- Rules 页面支持 rewrite / map / dns / script / breakpoint / throttle 规则及 throttle profile 的单文件 JSON 导入导出；导入预览会追加、重建 ID 并默认禁用。
-- 请求 / 响应 Diff 与 OpenAI-compatible AI 总结。
-- 中文 / 英文国际化、浅色 / 暗色 / 跟随系统主题。
-- 协议模型结构化字段已经落地：`scheme`、`httpVersion`、`transportProtocol`、`applicationProtocol`。
+- **只读**：MCP + Agent Skill 只读 MVP（stdio sidecar、默认脱敏、审计、Codex / Claude Code / Cursor 分发）。
+- **受控**：Agent Access 权限（v0.2.x）——`get_app_status`、抓包启停、系统代理、证书、Session 清理，默认关闭、按项授权。
+- **自动化**：Rewrite + Map Local 创建 / 离线验证 / 受控代理验证 / 断言 / 回滚（v0.3.x），三级证据与 Rules → Agent 实验页。
+- **权限 UX 产品化 + 质量收口**（v0.4.x）——预设下拉、批量授权、限时授权（ADR-011），以及三轮全仓 review 驱动的修复版本（v0.4.5→v0.4.7）。
 
-### 2.2 未来半年必须补齐的缺口
+版本节奏现实：`0.1.x` 维护线跑到 v0.1.51，`0.2.x`/`0.3.x`/`0.4.x` 均为主题版本。旧版规则“不提前使用 0.4.x”已被现实取代，新版本规则见 §7。
 
-当前最大缺口集中在四个方向：
+### 2.3 遗留缺口（本周期要还的债）
 
-- **协议深度**：HTTP/2 已形成捕获、展示和导出闭环，但 Protobuf、gRPC-Web 和 Native gRPC 尚未形成可用级检查闭环。
-- **协议正确性收口**：HTTP/2 已具备捕获、展示和导出能力，但并发 stream、流控、reset、连接生命周期、Map Remote 跨协议映射、TLS 异常和 HAR 边界仍需要系统回归。
-- **工作流沉淀**：Collections 首版可用并支持批量执行，但 Postman 兼容、断言、执行报告、Scenario Replay、Collection/Environment bundle 仍缺。
-- **发布与诊断**：功能已经丰富，但跨平台发布、升级、冒烟、证书/移动端引导、错误日志和故障诊断还需要产品化打磨。
+经代码核验（2026-11-26），以下原 P0 项仍未实现：
 
-### 2.3 代码核验结论
+| 能力 | 现状 |
+|---|---|
+| Protobuf descriptor 管理与 body 解码 | 未实现 |
+| gRPC-Web / Native gRPC 检查 | 未实现（仅协议标签识别） |
+| Collections / Environments 导入导出、Postman v2.1 导入 | 未实现 |
+| Scenario Replay | 未实现 |
+| Session Snapshot 脱敏导出 | helper 已存在，未接入导出 UI |
+| cURL 批量导出、Insights Markdown/JSON 导出 | helper 已存在，未接入 UI |
+| 自动化资源扩展 | 写能力仅 Rewrite + Map Local；Map Remote / DNS / Throttle / Script / Breakpoint 写入返回 `FEATURE_NOT_AVAILABLE`，既定扩展序为 Map Remote → DNS → Throttle → Script（Breakpoint 为破坏性语义，单独评估） |
 
-以下状态以当前代码中的可调用命令、路由页面、共享类型和测试为准；仅有文档标记或未被 UI 调用的 helper 不计为完整用户功能。
+## 3. 北极星与关键结果
 
-| 能力 | 代码核验状态 | 主要证据 |
-|---|---|---|
-| HTTP / HTTPS / WebSocket 抓包 | 已实现 | `crates/proxy-core/src/{server,connect,http_proxy,ws,ws_upgrade}.rs`；Sessions/WS commands |
-| HTTP/2 捕获 | 已实现但需稳定性收口 | `http_proxy.rs`、`upstream_pool.rs`；`SessionDetail` 的 pseudo headers/trailers/h2StreamId |
-| 代理预设、系统代理、上游 HTTP/HTTPS/SOCKS5 | 已实现 | `commands/{workspaces,proxy}.rs`、`upstream_proxy.rs`、`shared-types/workspaces.ts` |
-| SSL 逐域名解密/盲转发 | 已实现 | `ssl_proxying.rs`、workspace `sslProxying`/`sslBlindHosts` |
-| 证书与移动端辅助 | 已实现 | `commands/certificates.rs`；Android ADB、iOS Simulator、HarmonyOS HDC、诊断命令 |
-| Sessions、详情、懒加载、过滤、虚拟滚动 | 已实现 | `pages/sessions`、`features/sessions`、`commands/sessions.rs` |
-| Timing / Waterfall / Insights | 已实现首版 | `timing_connector.rs`、`WaterfallChart.tsx`、`pages/insights`、`db/insights.rs` |
-| Rewrite / Map / DNS / Script / Breakpoint / Throttling | 已实现 | `proxy-core/src/rules`、`rule-engine`、Rules/Throttling 页面及 commands |
-| 规则包导入导出 | 已实现（规则范围） | `rules-export.ts`、`RulesImportExportButtons`、`RulesImportPreviewDialog` |
-| Compose / Repeat / cURL | 已实现但范围有限 | Compose 页面、`curl-import.ts`/`curl-export.ts`；Repeat 是前端预填，不是独立 `repeat_session` command |
-| HAR 导入导出 | 已实现 | `session-import.helpers.ts`、`SessionExportDialog`；当前导出入口实际只生成 HAR |
-| Session Snapshot 导出 | 部分实现 | `buildSessionSnapshot()` 存在，但未被导出 UI/command 调用 |
-| cURL 批量导出 | 部分实现 | `buildCurlBundle()` 存在，但当前 UI 只复制单条 cURL |
-| Collections / Environments | 已实现首版 | CRUD、拖拽排序、从 Session 保存、multipart、变量替换、批量执行 commands |
-| Collections / Environments 导入导出 | 未发现实现 | 未发现对应 parser、picker、export command 或页面入口 |
-| Postman Collection 兼容 | 未发现实现 | 未发现 Postman schema/parser/导入入口 |
-| 执行断言与执行报告 | 未发现实现 | `batch_execute_collection_items` 只返回 `SessionDetail[]`，无 assertion/report model |
-| Scenario Replay | 未发现实现 | 未发现 scenario 类型、存储、command 或页面 |
-| Protobuf / gRPC-Web / Native gRPC inspector | 未发现实现 | 未发现 descriptor、protobuf frame parser、grpc inspector；当前仅有协议标签识别 |
-| Compare / AI 总结 | 已实现首版 | `pages/compare`、`session-compare` helpers、AI commands；payload 默认脱敏 |
-| Insights Markdown/JSON 导出 | 未发现当前 UI 实现 | Insights 页面有聚合和导航，没有对应导出按钮/command |
-
-## 3. 外部基准与机会
-
-官方资料显示，主流竞品已经把“现代协议 + 可复现工作流”作为基础能力或高级能力：
-
-- Charles 官方强调 HTTPS/SSL 代理、带宽限制、结构化请求/响应查看与系统代理配置能力。参考：[Charles Features](https://www.charlesproxy.com/overview/features/)、[Charles Proxying](https://www.charlesproxy.com/documentation/proxying/)。
-- Charles 5.2 / 5.2.1（2026 年 6–8 月）的版本历史显示，成熟阶段的重点是 HTTP/2 流控与 stream 生命周期、Map Remote 的 HTTPS/路径/端口正确性、TLS 与证书缓存、SOCKS5、节流、chunked trailers、HAR 兼容、日志诊断和 Windows 代码签名，而不是连续增加大型页面。参考：[Charles Version History](https://www.charlesproxy.com/documentation/version-history/)。
-- mitmproxy 官方支持 HTTP/1、HTTP/2、WebSocket，并提供 client/server replay、Map Local、Map Remote、Modify Headers/Body 与 streaming。参考：[mitmproxy Introduction](https://docs.mitmproxy.org/stable/)、[mitmproxy Protocols](https://docs.mitmproxy.org/stable/concepts/protocols/)、[mitmproxy Features](https://docs.mitmproxy.org/stable/overview/features/)。
-- Fiddler Everywhere 官方支持 HTTP/1.x、HTTP/2、WebSocket、SSE、Socket.IO、gRPC，并提供 inspectors、Compare、Snapshots、Repro Playback。参考：[Fiddler Introduction](https://www.telerik.com/fiddler/fiddler-everywhere/documentation)、[Capturing Modes](https://docs.telerik.com/fiddler-everywhere/capture-traffic/capturing-modes)、[Inspector Insights](https://www.telerik.com/fiddler/fiddler-everywhere/documentation/inspect-traffic/inspector-insights)、[Repro Playback](https://docs.telerik.com/fiddler-everywhere/modify-and-filter-traffic/repro-playback)。
-- Proxyman 官方突出 WebSocket 查看、Protobuf 解码、Map/Breakpoint/Scripting/Diff 等高级调试工具。参考：[Proxyman Overview](https://docs.proxyman.com/)、[WebSocket](https://docs.proxyman.com/advanced-features/websocket)、[Protobuf](https://docs.proxyman.com/advanced-features/protobuf)。
-
-机会判断：
-
-- AIProxy 已经把 Charles/Proxyman/Fiddler 的常用 P0 能力补得比较完整，下一阶段不应在低价值 UI 细节上消耗主战力。
-- Fiddler 和 mitmproxy 在 HTTP/2/gRPC/replay 上已经形成用户预期，AIProxy 必须补齐，否则很难成为现代后端、移动端、平台团队的默认工具。
-- Proxyman 在 Protobuf / WebSocket 体验上有强信号，AIProxy 可以用“跨平台 + Rust 核心 + 本地优先 + 轻量 API 工作流”形成差异化。
-
-因此，AIProxy 在进入 Protobuf/gRPC-Web 之前，必须先完成一个短周期的 M3.5 稳定性门槛；这不是功能延期，而是把 M3 的“可用级捕获”提升为“可信赖的日常代理”。
-
-## 4. 半年产品北极星
-
-### 4.1 北极星目标
-
-让开发者在一次真实问题排查中，可以只打开 AIProxy，完成：
+让开发者（以及其 AI Agent）在一次真实问题排查中，可以只打开 AIProxy，完成：
 
 1. 连接代理并解密 HTTPS / WebSocket / HTTP/2 流量。
 2. 快速定位慢请求、错误请求、协议异常或 body 差异。
-3. 将问题请求保存为 Collection 或 Replay 场景。
-4. 用规则、断点、弱网、Mock 或脚本复现问题。
+3. 让 Agent 在授权范围内自动化修改规则、验证并回滚，全程有证据。
+4. 将问题请求保存为 Collection 或 Replay 场景，用规则复现。
 5. 导出脱敏快照、规则包或执行报告给团队成员。
 
-### 4.2 关键结果
-
-半年内以这些结果衡量路线图是否成功：
-
-| 维度 | 2026-11-30 目标 |
+| 维度 | 2027-05-31 目标 |
 |---|---|
-| 上手闭环 | 新用户在 5 分钟内完成一次 HTTPS 抓包；移动端证书/代理配置有明确诊断反馈 |
-| 性能 | 10,000 条 session 可筛选、滚动、查看详情；1,000 条 WebSocket 消息滚动不卡顿；大 body 不导致 OOM |
-| 协议 | HTTP/2 会话可捕获、展示、过滤、导出；Protobuf body 完成 descriptor 解码技术预览；gRPC-Web 完成基础 message 检查 |
-| 分析 | Sessions 支持 Waterfall；Insights 面板提供 host/path/status/latency/size 聚合与慢请求排行 |
-| 复现 | 可从选中 sessions 生成 Scenario Replay，支持环境变量、顺序执行、状态码/JSON path/耗时断言 |
-| 协作 | Collection、环境、规则、弱网 profile 可导入导出；Session Snapshot 脱敏导出按 P1 交付，未完成时不阻塞稳定性版本 |
-| 发布 | 三端安装包、自动更新、发布 checklist、冒烟脚本和用户指南保持同步 |
+| Agent 自动化 | Rewrite / Map Local / Map Remote / DNS / Throttle / Script 六类资源具备受控写入、验证与回滚；权限默认关闭、逐项授权不变 |
+| 协议 | Protobuf body 完成 descriptor 解码可用级；gRPC-Web unary 基础检查可用；Native gRPC unary 保持实验性 |
+| 复现 | Scenario Replay 首版（顺序回放、环境变量、基础断言）；Collections / Postman 导入导出可用 |
+| 协作 | Snapshot 脱敏导出接入导出 UI；执行报告可导出 |
+| 质量 | 周期性全仓 review 保持（目标 ≥2 轮）；三端冒烟每版本至少一轮；RustSec 滚动补丁 48 小时内响应 |
+| 发布 | 三端安装、自动更新、发布验证流程固化（RELEASE_GUIDE 已沉淀版本号同步 / audit 闸门 / 重打 tag 流程） |
 
-## 5. 产品原则
+## 4. 月度 Roadmap
 
-1. **先稳定，再扩展**：会破坏抓包稳定性、性能或数据安全的能力，不进入主线版本。
-2. **先本地文件协作，再云协作**：半年内不做账号体系和云同步，先把导入导出、脱敏、报告做好。
-3. **先协议底座，再高级 gRPC**：HTTP/2 模型、ALPN、trailers、pseudo headers、stream 关系先打牢。
-4. **先可解释，再智能化**：AI 总结保留，但不作为排查链路的唯一入口；可视化、diff、trace、日志必须自洽。
-5. **先真实工作流，再营销页面**：每个版本都要围绕抓包、定位、复现、沉淀推进，不做和调试闭环无关的展示型功能。
+### M1：2026-12，自动化资源第二批
 
-## 6. 月度 Roadmap
-
-### M1：2026-06，可靠性与性能产品化
-
-**状态：✅ 已完成**（经仓库实现核验）
-
-实现摘要：
-
-- Session 事件双重订阅合并为单一批量缓冲（100ms）
-- SessionExplorer 和 WS Messages 迁移至 @tanstack/react-virtual
-- 搜索/过滤输入统一防抖（150ms）
-- 导出批量加载统一（BATCH_SIZE=10）
-- Body 截断 UI 提示（i18n）
-- Rust 日志迁移至 tracing（缓冲异步写入）
-- TLS 证书缓存 LRU 淘汰（512 上限）
-- Session 持久化批量化（50 条/事务）
-- build_session_detail body 解压去重
-- 压测 fixture（10k sessions, 1k WS messages, 50MB body）
-- 发布检查脚本 release-checklist.sh
-
-主题：让现有 P0 功能从”能用”变成”敢长期打开用”。
+主题：把自动化从 Rewrite + Map Local 扩到 **Map Remote + DNS**，每类独立权限、离线/代理验证、资源级回滚，沿用三级证据。
 
 核心交付：
 
-- Sessions 高流量渲染优化：
-  - session-upsert 事件批量化。
-  - Session Explorer 虚拟滚动。
-  - WebSocket Messages 虚拟滚动。
-  - 搜索/过滤输入防抖。
-  - 事件监听器清理与内存泄漏修复。
-- 大 body 与导出稳定性：
-  - 响应体捕获上限、截断标识和 UI 提示统一。
-  - 导出大量 session 的 N+1 修复或并发限制。
-  - Session detail 懒加载路径压测。
-- Rust 热路径第一批优化：
-  - `build_session_detail` 去重。
-  - `send_direct_request` 复用 HTTP client。
-  - 日志写入缓冲或异步化。
-  - TLS 证书缓存复核。
-- 质量基线：
-  - 建立 10k sessions / 1k WebSocket messages / 50MB body 的本地压测 fixture。
-  - 发布前固定执行 `pnpm -r typecheck`、`pnpm -r test`、`pnpm -r lint`、`cargo test`。
+- Map Remote 写入（含 Redirect 必须留在精确匹配 host 的约束与跨 host 拒绝语义）。
+- DNS Mapping 写入。
+- 每类的权限项、审计、失败原因与回滚。
+- 开源化收尾：隐私截图重拍、README 双语核对。
 
-验收标准：
+不做：Script / Throttle 写入（按序在 M2）；Breakpoint 写入（破坏性语义单独评估）。
 
-- 10,000 条 session 下，列表筛选和选择详情不出现明显卡顿。
-- 1,000 条 WebSocket message 下，滚动和搜索可用。
-- 50MB 响应不会导致代理或 UI 崩溃，详情页明确显示截断/延迟加载状态。
-- 导出 500 条 session 时 UI 不冻结。
+### M2：2027-01，自动化资源第三批 + 质量轮
 
-不做：
-
-- 不在 6 月启动 HTTP/2 大规模改造。
-- 不新增云端能力。
-- 不做独立 Mock Server。
-
-### M2：2026-07，Timing / Waterfall / Insights
-
-**状态：✅ 已实现首版；稳定性收口转入 M3.5**（经仓库实现核验）
-
-实现摘要：
-
-- 代理核心改用 hyper 重写 forward_request，实现全链路 timing 真实采样
-- Timing-aware HTTP connector，捕获 DNS、TCP connect、TLS handshake、request send、TTFB、response read、total
-- timing_source 字段区分真实抓包 / HAR 导入 / Compose 来源
-- Session Inspector Waterfall 阶段耗时条，异常/缺失 timing 有明确状态提示
-- Insights 面板首版：按 host、path、status、method 聚合，P50/P95/P99、错误率、流量体积、慢请求排行
-- Insights 支持按当前 Sessions 筛选条件统计
-- Insights 首版提供聚合卡片、Host/Status/Method 维度和慢请求/大响应排名；当前代码未发现 Markdown/JSON 导出入口，列入后续增强。
-- Insights 页面路由、导航与 TopBarActionButton 集成
-- 修复 timing、断点、session 过滤相关 bug
-
-主题：从”看见请求”升级为”看懂性能和异常”。
+主题：完成计划扩展序（**Throttle + Script**），并跑一次全仓 review。
 
 核心交付：
 
-- Timing 真实采样：
-  - DNS、TCP connect、TLS handshake、request send、waiting / TTFB、response read、total。
-  - 对导入 HAR、Compose、真实抓包分别标记 timing 来源和可信度。
-- Session Inspector Waterfall：
-  - 单个请求的阶段耗时条。
-  - 异常/缺失 timing 有明确状态，不误导用户。
-  - HTTP/2 先预留 stream / connection 展示位。
-- Insights 面板首版：
-  - 按 host、path、status、method、mime 聚合。
-  - P50 / P95 / P99、错误率、流量体积、慢请求排行。
-  - 支持按当前 Sessions 筛选条件统计。
-- 轻量报告：
-  - 慢请求可跳回 Sessions。
-  - Markdown / JSON 统计摘要导出尚未接入当前 Insights 页面，后续按 P1 处理。
+- Throttle Profile / 规则写入。
+- Script 规则写入（脚本安全边界与执行超时沿用现有 rule-engine 约束）。
+- `replay_session` 证据语义改进：明确“直连上游、绕过全部规则”的边界，评估受控规则内回放。
+- 全仓 review 第 7 轮 + 修复版本（v0.4.5 模式）。
 
-验收标准：
+### M3：2027-02，Protobuf 技术预览
 
-- 用户能在 30 秒内回答”哪个 host 最慢、哪个接口错误最多、最大的响应是什么”。
-- Waterfall 能解释单个请求主要耗时来自连接、TLS、等待还是下载。
-- Insights 对 10k sessions 的聚合计算在可接受时间内完成，不阻塞主工作台。
-
-不做：
-
-- 不做完整 APM。
-- 不做后台长期监控或云端指标看板。
-
-### M3：2026-08，HTTP/2 可用级捕获
-
-**状态：✅ 已实现首版；正确性收口转入 M3.5**（经仓库实现核验）
-
-实现摘要：
-
-- 启用 hyper http2 feature + h2 crate，服务端/客户端双向 ALPN 配置
-- 新建 `http_proxy.rs`（`HttpProxyService`）统一 hyper Service 处理器；`ConnectionMode` enum（PlainHttp / MitmHttps） + `ConnectionContext` 区分纯 HTTP 和 MITM；ALPN 结果决定 h1/h2 分支
-- 重构 `handle_connect_mitm()` + `handle_connection()` 从 httparse 手动解析改为 hyper server connection
-- 新建 upstream_pool.rs 上游 h2 连接池（按 host:port 复用 h2 连接）
-- 数据模型新增 trailers、h2StreamId、isPseudo 字段，DB schema 同步更新
-- 规则引擎：header 级规则在 h2 session 上正常工作，body rewrite 跳过并生成 trace
-- 设置页新增 HTTP/2 开关（中英文 i18n），ALPN 根据配置动态选择
-- Session Inspector 伪头斜体 + "pseudo" 标签，Trailers 标签页
-- HAR 导入修复：读取 httpVersion 而非硬编码 "1.1"
-- 搜索范围扩展：支持按协议字段过滤
-- 诊断日志：ALPN 协商结果记录
-- 后续协议栈收敛项：明文 HTTP 代理路径仍保留手写 `httparse` 请求解析与 body 读取；chunked body 已先就地修复。长期应评估将明文 HTTP 请求解析和 body 读取收敛到 hyper request/body 模型，与 HTTPS MITM 的 hyper Service 路径共享更多请求构建、超时、大小限制和 raw message 生成逻辑。
-
-主题：补齐现代 Web / 移动端 / 微服务调试的协议门槛。
+主题：补上连续两个半年未启动的协议门槛第一半。
 
 核心交付：
 
-- HTTP/2 技术路径确认：
-  - 明确 Rust HTTP/2 栈、ALPN、TLS MITM、上游连接复用与降级策略。
-  - 明确 HTTP/2 与现有规则链路的兼容边界。
-- HTTPS HTTP/2 捕获 MVP：
-  - 支持 TLS ALPN `h2`。
-  - 将 HTTP/2 stream 映射为 Session。
-  - 展示 HTTP/2 pseudo headers、普通 headers、status、body、trailers。
-  - Session 列表和 Inspector 显示 `HTTP/2`。
-- 兼容能力：
-  - 过滤、搜索、详情、HAR 导出对 HTTP/2 session 可用；Snapshot helper 尚未接入导出 UI，列入 P1。
-  - Rewrite / Map / Throttling / Breakpoint 至少给出“支持/降级/不支持”的明确 trace。
-  - WebSocket 和 HTTP/1.1 回归不受影响。
-- 诊断能力：
-  - HTTP/2 negotiation 失败时给出日志和 UI 提示。
-  - 可开关 HTTP/2 支持，便于用户回退到 HTTP/1.1 排障。
+- Descriptor set 导入与 message type 管理。
+- `application/x-protobuf`、`application/protobuf`、`application/grpc-web+proto` 的 Raw / Hex / Decoded 视图；解码失败保留原始数据。
+- WebSocket binary message 的“尝试解码”入口。
+- 验收：用户导入 descriptor 后可解码典型 Protobuf HTTP body。
 
-验收标准：
+不做：`.proto` 源码编译全链路（首版优先 descriptor set）；gRPC 字段级改写。
 
-- Chrome / curl / 常见移动端 SDK 的 HTTPS HTTP/2 请求可被捕获并显示为独立 sessions。
-- HTTP/2 pseudo headers 和 trailers 不丢失。
-- HAR 导出中的 HTTP version 正确。
-- HTTP/2 关闭开关可让用户回退，且不会影响 HTTP/1.1 抓包。
-
-不做：
-
-- 不做 HTTP/3 / QUIC 捕获。
-- 不承诺所有规则动作在 HTTP/2 下完全等价。
-- 不做完整 gRPC message inspector，留到 M4。
-
-### M3.5：2026-08 下旬至 2026-09 上旬，协议正确性与发布稳定性收口
-
-**状态：✅ 代码与自动化回归门槛完成；三端发布冒烟待执行**（2026-08-20，经仓库实现核验）
-
-主题：把 HTTP/2、Map Remote、TLS、上游代理和 HAR 从“已实现”提升为“可长期依赖”。该阶段参考 Charles 5.2 / 5.2.1 的维护重点，采用小步迭代和回归优先，不引入新的大型页面或云端能力。
+### M4：2027-03，gRPC-Web 可用级
 
 核心交付：
 
-- HTTP/2 正确性：并发 stream 上限、connection/stream flow control、frame size 校验、reset、remote close、half-close、send-window stall 检测、连接池失效和资源回收。
-- Map Remote 正确性：目标 base path 不重复、HTTPS → HTTP 不错误发起 TLS、tunnelled HTTPS 正确应用目标 path、CONNECT 映射后的端口/SNI 恢复、HTTP/2 → HTTP/1.1 降级可解释。
-- TLS 与证书：证书缓存并发与淘汰、TLS extension/handshake 错误诊断、SSL blind/MITM 回归、自签名和过期证书处理。
-- 上游代理与节流：HTTP/HTTPS/SOCKS5 协商与失败回收、绕行规则、请求/响应节流对称性、异常连接不遗留半连接。
-- HAR 与会话兼容：chunked trailers、encoded body、unsupported content encoding、HTTP/2 版本和大 body 导出的边界处理。
-- 诊断能力：debug 日志开关、毫秒级时间戳、Error Log 保存、关键协议链路结构化事件和错误上下文。
-- 平台发布：Windows/macOS/Linux 安装、证书、系统代理恢复和自动更新冒烟至少各执行一次。
+- gRPC-Web unary：request / response message、trailers、grpc-status / grpc-message 展示。
+- Native gRPC（HTTP/2 + `application/grpc`）unary 拆帧技术预览，实验性开关。
+- 验收：gRPC-Web unary 请求能显示 method、metadata、message、trailers 与 status；解码失败、descriptor 缺失均有清晰解释。
 
-已完成收口：Map Remote 目标 base path 合并与跨协议 runtime state 重建、失败结构化日志上下文、HTTP/2 上游连接 driver 异常驱逐、Map Remote/HAR/代理/TLS/节流相关 Rust 与前端回归。发布证据模板见 `scripts/release/m35-smoke-checklist.md`。
-
-验收标准：
-
-- HTTP/1.1、HTTPS、HTTP/2、WebSocket 的回归矩阵通过，连接异常不导致挂起、泄漏或错误复用。
-- Map Remote 覆盖纯 HTTP、HTTPS tunnel、HTTP/2 和带 base path 的目标地址，并在 Session/Trace 中展示原始与最终位置。
-- 上游 HTTP/HTTPS/SOCKS5 代理和节流配置在失败、超时、重连场景下可解释、可恢复。
-- HAR 导入导出对支持和不支持的 body 编码均不会生成非法输出。
-- 三端完成“安装 → 证书 → HTTPS 抓包 → 系统代理恢复 → 导出”的冒烟。
-
-不做：
-
-- 不做 HTTP/3 / QUIC。
-- 不在该阶段扩展 gRPC 字段级改写、Mock 或 Replay。
-- 不以视觉改版替代协议和发布质量工作。
-
-### M4：2026-09，Protobuf / gRPC-Web / Native gRPC 技术预览
-
-主题：在 M3.5 稳定性门槛通过后，进入后端、平台、移动端团队的高价值调试场景。
+### M5：2027-04，可复现工作流
 
 核心交付：
 
-- Protobuf Schema 管理：
-  - 导入 descriptor set。
-  - 管理 message type。
-  - 支持按 content-type 或用户手动选择 message type。
-- Protobuf Body Inspector：
-  - 对 `application/x-protobuf`、`application/protobuf`、`application/grpc-web+proto` 等 body 提供 Raw / Hex / Decoded 视图。
-  - 支持 single message 与 length-delimited message。
-  - 解码失败给出可读错误，不吞掉原始数据。
-- gRPC-Web 检查：
-  - 展示 request / response message、trailers、grpc-status、grpc-message。
-  - 支持 unary 与 server streaming 的基础 timeline。
-- Native gRPC over HTTP/2 技术预览：
-  - 在 HTTP/2 基础上识别 `application/grpc`。
-  - 支持 unary message 的基础拆帧与展示，作为实验性开关提供。
-  - streaming 只保留技术验证和 message timeline，不纳入 Beta 发布承诺。
-- Protobuf 与 WebSocket 结合：
-  - 对 WebSocket binary message 提供“尝试用 descriptor 解码”的入口。
+- Collections / Environments 导入导出；Postman Collection v2.1 导入首版。
+- Scenario Replay 首版：从选中 sessions 生成场景、顺序回放、环境变量、状态码 / JSON path / 耗时断言。
+- 执行报告导出。
+- 从 session 生成 Mock / Rewrite / Map 草稿（生成前预览、默认不启用）。
 
-验收标准：
-
-- 用户导入 descriptor 后，可以解码典型 Protobuf HTTP body。
-- gRPC-Web unary 请求能显示 method、metadata、message、trailers 和 status。
-- Native gRPC unary 在技术预览开关下可检查 message。
-- 解码失败、descriptor 缺失、message type 不匹配都有清晰解释。
-- M3.5 的 HTTP/2、Map Remote、TLS、上游代理和 HAR 回归门槛已通过。
-
-不做：
-
-- 不支持从 `.proto` 源码自动编译全链路，首版优先 descriptor set。
-- 不做 gRPC 复杂断言、Mock、Replay 的字段级能力。
-- 不做 HTTP/3 gRPC。
-- 不把 Native gRPC streaming 作为 `0.2.0` 稳定版的发布承诺。
-
-### M5：2026-10，Collection 增强与 Scenario Replay
-
-- `已提前实现`：MCP + Agent Skill 只读 MVP（stdio sidecar、Agent Access 设置、Codex / Claude Code / Cursor 分发、审计与默认脱敏）。
-
-主题：把抓到的问题变成可重复验证的资产。
+### M6：2027-05，协作打包与收束
 
 核心交付：
 
-- Collection 互操作：
-  - Collection / Environment 导入导出。
-  - Postman Collection v2.1 导入首版。
-  - 基础 Postman 导出或 AIProxy 自有 JSON 导出稳定版。
-- Collection 执行增强：
-  - 批量执行结果页。
-  - 状态码、响应时间、Header、JSON path body 断言。
-  - 执行报告导出。
-- Scenario Replay 首版：
-  - 从选中 sessions 生成 replay scenario。
-  - 支持顺序回放、环境变量、请求间延迟。
-  - 支持断言和失败定位。
-  - 支持从 scenario 跳回原始 sessions。
-- 从真实流量生成规则：
-  - 从 session 或一组 sessions 生成 Mock / Rewrite / Map Local 草稿。
-  - 生成前展示将写入的规则内容，默认不直接启用。
+- Session Snapshot 脱敏导出接入导出 UI；cURL 批量导出、Insights Markdown / JSON 导出接入。
+- 导出前统一脱敏预览（Authorization、Cookie、token、password、secret、apiKey 等）。
+- 全仓 review 第 8 轮 + 三端完整冒烟（安装 → 证书 → HTTPS 抓包 → 系统代理恢复 → 导出）。
+- 半年复盘：对照 §3 关键结果，决定下一周期是否进入“商业化 / 团队协作 / 插件化”。
 
-验收标准：
+## 5. 优先级分层
 
-- 用户能从一次登录/下单/查询链路生成 Scenario Replay，并在测试环境重复执行。
-- Collection 批量执行能给出 pass/fail、耗时和失败原因。
-- Postman 常见 GET/POST/headers/body/environment 导入可用。
-- 规则草稿生成不会误启用高风险 Mock。
+### P0（必须完成）
 
-不做：
-
-- 不做完整 Postman Runner 兼容。
-- 不做云端团队工作区。
-- 不做复杂脚本依赖管理。
-
-### M6：2026-11，协作打包与 Beta 发布
-
-主题：把半年能力收束成可发布、可传播、可团队试用的版本。
-
-> 注记（2026-08）：规则包导入导出已提前落地（M6 前移），支持
-> rewrite / map / dns / script / breakpoint / throttle 规则 + throttle profiles
-> 的单文件 JSON 导入导出；导入为追加合并（全新 uuid、默认禁用），**不含**
-> 脱敏与"替换全部"模式，这两项仍留在 M6 正式交付。
-
-核心交付：
-
-- 文件级协作闭环：
-  - 规则包导入导出。
-  - Throttling profile 导入导出。
-  - Collection / Environment / Scenario bundle 导入导出。
-  - Session snapshot 脱敏导出与注释。
-- 安全与隐私：
-  - 导出前统一脱敏预览。
-  - 默认遮蔽 Authorization、Cookie、Set-Cookie、token、password、secret、apiKey、PII-like 字段。
-  - AI payload、导出、日志均不包含明文 API key。
-- 发布产品化：
-  - macOS / Windows / Linux 安装包发布流程固化。
-  - 自动更新链路可用。
-  - 三端冒烟 checklist 与失败回滚说明。
-  - 首次启动引导：HTTPS 证书、系统代理、手机抓包、常见故障诊断。
-- 文档与开发入口：
-  - 用户指南同步覆盖 HTTP/2、Protobuf/gRPC-Web、Replay、导入导出、Insights。
-  - 开发任务入口按本 roadmap 更新 issue / checklist。
-
-验收标准：
-
-- 三端至少各完成一次从安装到 HTTPS 抓包再到导出快照的冒烟。
-- 一位新用户可以仅依靠应用内引导和文档完成基础抓包。
-- 团队成员可以通过文件导入复用规则、弱网、collection 和 replay 场景。
-- Beta 版本 release notes 明确列出已知限制。
-
-不做：
-
-- 不做账号体系、云同步、团队权限。
-- 不做插件市场。
-- 不做安全扫描套件。
-
-## 7. 优先级分层
-
-### P0：半年内必须完成
-
-- （已完成基线）Sessions / WebSocket / 大 body / 导出性能首轮稳定性。
-- （已完成基线）Timing 真实采样与 Waterfall。
-- （已完成基线）Insights 首版；Markdown / JSON 导出仍为 P1。
-- （已完成首版）HTTP/2 捕获、展示、HAR 导出基础闭环；正确性收口进入 M3.5。
-- M3.5 协议正确性与发布稳定性收口：HTTP/2、Map Remote、TLS、上游代理、节流、HAR、诊断和三端冒烟。
+- 自动化资源扩展：Map Remote、DNS、Throttle、Script（各带独立权限与回滚）。
 - Protobuf descriptor 管理与 body 解码。
 - gRPC-Web 基础检查。
-- Collection 导入导出、Postman 导入首版。
+- Collections / Environments 导入导出、Postman v2.1 导入。
 - Scenario Replay 首版。
-- 规则、Collection、Environment、Scenario 的文件级导入导出与脱敏；Session Snapshot 导出完成后再纳入协作闭环。
-- 三端 Beta 发布链路。
+- Snapshot 脱敏导出接入 UI。
+- 每月维护版本与周期性全仓 review。
 
-### P1：尽量完成
+### P1（尽量完成）
 
 - Native gRPC unary 技术预览。
-- Native gRPC streaming message timeline。
-- 从 session 批量生成 Mock / Rewrite / Map 草稿。
+- `replay_session` 规则内回放评估。
 - 执行报告 Markdown / JSON 双格式。
-- Session Snapshot 导出、cURL 批量导出、Insights Markdown / JSON 导出。
-- HTTP/2 规则链路更完整兼容。
-- Protobuf WebSocket message 解码。
-- 轻量诊断中心：代理、证书、系统代理、端口、网络接口、日志入口统一展示。
-- 已保存 Sessions 的 CLI 过滤与导出（在 M3.5 诊断能力稳定后评估）。
+- 从 session 批量生成规则草稿。
+- Protobuf WebSocket 解码。
+- 轻量诊断中心。
 
-### P2：明确延后
+### P2（明确延后）
 
-- HTTP/3 / QUIC 捕获。
+- HTTP/3 / QUIC。
 - 云端团队协作、账号、权限。
 - 插件系统与插件市场。
-- 独立 Mock Server。
-- 深度安全审计模式。
-- TypeScript 脚本多文件工程、npm 依赖管理。
-- 完整 Postman Runner 兼容。
 - gRPC 字段级 Mock / Rewrite / Replay。
 - 反向代理（入站服务端 / Listen）模式。
-- Block / Allow List 域名级黑白名单（Focus / Ignore 视图状态与 SSL 逐域名策略部分覆盖该需求）。
-- Repeat Advanced 高级重放（并发 N 次 / 编辑后批量重发）；编排类回放由 M5 Scenario Replay 承接，不单独实现。
+- Breakpoint 写入自动化（破坏性语义单独评估后再排）。
+- TypeScript 脚本多文件工程、npm 依赖管理。
 
-## 8. 研发执行建议
+## 6. 研发执行
 
-### 8.1 版本节奏
+### 6.1 固定交付模板
 
-版本节奏以仓库当前发布状态为基线，不追溯重编号已经发布的版本。`v0.1.17`、`v0.1.18`、`v0.1.19` 已有对应双语发布摘要；M3.5 收口版本候选为 `v0.1.20`。版本号只有在发版提交、五处版本号同步和 `docs/releases/v<版本>.md` 准备完成后才视为确定计划。
+- PRD / API_SPEC / ARCHITECTURE / PAGE_BLUEPRINTS / 用户指南是否需要同步更新。
+- 共享类型与 parser / type guard；`check:api-contract` 必须通过。
+- Rust 单测、前端 helper 单测、关键页面 UI 测试；`cargo fmt --check` 与 `format:check` 必须通过。
+- 至少一个 fixture 或手动验证脚本；用户指南或 release note 更新。
 
-#### 已发布基线（事实）
+### 6.2 质量门槛
 
-| 版本 | 发布状态 | 用户可感知主题 |
-|---|---|---|
-| `v0.1.17` | 已发布 | 规则批量操作、cURL 导入、Collection 保存、环境选择器、断点校验 |
-| `v0.1.18` | 已发布 | Compose 工具栏和环境选择器紧凑化 |
-| `v0.1.19` | 已发布 | 双语发布说明流程、安装与更新提示产品化 |
-| `0.1.19`（当前开发线） | 已完成 | M3.5 代码与自动化回归收口，等待 `v0.1.20` 发布证据 |
+- 发布前：`pnpm -r typecheck`、`pnpm -r test`、`pnpm -r lint`、`cargo test`、`cargo fmt --check --all`。
+- 新增依赖触发 RustSec advisory 时：`cargo update -p <crate> --precise <patched>` 补丁优先，48 小时内响应。
+- 版本号同步与发布验证流程以 `docs/RELEASE_GUIDE.md` 为准（版本号取自远程最新 tag + 1）。
 
-#### 后续候选（不绑定具体日期）
+### 6.3 版本节奏
 
-| 候选版本 | 计划窗口 | 核心含义 | 发布门槛 |
-|---|---|---|---|
-| `0.1.20` | 当前候选 | HTTP/2、Map Remote、TLS、上游代理、节流、HAR 和诊断维护版本 | 本地质量门禁通过；三端基础冒烟通过后创建稳定 tag |
-| `0.2.0-beta.1` | M4 开始 | Protobuf descriptor、Raw/Hex/Decoded Body、gRPC-Web unary 检查 | M3.5 回归门槛通过；解码失败保留原始数据 |
-| `0.2.0` | M4 稳定后 | Protobuf / gRPC-Web 可用级检查，Native gRPC unary 保持实验性 | 真实 fixture、跨平台类型检查、Rust/前端测试和用户指南完成 |
-| `0.3.0-alpha.1` | M5 开始 | Collection 导入导出、执行结果、Scenario Replay 首版 | 顺序回放、环境变量、基础断言可重复执行 |
-| `0.3.0-beta.1` | M6 | 脱敏快照、规则/Collection/Scenario 文件协作和三端 Beta | 安装、证书、抓包、代理恢复、导出和更新冒烟通过 |
+- 主题能力用 minor 版本（如 0.5.x 自动化扩展、0.6.x 协议、0.7.x 工作流），协议正确性与修复用 patch 版本。
+- 发布节奏维持高频维护版本 + 主题版本；每个版本必须有双语摘要（`docs/releases/v<版本>.md`）与已验证的发布流程。
+- 具体版本号不提前硬编码，以实际发版为准。
 
-版本号取舍规则：
-
-- `0.1.x` 只做当前 P0 能力的维护、兼容和小范围体验改进；协议正确性修复优先使用 patch 版本。
-- `0.2.0` 用于首次对外承诺 Protobuf / gRPC-Web 可用级能力；Native gRPC streaming 不作为稳定版承诺。
-- `0.3.0` 用于 Scenario Replay 和文件级工作流，不提前使用 `0.4.x` / `0.5.x`，避免版本号脱离当前实际发布线。
-- `alpha` / `beta` 只表示能力尚未达到稳定发布门槛；每个预发布版本仍必须有对应双语摘要和已知限制。
-- 具体发布日期不在路线图中硬编码，以发版 PR、质量门禁和三端宿主机验证结果为准。
-
-### 8.2 每个功能的固定交付模板
-
-后续开发任务默认包含：
-
-- PRD / API / Architecture / UI / Page Blueprint 是否需要同步更新。
-- 共享类型更新与 parser / type guard。
-- Rust 单测、前端 helper 单测、关键页面 UI 测试。
-- 至少一个 fixture 或手动验证脚本。
-- 用户指南或 release note 更新。
-- 已知限制与回滚开关。
-
-### 8.3 质量门槛
-
-每个里程碑发布前必须通过：
-
-- `pnpm -r typecheck`
-- `pnpm -r test`
-- `pnpm -r lint`
-- `cargo test`
-- macOS / Windows / Linux 至少基础冒烟：
-  - 启动应用。
-  - 生成/检测证书。
-  - 启动 HTTPS 代理。
-  - 开启系统代理。
-  - 捕获 HTTPS 请求。
-  - 查看详情。
-  - 导出 HAR（Session Snapshot 接入后，再补充 snapshot 导出冒烟）。
-
-## 9. 风险与对策
+## 7. 风险与对策
 
 | 风险 | 影响 | 对策 |
 |---|---|---|
-| HTTP/2 维护复杂度高 | 拖慢 M3.5/M4 | 先做捕获/展示/导出的正确性回归，再推进 Protobuf；提供 HTTP/2 开关与回退 |
-| Map Remote 跨协议边界复杂 | 造成错误路径、TLS 或端口复用 | 为纯 HTTP、HTTPS tunnel、HTTP/2 和带 base path 的映射建立独立 fixture 与 trace |
-| 维护版本被新功能挤压 | 已实现能力不可信 | 每两周保留 patch 窗口；维护版本禁止引入大型数据模型和页面改版 |
-| 大 body / streaming 与规则改写冲突 | 影响代理正确性 | 明确 streaming 模式下 body 改写不可用或降级，并在 trace 中解释 |
-| Protobuf 解码体验依赖 descriptor | 用户上手成本高 | 提供 descriptor 导入指引、content-type 推断、解码失败诊断 |
-| gRPC streaming 范围膨胀 | 研发失控 | 半年只承诺 gRPC-Web 可用和 Native gRPC 技术预览 |
-| 性能优化不可见 | 用户感知弱 | 用 10k sessions、1k WS messages、50MB body 的验收数据写入 release notes |
-| 三端平台差异 | 发布阻塞 | 每月保留发布冒烟时间，不把平台验证推迟到 11 月 |
-| AI 能力引发隐私顾虑 | 影响信任 | AI 默认手动触发、默认脱敏、payload 预览，本地 API key 不回传前端 |
+| 自动化资源扩展引入危险写能力 | 用户数据被误改 | 每类资源独立权限默认关闭；沿用三级证据与回滚；Breakpoint 写入暂不开放 |
+| Protobuf 体验依赖 descriptor | 用户上手成本高 | descriptor 导入指引、content-type 推断、解码失败诊断 |
+| Agent 主线继续挤占协议/工作流 | 竞品差距持续 | 本 roadmap 明确 M3–M5 为协议与工作流保留月份，不因 Agent 需求顺延超过一个月 |
+| 维护版本被新功能挤压 | 已实现能力不可信 | 每月保留 patch 窗口；全仓 review 每半年至少 2 轮 |
+| 大 body / streaming 与规则改写冲突 | 代理正确性 | streaming 模式下 body 改写降级并在 trace 中解释 |
+| 三端平台差异 | 发布阻塞 | 每版本至少基础冒烟；发布经验已沉淀进 RELEASE_GUIDE |
+| 开源与隐私 | 信任与合规 | 截图隐私重拍收尾；导出默认脱敏 |
 
-## 10. 取舍规则
+## 8. 取舍规则
 
-如果半年内出现延期，按以下顺序裁剪：
+如果本周期出现延期，按以下顺序裁剪：
 
 1. 先裁剪视觉增强，不裁剪抓包正确性和稳定性。
-2. 先裁剪 Native gRPC streaming，不裁剪 M3.5 稳定性门槛和 HTTP/2 基础捕获。
-3. 先裁剪完整 Postman 导出，不裁剪 AIProxy 自有格式导入导出。
-4. 先裁剪复杂断言，不裁剪状态码/JSON path/耗时断言。
-5. 先裁剪 AI 增强和 CLI，不裁剪 Waterfall、Diff、Trace、日志等可解释能力。
+2. 先裁剪 Native gRPC（保 Protobuf / gRPC-Web）。
+3. 先裁剪 Script 自动化（保 Map Remote / DNS / Throttle）。
+4. 先裁剪完整 Postman 导出，不裁剪 AIProxy 自有格式导入导出。
+5. 先裁剪复杂断言，不裁剪状态码 / JSON path / 耗时断言。
 6. 不为赶功能牺牲三端发布、证书恢复、系统代理恢复和数据脱敏。
 
-## 11. 半年后判断标准
+## 9. 半年后判断标准
 
-到 2026-11-30，如果满足以下条件，可以进入下一阶段“商业化 / 团队协作 / 插件化”规划：
+到 2027-05-31，如果满足以下条件，可以进入下一阶段“商业化 / 团队协作 / 插件化”规划：
 
-- 核心用户可以把 AIProxy 作为日常默认代理调试工具，而不是只作为演示项目。
-- HTTP/2、Protobuf、gRPC-Web 能覆盖真实项目中的基础排查。
-- Replay、Collection、规则包、snapshot 的导入导出能支撑团队文件级协作。
-- 三端安装、升级、证书引导和故障诊断足够稳定。
-- 性能压测结果可公开写入 release notes。
+- Agent 自动化覆盖六类资源且证据链完整，用户敢把真实问题交给 Agent 处理。
+- Protobuf / gRPC-Web 能覆盖真实项目中的基础排查。
+- Replay、Collection、规则包、Snapshot 的导入导出能支撑团队文件级协作。
+- 三端安装、升级、证书引导和故障诊断足够稳定，周期性 review 保持无新增高危。
+- 性能与验收数据可公开写入 release notes。
 
-若未满足，则下一阶段继续优先补可靠性、协议和发布质量，不进入云协作或插件市场。
+若未满足，下一阶段继续优先补可靠性、协议和发布质量，不进入云协作或插件市场。
