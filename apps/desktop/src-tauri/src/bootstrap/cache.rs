@@ -107,8 +107,8 @@ impl SessionCache {
             .retain(|s| !ids.contains(&s.id));
     }
 
-    /// Replace all summaries with a new list (used for seeding from runtime).
-    #[allow(dead_code)]
+    /// Replace all summaries with a new list. Used by the clear-failure path
+    /// to undo the optimistic clear mirror from the pre-clear snapshot.
     pub fn seed_summaries(&self, summaries: Vec<ProxySessionSummary>) {
         let mut guard = self
             .summaries

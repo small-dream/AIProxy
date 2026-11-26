@@ -20,3 +20,14 @@ pub(crate) fn emit_sessions_removed(handle: &tauri::AppHandle, ids: Vec<String>)
 pub(crate) fn emit_sessions_cleared(handle: &tauri::AppHandle) {
     let _ = handle.emit("sessions-cleared", ());
 }
+
+/// Emit a `sessions-restored` event carrying the summaries that are still
+/// durable. Sent when a clear mirrored the cache optimistically but the
+/// SQLite delete then failed, so the UI list must be rebuilt from the
+/// surviving rows instead of staying empty.
+pub(crate) fn emit_sessions_restored(
+    handle: &tauri::AppHandle,
+    summaries: Vec<ProxySessionSummary>,
+) {
+    let _ = handle.emit("sessions-restored", summaries);
+}

@@ -13,6 +13,7 @@ import {
   onSessionUpsert,
   onSessionsCleared,
   onSessionsRemoved,
+  onSessionsRestored,
 } from "@/services/events";
 
 vi.mock("@/services/events", () => ({
@@ -20,6 +21,7 @@ vi.mock("@/services/events", () => ({
   onSessionRemove: vi.fn(async () => () => {}),
   onSessionsCleared: vi.fn(async () => () => {}),
   onSessionsRemoved: vi.fn(async () => () => {}),
+  onSessionsRestored: vi.fn(async () => () => {}),
 }));
 
 function createWrapper(queryClient: QueryClient) {
@@ -79,15 +81,18 @@ function latestHandlers() {
   const [remove] = vi.mocked(onSessionRemove).mock.calls.at(-1) ?? [];
   const [removed] = vi.mocked(onSessionsRemoved).mock.calls.at(-1) ?? [];
   const [cleared] = vi.mocked(onSessionsCleared).mock.calls.at(-1) ?? [];
+  const [restored] = vi.mocked(onSessionsRestored).mock.calls.at(-1) ?? [];
   expect(upsert).toBeDefined();
   expect(remove).toBeDefined();
   expect(removed).toBeDefined();
   expect(cleared).toBeDefined();
+  expect(restored).toBeDefined();
   return {
     upsert: upsert as (summary: SessionSummary) => void,
     remove: remove as (sessionId: string) => void,
     removed: removed as (ids: string[]) => void,
     cleared: cleared as () => void,
+    restored: restored as (summaries: SessionSummary[]) => void,
   };
 }
 
@@ -269,5 +274,28 @@ describe("useSessionEvents", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     expect(useSessionContainerStore.getState().activeSessionIds).not.toContain("s-clear-race");
+  });
+
+  // A clear mirrors the UI before the SQLite delete runs; if that delete then
+  // fails, the backend re-emits the pre-clear snapshot. Those ids were put in
+  // the removedSessionIds tombstones by the cleared event, so the restore
+  // must bypass that filter and rebuild the list from the payload.
+  it("rebuilds the list from a restore event after a failed clear", async () => {
+    const queryClient = new QueryClient();
+    renderHook(() => useSessionEvents(), { wrapper: createWrapper(queryClient) });
+    const handlers = latestHandlers();
+
+    handlers.upsert(buildSummary("s-restore"));
+    await waitFor(() => {
+      expect(useSessionContainerStore.getState().activeSessionIds).toContain("s-restore");
+    });
+
+    handlers.cleared();
+    expect(useSessionContainerStore.getState().activeSessionIds).not.toContain("s-restore");
+
+    handlers.restored([buildSummary("s-restore")]);
+    expect(useSessionContainerStore.getState().activeSessionIds).toContain("s-restore");
+    const sessions = queryClient.getQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY) ?? [];
+    expect(sessions.some((s) => s.id === "s-restore")).toBe(true);
   });
 });

@@ -15,6 +15,7 @@ import {
   onSessionRemove,
   onSessionsCleared,
   onSessionsRemoved,
+  onSessionsRestored,
 } from "@/services/events";
 
 const FLUSH_INTERVAL_MS = 100;
@@ -157,6 +158,21 @@ export function useSessionEvents() {
       useSessionContainerStore.getState().clearSessions();
       queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, []);
       queryClient.removeQueries({ queryKey: [SESSION_DETAIL_QUERY_KEY] });
+    }).then((fn) => {
+      if (!cancelled) unlistenFns.push(fn);
+      else fn();
+    });
+
+    // A clear mirrors the UI before the SQLite delete runs; if that delete
+    // then fails the rows are still durable and this event rebuilds the list
+    // from them. It must bypass the removedSessionIds tombstones on purpose —
+    // those ids are alive again because nothing was actually deleted.
+    onSessionsRestored((summaries) => {
+      if (cancelled) return;
+      for (const summary of summaries) {
+        useSessionContainerStore.getState().upsertSummary(summary);
+      }
+      queryClient.setQueryData<SessionSummary[]>(SESSIONS_QUERY_KEY, summaries);
     }).then((fn) => {
       if (!cancelled) unlistenFns.push(fn);
       else fn();

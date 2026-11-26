@@ -21,6 +21,7 @@ use converters::{
 };
 use events::{
     emit_session_remove, emit_session_upsert, emit_sessions_cleared, emit_sessions_removed,
+    emit_sessions_restored,
 };
 use repository::Repository;
 
@@ -387,25 +388,14 @@ impl AppState {
             lock_wait_ms,
             "clear_sessions_started"
         );
-        // The repository only returns after the SQLite transaction commits.
-        // Once it does, mirror the durable state in the cache and emit the
-        // clear event even if body-file cleanup fails.
-        let storage_result = match self.repository.clear_all_sessions_result().await {
-            Ok(result) => result,
-            Err(error) => {
-                tracing::error!(
-                    component = "desktop.sessions",
-                    event = "clear_sessions_failed",
-                    lock_wait_ms,
-                    total_ms = started.elapsed().as_millis() as u64,
-                    error = %error,
-                    "clear_sessions_failed"
-                );
-                return Err(error);
-            }
-        };
-        let body_cleanup_error = storage_result.body_cleanup_error.clone();
-
+        // Mirror the intended state in the cache and notify the UI BEFORE the
+        // SQLite delete runs. That delete is O(total row bytes): with a large
+        // history the cascade commit takes seconds, and the list must not stay
+        // populated for that long after the user confirmed the clear. The
+        // repository still only returns once the transaction commits, so a
+        // successful clear remains durable and the command result (including
+        // Agent control) is unchanged — only the event timing moves.
+        let cleared_snapshot = self.cache.read_summaries();
         let cache_started = Instant::now();
         let ids_to_clear = self.cache.clear_summaries();
         let ids_set: HashSet<String> = ids_to_clear.iter().cloned().collect();
@@ -415,6 +405,32 @@ impl AppState {
         if let Some(handle) = self.read_app_handle() {
             emit_sessions_cleared(&handle);
         }
+
+        // The snapshot exists only to undo the optimistic mirror above if the
+        // DB clear fails: the rows are still durable then, so the cache and
+        // UI list must be rebuilt from them.
+        let storage_result = match self.repository.clear_all_sessions_result().await {
+            Ok(result) => result,
+            Err(error) => {
+                let restored_count = cleared_snapshot.len();
+                self.cache.seed_summaries(cleared_snapshot.clone());
+                if let Some(handle) = self.read_app_handle() {
+                    emit_sessions_restored(&handle, cleared_snapshot);
+                }
+                tracing::error!(
+                    component = "desktop.sessions",
+                    event = "clear_sessions_failed",
+                    lock_wait_ms,
+                    restored_count,
+                    total_ms = started.elapsed().as_millis() as u64,
+                    error = %error,
+                    "clear_sessions_failed"
+                );
+                return Err(error);
+            }
+        };
+        let body_cleanup_error = storage_result.body_cleanup_error.clone();
+
         if let Some(body_cleanup_error) = body_cleanup_error {
             tracing::warn!(
                 component = "desktop.sessions",
@@ -1176,6 +1192,51 @@ mod tests {
             .is_none());
 
         let _ = std::fs::remove_file(body_store_dir);
+    }
+
+    #[test]
+    fn clear_sessions_restores_cache_when_db_clear_fails() {
+        // The clear mirrors the cache (and notifies the UI) before the SQLite
+        // delete runs so the list reacts instantly. When that delete then
+        // fails (poisoned connection), the rows are still durable, so the
+        // cache must be re-seeded from the pre-clear snapshot instead of
+        // staying empty over surviving rows.
+        let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
+        aiproxy_db::schema::run_migrations(&conn).unwrap();
+        let body_store_dir =
+            std::env::temp_dir().join(format!("aiproxy-body-store-{}", Uuid::new_v4()));
+        let body_store = Arc::new(BodyStore::new(body_store_dir.clone()));
+        body_store.ensure_dir().unwrap();
+        let state = AppState::new(Arc::new(Mutex::new(conn)), body_store);
+
+        state.cache.seed_summaries(vec![
+            build_summary("restore-1", "one.example.com"),
+            build_summary("restore-2", "two.example.com"),
+        ]);
+
+        // Poison the DB-connection mutex so the strict clear fails closed.
+        let db = Arc::clone(state.repository.db());
+        let poison_handle = {
+            let db_clone = Arc::clone(&db);
+            std::thread::spawn(move || {
+                let _guard = db_clone.lock().unwrap();
+                panic!("intentional poison for test");
+            })
+        };
+        poison_handle.join().ok();
+
+        let error = tauri::async_runtime::block_on(state.clear_sessions())
+            .expect_err("poisoned DB clear must fail");
+        let payload: serde_json::Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(payload["code"], "DB_POISONED");
+
+        let restored = state.read_sessions();
+        let restored_ids: std::collections::HashSet<String> =
+            restored.iter().map(|s| s.id.clone()).collect();
+        assert!(restored_ids.contains("restore-1"));
+        assert!(restored_ids.contains("restore-2"));
+
+        let _ = std::fs::remove_dir_all(body_store_dir);
     }
 
     #[test]

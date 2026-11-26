@@ -142,6 +142,42 @@ export function onSessionsCleared(callback: () => void): Promise<Unlisten> {
   });
 }
 
+/**
+ * Fired when a clear mirrored the UI optimistically but the SQLite delete
+ * then failed: the payload carries the summaries that are still durable, and
+ * the list must be rebuilt from it instead of staying empty.
+ */
+export function onSessionsRestored(
+  callback: (summaries: SessionUpsertEvent[]) => void,
+): Promise<Unlisten> {
+  if (!isTauriRuntime()) {
+    return Promise.resolve(() => {});
+  }
+
+  return listen<unknown>("sessions-restored", (event) => {
+    if (!Array.isArray(event.payload)) {
+      // L6: a non-array restore would leave the list empty with nothing to
+      // rebuild it from; surface the shape regression instead of ignoring it.
+      logDevWarn("events", "sessions_restored_parse_failed", {
+        payload: payloadPreview(event.payload),
+      });
+      return;
+    }
+    const summaries: SessionUpsertEvent[] = [];
+    for (const item of event.payload) {
+      try {
+        summaries.push(parseSessionSummary(item));
+      } catch (error) {
+        // L6: keep the valid entries; one bad row must not drop the whole list.
+        logDevWarn("events", "sessions_restored_entry_parse_failed", {
+          error: String(error),
+        });
+      }
+    }
+    callback(summaries);
+  });
+}
+
 export function onSessionsRemoved(callback: (ids: string[]) => void): Promise<Unlisten> {
   if (!isTauriRuntime()) {
     return Promise.resolve(() => {});

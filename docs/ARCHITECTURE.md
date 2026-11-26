@@ -502,6 +502,7 @@ TLS 证书缓存机制：
 - `session-upsert`
 - `session-remove`
 - `sessions-cleared`
+- `sessions-restored`
 - `sessions-removed`
 - `breakpoint-hit` — `已实现`，代理管道在断点命中时向前端推送 `BreakpointHit` 载荷，包含 session ID、阶段、请求/响应详情
 - `ws-message`

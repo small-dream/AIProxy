@@ -1066,9 +1066,10 @@ type ClearSessionsOutput = void;
 说明：
 
 - 清空全局全部会话（含 SQLite 与 Body Store）；内部会统计实际删除的数据库 Session 数供 Agent 控制返回。UI 侧需先做危险操作确认。
+- 响应速度与持久性解耦：缓存镜像与 `sessions-cleared` 事件在 SQLite 删除**开始前**发出，界面列表立即清空（SQLite 的级联删除耗时随历史数据总量线性增长，列表不应等待它）；命令本身仍在事务提交后才返回，成功返回即代表清空已持久化，Agent 控制语义不变。
 - SQLite 删除在命令内同步提交，提交成功后旧会话不会在重启后复活。Body Store 不再逐个同步删除消息体文件：后端把整个 `bodies/` 目录原子重命名为同级的 GC tombstone，并立即重建空目录，然后由后台线程删除 tombstone。因此清空耗时不随消息体文件数量线性增长，命令返回也不依赖所有文件已从磁盘释放。
 - 后台删除失败不会把已经提交的数据库清空回滚：旧消息体已不在活动目录中，残留 tombstone 会在下次启动时继续清理；只有目录摘除失败且同步回退删除也失败时，才返回 `BODY_DELETE_FAILED`。
-- 数据库清理失败时不更新缓存、不发射事件。数据库已提交但 Body 清理失败时返回 `BODY_DELETE_FAILED`，`details` 含 `deletedCount`、`sessionsCleared=true` 和 `bodyCleanupError`；此时缓存与 `sessions-cleared` 事件仍按数据库的最终状态同步，避免 UI 长期显示已不存在的 Session。
+- 数据库清理失败时，后端把清空前的缓存快照重新写回缓存，并发射 `sessions-restored`（携带仍然存活的摘要列表）让前端重建列表，命令仍返回结构化错误。数据库已提交但 Body 清理失败时返回 `BODY_DELETE_FAILED`，`details` 含 `deletedCount`、`sessionsCleared=true` 和 `bodyCleanupError`；此时缓存与 `sessions-cleared` 事件仍按数据库的最终状态同步，避免 UI 长期显示已不存在的 Session。
 - Session 生命周期锁覆盖持久化、缓存和 Body 写入，保证清理期间不会与新的 Session 写入交叉污染。
 - 可观测性：清空命令记录 `clear_sessions_started`、`clear_sessions_completed`、`clear_sessions_completed_with_body_cleanup_error` 与 `clear_sessions_failed`；完成日志包含 `lock_wait_ms`、`db_lock_wait_ms`、`db_delete_ms`、`body_detach_ms`、`cache_clear_ms`、`gc_scheduled` 与 `total_ms`。后台 GC 记录 `body_gc_started` / `body_gc_succeeded` / `body_gc_failed`，启动清理记录 `body_gc_startup_cleanup_*`。
 
@@ -3138,6 +3139,12 @@ type SessionRemoveEvent = string;
 type SessionsClearedEvent = void;
 ```
 
+### `sessions-restored`
+
+```ts
+type SessionsRestoredEvent = SessionSummary[];
+```
+
 ### `sessions-removed`
 
 ```ts
@@ -3152,7 +3159,7 @@ type SessionsRemovedEvent = string[];
 
 触发时机：
 
-- `clear_sessions` 清空会话后触发 `sessions-cleared`
+- `clear_sessions` 确认后立即触发 `sessions-cleared`（先于 SQLite 删除提交，列表因此即时清空）；若随后的数据库删除失败，则再触发 `sessions-restored`（携带仍然存活的摘要列表），前端据此重建列表
 - `delete_sessions` 按 id 批量删除会话后触发 `sessions-removed`（回显请求的 id 列表）
 - `delete_sessions_except` 批量移除会话后触发 `sessions-removed`
 
