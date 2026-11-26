@@ -535,7 +535,11 @@ function ResponseTabContent({
   }
 
   if (responseTab === "automation") {
-    return <SessionInspectorAutomationPane sessionId={session.id} />;
+    return (
+      <InspectorScrollArea>
+        <SessionInspectorAutomationPane sessionId={session.id} />
+      </InspectorScrollArea>
+    );
   }
 
   if (responseTab === "trailers") {

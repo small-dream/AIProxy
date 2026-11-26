@@ -608,10 +608,11 @@ type ScriptRule = {
 
 type ScriptRunEntry = {
   kind: "log" | "extraction" | "error";
-  key?: string;
-  level?: "debug" | "info" | "warn" | "error";
-  message?: string;
-  payloadJson?: string;
+  key?: string | null;
+  level?: "debug" | "info" | "warn" | "error" | null;
+  message?: string | null;
+  payloadJson?: string | null; // 序列化后最多 8 KB，超出部分截断
+  payloadOriginalBytes?: number | null; // 仅在 payloadJson 被截断时出现：截断前的字节数
   sequence: number;
 };
 
@@ -620,6 +621,7 @@ type ScriptSessionTrace = {
   entries: ScriptRunEntry[];
   outcome: "success" | "skipped" | "runtimeError" | "timedOut" | "invalidResult";
   ruleId: string;
+  ruleName?: string | null; // list_script_session_trace 按当前规则解析；规则不存在时省略
   stage: "request" | "response";
 };
 ```

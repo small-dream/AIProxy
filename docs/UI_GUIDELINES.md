@@ -875,6 +875,10 @@ Throttling Page
 - Rules 模式必须清楚展示作用范围，避免误伤所有请求
 - 从 Session 创建规则时，应自动带入 host / path / method，减少复制粘贴
 - Session Automation tab 应展示 Throttling trace，让用户确认 profile / rule 是否命中
+- Automation tab 自身是滚动容器，内容高于面板时可以滚动查看，不得被裁切
+- 脚本 trace 卡片标题显示规则名称，规则 ID 作为次级文字；规则名称不可用时回退为规则 ID
+- trace 值（脚本日志 / 提取值、改写前后值）统一用 `TracePayloadBlock` 渲染：JSON 按 JSON Text 标签的缩进格式化并高亮；序列化字符串显示其内容，内容本身是 JSON 时再格式化；无法解析的值（例如截断后的值）原样显示。超过 8 行或 600 个字符的值默认折叠到 8 行并渐隐，下方提供「展开全部 / 收起」按钮（`aria-expanded` 同步状态）；右上角复制按钮复制格式化后的文本，成功或失败都在 tooltip 中反馈。长 token（base64、密文）强制换行，不出现横向滚动
+- 后端截断过的值（`payloadOriginalBytes` 存在）在值下方用 warning 色说明「仅保留前 8 KB，原始 N」，不得把前缀当作完整值展示
 
 ## 9.6 Sessions Export
 

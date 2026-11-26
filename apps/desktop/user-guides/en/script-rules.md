@@ -333,6 +333,10 @@ You'll see:
 - `ctx.log.*` output
 - Structured data from `ctx.extract(...)`
 
+Log data and extracted values longer than 8 lines start collapsed: click **Show all** to read the full value, or use the copy button in the top-right corner to copy the formatted text. JSON is pretty-printed automatically.
+
+A log payload or extracted value whose serialized form exceeds `8 KB` keeps only its first 8 KB, and the tab marks it as truncated with the original size.
+
 ## Failure handling
 
 Script rules default to a **fail-open** policy.

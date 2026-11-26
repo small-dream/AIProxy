@@ -334,6 +334,7 @@ fn runtime_failure_trace(
                 level: Some(ScriptLogLevel::Error),
                 message: Some(trim_to_byte_limit(&message, MAX_LOG_ENTRY_BYTES)),
                 payload_json: None,
+                payload_original_bytes: None,
                 sequence: 0,
             }],
             outcome,
@@ -443,19 +444,27 @@ fn sanitize_entries(entries: Vec<ScriptRunEntry>) -> Vec<ScriptRunEntry> {
         .into_iter()
         .take(MAX_SCRIPT_ENTRIES)
         .enumerate()
-        .map(|(index, entry)| ScriptRunEntry {
-            kind: entry.kind,
-            key: entry
-                .key
-                .map(|value| trim_to_byte_limit(&value, MAX_LOG_ENTRY_BYTES)),
-            level: entry.level,
-            message: entry
-                .message
-                .map(|value| trim_to_byte_limit(&value, MAX_LOG_ENTRY_BYTES)),
-            payload_json: entry
+        .map(|(index, entry)| {
+            let payload_original_bytes = entry
                 .payload_json
-                .map(|value| trim_to_byte_limit(&value, MAX_LOG_ENTRY_BYTES)),
-            sequence: index as u32,
+                .as_ref()
+                .filter(|value| value.len() > MAX_LOG_ENTRY_BYTES)
+                .map(|value| value.len() as u64);
+            ScriptRunEntry {
+                kind: entry.kind,
+                key: entry
+                    .key
+                    .map(|value| trim_to_byte_limit(&value, MAX_LOG_ENTRY_BYTES)),
+                level: entry.level,
+                message: entry
+                    .message
+                    .map(|value| trim_to_byte_limit(&value, MAX_LOG_ENTRY_BYTES)),
+                payload_json: entry
+                    .payload_json
+                    .map(|value| trim_to_byte_limit(&value, MAX_LOG_ENTRY_BYTES)),
+                payload_original_bytes,
+                sequence: index as u32,
+            }
         })
         .collect()
 }
@@ -701,6 +710,33 @@ mod tests {
             extract_entry.payload_json.as_deref(),
             Some("[unserializable]")
         );
+    }
+
+    // A payload over MAX_LOG_ENTRY_BYTES is cut to the limit; the entry must
+    // record the original size so the UI can flag the value as partial.
+    #[test]
+    fn oversized_extraction_payload_records_original_size() {
+        let rule = test_rule(
+            "__aiproxyScriptExports.onRequest = function onRequest(ctx) { ctx.extract('big', 'x'.repeat(20000)); ctx.extract('small', 'ok'); };",
+        );
+        let result = execute_request_hook(&rule, test_payload());
+        assert_eq!(result.trace.outcome, ScriptRunOutcome::Success);
+        let find = |key: &str| {
+            result
+                .trace
+                .entries
+                .iter()
+                .find(|entry| entry.key.as_deref() == Some(key))
+                .cloned()
+                .expect("extraction entry should exist")
+        };
+        let big = find("big");
+        assert!(big.payload_json.as_deref().unwrap().len() <= MAX_LOG_ENTRY_BYTES);
+        // JSON.stringify wraps the 20000-char string in two quotes.
+        assert_eq!(big.payload_original_bytes, Some(20_002));
+        let small = find("small");
+        assert_eq!(small.payload_json.as_deref(), Some("\"ok\""));
+        assert_eq!(small.payload_original_bytes, None);
     }
 
     // H7: trim_to_byte_limit must never panic when the byte limit falls inside

@@ -83,6 +83,11 @@ pub struct ScriptRunEntry {
     pub level: Option<ScriptLogLevel>,
     pub message: Option<String>,
     pub payload_json: Option<String>,
+    /// Serialized payload size in bytes before the `MAX_LOG_ENTRY_BYTES` cut.
+    /// Set only when `payload_json` was truncated, so the UI can present the
+    /// value as partial instead of showing a prefix as the whole value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_original_bytes: Option<u64>,
     pub sequence: u32,
 }
 

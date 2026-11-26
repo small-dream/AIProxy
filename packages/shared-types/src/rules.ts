@@ -243,10 +243,12 @@ export type ScriptRunOutcome =
 
 export type ScriptRunEntry = {
   kind: ScriptRunEntryKind;
-  key?: string;
-  level?: ScriptLogLevel;
-  message?: string;
-  payloadJson?: string;
+  key?: string | null;
+  level?: ScriptLogLevel | null;
+  message?: string | null;
+  payloadJson?: string | null;
+  /** Serialized payload size before the 8 KB cut; present only when truncated. */
+  payloadOriginalBytes?: number | null;
   sequence: number;
 };
 
@@ -255,6 +257,7 @@ export type ScriptSessionTrace = {
   entries: ScriptRunEntry[];
   outcome: ScriptRunOutcome;
   ruleId: string;
+  ruleName?: string | null;
   stage: "request" | "response";
 };
 
@@ -642,6 +645,7 @@ export function isScriptRunEntry(value: unknown): value is ScriptRunEntry {
   return (
     (candidate.kind === "log" || candidate.kind === "extraction" || candidate.kind === "error") &&
     (candidate.level === undefined ||
+      candidate.level === null ||
       candidate.level === "debug" ||
       candidate.level === "info" ||
       candidate.level === "warn" ||
@@ -649,6 +653,9 @@ export function isScriptRunEntry(value: unknown): value is ScriptRunEntry {
     isNullableString(candidate.key) &&
     isNullableString(candidate.message) &&
     isNullableString(candidate.payloadJson) &&
+    (candidate.payloadOriginalBytes === undefined ||
+      candidate.payloadOriginalBytes === null ||
+      typeof candidate.payloadOriginalBytes === "number") &&
     typeof candidate.sequence === "number"
   );
 }
@@ -666,6 +673,7 @@ export function isScriptSessionTrace(value: unknown): value is ScriptSessionTrac
       candidate.outcome === "timedOut" ||
       candidate.outcome === "invalidResult") &&
     typeof candidate.ruleId === "string" &&
+    isNullableString(candidate.ruleName) &&
     (candidate.stage === "request" || candidate.stage === "response")
   );
 }

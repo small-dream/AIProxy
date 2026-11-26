@@ -1023,6 +1023,8 @@ pub struct ScriptRunEntryRow {
     pub key: Option<String>,
     pub message: Option<String>,
     pub payload_json: Option<String>,
+    /// Payload size before truncation; `None` when `payload_json` is complete.
+    pub payload_original_bytes: Option<u64>,
     pub seq: u32,
 }
 
@@ -1210,8 +1212,8 @@ pub fn replace_script_runs_for_session(
     for entry in entries {
         tx.execute(
             "INSERT INTO script_run_entries
-                (id, run_id, kind, level, key, message, payload_json, seq)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (id, run_id, kind, level, key, message, payload_json, payload_original_bytes, seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 entry.id,
                 entry.run_id,
@@ -1220,6 +1222,9 @@ pub fn replace_script_runs_for_session(
                 entry.key,
                 entry.message,
                 entry.payload_json,
+                entry
+                    .payload_original_bytes
+                    .map(|bytes| i64::try_from(bytes).unwrap_or(i64::MAX)),
                 entry.seq,
             ],
         )
@@ -1271,7 +1276,8 @@ pub fn load_script_run_entries(
         return Ok(Vec::new());
     }
 
-    let sql = "SELECT id, run_id, kind, level, key, message, payload_json, seq
+    let sql = "SELECT id, run_id, kind, level, key, message, payload_json, seq,
+                      payload_original_bytes
                FROM script_run_entries
                WHERE run_id IN ({})
                ORDER BY seq ASC, id ASC";
@@ -1303,6 +1309,9 @@ pub fn load_script_run_entries(
                     key: row.get(4)?,
                     message: row.get(5)?,
                     payload_json: row.get(6)?,
+                    payload_original_bytes: row
+                        .get::<_, Option<i64>>(8)?
+                        .and_then(|bytes| u64::try_from(bytes).ok()),
                     seq: read_u32(row, 7)?,
                 })
             })
@@ -2181,6 +2190,7 @@ mod tests {
             key: None,
             message: Some("hello".into()),
             payload_json: Some(r#"{"ok":true}"#.into()),
+            payload_original_bytes: Some(20_002),
             seq: 0,
         }];
 
@@ -2193,6 +2203,7 @@ mod tests {
         assert_eq!(loaded_runs[0].outcome, "success");
         assert_eq!(loaded_entries.len(), 1);
         assert_eq!(loaded_entries[0].message.as_deref(), Some("hello"));
+        assert_eq!(loaded_entries[0].payload_original_bytes, Some(20_002));
     }
 
     // Regression for H6: `load_script_run_entries` must chunk the `IN (...)`
@@ -2399,6 +2410,7 @@ mod tests {
             key: None,
             message: Some("hello".into()),
             payload_json: Some(r#"{"ok":true}"#.into()),
+            payload_original_bytes: None,
             seq: 0,
         }];
 

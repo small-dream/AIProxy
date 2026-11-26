@@ -23,6 +23,7 @@ import {
   isUpstreamProxySettings,
   normalizeStartProxyInput,
   parseRewriteRules,
+  parseScriptSessionTrace,
   parseSessionDetail,
   parseSessionSummary,
   parseSessionSummaries,
@@ -1301,5 +1302,46 @@ describe("parseAgentControlActionEvent", () => {
     ).toBeNull();
     expect(parseAgentControlActionEvent({ ...valid, actionSummary: 1 })).toBeNull();
     expect(parseAgentControlActionEvent({ ...valid, errorCode: false })).toBeNull();
+  });
+});
+
+describe("parseScriptSessionTrace", () => {
+  const trace = {
+    durationMs: 7,
+    entries: [
+      {
+        kind: "extraction",
+        level: null,
+        key: "decoded",
+        message: null,
+        payloadJson: '{"ok":true}',
+        payloadOriginalBytes: 20002,
+        sequence: 0,
+      },
+    ],
+    outcome: "success",
+    ruleId: "script-1",
+    ruleName: "Decoder",
+    stage: "response",
+  };
+
+  it("accepts the backend shape with null levels, rule names and truncation sizes", () => {
+    expect(parseScriptSessionTrace([trace])).toEqual([trace]);
+  });
+
+  it("accepts traces without the optional rule name or truncation size", () => {
+    const legacy = {
+      durationMs: 7,
+      entries: [{ kind: "log", level: "info", message: "ran", sequence: 0 }],
+      outcome: "success",
+      ruleId: "script-1",
+      stage: "request",
+    };
+    expect(parseScriptSessionTrace([legacy])).toEqual([legacy]);
+  });
+
+  it("rejects malformed truncation sizes", () => {
+    const entry = { ...trace.entries[0], payloadOriginalBytes: "20002" };
+    expect(() => parseScriptSessionTrace([{ ...trace, entries: [entry] }])).toThrow();
   });
 });

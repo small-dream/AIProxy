@@ -2406,6 +2406,10 @@ export const enMessages = {
     map: "Map",
     rewrite: "Rewrite",
     script: "Script",
+    showAll: "Show all",
+    collapse: "Collapse",
+    copyValue: "Copy value",
+    payloadTruncated: "Truncated: only the first {{kept}} was kept (original {{original}}).",
   },
   breakpointPanel: {
     addQuery: "Add Query",

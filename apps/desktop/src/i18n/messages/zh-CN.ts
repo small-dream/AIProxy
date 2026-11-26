@@ -2304,6 +2304,10 @@ export const zhCNMessages: Messages = {
     map: "映射",
     rewrite: "改写",
     script: "脚本",
+    showAll: "展开全部",
+    collapse: "收起",
+    copyValue: "复制内容",
+    payloadTruncated: "已截断：仅保留前 {{kept}}（原始 {{original}}）。",
   },
   breakpointPanel: {
     addQuery: "添加查询参数",

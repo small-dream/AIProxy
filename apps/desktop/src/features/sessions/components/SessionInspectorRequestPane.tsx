@@ -17,6 +17,7 @@ import {
   inspectorTabsSx,
 } from "./SessionInspectorShared";
 import {
+  formatCompactBytes,
   getBodyCodeLanguage,
   getRawMessageText,
   type RequestFormEntry,
@@ -424,16 +425,4 @@ function MultipartFormTable({
 
 function formatMultipartFileSize(sizeBytes: number, t: ReturnType<typeof useI18n>["t"]) {
   return `${formatCompactBytes(sizeBytes)} (${t("common.tech.bytes", { value: sizeBytes })})`;
-}
-
-function formatCompactBytes(sizeBytes: number): string {
-  if (sizeBytes < 1024) {
-    return `${sizeBytes} B`;
-  }
-
-  if (sizeBytes < 1024 * 1024) {
-    return `${(sizeBytes / 1024).toFixed(2)} KB`;
-  }
-
-  return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
 }
