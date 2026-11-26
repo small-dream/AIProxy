@@ -9,23 +9,7 @@ pub fn compile_script_rule(input: ScriptRule) -> Result<CompiledScriptRule, Stri
     let transpiled = transpile_source(&input.source_code, &input.language)?;
     let compiled_code = build_runtime_module(&transpiled.code);
 
-    let compiled_match = if input.r#match.match_type.as_deref() == Some("regex") {
-        let pattern = input.r#match.url_pattern.trim();
-        match Regex::new(pattern) {
-            Ok(re) => Some(Arc::new(re)),
-            Err(e) => {
-                tracing::warn!(
-                    event = "rules.regex_compile_failed",
-                    pattern = pattern,
-                    error = %e,
-                    "regex compile failed for script rule"
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let compiled_match = compile_script_match(&input.r#match);
 
     Ok(CompiledScriptRule {
         rule: ScriptRule {
@@ -36,6 +20,29 @@ pub fn compile_script_rule(input: ScriptRule) -> Result<CompiledScriptRule, Stri
         source_map: transpiled.source_map.map(Arc::new),
         compiled_match,
     })
+}
+
+/// Pre-compile a script rule's URL regex. Shared by `compile_script_rule` and
+/// the startup loader, which rebuilds rules from stored rows without
+/// recompiling the source. Non-regex and invalid patterns yield `None`, and a
+/// regex rule without a compiled pattern matches nothing.
+pub fn compile_script_match(rule_match: &ScriptRuleMatch) -> Option<Arc<Regex>> {
+    if rule_match.match_type.as_deref() != Some("regex") {
+        return None;
+    }
+    let pattern = rule_match.url_pattern.trim();
+    match Regex::new(pattern) {
+        Ok(re) => Some(Arc::new(re)),
+        Err(e) => {
+            tracing::warn!(
+                event = "rules.regex_compile_failed",
+                pattern = pattern,
+                error = %e,
+                "regex compile failed for script rule"
+            );
+            None
+        }
+    }
 }
 
 pub(crate) fn validate_script_rule(rule: &ScriptRule) -> Result<(), String> {

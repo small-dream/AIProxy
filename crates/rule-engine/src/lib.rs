@@ -12,7 +12,7 @@ pub use types::{
     ScriptRunOutcome, ScriptSessionInfo, ScriptTrace, ScriptTraceStage,
 };
 
-pub use compile::compile_script_rule;
+pub use compile::{compile_script_match, compile_script_rule};
 pub use execute::{
     execute_decode_hook, execute_request_hook, execute_response_hook, trim_to_byte_limit,
 };

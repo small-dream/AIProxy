@@ -73,11 +73,11 @@ mod ws_upgrade;
 mod tests;
 
 pub use aiproxy_rule_engine::{
-    compile_script_rule, execute_request_hook, execute_response_hook, CompiledScriptRule,
-    ScriptEntrypoints, ScriptHeader, ScriptHookPayload, ScriptLogLevel, ScriptManager,
-    ScriptRequest, ScriptResponse, ScriptResponseOverride, ScriptRule, ScriptRuleLanguage,
-    ScriptRuleMatch, ScriptRuleSourceType, ScriptRunEntry, ScriptRunEntryKind, ScriptRunOutcome,
-    ScriptSessionInfo, ScriptTrace, ScriptTraceStage,
+    compile_script_match, compile_script_rule, execute_request_hook, execute_response_hook,
+    CompiledScriptRule, ScriptEntrypoints, ScriptHeader, ScriptHookPayload, ScriptLogLevel,
+    ScriptManager, ScriptRequest, ScriptResponse, ScriptResponseOverride, ScriptRule,
+    ScriptRuleLanguage, ScriptRuleMatch, ScriptRuleSourceType, ScriptRunEntry, ScriptRunEntryKind,
+    ScriptRunOutcome, ScriptSessionInfo, ScriptTrace, ScriptTraceStage,
 };
 pub use breakpoints::{
     BreakpointActionKind, BreakpointEventEmitter, BreakpointHit, BreakpointManager,
