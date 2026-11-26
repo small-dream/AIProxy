@@ -210,6 +210,44 @@ describe("SessionInspectorWorkspace", () => {
     },
   );
 
+  it("keeps 64-bit numbers exact in the response JSON text tab and the request body", () => {
+    const body = '{"id":1234567890123456789,"price":1.10}';
+    render(
+      <AppProviders>
+        <SessionInspectorWorkspace
+          detailErrorMessage={undefined}
+          inspectorSplitRatio={0.4}
+          isDetailLoading={false}
+          onCopyCurl={undefined}
+          onCopyUrl={undefined}
+          onInspectorResizeStart={() => {}}
+          onRepeat={undefined}
+          onRequestCollapsedChange={() => {}}
+          onRequestTabChange={() => {}}
+          onResponseTabChange={() => {}}
+          requestCollapsed={false}
+          requestTab="body"
+          responseTab="jsonText"
+          selectedSession={createSessionSummary()}
+          selectedSessionDetail={createSessionDetail({
+            requestBody: { inlineText: body, mimeType: "application/json", sizeBytes: body.length },
+            responseBody: {
+              inlineText: body,
+              mimeType: "application/json",
+              sizeBytes: body.length,
+            },
+          })}
+          sessionSelectionNonce={0}
+        />
+      </AppProviders>,
+    );
+
+    // Highlighting splits tokens into spans, so compare the rendered text.
+    const blocks = Array.from(document.querySelectorAll("pre"), (pre) => pre.textContent);
+    expect(blocks.filter((text) => text?.includes('"id": 1234567890123456789,'))).toHaveLength(2);
+    expect(blocks.join("")).toContain('"price": 1.10');
+  });
+
   it("shows captured response timing and marks unmeasured proxy timing phases not applicable", () => {
     render(
       <AppProviders>

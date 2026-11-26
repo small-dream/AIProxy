@@ -4,9 +4,9 @@ import { useMemo, type ReactNode } from "react";
 
 import { SessionInspectorResponsePane } from "@/features/sessions/components/SessionInspectorResponsePane";
 import {
-  formatJsonText,
   getBodyText,
   parseJsonBody,
+  reindentJsonText,
   type JsonParseResult,
   type ResponseInspectorTab,
 } from "@/features/sessions/components/session-inspector.helpers";
@@ -46,12 +46,13 @@ export function ComposeResponseSection({
   }, [responseBodyText, responseDetail?.responseBody, t]);
 
   const responseJsonDisplayText = useMemo(() => {
-    if (responseJsonResult.status !== "success") {
+    if (responseJsonResult.status !== "success" || !responseBodyText) {
       return undefined;
     }
 
-    return formatJsonText(responseJsonResult.value);
-  }, [responseJsonResult]);
+    // Re-indent the source text: a parse round-trip would round 64-bit IDs.
+    return reindentJsonText(responseBodyText);
+  }, [responseBodyText, responseJsonResult]);
 
   return (
     <Box

@@ -493,6 +493,14 @@ describe("reindentJsonText", () => {
     );
   });
 
+  it("unescapes strings the way JSON.stringify does", () => {
+    // Raw API bodies often escape non-ASCII text; the text view shows it decoded.
+    const source =
+      '{"name":"\\u4e2d\\u6587","path":"a\\/b","quote":"\\"","nl":"x\\ny","bad":"\\ud800"}';
+    expect(reindentJsonText(source)).toBe(formatJsonText(JSON.parse(source) as JsonValue));
+    expect(reindentJsonText(source)).toContain('"name": "中文"');
+  });
+
   it("normalizes existing indentation and keeps scalars as they are", () => {
     expect(reindentJsonText('{\n  "a" :  [ 1 ,2 ]\n}')).toBe(
       '{\n    "a": [\n        1,\n        2\n    ]\n}',

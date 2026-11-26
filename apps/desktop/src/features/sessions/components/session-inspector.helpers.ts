@@ -369,43 +369,34 @@ export function formatJsonText(value: JsonValue) {
 }
 
 /**
- * Pretty-print JSON text with the same layout as `formatJsonText`, but by
- * re-indenting the tokens instead of a parse/stringify round-trip, so values
- * such as 64-bit IDs (`1234567890123456789`) and `1.10` keep their exact
- * digits. The input must already be valid JSON.
+ * Pretty-print JSON text exactly like `formatJsonText`, but by re-indenting the
+ * tokens instead of a parse/stringify round-trip, so values such as 64-bit IDs
+ * (`1234567890123456789`) and `1.10` keep their exact digits. Strings with
+ * escapes are re-serialized, so `\u4e2d` still shows as `中`. The input must
+ * already be valid JSON.
  */
 export function reindentJsonText(text: string): string {
   const parts: string[] = [];
   let depth = 0;
-  let inString = false;
-  let escaped = false;
+  let index = 0;
   const newline = (level: number) => `\n${" ".repeat(level * JSON_TEXT_INDENT_SPACES)}`;
 
-  for (let index = 0; index < text.length; index += 1) {
+  while (index < text.length) {
     const char = text[index] as string;
 
-    if (inString) {
-      parts.push(char);
-      if (escaped) {
-        escaped = false;
-      } else if (char === "\\") {
-        escaped = true;
-      } else if (char === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
     switch (char) {
-      case '"':
-        inString = true;
-        parts.push(char);
-        break;
+      case '"': {
+        const end = findJsonStringEnd(text, index);
+        const token = text.slice(index, end);
+        parts.push(token.includes("\\") ? JSON.stringify(JSON.parse(token) as string) : token);
+        index = end;
+        continue;
+      }
       case "{":
       case "[": {
         const close = char === "{" ? "}" : "]";
         let next = index + 1;
-        while (next < text.length && /\s/.test(text[next] as string)) next += 1;
+        while (next < text.length && isJsonWhitespace(text[next] as string)) next += 1;
         if (text[next] === close) {
           parts.push(char, close);
           index = next;
@@ -426,17 +417,42 @@ export function reindentJsonText(text: string): string {
       case ":":
         parts.push(": ");
         break;
-      case " ":
-      case "\n":
-      case "\r":
-      case "\t":
-        break;
-      default:
-        parts.push(char);
+      default: {
+        if (isJsonWhitespace(char)) break;
+        // A number or literal: copy its source text verbatim.
+        let end = index + 1;
+        while (end < text.length && !isJsonTokenBoundary(text[end] as string)) end += 1;
+        parts.push(text.slice(index, end));
+        index = end;
+        continue;
+      }
     }
+
+    index += 1;
   }
 
   return parts.join("");
+}
+
+/** Index just past the closing quote of the JSON string opening at `start`. */
+function findJsonStringEnd(text: string, start: number): number {
+  let from = start + 1;
+  for (;;) {
+    const quote = text.indexOf('"', from);
+    if (quote === -1) return text.length;
+    let backslashes = 0;
+    while (text[quote - 1 - backslashes] === "\\") backslashes += 1;
+    if (backslashes % 2 === 0) return quote + 1;
+    from = quote + 1;
+  }
+}
+
+function isJsonWhitespace(char: string) {
+  return char === " " || char === "\n" || char === "\r" || char === "\t";
+}
+
+function isJsonTokenBoundary(char: string) {
+  return isJsonWhitespace(char) || char === "," || char === ":" || char === "]" || char === "}";
 }
 
 export function normalizeSearch(searchQuery: string | undefined) {
