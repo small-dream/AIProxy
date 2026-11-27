@@ -9,6 +9,7 @@ import type {
 } from "@aiproxy/shared-types";
 
 import { enMessages, type Messages } from "@/i18n/messages/en";
+import { parseJsonText, stringifyJsonValue, type JsonValue } from "@/lib/json-text";
 
 import { redactDiffPayload } from "./redaction.helpers";
 
@@ -327,20 +328,22 @@ function buildBodyNote(
   return leftBody?.truncated || rightBody?.truncated ? messages.capturedTruncated : undefined;
 }
 
-function parseJson(value: string | undefined): { ok: true; value: unknown } | { ok: false } {
+function parseJson(value: string | undefined): { ok: true; value: JsonValue } | { ok: false } {
   if (!value?.trim()) {
     return { ok: false };
   }
 
   try {
-    return { ok: true, value: JSON.parse(value) };
+    // Keeps integers beyond 2^53 exact, so IDs differing in the last digits
+    // still compare as changed.
+    return { ok: true, value: parseJsonText(value) };
   } catch {
     return { ok: false };
   }
 }
 
 function diffJsonValues(path: string, left: unknown, right: unknown): SessionDiffEntry[] {
-  if (JSON.stringify(left) === JSON.stringify(right)) {
+  if (stringifyJsonValue(left as JsonValue) === stringifyJsonValue(right as JsonValue)) {
     return [
       { path, kind: "unchanged", before: stringifyValue(left), after: stringifyValue(right) },
     ];
@@ -462,7 +465,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function stringifyValue(value: unknown) {
-  return truncateValue(typeof value === "string" ? value : JSON.stringify(value));
+  return truncateValue(typeof value === "string" ? value : stringifyJsonValue(value as JsonValue));
 }
 
 function truncateValue(value: string | undefined) {

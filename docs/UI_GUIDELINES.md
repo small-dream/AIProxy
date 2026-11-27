@@ -435,7 +435,7 @@ Sessions Page
 - 菜单项应按动作组分块，并使用 `Divider` 分隔
 - JSON 树视图中右键节点提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，对象/数组以格式化 JSON 输出，字符串不带引号）
 - 代码块视图（JSON Text、Raw、Text Body）中选中文字后右键提供 `Copy`（复制选中文字）和 `Search`（用选中文字激活搜索栏）
-- JSON Text 视图和请求 Body 用 `reindentJsonText` 按原文重排缩进，不经过解析再序列化：64 位整数、`1.10` 等数字保持原文，字符串中的转义（如 `\u4e2d`）按 `JSON.stringify` 的规则还原显示，其余输出与 `JSON.stringify(value, null, 4)` 一致。JSON 树形视图（含 Decoded 标签）用 `parseJsonText` 解析：超过 ±2^53 的整数保存为 `bigint`，显示、搜索和复制都保持原文数字，其余值与 `JSON.parse` 相同
+- JSON Text 视图和请求 Body 用 `reindentJsonText` 按原文重排缩进，不经过解析再序列化：64 位整数、`1.10` 等数字保持原文，字符串中的转义（如 `\u4e2d`）按 `JSON.stringify` 的规则还原显示，其余输出与 `JSON.stringify(value, null, 4)` 一致。JSON 树形视图（含 Decoded 标签）和会话对比的语义差异用 `parseJsonText` 解析：超过 ±2^53 的整数保存为 `bigint`，显示、搜索、复制和比对都保持原文数字，其余值与 `JSON.parse` 相同。WebSocket 消息的 JSON 格式和断点编辑器的 JSON 格式化同样按原文重排缩进（2 格），断点放行的正文不会被改写数字。这些工具位于 `src/lib/json-text.ts`，供各 feature 共用
 - JSON Text 视图双击按语义 token 吸附选区：字符串与键名选中引号内的内容，数字、`true` / `false` / `null` 选中整个字面量；三击选中光标所在行（忽略缩进与行尾空白）；按住 Option / Shift / Command 的双击仍交回系统原生选择
 - JSON Text 视图右键时按指针位置解析 token，提供 `Copy Key`（键名）或 `Copy Value`（字符串不带引号）与 `Copy Path`（`$.store.book[0].title` 形式的路径，文本不是可解析 JSON 时不显示）；选中内容与该 token 完全相同时合并为一项 `Copy`
 - 代码块选区在右键菜单打开期间不能消失，也不允许出现两层叠加的高亮：菜单打开时组件按与 `::selection` 相同的颜色自绘选区（并清掉系统选区），关闭时再恢复系统选区——复制、`Search`、`Esc` 保留选区，点击菜单外则清空；没有选中文字时高亮指针下的 token，让 `Copy Key` / `Copy Value` / `Copy Path` 的作用对象可见

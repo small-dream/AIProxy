@@ -1,4 +1,4 @@
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { WsMessage } from "@aiproxy/shared-types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -272,4 +272,27 @@ describe("SessionInspectorMessagesPane live-frame batching", () => {
       expect(text).toContain("burst-49");
     });
   }, 10_000);
+});
+
+describe("SessionInspectorMessagesPane payload formatting", () => {
+  it("pretty-prints JSON payloads without rounding integers beyond 2^53", async () => {
+    vi.mocked(listWsMessages).mockResolvedValue([
+      {
+        ...buildWsMessage("ws-big", "big"),
+        payloadText: '{"id":1234567890123456789}',
+      },
+    ]);
+
+    render(
+      <AppProviders>
+        <SessionInspectorMessagesPane sessionId={SESSION_ID} />
+      </AppProviders>,
+    );
+
+    // The row preview shows the raw payload; selecting it opens the detail.
+    fireEvent.click(await screen.findByText('{"id":1234567890123456789}'));
+
+    // The formatted detail (with indentation) is distinct from the raw row preview.
+    await waitFor(() => expect(document.body.textContent).toContain('"id": 1234567890123456789'));
+  });
 });

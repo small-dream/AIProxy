@@ -42,7 +42,7 @@ Each dimension shows a count above (added / removed / changed / unchanged) and t
 ### Body diff
 
 - The body is collapsed by default; click **Compute body diff** to expand
-- JSON goes through **semantic diff** (recursive compare by field path, marking added / removed / changed)
+- JSON goes through **semantic diff** (recursive compare by field path, marking added / removed / changed); large integers such as 64-bit IDs are compared by their exact digits, so a difference in the last digits is marked as changed
 - Non-JSON content goes through **line-level text diff**
 - If the two bodies' combined text exceeds 256,000 chars, the detailed diff is skipped entirely with a notice; when it does compute, display is capped at the first 240 entries
 

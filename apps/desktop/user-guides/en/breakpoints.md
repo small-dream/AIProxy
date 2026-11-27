@@ -59,7 +59,7 @@ The panel lets you move between multiple pending breakpoints with prev/next butt
 
 - Query params (add / remove / edit)
 - Request headers (add / remove / edit)
-- Request body (Form / JSON / Raw modes; JSON can be formatted in one click)
+- Request body (Form / JSON / Raw modes; JSON can be formatted in one click. Formatting only changes indentation, so large integers such as 64-bit IDs are forwarded unchanged)
 
 **Response stage** can edit:
 
