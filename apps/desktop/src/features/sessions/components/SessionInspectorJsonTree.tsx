@@ -591,7 +591,7 @@ function getJsonDisplayType(value: JsonValue, t: ReturnType<typeof useI18n>["t"]
     return t("inspector.json.string");
   }
 
-  if (typeof value === "number") {
+  if (typeof value === "number" || typeof value === "bigint") {
     return t("inspector.json.number");
   }
 
@@ -613,7 +613,10 @@ function collectMatchingExpansionPaths(
     (name ? findNormalizedMatchIndex(name, searchQuery) !== -1 : false) ||
     (typeof value === "string"
       ? findNormalizedMatchIndex(value, searchQuery) !== -1
-      : typeof value === "number" || typeof value === "boolean" || value === null
+      : typeof value === "number" ||
+          typeof value === "bigint" ||
+          typeof value === "boolean" ||
+          value === null
         ? findNormalizedMatchIndex(String(value), searchQuery) !== -1
         : false);
 
@@ -669,7 +672,10 @@ function collectMatcherExpansionPaths(
   const selfMatches = rowMatchesTexts(matcher, [
     name,
     typeof value === "string" ? value : undefined,
-    typeof value === "number" || typeof value === "boolean" || value === null
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    typeof value === "boolean" ||
+    value === null
       ? String(value)
       : undefined,
   ]);

@@ -2,6 +2,7 @@ import type { ScriptDecodedBody } from "@aiproxy/shared-types";
 
 import {
   LARGE_JSON_HARD_LIMIT,
+  parseJsonText,
   reindentJsonText,
   type JsonValue,
 } from "./session-inspector.helpers";
@@ -22,12 +23,12 @@ function isJsonContainer(value: JsonValue): boolean {
 export function resolveDecodedBodyView(decoded: ScriptDecodedBody): DecodedBodyView {
   if (!decoded.truncated) {
     try {
-      const value = JSON.parse(decoded.text) as JsonValue;
+      const value = parseJsonText(decoded.text);
       if (decoded.kind === "json" || isJsonContainer(value)) {
         return {
           language: "json",
-          // Re-indent the original text: the tree shows parsed values, but
-          // the text view and copy keep exact digits (64-bit IDs).
+          // Re-indent the original text so the text view keeps exact digits
+          // too; the tree gets 64-bit IDs as bigint from parseJsonText.
           text: reindentJsonText(decoded.text),
           treeAvailable: decoded.text.length <= LARGE_JSON_HARD_LIMIT,
           value,

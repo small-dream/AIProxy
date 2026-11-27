@@ -8,11 +8,14 @@ import {
   formatJsonText,
   getBodyCodeLanguage,
   getJsonChildren,
+  getJsonValueType,
   getRequestOperationLabel,
   hasPreviewableMediaMimeType,
   isResponseBodyStillLoading,
+  jsonSubtreeMatches,
   parseFormEntries,
   parseJsonBody,
+  parseJsonText,
   reindentJsonText,
   resolveResponseEmptyStateMessage,
   serializeJsonNode,
@@ -506,5 +509,60 @@ describe("reindentJsonText", () => {
       '{\n    "a": [\n        1,\n        2\n    ]\n}',
     );
     expect(reindentJsonText("42")).toBe("42");
+  });
+});
+
+describe("parseJsonText", () => {
+  it("keeps integers beyond 2^53 exact as bigint", () => {
+    expect(
+      parseJsonText(
+        '{"id":1234567890123456789,"list":[9007199254740993,-9007199254740993],"n":42,"f":1.5,"s":"\\u4e2d 12345678901234567"}',
+      ),
+    ).toEqual({
+      f: 1.5,
+      id: 1234567890123456789n,
+      list: [9007199254740993n, -9007199254740993n],
+      n: 42,
+      s: "中 12345678901234567",
+    });
+  });
+
+  it("matches JSON.parse for every other value", () => {
+    // The 16-digit string forces the lossless path.
+    const source =
+      '{"__proto__":{"x":1},"2":"b","1":"a","dup":1,"dup":2,"e":1e21,"d":12345678901234567.5,"z":-0,"nested":[[],{},true,false,null,"q\\"\\\\"],"pad":"9999999999999999"}';
+    const parsed = parseJsonText(source) as { [key: string]: JsonValue };
+    const expected = JSON.parse(source) as { [key: string]: JsonValue };
+
+    expect(parsed).toEqual(expected);
+    expect(Object.keys(parsed)).toEqual(Object.keys(expected));
+    expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+    expect(Object.is(parsed.z, -0)).toBe(true);
+  });
+
+  it("throws on invalid JSON like JSON.parse", () => {
+    expect(() => parseJsonText('{"id":12345678901234567890')).toThrow(SyntaxError);
+  });
+
+  it("feeds parseJsonBody, so the JSON tree gets exact integers", () => {
+    const text = '{"id":1234567890123456789}';
+    expect(parseJsonBody(createBodyReference({ sizeBytes: text.length }), text)).toEqual({
+      status: "success",
+      value: { id: 1234567890123456789n },
+    });
+  });
+});
+
+describe("bigint JSON values", () => {
+  it("serialize with their exact digits", () => {
+    expect(formatJsonText({ id: 1234567890123456789n, n: [1] })).toBe(
+      '{\n    "id": 1234567890123456789,\n    "n": [\n        1\n    ]\n}',
+    );
+    expect(serializeJsonNode(1234567890123456789n)).toBe("1234567890123456789");
+  });
+
+  it("are searchable and typed as integers", () => {
+    expect(jsonSubtreeMatches("id", 1234567890123456789n, "56789")).toBe(true);
+    expect(getJsonValueType(1234567890123456789n)).toBe("Integer");
   });
 });

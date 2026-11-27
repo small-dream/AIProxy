@@ -90,6 +90,23 @@ describe("SessionInspectorDecodedView", () => {
     expect(screen.getByText(/ShortMax decoder/)).toBeInTheDocument();
   });
 
+  it("keeps integers beyond 2^53 exact in the tree", async () => {
+    vi.mocked(decodeSessionBody).mockResolvedValue(
+      decodeResult({
+        decoded: {
+          kind: "text",
+          sizeBytes: 34,
+          text: '{"shortPlayCode":1234567890123456789}',
+          truncated: false,
+        },
+      }),
+    );
+
+    renderView();
+
+    expect(await screen.findByText("1234567890123456789")).toBeInTheDocument();
+  });
+
   it("switches to pretty-printed text", async () => {
     renderView();
 

@@ -155,6 +155,8 @@ export type JsonValue =
   | null
   | boolean
   | number
+  /** An integer beyond ±2^53, kept exact by `parseJsonText`. */
+  | bigint
   | string
   | JsonValue[]
   | { [key: string]: JsonValue };
@@ -291,7 +293,7 @@ export function parseJsonBody(
   }
 
   try {
-    const parsed = JSON.parse(bodyText) as JsonValue;
+    const parsed = parseJsonText(bodyText);
 
     if (body.sizeBytes > LARGE_JSON_SOFT_LIMIT && options?.preferSoftWarning !== false) {
       return {
@@ -364,8 +366,126 @@ export function isResponseBodyStillLoading(
   return Boolean(options.isDeferredContentLoading && body.textDeferred);
 }
 
+/** Pretty-print a parsed value like `JSON.stringify(value, null, 4)`, bigint included. */
 export function formatJsonText(value: JsonValue) {
-  return JSON.stringify(value, null, JSON_TEXT_INDENT_SPACES);
+  return reindentJsonText(stringifyJsonValue(value));
+}
+
+/** Compact `JSON.stringify` that writes bigint values as plain integers. */
+function stringifyJsonValue(value: JsonValue): string {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stringifyJsonValue).join(",")}]`;
+  }
+
+  if (isJsonObject(value)) {
+    const members = Object.entries(value).map(
+      ([key, child]) => `${JSON.stringify(key)}:${stringifyJsonValue(child)}`,
+    );
+    return `{${members.join(",")}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+/** Integers with fewer than 16 digits are always within Number.MAX_SAFE_INTEGER. */
+const POSSIBLY_UNSAFE_INTEGER_PATTERN = /\d{16}/;
+const INTEGER_TOKEN_PATTERN = /^-?\d+$/;
+
+/**
+ * `JSON.parse` that keeps integers beyond ±2^53 exact as `bigint`, so the JSON
+ * tree shows 64-bit IDs with their real digits. Every other value is what
+ * `JSON.parse` returns, and invalid JSON throws the same `SyntaxError`.
+ */
+export function parseJsonText(text: string): JsonValue {
+  const value = JSON.parse(text) as JsonValue;
+
+  if (!POSSIBLY_UNSAFE_INTEGER_PATTERN.test(text)) {
+    return value;
+  }
+
+  try {
+    return parseValidJsonKeepingIntegers(text);
+  } catch {
+    // Nesting too deep for the recursive parser: keep the native result.
+    return value;
+  }
+}
+
+/** Parse text that `JSON.parse` already accepted, keeping unsafe integers as `bigint`. */
+function parseValidJsonKeepingIntegers(text: string): JsonValue {
+  let index = 0;
+
+  const skipWhitespace = () => {
+    while (index < text.length && isJsonWhitespace(text[index] as string)) index += 1;
+  };
+
+  const parseString = (): string => {
+    const end = findJsonStringEnd(text, index);
+    const token = text.slice(index, end);
+    index = end;
+    return token.includes("\\") ? (JSON.parse(token) as string) : token.slice(1, -1);
+  };
+
+  const parseValue = (): JsonValue => {
+    skipWhitespace();
+    const char = text[index];
+
+    if (char === "{" || char === "[") {
+      const isObject = char === "{";
+      const close = isObject ? "}" : "]";
+      const entries: Array<[string, JsonValue]> = [];
+      const items: JsonValue[] = [];
+      index += 1;
+      skipWhitespace();
+
+      if (text[index] === close) {
+        index += 1;
+      } else {
+        for (;;) {
+          if (isObject) {
+            skipWhitespace();
+            const key = parseString();
+            skipWhitespace();
+            index += 1; // ":"
+            entries.push([key, parseValue()]);
+          } else {
+            items.push(parseValue());
+          }
+          skipWhitespace();
+          const separator = text[index];
+          index += 1;
+          if (separator === close) break;
+        }
+      }
+
+      // fromEntries defines own properties, so a "__proto__" key stays plain
+      // data and duplicate keys keep the last value, as in JSON.parse.
+      return isObject ? Object.fromEntries(entries) : items;
+    }
+
+    if (char === '"') {
+      return parseString();
+    }
+
+    const start = index;
+    while (index < text.length && !isJsonTokenBoundary(text[index] as string)) index += 1;
+    const token = text.slice(start, index);
+
+    if (token === "true") return true;
+    if (token === "false") return false;
+    if (token === "null") return null;
+
+    const number = Number(token);
+    return Number.isSafeInteger(number) || !INTEGER_TOKEN_PATTERN.test(token)
+      ? number
+      : BigInt(token);
+  };
+
+  return parseValue();
 }
 
 /**
@@ -640,7 +760,12 @@ export function jsonSubtreeMatches(
     return findNormalizedMatchIndex(value, normalizedQuery) !== -1;
   }
 
-  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+  if (
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
     return findNormalizedMatchIndex(String(value), normalizedQuery) !== -1;
   }
 
@@ -672,6 +797,10 @@ export function serializeJsonNode(value: JsonValue): string {
 
   if (typeof value === "string") {
     return value;
+  }
+
+  if (typeof value === "bigint") {
+    return value.toString();
   }
 
   return JSON.stringify(value);
@@ -848,6 +977,10 @@ export function getJsonValueType(
 
   if (typeof value === "string") {
     return labels?.string ?? "String";
+  }
+
+  if (typeof value === "bigint") {
+    return labels?.integer ?? "Integer";
   }
 
   if (typeof value === "number") {

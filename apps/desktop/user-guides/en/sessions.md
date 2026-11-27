@@ -79,7 +79,7 @@ Tabs appear dynamically based on the response type:
 |---|---|
 | Overview | Status code, failure origin and details, Content-Type, client address, timing, size, connection info, a timing waterfall |
 | Headers | Response headers |
-| JSON | Tree viewer (collapsible, searchable) |
+| JSON | Tree viewer (collapsible, searchable); large integers such as 64-bit IDs are not rounded |
 | JSON Text | Pretty-printed JSON text, searchable; numbers keep their original digits (64-bit IDs are not rounded) |
 | Text | Plain text, searchable |
 | Raw | Raw response text |
