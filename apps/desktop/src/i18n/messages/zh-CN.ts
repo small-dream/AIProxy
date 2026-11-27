@@ -1354,6 +1354,8 @@ export const zhCNMessages: Messages = {
         headerDescription: "为每个匹配的请求设置消息头。",
         mock: "动态模拟",
         mockDescription: "对匹配的请求返回模拟 JSON 响应。",
+        decode: "解码视图",
+        decodeDescription: "把加密的响应解成可读的 JSON，在检查器的「解码」标签中查看。",
       },
     },
     preview: {
@@ -2277,6 +2279,23 @@ export const zhCNMessages: Messages = {
       emptyTitle: "检查器工作区",
       loading: "正在加载当前选中会话的详情...",
     },
+    decoded: {
+      tab: "解码",
+      tree: "树形",
+      text: "文本",
+      viewMode: "解码结果视图",
+      decodeAgain: "重新解码",
+      decoding: "正在用 {{rule}} 解码…",
+      showLogs: "日志（{{count}}）",
+      hideLogs: "收起日志",
+      noDecoder:
+        "没有启用的脚本规则可以解码这条消息。请在匹配它的脚本规则中导出 decodeRequest 或 decodeResponse。",
+      noResult: "{{rule}} 没有为这条消息返回解码结果。",
+      failed: "{{rule}} 解码失败（{{outcome}}）。",
+      loadFailed: "无法运行解码脚本：{{message}}",
+      truncated: "解码结果大小为 {{size}}，只显示前 {{limit}}。",
+      treeTooLarge: "解码后的 JSON 太大，无法用树形视图显示，已改为文本显示。",
+    },
     jsonParse: {
       requestFallback: "无法将该消息体解析为 JSON，将显示原始文本。",
       responseError: "无法将响应体解析为 JSON。",
@@ -2304,6 +2323,11 @@ export const zhCNMessages: Messages = {
     map: "映射",
     rewrite: "改写",
     script: "脚本",
+    showAll: "展开全部",
+    collapse: "收起",
+    copyValue: "复制内容",
+    payloadTruncated:
+      "已截断：仅保留前 {{kept}}（原始 {{original}}）。改用 decodeRequest / decodeResponse 返回该值，可在「解码」标签查看完整内容。",
   },
   breakpointPanel: {
     addQuery: "添加查询参数",

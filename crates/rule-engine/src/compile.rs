@@ -9,23 +9,7 @@ pub fn compile_script_rule(input: ScriptRule) -> Result<CompiledScriptRule, Stri
     let transpiled = transpile_source(&input.source_code, &input.language)?;
     let compiled_code = build_runtime_module(&transpiled.code);
 
-    let compiled_match = if input.r#match.match_type.as_deref() == Some("regex") {
-        let pattern = input.r#match.url_pattern.trim();
-        match Regex::new(pattern) {
-            Ok(re) => Some(Arc::new(re)),
-            Err(e) => {
-                tracing::warn!(
-                    event = "rules.regex_compile_failed",
-                    pattern = pattern,
-                    error = %e,
-                    "regex compile failed for script rule"
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let compiled_match = compile_script_match(&input.r#match);
 
     Ok(CompiledScriptRule {
         rule: ScriptRule {
@@ -36,6 +20,29 @@ pub fn compile_script_rule(input: ScriptRule) -> Result<CompiledScriptRule, Stri
         source_map: transpiled.source_map.map(Arc::new),
         compiled_match,
     })
+}
+
+/// Pre-compile a script rule's URL regex. Shared by `compile_script_rule` and
+/// the startup loader, which rebuilds rules from stored rows without
+/// recompiling the source. Non-regex and invalid patterns yield `None`, and a
+/// regex rule without a compiled pattern matches nothing.
+pub fn compile_script_match(rule_match: &ScriptRuleMatch) -> Option<Arc<Regex>> {
+    if rule_match.match_type.as_deref() != Some("regex") {
+        return None;
+    }
+    let pattern = rule_match.url_pattern.trim();
+    match Regex::new(pattern) {
+        Ok(re) => Some(Arc::new(re)),
+        Err(e) => {
+            tracing::warn!(
+                event = "rules.regex_compile_failed",
+                pattern = pattern,
+                error = %e,
+                "regex compile failed for script rule"
+            );
+            None
+        }
+    }
 }
 
 pub(crate) fn validate_script_rule(rule: &ScriptRule) -> Result<(), String> {
@@ -57,48 +64,53 @@ pub(crate) fn validate_script_rule(rule: &ScriptRule) -> Result<(), String> {
     Ok(())
 }
 
+/// Every function a script may export. Keep in sync with `build_runtime_module`.
+const ENTRYPOINT_EXPORT_PATTERN: &str =
+    r"export\s+(async\s+)?function\s+(onRequest|onResponse|decodeRequest|decodeResponse)\s*\(";
+
 pub(crate) fn detect_entrypoints(source: &str) -> Result<ScriptEntrypoints, String> {
     static ALLOWED_EXPORT_RE: OnceLock<Regex> = OnceLock::new();
     static ANY_EXPORT_RE: OnceLock<Regex> = OnceLock::new();
-    static ON_REQUEST_RE: OnceLock<Regex> = OnceLock::new();
-    static ON_RESPONSE_RE: OnceLock<Regex> = OnceLock::new();
 
-    let allowed_export_re = ALLOWED_EXPORT_RE.get_or_init(|| {
-        Regex::new(r"export\s+(?:async\s+)?function\s+(onRequest|onResponse)\s*\(")
-            .expect("valid allowed export regex")
-    });
+    let allowed_export_re = ALLOWED_EXPORT_RE
+        .get_or_init(|| Regex::new(ENTRYPOINT_EXPORT_PATTERN).expect("valid allowed export regex"));
     let any_export_re =
         ANY_EXPORT_RE.get_or_init(|| Regex::new(r"\bexport\b").expect("valid any export regex"));
-    let on_request_re = ON_REQUEST_RE.get_or_init(|| {
-        Regex::new(r"export\s+(?:async\s+)?function\s+onRequest\s*\(")
-            .expect("valid onRequest export regex")
-    });
-    let on_response_re = ON_RESPONSE_RE.get_or_init(|| {
-        Regex::new(r"export\s+(?:async\s+)?function\s+onResponse\s*\(")
-            .expect("valid onResponse export regex")
-    });
 
     // Strip every allowed export (both sync and async) down to a bare `function`,
     // so that any remaining `export` keyword is by definition unsupported.
-    let stripped = allowed_export_re.replace_all(source, "function $1(");
+    let stripped = allowed_export_re.replace_all(source, "function $2(");
     if any_export_re.is_match(&stripped) {
         return Err(
-            "only 'export function onRequest' and 'export function onResponse' are supported"
+            "only 'export function onRequest', 'onResponse', 'decodeRequest' and \
+             'decodeResponse' are supported"
                 .to_string(),
         );
     }
 
-    let on_request = on_request_re.is_match(source);
-    let on_response = on_response_re.is_match(source);
-
-    if !on_request && !on_response {
-        return Err("script must export onRequest and/or onResponse".to_string());
+    let mut entrypoints = ScriptEntrypoints {
+        on_request: false,
+        on_response: false,
+        decode_request: false,
+        decode_response: false,
+    };
+    for captures in allowed_export_re.captures_iter(source) {
+        match &captures[2] {
+            "onRequest" => entrypoints.on_request = true,
+            "onResponse" => entrypoints.on_response = true,
+            "decodeRequest" => entrypoints.decode_request = true,
+            _ => entrypoints.decode_response = true,
+        }
     }
 
-    Ok(ScriptEntrypoints {
-        on_request,
-        on_response,
-    })
+    if !entrypoints.has_proxy_hook() && !entrypoints.decode_request && !entrypoints.decode_response
+    {
+        return Err(
+            "script must export onRequest, onResponse, decodeRequest or decodeResponse".to_string(),
+        );
+    }
+
+    Ok(entrypoints)
 }
 
 pub(crate) struct TranspiledSource {
@@ -160,8 +172,7 @@ pub(crate) fn build_runtime_module(transpiled_source: &str) -> String {
     // was accepted but its hooks never fired.
     static ENTRYPOINT_EXPORT_RE: OnceLock<Regex> = OnceLock::new();
     let export_re = ENTRYPOINT_EXPORT_RE.get_or_init(|| {
-        Regex::new(r"export\s+(async\s+)?function\s+(onRequest|onResponse)\s*\(")
-            .expect("valid entrypoint export regex")
+        Regex::new(ENTRYPOINT_EXPORT_PATTERN).expect("valid entrypoint export regex")
     });
 
     export_re

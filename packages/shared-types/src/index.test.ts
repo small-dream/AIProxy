@@ -23,6 +23,10 @@ import {
   isUpstreamProxySettings,
   normalizeStartProxyInput,
   parseRewriteRules,
+  parseScriptDecodeResult,
+  parseScriptDecoders,
+  parseScriptRules,
+  parseScriptSessionTrace,
   parseSessionDetail,
   parseSessionSummary,
   parseSessionSummaries,
@@ -1301,5 +1305,92 @@ describe("parseAgentControlActionEvent", () => {
     ).toBeNull();
     expect(parseAgentControlActionEvent({ ...valid, actionSummary: 1 })).toBeNull();
     expect(parseAgentControlActionEvent({ ...valid, errorCode: false })).toBeNull();
+  });
+});
+
+describe("parseScriptSessionTrace", () => {
+  const trace = {
+    durationMs: 7,
+    entries: [
+      {
+        kind: "extraction",
+        level: null,
+        key: "decoded",
+        message: null,
+        payloadJson: '{"ok":true}',
+        payloadOriginalBytes: 20002,
+        sequence: 0,
+      },
+    ],
+    outcome: "success",
+    ruleId: "script-1",
+    ruleName: "Decoder",
+    stage: "response",
+  };
+
+  it("accepts the backend shape with null levels, rule names and truncation sizes", () => {
+    expect(parseScriptSessionTrace([trace])).toEqual([trace]);
+  });
+
+  it("accepts traces without the optional rule name or truncation size", () => {
+    const legacy = {
+      durationMs: 7,
+      entries: [{ kind: "log", level: "info", message: "ran", sequence: 0 }],
+      outcome: "success",
+      ruleId: "script-1",
+      stage: "request",
+    };
+    expect(parseScriptSessionTrace([legacy])).toEqual([legacy]);
+  });
+
+  it("rejects malformed truncation sizes", () => {
+    const entry = { ...trace.entries[0], payloadOriginalBytes: "20002" };
+    expect(() => parseScriptSessionTrace([{ ...trace, entries: [entry] }])).toThrow();
+  });
+});
+
+describe("script decode contracts", () => {
+  const result = {
+    decoded: { kind: "json", sizeBytes: 11, text: '{"tabId":9}', truncated: false },
+    durationMs: 130,
+    entries: [{ kind: "log", key: null, level: "info", message: "ok", sequence: 0 }],
+    outcome: "success",
+    ruleId: "script-1",
+    ruleName: "ShortMax",
+    stage: "response",
+  };
+
+  it("parses decode results, including results without a decoded body", () => {
+    expect(parseScriptDecodeResult(result)).toEqual(result);
+    const failed = { ...result, decoded: undefined, outcome: "runtimeError" };
+    expect(parseScriptDecodeResult(failed)).toEqual(failed);
+    expect(parseScriptDecodeResult(null)).toBeNull();
+  });
+
+  it("rejects malformed decode results", () => {
+    expect(() => parseScriptDecodeResult({ ...result, decoded: { kind: "xml" } })).toThrow();
+    expect(() => parseScriptDecodeResult({ ...result, stage: "both" })).toThrow();
+  });
+
+  it("parses decoder availability per stage", () => {
+    const decoders = { request: null, response: { ruleId: "script-1", ruleName: "ShortMax" } };
+    expect(parseScriptDecoders(decoders)).toEqual(decoders);
+    expect(() => parseScriptDecoders({ request: {}, response: null })).toThrow();
+  });
+
+  it("accepts script rules that only export decode hooks", () => {
+    const rule = {
+      enabled: true,
+      entrypoints: { decodeResponse: true, onRequest: false, onResponse: false },
+      id: "script-1",
+      language: "javascript",
+      match: { methods: [], stage: "response", urlPattern: "api.example.com" },
+      name: "Decoder",
+      priority: 0,
+      sourceCode: "export function decodeResponse(ctx) { return 1; }",
+      sourceType: "inline",
+      workspaceId: "default",
+    };
+    expect(parseScriptRules([rule])).toEqual([rule]);
   });
 });

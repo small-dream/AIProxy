@@ -5,6 +5,7 @@ import { AppProviders } from "@/app/providers/AppProviders";
 import {
   buildSearchMatcher,
   DEFAULT_SEARCH_OPTIONS,
+  parseJsonText,
   type JsonValue,
 } from "./session-inspector.helpers";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
@@ -159,6 +160,46 @@ describe("SessionInspectorJsonTree", () => {
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("hello world");
     });
+  });
+
+  it("shows and searches integers beyond 2^53 with their exact digits", async () => {
+    const onMatchCountChange = vi.fn();
+    const { container } = render(
+      <AppProviders>
+        <SessionInspectorJsonTree
+          matcher={buildSearchMatcher("123456789", DEFAULT_SEARCH_OPTIONS)}
+          onMatchCountChange={onMatchCountChange}
+          searchQuery=""
+          value={parseJsonText('{"id":1234567890123456789}')}
+        />
+      </AppProviders>,
+    );
+
+    // The search highlight splits the digits into spans.
+    expect(container).toHaveTextContent("1234567890123456789");
+    expect(screen.getByText("Number")).toBeInTheDocument();
+    await waitFor(() => expect(onMatchCountChange).toHaveBeenLastCalledWith(1));
+  });
+
+  it("copies a node holding integers beyond 2^53 without rounding", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+
+    render(
+      <AppProviders>
+        <SessionInspectorJsonTree
+          searchQuery=""
+          value={parseJsonText('{"play":{"code":1234567890123456789}}')}
+        />
+      </AppProviders>,
+    );
+
+    fireEvent.contextMenu(screen.getByText("play"), { clientX: 80, clientY: 120 });
+    fireEvent.click(await screen.findByText("Copy Value"));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('{\n    "code": 1234567890123456789\n}'),
+    );
   });
 
   it("keeps large JSON trees virtualized while scrolling to the current off-screen match", async () => {

@@ -213,6 +213,9 @@ export type ScriptRuleSourceType = "inline" | "fileImport";
 export type ScriptEntrypoints = {
   onRequest: boolean;
   onResponse: boolean;
+  /** Read-only hooks behind the inspector's Decoded tab; never run on live traffic. */
+  decodeRequest?: boolean;
+  decodeResponse?: boolean;
 };
 
 export type ScriptRule = {
@@ -243,10 +246,12 @@ export type ScriptRunOutcome =
 
 export type ScriptRunEntry = {
   kind: ScriptRunEntryKind;
-  key?: string;
-  level?: ScriptLogLevel;
-  message?: string;
-  payloadJson?: string;
+  key?: string | null;
+  level?: ScriptLogLevel | null;
+  message?: string | null;
+  payloadJson?: string | null;
+  /** Serialized payload size before the 8 KB cut; present only when truncated. */
+  payloadOriginalBytes?: number | null;
   sequence: number;
 };
 
@@ -255,6 +260,37 @@ export type ScriptSessionTrace = {
   entries: ScriptRunEntry[];
   outcome: ScriptRunOutcome;
   ruleId: string;
+  ruleName?: string | null;
+  stage: "request" | "response";
+};
+
+/** The first enabled script rule whose decode hook applies to a message. */
+export type ScriptDecoderRef = {
+  ruleId: string;
+  ruleName: string;
+};
+
+export type ScriptDecoders = {
+  request: ScriptDecoderRef | null;
+  response: ScriptDecoderRef | null;
+};
+
+export type ScriptDecodedBody = {
+  /** `json`: the hook returned a non-string value, serialized as JSON. */
+  kind: "json" | "text";
+  text: string;
+  /** Full decoded size; `text` holds at most 8 MB when `truncated`. */
+  sizeBytes: number;
+  truncated: boolean;
+};
+
+export type ScriptDecodeResult = {
+  decoded?: ScriptDecodedBody | null;
+  durationMs: number;
+  entries: ScriptRunEntry[];
+  outcome: ScriptRunOutcome;
+  ruleId: string;
+  ruleName: string;
   stage: "request" | "response";
 };
 
@@ -608,7 +644,12 @@ export function parseDnsMappings(value: unknown): DnsMappingRule[] {
 export function isScriptEntrypoints(value: unknown): value is ScriptEntrypoints {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ScriptEntrypoints>;
-  return typeof candidate.onRequest === "boolean" && typeof candidate.onResponse === "boolean";
+  return (
+    typeof candidate.onRequest === "boolean" &&
+    typeof candidate.onResponse === "boolean" &&
+    (candidate.decodeRequest === undefined || typeof candidate.decodeRequest === "boolean") &&
+    (candidate.decodeResponse === undefined || typeof candidate.decodeResponse === "boolean")
+  );
 }
 
 export function isScriptRule(value: unknown): value is ScriptRule {
@@ -642,6 +683,7 @@ export function isScriptRunEntry(value: unknown): value is ScriptRunEntry {
   return (
     (candidate.kind === "log" || candidate.kind === "extraction" || candidate.kind === "error") &&
     (candidate.level === undefined ||
+      candidate.level === null ||
       candidate.level === "debug" ||
       candidate.level === "info" ||
       candidate.level === "warn" ||
@@ -649,6 +691,9 @@ export function isScriptRunEntry(value: unknown): value is ScriptRunEntry {
     isNullableString(candidate.key) &&
     isNullableString(candidate.message) &&
     isNullableString(candidate.payloadJson) &&
+    (candidate.payloadOriginalBytes === undefined ||
+      candidate.payloadOriginalBytes === null ||
+      typeof candidate.payloadOriginalBytes === "number") &&
     typeof candidate.sequence === "number"
   );
 }
@@ -666,8 +711,73 @@ export function isScriptSessionTrace(value: unknown): value is ScriptSessionTrac
       candidate.outcome === "timedOut" ||
       candidate.outcome === "invalidResult") &&
     typeof candidate.ruleId === "string" &&
+    isNullableString(candidate.ruleName) &&
     (candidate.stage === "request" || candidate.stage === "response")
   );
+}
+
+function isScriptRunOutcome(value: unknown): value is ScriptRunOutcome {
+  return (
+    value === "success" ||
+    value === "skipped" ||
+    value === "runtimeError" ||
+    value === "timedOut" ||
+    value === "invalidResult"
+  );
+}
+
+function isScriptDecoderRef(value: unknown): value is ScriptDecoderRef {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ScriptDecoderRef>;
+  return typeof candidate.ruleId === "string" && typeof candidate.ruleName === "string";
+}
+
+export function parseScriptDecoders(value: unknown): ScriptDecoders {
+  if (typeof value === "object" && value !== null) {
+    const candidate = value as Partial<ScriptDecoders>;
+    if (
+      (candidate.request === null || isScriptDecoderRef(candidate.request)) &&
+      (candidate.response === null || isScriptDecoderRef(candidate.response))
+    ) {
+      return { request: candidate.request, response: candidate.response };
+    }
+  }
+  throw coerceAppError(value);
+}
+
+function isScriptDecodedBody(value: unknown): value is ScriptDecodedBody {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ScriptDecodedBody>;
+  return (
+    (candidate.kind === "json" || candidate.kind === "text") &&
+    typeof candidate.text === "string" &&
+    typeof candidate.sizeBytes === "number" &&
+    typeof candidate.truncated === "boolean"
+  );
+}
+
+function isScriptDecodeResult(value: unknown): value is ScriptDecodeResult {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<ScriptDecodeResult>;
+  return (
+    (candidate.decoded === undefined ||
+      candidate.decoded === null ||
+      isScriptDecodedBody(candidate.decoded)) &&
+    typeof candidate.durationMs === "number" &&
+    Array.isArray(candidate.entries) &&
+    candidate.entries.every(isScriptRunEntry) &&
+    isScriptRunOutcome(candidate.outcome) &&
+    typeof candidate.ruleId === "string" &&
+    typeof candidate.ruleName === "string" &&
+    (candidate.stage === "request" || candidate.stage === "response")
+  );
+}
+
+/** `null` means no enabled script rule decodes this message. */
+export function parseScriptDecodeResult(value: unknown): ScriptDecodeResult | null {
+  if (value === null) return null;
+  if (isScriptDecodeResult(value)) return value;
+  throw coerceAppError(value);
 }
 
 export function parseScriptSessionTrace(value: unknown): ScriptSessionTrace[] {

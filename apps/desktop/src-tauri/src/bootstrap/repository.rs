@@ -729,6 +729,7 @@ fn persist_script_traces_impl(
                     key: entry.key.clone(),
                     message: entry.message.clone(),
                     payload_json: entry.payload_json.clone(),
+                    payload_original_bytes: entry.payload_original_bytes,
                     seq: entry.sequence,
                 })
         })

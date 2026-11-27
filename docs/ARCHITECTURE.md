@@ -268,12 +268,14 @@ Rewrite 规则实现机制：
 - 脚本运行默认 `fail-open`，异常、超时或结果非法只记录 trace，不中断正常代理链
 - 脚本日志与提取结果通过 `script_runs / script_run_entries` 落库，并在 Session Inspector 的 `Automation` 标签页懒加载展示
 - `Automation` 标签页同时展示 Rewrite trace 与 Script trace；Rewrite trace 优先展示结构化 diff，Script trace 展示日志、提取结果和错误
+- 解码 hook（`decodeRequest / decodeResponse`）不进入代理链：只导出解码 hook 的规则不参与请求 / 响应处理。Inspector 的 `Decoded` 标签通过 `find_script_decoders` 匹配规则、`decode_session_body` 在桌面端阻塞线程池中对已捕获的消息体执行 hook（`proxy-core::script_decoders_for` 与代理链共用匹配逻辑，`rule-engine::execute_decode_hook` 执行），结果不落库、按需重算
 
 QuickJS 沙箱资源限制：
 
-- 每次脚本执行 heap 上限 16MB、GC 阈值 8MB、执行超时 50ms
+- 每次代理 hook 执行 heap 上限 16MB、GC 阈值 8MB、执行超时 500ms
 - `rquickjs` 不启用 `allocator` feature，使用 QuickJS 默认分配器以确保内存追踪可靠
 - 超限行为与脚本异常一致：fail-open，仅记录 trace 不中断代理链
+- 解码 hook 单独限额：heap 128MB（足够处理 20MB 捕获上限的消息体）、执行超时 5s、返回内容最多 8MB（超出截断并标记）
 
 断点实现机制：
 

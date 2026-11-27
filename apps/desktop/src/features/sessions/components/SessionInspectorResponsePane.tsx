@@ -25,11 +25,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
+import type { ScriptDecoderRef, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
 import { SessionInspectorJsonTree } from "./SessionInspectorJsonTree";
 import { SessionInspectorAutomationPane } from "./SessionInspectorAutomationPane";
+import { SessionInspectorDecodedView } from "./SessionInspectorDecodedView";
 import { SessionInspectorMessagesPane } from "./SessionInspectorMessagesPane";
 import { SessionInspectorOverview } from "./SessionInspectorOverview";
 import {
@@ -56,12 +57,14 @@ import { SessionInspectorMediaPreview } from "./SessionInspectorMediaPreview";
 import { SearchBar } from "./SearchBar";
 import { useSearchController } from "./use-search-controller";
 import { useSessionDetailFetching } from "../use-session-detail";
+import { useScriptDecode, useScriptDecoders } from "../use-script-decode";
 
 export type ResponsePaneHandle = {
   activateSearch: () => void;
 };
 
 const SEARCHABLE_TABS: ReadonlySet<ResponseInspectorTab> = new Set([
+  "decoded",
   "json",
   "jsonText",
   "raw",
@@ -98,6 +101,7 @@ function getResponseContentKind(
 function getVisibleResponseTabs(
   detail: SessionDetail | undefined,
   session: SessionSummary,
+  hasDecoder: boolean,
 ): ResponseInspectorTab[] {
   const hasTrailers = detail?.trailers && detail.trailers.length > 0;
 
@@ -125,6 +129,11 @@ function getVisibleResponseTabs(
     tabs = hasPreview
       ? ["overview", "preview", "headers"]
       : ["overview", "headers", "raw", "automation"];
+  }
+
+  // The script-decoded body sits right after the original body views.
+  if (hasDecoder) {
+    tabs.splice(tabs.indexOf("headers"), 0, "decoded");
   }
 
   if (hasTrailers) tabs.push("trailers");
@@ -164,10 +173,23 @@ export const SessionInspectorResponsePane = forwardRef<
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const searchController = useSearchController();
-  const visibleTabs = useMemo(() => getVisibleResponseTabs(detail, session), [detail, session]);
+  const decodersQuery = useScriptDecoders(session);
+  const responseDecoder = decodersQuery.data?.response ?? null;
+  // Keep a selected Decoded tab while the next session's decoders resolve
+  // instead of bouncing back to the default tab.
+  const decodersResolving = decodersQuery.isPending && decodersQuery.fetchStatus !== "idle";
+  const visibleTabs = useMemo(
+    () => getVisibleResponseTabs(detail, session, responseDecoder !== null),
+    [detail, responseDecoder, session],
+  );
   const defaultTab = visibleTabs.includes("preview") ? "preview" : "overview";
   const activeResponseTab = visibleTabs.includes(responseTab) ? responseTab : defaultTab;
   const isSearchable = SEARCHABLE_TABS.has(activeResponseTab);
+  const decodeQuery = useScriptDecode(
+    session,
+    "response",
+    activeResponseTab === "decoded" ? (responseDecoder?.ruleId ?? null) : null,
+  );
 
   useEffect(() => {
     setIsSearchOpen(false);
@@ -175,11 +197,14 @@ export const SessionInspectorResponsePane = forwardRef<
   }, [session.id]);
 
   useEffect(() => {
+    if (responseTab === "decoded" && decodersResolving) {
+      return;
+    }
     if (!visibleTabs.includes(responseTab)) {
       const fallback = visibleTabs.includes("preview") ? "preview" : "overview";
       onResponseTabChange(fallback);
     }
-  }, [onResponseTabChange, responseTab, visibleTabs]);
+  }, [decodersResolving, onResponseTabChange, responseTab, visibleTabs]);
 
   // P2-9: open media responses on the preview tab exactly once per session.
   // The effect used to run whenever `responseTab` changed, so clicking
@@ -220,12 +245,17 @@ export const SessionInspectorResponsePane = forwardRef<
   const searchPlaceholder =
     activeResponseTab === "json"
       ? t("inspector.response.jsonSearchPlaceholder")
-      : activeResponseTab === "jsonText"
+      : activeResponseTab === "jsonText" || activeResponseTab === "decoded"
         ? t("inspector.response.jsonTextSearchPlaceholder")
         : activeResponseTab === "raw"
           ? t("inspector.response.rawSearchPlaceholder")
           : t("inspector.response.rawSearchPlaceholder");
+  const decodedCopyText = decodeQuery.data?.view?.text ?? "";
   const copyValue = useMemo(() => {
+    if (activeResponseTab === "decoded") {
+      return decodedCopyText;
+    }
+
     if (activeResponseTab === "json" || activeResponseTab === "jsonText") {
       return responseJsonDisplayText ?? getBodyText(detail?.responseBody) ?? "";
     }
@@ -243,6 +273,7 @@ export const SessionInspectorResponsePane = forwardRef<
     return "";
   }, [
     activeResponseTab,
+    decodedCopyText,
     detail?.rawResponse,
     detail?.rawResponseHead,
     detail?.responseBody,
@@ -310,6 +341,9 @@ export const SessionInspectorResponsePane = forwardRef<
           ) : null}
           {visibleTabs.includes("text") ? (
             <Tab label={t("inspector.response.tabs.text")} value="text" />
+          ) : null}
+          {visibleTabs.includes("decoded") ? (
+            <Tab label={t("inspector.decoded.tab")} value="decoded" />
           ) : null}
           {visibleTabs.includes("messages") ? (
             <Tab label={t("websocket.messagesTab")} value="messages" />
@@ -408,6 +442,7 @@ export const SessionInspectorResponsePane = forwardRef<
           isResponseRawLoading={isResponseRawLoading}
           onSearchWithText={handleSearchWithText}
           responseJsonDisplayText={responseJsonDisplayText}
+          responseDecoder={responseDecoder}
           responseJsonResult={responseJsonResult}
           responseTab={activeResponseTab}
           searchMatcher={isSearchOpen ? searchController.matcher : null}
@@ -457,6 +492,7 @@ function ResponseTabContent({
   isResponseBodyLoading,
   isResponseRawLoading,
   onSearchWithText,
+  responseDecoder,
   responseJsonDisplayText,
   responseJsonResult,
   responseTab,
@@ -465,6 +501,7 @@ function ResponseTabContent({
   onMatchCountChange,
   session,
 }: {
+  responseDecoder: ScriptDecoderRef | null;
   detail: SessionDetail | undefined;
   isResponseBodyBase64Loading: boolean;
   isResponseBodyLoading: boolean;
@@ -534,8 +571,26 @@ function ResponseTabContent({
     );
   }
 
+  if (responseTab === "decoded" && responseDecoder) {
+    return (
+      <SessionInspectorDecodedView
+        currentMatchIndex={currentMatchIndex}
+        decoder={responseDecoder}
+        onMatchCountChange={onMatchCountChange}
+        onSearchWithText={onSearchWithText}
+        searchMatcher={searchMatcher}
+        session={session}
+        stage="response"
+      />
+    );
+  }
+
   if (responseTab === "automation") {
-    return <SessionInspectorAutomationPane sessionId={session.id} />;
+    return (
+      <InspectorScrollArea>
+        <SessionInspectorAutomationPane sessionId={session.id} />
+      </InspectorScrollArea>
+    );
   }
 
   if (responseTab === "trailers") {

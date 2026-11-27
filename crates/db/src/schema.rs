@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS script_run_entries (
     key             TEXT,
     message         TEXT,
     payload_json    TEXT,
+    payload_original_bytes INTEGER,
     seq             INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (run_id) REFERENCES script_runs(id) ON DELETE CASCADE
 );
@@ -609,6 +610,14 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
         "ws_messages",
         "truncated",
         "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    // Record the pre-truncation size of oversized script log/extract payloads
+    // so the UI can present them as partial.
+    migrate_add_column(
+        conn,
+        "script_run_entries",
+        "payload_original_bytes",
+        "INTEGER DEFAULT NULL",
     )?;
 
     // M30: enforce the "at most one enabled throttle profile per workspace"
@@ -1317,6 +1326,30 @@ mod tests {
             foreign_key_references(&conn, "rewrite_runs", "session_summaries").unwrap(),
             "the session_id foreign key must be preserved"
         );
+    }
+
+    // Databases created before script entries recorded their pre-truncation
+    // payload size must gain the column on upgrade.
+    #[test]
+    fn legacy_script_run_entries_gain_payload_original_bytes_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE script_run_entries (
+                id TEXT NOT NULL PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                level TEXT,
+                key TEXT,
+                message TEXT,
+                payload_json TEXT,
+                seq INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .unwrap();
+
+        run_migrations(&conn).unwrap();
+
+        assert!(column_exists(&conn, "script_run_entries", "payload_original_bytes").unwrap());
     }
 
     fn seed_session_summary(conn: &Connection, id: &str) {

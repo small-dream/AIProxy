@@ -589,6 +589,8 @@ type ScriptRuleSourceType = "inline" | "fileImport";
 type ScriptEntrypoints = {
   onRequest: boolean;
   onResponse: boolean;
+  decodeRequest?: boolean; // 只读解码 hook，仅为 false 时省略
+  decodeResponse?: boolean;
 };
 
 type ScriptRule = {
@@ -608,10 +610,11 @@ type ScriptRule = {
 
 type ScriptRunEntry = {
   kind: "log" | "extraction" | "error";
-  key?: string;
-  level?: "debug" | "info" | "warn" | "error";
-  message?: string;
-  payloadJson?: string;
+  key?: string | null;
+  level?: "debug" | "info" | "warn" | "error" | null;
+  message?: string | null;
+  payloadJson?: string | null; // 序列化后最多 8 KB，超出部分截断
+  payloadOriginalBytes?: number | null; // 仅在 payloadJson 被截断时出现：截断前的字节数
   sequence: number;
 };
 
@@ -620,6 +623,7 @@ type ScriptSessionTrace = {
   entries: ScriptRunEntry[];
   outcome: "success" | "skipped" | "runtimeError" | "timedOut" | "invalidResult";
   ruleId: string;
+  ruleName?: string | null; // list_script_session_trace 按当前规则解析；规则不存在时省略
   stage: "request" | "response";
 };
 ```
@@ -3507,13 +3511,40 @@ type GetInsightsOutput = InsightsResult;
 - `save_script_rule({ input: ScriptRule }) -> ScriptRule`
 - `pick_and_read_script_file({ title }) -> { fileName, language, path, sourceCode } | null` — H10（闭合）：脚本文件导入。**后端拥有 OS 文件选择器**——渲染进程只传入本地化的对话框标题（`title`），从不传入路径；Rust 侧驱动 `tauri-plugin-dialog` 弹窗、读取所选文件并返回内容。这彻底消除了「被攻破的渲染进程经 IPC 读任意文件」的原语：渲染进程只能触发弹窗，无法注入路径（选择结果不作为 IPC 输入跨边界）。canonicalize 解析 symlink 防选择后目标被替换。用户取消返回 `null`。
 - `list_script_session_trace({ sessionId }) -> ScriptSessionTrace[]`
+- `find_script_decoders({ method, url }) -> ScriptDecoders` — 只做匹配，不执行脚本。按当前活动 workspace 查找启用的、导出了对应解码 hook 的脚本规则（URL、方法条件与代理链路一致；规则的阶段设置只决定代理 hook，解码匹配时忽略），每个阶段返回优先级最高的一条；Inspector 据此决定是否显示「解码」标签。
+- `decode_session_body({ sessionId, stage }) -> ScriptDecodeResult | null` — 对已捕获会话的请求或响应体执行 `decodeRequest` / `decodeResponse`。payload 结构与实时 hook 相同（消息体为解压后的捕获内容，不含 HTTP/2 伪头）；为节省 hook 内存，合法 UTF-8 文本只传 `bodyText`，二进制只传 `bodyBase64`，非法 UTF-8 文本两者都传。按优先级依次执行匹配规则，返回第一个产出解码结果的规则；都没有结果时返回第一条规则的执行结果（含错误条目）；没有匹配规则时返回 `null`。会话不存在时返回 `SESSION_NOT_FOUND`。在阻塞线程池执行，不影响代理链路。
+
+```ts
+type ScriptDecoderRef = { ruleId: string; ruleName: string };
+type ScriptDecoders = { request: ScriptDecoderRef | null; response: ScriptDecoderRef | null };
+
+type ScriptDecodedBody = {
+  kind: "json" | "text"; // json：hook 返回非字符串值，text 为其 JSON 序列化
+  text: string;
+  sizeBytes: number; // 完整解码结果大小
+  truncated: boolean; // 超过 8 MB 时截断
+};
+
+type ScriptDecodeResult = {
+  decoded?: ScriptDecodedBody | null; // hook 返回 null/undefined、失败或缺失时为空
+  durationMs: number;
+  entries: ScriptRunEntry[];
+  outcome: "success" | "skipped" | "runtimeError" | "timedOut" | "invalidResult";
+  ruleId: string;
+  ruleName: string;
+  stage: "request" | "response";
+};
+```
 
 约束：
 
 - 仅支持单文件 `JS / TS`
-- 仅支持 `export function onRequest(ctx) {}` 与 `export function onResponse(ctx) {}`
+- 仅支持导出 `onRequest`、`onResponse`、`decodeRequest`、`decodeResponse` 四个函数（可为 `async`），至少导出其中一个
+- 只导出解码 hook 的规则不参与代理链路，不产生执行记录
+- 解码 hook 只读：返回值即解码结果，对 `ctx.request` / `ctx.response` 的修改和 `ctx.respond()` 被忽略；返回函数等无法 JSON 序列化的值按 `runtimeError` 处理
+- 解码 hook 单独限额：超时 **5s**、QuickJS heap **128MB**、返回内容最多 **8MB**
 - 运行时不开放文件系统、网络、模块加载、宿主命令执行
-- QuickJS heap 限制为 **16MB** 每次脚本执行，超出此限制的脚本将以 `RuntimeError` 结果失败
+- `onRequest` / `onResponse` 的 QuickJS heap 限制为 **16MB** 每次脚本执行，超出此限制的脚本将以 `RuntimeError` 结果失败
 - 沙箱使用 QuickJS 默认分配器（rquickjs 未启用 `allocator` feature），以确保可靠的内存追踪
 
 ## 13. API Collection Commands — 已实现

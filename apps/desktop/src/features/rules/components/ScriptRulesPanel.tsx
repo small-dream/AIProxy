@@ -104,6 +104,22 @@ const EXTRACT_TEMPLATE = `export function onResponse(ctx) {
   ctx.log.info("extracted token", { token });
 }`;
 
+const DECODE_TEMPLATE = `// Runs only when you open the Decoded tab in the inspector; it never changes
+// traffic. Return an object/array (shown as JSON) or a string (shown as text).
+export function decodeResponse(ctx) {
+  const data = ctx.response.getJson();
+  if (typeof data?.data !== "string") {
+    return;
+  }
+
+  return JSON.parse(decrypt(data.data));
+}
+
+function decrypt(cipherText) {
+  // Replace with the app's decryption.
+  return cipherText;
+}`;
+
 export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
   function ScriptRulesPanel(_props, ref) {
     const { t } = useI18n();
@@ -203,7 +219,7 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
       setValidationAttempted(false);
     }
 
-    async function handleCreate(template?: "header" | "mock" | "extract") {
+    async function handleCreate(template?: "header" | "mock" | "extract" | "decode") {
       if (!(await guard.confirmLeave())) return;
       const next = createEmptyScriptRule();
       if (template === "header") {
@@ -217,6 +233,11 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
       if (template === "extract") {
         next.sourceCode = EXTRACT_TEMPLATE;
         next.entrypoints = { onRequest: false, onResponse: true };
+        next.match.stage = "response";
+      }
+      if (template === "decode") {
+        next.sourceCode = DECODE_TEMPLATE;
+        next.entrypoints = { onRequest: false, onResponse: false, decodeResponse: true };
         next.match.stage = "response";
       }
       // New rules append at the END of the list; that priority is resolved at
@@ -469,6 +490,11 @@ export const ScriptRulesPanel = forwardRef<RulesPanelHandle>(
         description: t("rulesPage.script.templates.extractDescription"),
         label: t("rulesPage.script.templates.extract"),
         template: "extract" as const,
+      },
+      {
+        description: t("rulesPage.script.templates.decodeDescription"),
+        label: t("rulesPage.script.templates.decode"),
+        template: "decode" as const,
       },
     ];
 

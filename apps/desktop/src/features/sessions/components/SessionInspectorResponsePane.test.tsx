@@ -1,6 +1,6 @@
 import type { SessionSummary } from "@aiproxy/shared-types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/i18n";
@@ -96,5 +96,32 @@ describe("SessionInspectorResponsePane media auto-preview", () => {
     );
     expect(onResponseTabChange).toHaveBeenCalledTimes(2);
     expect(onResponseTabChange).toHaveBeenLastCalledWith("preview");
+  });
+});
+
+// The automation tab used to render straight into the pane's overflow-hidden
+// body, so traces taller than the pane were clipped with no way to scroll.
+describe("SessionInspectorResponsePane automation tab", () => {
+  it("renders automation traces inside a scroll container", async () => {
+    const queryClient = paneQueryClient();
+    const session = createSession({
+      id: "session-json",
+      path: "/api",
+      responseMimeType: "application/json",
+      url: "https://api.example.com/api",
+    });
+
+    render(
+      paneElement(queryClient, {
+        onResponseTabChange: vi.fn(),
+        responseTab: "automation",
+        session,
+      }),
+    );
+
+    const emptyState = await screen.findByText(
+      "No script automation traces were recorded for this session.",
+    );
+    expect(emptyState.parentElement).toHaveStyle({ overflow: "auto" });
   });
 });

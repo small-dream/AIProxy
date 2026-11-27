@@ -435,6 +435,7 @@ Sessions Page
 - 菜单项应按动作组分块，并使用 `Divider` 分隔
 - JSON 树视图中右键节点提供 `Copy Key`（复制字段名）和 `Copy Value`（复制字段值，对象/数组以格式化 JSON 输出，字符串不带引号）
 - 代码块视图（JSON Text、Raw、Text Body）中选中文字后右键提供 `Copy`（复制选中文字）和 `Search`（用选中文字激活搜索栏）
+- JSON Text 视图和请求 Body 用 `reindentJsonText` 按原文重排缩进，不经过解析再序列化：64 位整数、`1.10` 等数字保持原文，字符串中的转义（如 `\u4e2d`）按 `JSON.stringify` 的规则还原显示，其余输出与 `JSON.stringify(value, null, 4)` 一致。JSON 树形视图（含 Decoded 标签）用 `parseJsonText` 解析：超过 ±2^53 的整数保存为 `bigint`，显示、搜索和复制都保持原文数字，其余值与 `JSON.parse` 相同
 - JSON Text 视图双击按语义 token 吸附选区：字符串与键名选中引号内的内容，数字、`true` / `false` / `null` 选中整个字面量；三击选中光标所在行（忽略缩进与行尾空白）；按住 Option / Shift / Command 的双击仍交回系统原生选择
 - JSON Text 视图右键时按指针位置解析 token，提供 `Copy Key`（键名）或 `Copy Value`（字符串不带引号）与 `Copy Path`（`$.store.book[0].title` 形式的路径，文本不是可解析 JSON 时不显示）；选中内容与该 token 完全相同时合并为一项 `Copy`
 - 代码块选区在右键菜单打开期间不能消失，也不允许出现两层叠加的高亮：菜单打开时组件按与 `::selection` 相同的颜色自绘选区（并清掉系统选区），关闭时再恢复系统选区——复制、`Search`、`Esc` 保留选区，点击菜单外则清空；没有选中文字时高亮指针下的 token，让 `Copy Key` / `Copy Value` / `Copy Path` 的作用对象可见
@@ -498,8 +499,11 @@ Sessions Page
 
 ### 详情面板标签
 
-- Request：`Query / Form / Body / Headers / Raw`
-- Response：`Overview / Preview / Messages / Headers / Text / JSON / JSON Text / Raw / Automation / Trailers`（按 MIME 类型与协议动态显示；`Messages` 仅 WebSocket 会话，`Trailers` 仅响应携带 HTTP trailer 时显示，`Automation` 展示规则命中记录）
+- Request：`Query / Form / Body / Decoded / Headers / Raw`
+- Response：`Overview / Preview / Messages / Headers / Text / JSON / JSON Text / Decoded / Raw / Automation / Trailers`（按 MIME 类型与协议动态显示；`Messages` 仅 WebSocket 会话，`Trailers` 仅响应携带 HTTP trailer 时显示，`Automation` 展示规则命中记录）
+- `Decoded`（解码）标签只在当前 workspace 有启用的脚本规则为该阶段导出 `decodeRequest` / `decodeResponse` 且 URL、方法匹配该会话时显示（忽略规则的阶段设置；每次挂载重新匹配，匹配只查内存），位于原始消息体视图之后；导入的会话和 WebSocket 会话不显示。选中 `Decoded` 后切换会话，在新会话的解码规则查询完成前保持选中，确认没有解码规则后再回退（响应回到默认标签，请求回到 `Body`）
+- `Decoded` 标签打开时才执行解码 hook，结果按「会话 + 阶段」缓存；保存、启停、删除脚本规则会让结果失效并重新解码，刷新按钮可手动重新解码。顶部一行从左到右为「树形 / 文本」切换（仅 JSON 结果且未超过 2 MB）、刷新、「日志（n）」按钮，右侧是规则名 · 耗时 · 大小；控件放在左侧，避免被浮动搜索栏遮挡
+- `Decoded` 复用 JSON 树与 `SearchableCodeBlock`：支持面板搜索、复制（复制格式化后的文本）、右键复制 Key / Value / Path。文本视图与复制对解码结果原文只重排缩进，数字保持原文；树形视图展示解析后的值。解码结果按「会话 + 阶段 + 匹配规则」缓存，匹配规则变化（如切换 workspace）会重新解码；显示格式在查询内只计算一次。脚本失败显示 error Alert 与脚本抛出的消息，没有返回值、没有匹配规则、结果被截断或过大无法用树形显示时分别给出 info / warning 说明
 - `Preview` Tab 仅在响应 MIME 类型为图片（`image/*`）、音频（`audio/*`）或视频（`video/*`）时显示
 - 图片预览使用 `<img>` 渲染 data URI，支持 `object-fit: contain` 自适应容器，底部展示尺寸、MIME 类型、文件大小
 - 音频 / 视频预览使用原生 HTML5 `<audio>` / `<video>` 控件
@@ -875,6 +879,10 @@ Throttling Page
 - Rules 模式必须清楚展示作用范围，避免误伤所有请求
 - 从 Session 创建规则时，应自动带入 host / path / method，减少复制粘贴
 - Session Automation tab 应展示 Throttling trace，让用户确认 profile / rule 是否命中
+- Automation tab 自身是滚动容器，内容高于面板时可以滚动查看，不得被裁切
+- 脚本 trace 卡片标题显示规则名称，规则 ID 作为次级文字；规则名称不可用时回退为规则 ID
+- trace 值（脚本日志 / 提取值、改写前后值）统一用 `TracePayloadBlock` 渲染：脚本日志 / 提取值中的 JSON 按 JSON Text 标签的缩进重排并高亮（只重排缩进，不经过解析再序列化，64 位整数等数字保持原文）；序列化字符串显示其内容，内容本身是 JSON 时再格式化；无法解析的值（例如截断后的值）原样显示。改写前后值、映射地址按原文显示（`raw`），不去引号、不重排，JSON 只做高亮。超过 8 行或 600 个字符的值默认折叠到 8 行并渐隐，下方提供「展开全部 / 收起」按钮（`aria-expanded` 同步状态）；右上角复制按钮复制格式化后的文本，成功或失败都在 tooltip 中反馈。长 token（base64、密文）强制换行，不出现横向滚动
+- 后端截断过的值（`payloadOriginalBytes` 存在）在值下方用 warning 色说明「仅保留前 8 KB，原始 N」，不得把前缀当作完整值展示
 
 ## 9.6 Sessions Export
 

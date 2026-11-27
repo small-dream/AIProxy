@@ -333,6 +333,7 @@ fn invalid_trace(mut trace: ScriptTrace, message: String) -> ScriptTrace {
         level: Some(ScriptLogLevel::Error),
         message: Some(message),
         payload_json: None,
+        payload_original_bytes: None,
         sequence: next_sequence,
     });
     trace
@@ -371,6 +372,7 @@ fn runtime_join_failure_trace(
                 level: Some(ScriptLogLevel::Error),
                 message: Some(message),
                 payload_json: None,
+                payload_original_bytes: None,
                 sequence: 0,
             }],
             outcome: ScriptRunOutcome::RuntimeError,

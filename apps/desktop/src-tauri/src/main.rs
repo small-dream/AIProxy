@@ -270,6 +270,8 @@ pub fn run() {
             commands::list_dns_mappings,
             commands::save_dns_mapping,
             commands::list_script_session_trace,
+            commands::find_script_decoders,
+            commands::decode_session_body,
             commands::list_rewrite_session_trace,
             commands::list_map_session_trace,
             commands::list_throttle_session_trace,
