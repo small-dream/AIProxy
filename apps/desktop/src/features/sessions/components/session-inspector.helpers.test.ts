@@ -8,13 +8,18 @@ import {
   formatJsonText,
   getBodyCodeLanguage,
   getJsonChildren,
+  getJsonValueType,
   getRequestOperationLabel,
   hasPreviewableMediaMimeType,
   isResponseBodyStillLoading,
+  jsonSubtreeMatches,
   parseFormEntries,
   parseJsonBody,
+  parseJsonText,
+  reindentJsonText,
   resolveResponseEmptyStateMessage,
   serializeJsonNode,
+  type JsonValue,
 } from "./session-inspector.helpers";
 
 function createBodyReference(overrides: Partial<BodyReference> = {}): BodyReference {
@@ -470,5 +475,94 @@ describe("isResponseBodyStillLoading", () => {
         isDetailFetching: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("reindentJsonText", () => {
+  it("matches the JSON text tab's formatting", () => {
+    const source = '{"a":1,"b":[true,null,{"c":"d"}],"e":{},"f":[],"g":"x"}';
+    expect(reindentJsonText(source)).toBe(formatJsonText(JSON.parse(source) as JsonValue));
+  });
+
+  it("keeps number tokens exactly, unlike a parse round-trip", () => {
+    expect(reindentJsonText('{"id":1234567890123456789,"price":1.10}')).toBe(
+      '{\n    "id": 1234567890123456789,\n    "price": 1.10\n}',
+    );
+  });
+
+  it("leaves punctuation and whitespace inside strings alone", () => {
+    expect(reindentJsonText('{"s":"a, {b}: [c]\\"  q"}')).toBe(
+      '{\n    "s": "a, {b}: [c]\\"  q"\n}',
+    );
+  });
+
+  it("unescapes strings the way JSON.stringify does", () => {
+    // Raw API bodies often escape non-ASCII text; the text view shows it decoded.
+    const source =
+      '{"name":"\\u4e2d\\u6587","path":"a\\/b","quote":"\\"","nl":"x\\ny","bad":"\\ud800"}';
+    expect(reindentJsonText(source)).toBe(formatJsonText(JSON.parse(source) as JsonValue));
+    expect(reindentJsonText(source)).toContain('"name": "中文"');
+  });
+
+  it("normalizes existing indentation and keeps scalars as they are", () => {
+    expect(reindentJsonText('{\n  "a" :  [ 1 ,2 ]\n}')).toBe(
+      '{\n    "a": [\n        1,\n        2\n    ]\n}',
+    );
+    expect(reindentJsonText("42")).toBe("42");
+  });
+});
+
+describe("parseJsonText", () => {
+  it("keeps integers beyond 2^53 exact as bigint", () => {
+    expect(
+      parseJsonText(
+        '{"id":1234567890123456789,"list":[9007199254740993,-9007199254740993],"n":42,"f":1.5,"s":"\\u4e2d 12345678901234567"}',
+      ),
+    ).toEqual({
+      f: 1.5,
+      id: 1234567890123456789n,
+      list: [9007199254740993n, -9007199254740993n],
+      n: 42,
+      s: "中 12345678901234567",
+    });
+  });
+
+  it("matches JSON.parse for every other value", () => {
+    // The 16-digit string forces the lossless path.
+    const source =
+      '{"__proto__":{"x":1},"2":"b","1":"a","dup":1,"dup":2,"e":1e21,"d":12345678901234567.5,"z":-0,"nested":[[],{},true,false,null,"q\\"\\\\"],"pad":"9999999999999999"}';
+    const parsed = parseJsonText(source) as { [key: string]: JsonValue };
+    const expected = JSON.parse(source) as { [key: string]: JsonValue };
+
+    expect(parsed).toEqual(expected);
+    expect(Object.keys(parsed)).toEqual(Object.keys(expected));
+    expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+    expect(Object.is(parsed.z, -0)).toBe(true);
+  });
+
+  it("throws on invalid JSON like JSON.parse", () => {
+    expect(() => parseJsonText('{"id":12345678901234567890')).toThrow(SyntaxError);
+  });
+
+  it("feeds parseJsonBody, so the JSON tree gets exact integers", () => {
+    const text = '{"id":1234567890123456789}';
+    expect(parseJsonBody(createBodyReference({ sizeBytes: text.length }), text)).toEqual({
+      status: "success",
+      value: { id: 1234567890123456789n },
+    });
+  });
+});
+
+describe("bigint JSON values", () => {
+  it("serialize with their exact digits", () => {
+    expect(formatJsonText({ id: 1234567890123456789n, n: [1] })).toBe(
+      '{\n    "id": 1234567890123456789,\n    "n": [\n        1\n    ]\n}',
+    );
+    expect(serializeJsonNode(1234567890123456789n)).toBe("1234567890123456789");
+  });
+
+  it("are searchable and typed as integers", () => {
+    expect(jsonSubtreeMatches("id", 1234567890123456789n, "56789")).toBe(true);
+    expect(getJsonValueType(1234567890123456789n)).toBe("Integer");
   });
 });

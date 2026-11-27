@@ -1,7 +1,17 @@
 import type { BodyReference, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { enMessages } from "@/i18n/messages/en";
+import {
+  parseJsonText,
+  reindentJsonText,
+  stringifyJsonValue,
+  type JsonValue,
+} from "@/lib/json-text";
 import { isWebSocketSessionProtocol } from "@/features/sessions/session-protocol.helpers";
+
+// Re-exported for the inspector modules that already import them from here.
+export { parseJsonText, reindentJsonText };
+export type { JsonValue };
 
 export function isWebSocketSession(session: SessionSummary): boolean {
   return session.statusCode === 101 || isWebSocketSessionProtocol(session);
@@ -86,11 +96,12 @@ export function buildSearchMatcher(query: string, options: SearchOptions): Searc
   };
 }
 
-export type RequestInspectorTab = "query" | "headers" | "body" | "form" | "raw";
+export type RequestInspectorTab = "query" | "headers" | "body" | "form" | "raw" | "decoded";
 
 export type ResponseInspectorTab =
   | "overview"
   | "automation"
+  | "decoded"
   | "headers"
   | "messages"
   | "preview"
@@ -150,17 +161,8 @@ export function clampInspectorSplitRatio(ratio: number): number {
   return Math.min(INSPECTOR_SPLIT_MAX, Math.max(INSPECTOR_SPLIT_MIN, ratio));
 }
 
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
 const LARGE_JSON_SOFT_LIMIT = 256 * 1024;
-const LARGE_JSON_HARD_LIMIT = 2 * 1024 * 1024;
-const JSON_TEXT_INDENT_SPACES = 4;
+export const LARGE_JSON_HARD_LIMIT = 2 * 1024 * 1024;
 const DEFAULT_JSON_PARSE_MESSAGES = enMessages.inspector.jsonParse;
 const DEFAULT_COMMON_MESSAGES = enMessages.common;
 
@@ -290,7 +292,7 @@ export function parseJsonBody(
   }
 
   try {
-    const parsed = JSON.parse(bodyText) as JsonValue;
+    const parsed = parseJsonText(bodyText);
 
     if (body.sizeBytes > LARGE_JSON_SOFT_LIMIT && options?.preferSoftWarning !== false) {
       return {
@@ -363,8 +365,9 @@ export function isResponseBodyStillLoading(
   return Boolean(options.isDeferredContentLoading && body.textDeferred);
 }
 
+/** Pretty-print a parsed value like `JSON.stringify(value, null, 4)`, bigint included. */
 export function formatJsonText(value: JsonValue) {
-  return JSON.stringify(value, null, JSON_TEXT_INDENT_SPACES);
+  return reindentJsonText(stringifyJsonValue(value));
 }
 
 export function normalizeSearch(searchQuery: string | undefined) {
@@ -407,6 +410,18 @@ export function describeBody(
     : messages.tech.bytes.replace("{{value}}", String(body.sizeBytes));
 
   return `${mimeType} - ${sizeLabel}${truncationSuffix}`;
+}
+
+export function formatCompactBytes(sizeBytes: number): string {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(2)} KB`;
+  }
+
+  return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 export function formatTiming(
@@ -540,7 +555,12 @@ export function jsonSubtreeMatches(
     return findNormalizedMatchIndex(value, normalizedQuery) !== -1;
   }
 
-  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+  if (
+    typeof value === "number" ||
+    typeof value === "bigint" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
     return findNormalizedMatchIndex(String(value), normalizedQuery) !== -1;
   }
 
@@ -572,6 +592,10 @@ export function serializeJsonNode(value: JsonValue): string {
 
   if (typeof value === "string") {
     return value;
+  }
+
+  if (typeof value === "bigint") {
+    return value.toString();
   }
 
   return JSON.stringify(value);
@@ -748,6 +772,10 @@ export function getJsonValueType(
 
   if (typeof value === "string") {
     return labels?.string ?? "String";
+  }
+
+  if (typeof value === "bigint") {
+    return labels?.integer ?? "Integer";
   }
 
   if (typeof value === "number") {

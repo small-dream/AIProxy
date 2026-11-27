@@ -23,11 +23,11 @@ import {
 } from "./SessionInspectorResponsePane";
 import { InspectorSummaryBar } from "./SessionInspectorShared";
 import {
-  formatJsonText,
   getBodyText,
   getRawMessageText,
   parseFormEntries,
   parseJsonBody,
+  reindentJsonText,
   type JsonParseResult,
   type RequestInspectorTab,
   type ResponseInspectorTab,
@@ -173,12 +173,13 @@ export const SessionInspectorWorkspace = forwardRef<
   }, [detail?.responseBody, responseBodyText, responseTab, t]);
 
   const responseJsonDisplayText = useMemo(() => {
-    if (responseJsonResult.status !== "success") {
+    if (responseJsonResult.status !== "success" || !responseBodyText) {
       return undefined;
     }
 
-    return formatJsonText(responseJsonResult.value);
-  }, [responseJsonResult]);
+    // Re-indent the source text: a parse round-trip would round 64-bit IDs.
+    return reindentJsonText(responseBodyText);
+  }, [responseBodyText, responseJsonResult]);
 
   const requestBodyDisplayText = useMemo(() => {
     if (!requestBodyText) {
@@ -194,7 +195,7 @@ export const SessionInspectorWorkspace = forwardRef<
     });
 
     if (parsedRequestJson.status === "success") {
-      return formatJsonText(parsedRequestJson.value);
+      return reindentJsonText(requestBodyText);
     }
 
     return requestBodyText;

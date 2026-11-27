@@ -73,11 +73,11 @@ mod ws_upgrade;
 mod tests;
 
 pub use aiproxy_rule_engine::{
-    compile_script_rule, execute_request_hook, execute_response_hook, CompiledScriptRule,
-    ScriptEntrypoints, ScriptHeader, ScriptHookPayload, ScriptLogLevel, ScriptManager,
-    ScriptRequest, ScriptResponse, ScriptResponseOverride, ScriptRule, ScriptRuleLanguage,
-    ScriptRuleMatch, ScriptRuleSourceType, ScriptRunEntry, ScriptRunEntryKind, ScriptRunOutcome,
-    ScriptSessionInfo, ScriptTrace, ScriptTraceStage,
+    compile_script_match, compile_script_rule, execute_request_hook, execute_response_hook,
+    CompiledScriptRule, ScriptEntrypoints, ScriptHeader, ScriptHookPayload, ScriptLogLevel,
+    ScriptManager, ScriptRequest, ScriptResponse, ScriptResponseOverride, ScriptRule,
+    ScriptRuleLanguage, ScriptRuleMatch, ScriptRuleSourceType, ScriptRunEntry, ScriptRunEntryKind,
+    ScriptRunOutcome, ScriptSessionInfo, ScriptTrace, ScriptTraceStage,
 };
 pub use breakpoints::{
     BreakpointActionKind, BreakpointEventEmitter, BreakpointHit, BreakpointManager,
@@ -87,11 +87,11 @@ pub use breakpoints::{
 pub use context::{ProxyConfig, ProxyManagers};
 pub use error::ProxyError;
 pub use rules::{
-    evaluate_offline, paired_rule_managers, set_json_path_from_str, DnsManager, DnsMappingRule,
-    MapManager, MapRule, MapTrace, OfflineEvaluationInput, OfflineEvaluationResult, OfflineHeader,
-    OfflineRequestInput, OfflineResponseInput, RewriteManager, RewriteRule, RewriteRuleMatch,
-    RewriteTrace, RewriteTraceEntry, ThrottleManager, ThrottleProfileData, ThrottleRuleData,
-    ThrottleRuntimeStats, ThrottleTrace,
+    evaluate_offline, paired_rule_managers, script_decoders_for, set_json_path_from_str,
+    DnsManager, DnsMappingRule, MapManager, MapRule, MapTrace, OfflineEvaluationInput,
+    OfflineEvaluationResult, OfflineHeader, OfflineRequestInput, OfflineResponseInput,
+    RewriteManager, RewriteRule, RewriteRuleMatch, RewriteTrace, RewriteTraceEntry,
+    ThrottleManager, ThrottleProfileData, ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace,
 };
 pub use server::{send_direct_request, send_direct_request_bytes, start_proxy_server};
 pub use ssl_proxying::{SslProxyEntry, SslProxyingConfig, SslProxyingSettings};

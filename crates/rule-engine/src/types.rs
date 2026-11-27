@@ -15,6 +15,15 @@ pub(crate) const MAX_SCRIPT_SOURCE_BYTES: usize = 128 * 1024;
 /// 500ms still bounds runaway loops while leaving real scripts room to run.
 pub(crate) const SCRIPT_EXECUTION_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(500);
+/// QuickJS heap cap for a proxy hook (onRequest/onResponse).
+pub(crate) const SCRIPT_MEMORY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
+/// Decode hooks run on demand when the user opens the Decoded tab, never on
+/// the proxy path, so they get room for pure-JS decryption of large bodies.
+pub(crate) const DECODE_EXECUTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+/// Room for a body at the 20 MB capture limit plus the hook's own decoding.
+pub(crate) const DECODE_MEMORY_LIMIT_BYTES: usize = 128 * 1024 * 1024;
+/// Upper bound for the text a decode hook hands back to the inspector.
+pub const MAX_DECODED_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -48,10 +57,34 @@ pub struct ScriptRuleMatch {
 pub struct ScriptEntrypoints {
     pub on_request: bool,
     pub on_response: bool,
+    /// Read-only hooks that turn a captured body into a readable view; they
+    /// never run on the proxy path.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub decode_request: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub decode_response: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+impl ScriptEntrypoints {
+    /// Whether the proxy must run this rule for live traffic.
+    pub fn has_proxy_hook(&self) -> bool {
+        self.on_request || self.on_response
+    }
+
+    pub fn decodes(&self, stage: &ScriptTraceStage) -> bool {
+        match stage {
+            ScriptTraceStage::Request => self.decode_request,
+            ScriptTraceStage::Response => self.decode_response,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "lowercase")]
 pub enum ScriptRuleLanguage {
     JavaScript,
     TypeScript,
@@ -83,6 +116,11 @@ pub struct ScriptRunEntry {
     pub level: Option<ScriptLogLevel>,
     pub message: Option<String>,
     pub payload_json: Option<String>,
+    /// Serialized payload size in bytes before the `MAX_LOG_ENTRY_BYTES` cut.
+    /// Set only when `payload_json` was truncated, so the UI can present the
+    /// value as partial instead of showing a prefix as the whole value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_original_bytes: Option<u64>,
     pub sequence: u32,
 }
 
@@ -113,7 +151,7 @@ pub enum ScriptRunOutcome {
     InvalidResult,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum ScriptTraceStage {
     Request,
@@ -279,6 +317,40 @@ pub struct ScriptHookPayload {
     pub session: ScriptSessionInfo,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ScriptDecodedKind {
+    /// The hook returned a non-string value; `text` is its JSON serialization.
+    Json,
+    /// The hook returned a string, shown as-is.
+    Text,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptDecodedBody {
+    pub kind: ScriptDecodedKind,
+    pub text: String,
+    /// Size of the full decoded text, before any `MAX_DECODED_BODY_BYTES` cut.
+    pub size_bytes: u64,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptDecodeResult {
+    /// `None` when the hook is missing, failed, or returned null/undefined.
+    pub decoded: Option<ScriptDecodedBody>,
+    pub trace: ScriptTrace,
+}
+
+/// The decoded value as the JS bridge reports it, before size capping.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ScriptBridgeDecoded {
+    pub kind: ScriptDecodedKind,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptHookResult {
     pub request: Option<ScriptRequest>,
@@ -303,4 +375,7 @@ pub(crate) struct ScriptInvocationResult {
     /// the preserved entries.
     #[serde(default)]
     pub runtime_error: bool,
+    /// Return value of a decode hook; always null for proxy hooks.
+    #[serde(default)]
+    pub decoded: Option<ScriptBridgeDecoded>,
 }

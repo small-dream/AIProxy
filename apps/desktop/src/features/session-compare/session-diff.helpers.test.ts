@@ -84,6 +84,37 @@ describe("buildSessionDiffPayload", () => {
     );
   });
 
+  it("compares integers beyond 2^53 by their exact digits", () => {
+    const body = (text: string) => ({ inlineText: text, sizeBytes: text.length });
+    const payload = buildSessionDiffPayload(
+      detail({ responseBody: body('{"id":1234567890123456789,"same":9007199254740993}') }),
+      detail({
+        summary: summary({ id: "session-2" }),
+        responseBody: body('{"id":1234567890123456788,"same":9007199254740993}'),
+      }),
+      { includeBodyForAi: true, redact: false },
+    );
+
+    const entries = payload.sections.find((section) => section.key === "responseBody")?.entries;
+
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        {
+          after: "1234567890123456788",
+          before: "1234567890123456789",
+          kind: "changed",
+          path: "$.id",
+        },
+        {
+          after: "9007199254740993",
+          before: "9007199254740993",
+          kind: "unchanged",
+          path: "$.same",
+        },
+      ]),
+    );
+  });
+
   it("redacts sensitive fields before AI", () => {
     const payload = buildSessionDiffPayload(
       detail({

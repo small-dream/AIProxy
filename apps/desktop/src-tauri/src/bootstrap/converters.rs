@@ -6,8 +6,8 @@ use aiproxy_db::rules::{
 use aiproxy_db::sessions::{SessionDetailRow, SessionSummaryRow};
 use aiproxy_db::workspaces::WorkspaceRow;
 use aiproxy_proxy_core::{
-    BreakpointRule, BreakpointStage, CompiledScriptRule, DnsMappingRule, MapRule,
-    ProxyBodyReference, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
+    compile_script_match, BreakpointRule, BreakpointStage, CompiledScriptRule, DnsMappingRule,
+    MapRule, ProxyBodyReference, ProxyHeaderEntry, ProxySessionDetail, ProxySessionSummary,
     ProxyTimingBreakdown, RewriteRule, RewriteRuleMatch, ScriptEntrypoints, ScriptRule,
     ScriptRuleLanguage, ScriptRuleSourceType, SessionFailure, ThrottleProfileData,
     ThrottleRuleData,
@@ -558,9 +558,23 @@ pub(crate) fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
         serde_json::from_str(&row.entrypoints).unwrap_or(ScriptEntrypoints {
             on_request: false,
             on_response: false,
+            decode_request: false,
+            decode_response: false,
         });
 
+    let rule_match = aiproxy_proxy_core::ScriptRuleMatch {
+        url_pattern: row.match_url_pattern,
+        methods: serde_json::from_str(&row.match_methods).unwrap_or_default(),
+        stage: row.match_stage,
+        match_type: if row.match_type.is_empty() {
+            None
+        } else {
+            Some(row.match_type)
+        },
+    };
+
     CompiledScriptRule {
+        compiled_match: compile_script_match(&rule_match),
         rule: ScriptRule {
             id: row.id,
             workspace_id: row.workspace_id,
@@ -568,16 +582,7 @@ pub(crate) fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
             note: row.note,
             enabled: row.enabled,
             priority: row.priority,
-            r#match: aiproxy_proxy_core::ScriptRuleMatch {
-                url_pattern: row.match_url_pattern,
-                methods: serde_json::from_str(&row.match_methods).unwrap_or_default(),
-                stage: row.match_stage,
-                match_type: if row.match_type.is_empty() {
-                    None
-                } else {
-                    Some(row.match_type)
-                },
-            },
+            r#match: rule_match,
             language,
             source_type,
             source_code: row.source_code,
@@ -586,7 +591,6 @@ pub(crate) fn script_row_to_rule(row: ScriptRuleRow) -> CompiledScriptRule {
         },
         compiled_code: std::sync::Arc::new(row.compiled_code),
         source_map: row.source_map.map(std::sync::Arc::new),
-        compiled_match: None,
     }
 }
 
@@ -611,4 +615,64 @@ pub(crate) fn estimate_session_detail_row_text_bytes(row: &SessionDetailRow) -> 
             .map_or(0, |value| value.len())
         + row.timing.as_ref().map_or(0, |value| value.len())
         + row.trailers.as_ref().map_or(0, |value| value.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::script_row_to_rule;
+    use aiproxy_db::rules::ScriptRuleRow;
+    use aiproxy_proxy_core::{script_decoders_for, ScriptManager, ScriptTraceStage};
+
+    fn script_row(match_type: &str, url_pattern: &str) -> ScriptRuleRow {
+        ScriptRuleRow {
+            id: "script-1".to_string(),
+            workspace_id: "ws-1".to_string(),
+            name: "Decoder".to_string(),
+            note: None,
+            enabled: true,
+            priority: 1,
+            match_methods: "[]".to_string(),
+            match_stage: "response".to_string(),
+            match_url_pattern: url_pattern.to_string(),
+            match_type: match_type.to_string(),
+            language: "javascript".to_string(),
+            source_type: "inline".to_string(),
+            source_code: "export function decodeResponse(ctx) {}".to_string(),
+            source_path: None,
+            entrypoints: r#"{"onRequest":false,"onResponse":false,"decodeResponse":true}"#
+                .to_string(),
+            compiled_code: String::new(),
+            source_map: None,
+            updated_at: "2026-11-26T00:00:00Z".to_string(),
+        }
+    }
+
+    fn decoders_after_restart(row: ScriptRuleRow, url: &str) -> usize {
+        let manager = ScriptManager::new();
+        manager.set_rules(vec![script_row_to_rule(row)]);
+        script_decoders_for(&manager, "ws-1", ScriptTraceStage::Response, "POST", url).len()
+    }
+
+    #[test]
+    fn regex_script_rules_loaded_from_the_database_still_match() {
+        let row = script_row("regex", r"^https://api\.shorttv\.live/app/.+/encrypt/");
+
+        assert_eq!(
+            decoders_after_restart(
+                row,
+                "https://api.shorttv.live/app/homeData/encrypt/getTabPageData"
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn invalid_regex_script_rules_loaded_from_the_database_match_nothing() {
+        let row = script_row("regex", "(unclosed");
+
+        assert_eq!(
+            decoders_after_restart(row, "https://example.com/(unclosed"),
+            0
+        );
+    }
 }

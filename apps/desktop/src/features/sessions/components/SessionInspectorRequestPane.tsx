@@ -3,9 +3,11 @@ import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import { Alert, Box, Button, Divider, Stack, Tab, Tabs, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
-import type { SessionDetail, SessionSummary } from "@aiproxy/shared-types";
+import type { ScriptDecoderRef, SessionDetail, SessionSummary } from "@aiproxy/shared-types";
 
 import { useI18n } from "@/i18n";
+import { useScriptDecoders } from "../use-script-decode";
+import { SessionInspectorDecodedView } from "./SessionInspectorDecodedView";
 import {
   EllipsizedCell,
   InspectorFlatTable,
@@ -17,6 +19,7 @@ import {
   inspectorTabsSx,
 } from "./SessionInspectorShared";
 import {
+  formatCompactBytes,
   getBodyCodeLanguage,
   getRawMessageText,
   type RequestFormEntry,
@@ -64,9 +67,21 @@ export const SessionInspectorRequestPane = forwardRef<
   const { t } = useI18n();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const searchController = useSearchController();
+  const decodersQuery = useScriptDecoders(session);
+  const requestDecoder = decodersQuery.data?.request ?? null;
+  const decodersResolving = decodersQuery.isPending && decodersQuery.fetchStatus !== "idle";
+  // Fall back to the body while (or after finding that) no decoder applies.
+  const activeRequestTab: RequestInspectorTab =
+    requestTab === "decoded" && !requestDecoder ? "body" : requestTab;
 
-  const searchableTabs: ReadonlySet<RequestInspectorTab> = new Set(["body", "raw"]);
-  const isSearchable = searchableTabs.has(requestTab);
+  const searchableTabs: ReadonlySet<RequestInspectorTab> = new Set(["body", "raw", "decoded"]);
+  const isSearchable = searchableTabs.has(activeRequestTab);
+
+  useEffect(() => {
+    if (requestTab === "decoded" && !requestDecoder && !decodersResolving) {
+      onRequestTabChange("body");
+    }
+  }, [decodersResolving, onRequestTabChange, requestDecoder, requestTab]);
 
   useEffect(() => {
     setIsSearchOpen(false);
@@ -125,12 +140,13 @@ export const SessionInspectorRequestPane = forwardRef<
           onChange={(_event, nextTab) => onRequestTabChange(nextTab as RequestInspectorTab)}
           scrollButtons="auto"
           sx={inspectorTabsSx}
-          value={requestTab}
+          value={activeRequestTab}
           variant="scrollable"
         >
           <Tab label={t("inspector.request.tabs.query")} value="query" />
           <Tab label={t("inspector.request.tabs.form")} value="form" />
           <Tab label={t("inspector.request.tabs.body")} value="body" />
+          {requestDecoder ? <Tab label={t("inspector.decoded.tab")} value="decoded" /> : null}
           <Tab label={t("inspector.request.tabs.headers")} value="headers" />
           <Tab label={t("inspector.request.tabs.raw")} value="raw" />
         </Tabs>
@@ -171,11 +187,13 @@ export const SessionInspectorRequestPane = forwardRef<
             isRequestRawLoading={isRequestRawLoading}
             onSearchWithText={handleSearchWithText}
             requestBodyDisplayText={requestBodyDisplayText}
+            requestDecoder={requestDecoder}
             requestFormEntries={requestFormEntries}
-            requestTab={requestTab}
+            requestTab={activeRequestTab}
             searchMatcher={isSearchOpen ? searchController.matcher : null}
             currentMatchIndex={isSearchOpen ? searchController.currentMatchIndex : undefined}
             onMatchCountChange={isSearchOpen ? searchController.setMatchCount : undefined}
+            session={session}
           />
         </Box>
       )}
@@ -215,12 +233,16 @@ function RequestTabContent({
   isRequestRawLoading,
   onSearchWithText,
   requestBodyDisplayText,
+  requestDecoder,
   requestFormEntries,
   requestTab,
   searchMatcher,
   currentMatchIndex,
   onMatchCountChange,
+  session,
 }: {
+  requestDecoder: ScriptDecoderRef | null;
+  session: SessionSummary;
   detail: SessionDetail | undefined;
   isRequestBodyLoading: boolean;
   isRequestFormLoading: boolean;
@@ -235,6 +257,20 @@ function RequestTabContent({
 }) {
   const { t } = useI18n();
   const requestBodyLanguage = getBodyCodeLanguage(detail?.requestBody, requestBodyDisplayText);
+
+  if (requestTab === "decoded" && requestDecoder) {
+    return (
+      <SessionInspectorDecodedView
+        currentMatchIndex={currentMatchIndex}
+        decoder={requestDecoder}
+        onMatchCountChange={onMatchCountChange}
+        onSearchWithText={onSearchWithText}
+        searchMatcher={searchMatcher}
+        session={session}
+        stage="request"
+      />
+    );
+  }
 
   if (requestTab === "query") {
     return (
@@ -424,16 +460,4 @@ function MultipartFormTable({
 
 function formatMultipartFileSize(sizeBytes: number, t: ReturnType<typeof useI18n>["t"]) {
   return `${formatCompactBytes(sizeBytes)} (${t("common.tech.bytes", { value: sizeBytes })})`;
-}
-
-function formatCompactBytes(sizeBytes: number): string {
-  if (sizeBytes < 1024) {
-    return `${sizeBytes} B`;
-  }
-
-  if (sizeBytes < 1024 * 1024) {
-    return `${(sizeBytes / 1024).toFixed(2)} KB`;
-  }
-
-  return `${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`;
 }

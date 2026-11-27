@@ -73,10 +73,20 @@ pub async fn list_script_session_trace(
             aiproxy_db::rules::load_script_run_entries(&conn_guard, &run_ids).map_err(|error| {
                 app_error(ERR_INTERNAL, format!("Load script run entries: {error}"))
             })?;
+        drop(conn_guard);
+        // Runs only store the rule id; resolve the display name from the live
+        // rules (a deleted rule cascades its runs away, so a miss is rare).
+        let rule_names: std::collections::HashMap<String, String> = state
+            .read_script_manager()
+            .list_rules()
+            .into_iter()
+            .map(|rule| (rule.id, rule.name))
+            .collect();
 
         Ok(runs
             .into_iter()
             .map(|run| ScriptSessionTraceOutput {
+                rule_name: rule_names.get(&run.rule_id).cloned(),
                 duration_ms: run.duration_ms,
                 entries: entries
                     .iter()
@@ -87,6 +97,7 @@ pub async fn list_script_session_trace(
                         key: entry.key.clone(),
                         message: entry.message.clone(),
                         payload_json: entry.payload_json.clone(),
+                        payload_original_bytes: entry.payload_original_bytes,
                         sequence: entry.seq,
                     })
                     .collect(),
@@ -430,6 +441,8 @@ pub struct ScriptRunEntryOutput {
     pub key: Option<String>,
     pub message: Option<String>,
     pub payload_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_original_bytes: Option<u64>,
     pub sequence: u32,
 }
 
@@ -440,6 +453,8 @@ pub struct ScriptSessionTraceOutput {
     pub entries: Vec<ScriptRunEntryOutput>,
     pub outcome: String,
     pub rule_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_name: Option<String>,
     pub stage: String,
 }
 

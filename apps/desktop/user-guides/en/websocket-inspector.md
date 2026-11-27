@@ -71,7 +71,7 @@ With a message selected, the right detail panel shows:
 - **Frame meta card**: direction, opcode, FIN flag, timestamp, payload size
 - **Format switch**: three display formats
   - **Text**: raw text
-  - **JSON**: auto-detect and pretty-print JSON (only for JSON content)
+  - **JSON**: auto-detect and pretty-print JSON (only for JSON content); large integers such as 64-bit IDs are not rounded
   - **Hex**: hex dump view
 - **Copy button**: copy the current format's content to the clipboard
 

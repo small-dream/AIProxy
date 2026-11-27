@@ -206,6 +206,18 @@ describe("ScriptRulesPanel — consolidated create entry", () => {
     });
   });
 
+  it("offers a decode template that targets the inspector's Decoded tab", async () => {
+    render(<ScriptRulesPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "rulesPage.script.templatesButton" }));
+    fireEvent.click(screen.getByRole("button", { name: /rulesPage\.script\.templates\.decode/ }));
+
+    await waitFor(() => {
+      const source = screen.getByLabelText(/rulesPage\.script\.sourceCode/) as HTMLTextAreaElement;
+      expect(source.value).toContain("export function decodeResponse(ctx)");
+    });
+  });
+
   // Batch delete is as destructive as single delete, so it goes through the
   // same confirmation step (previously it deleted immediately).
   it("asks for confirmation before batch-deleting selected rules", async () => {

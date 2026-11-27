@@ -106,6 +106,35 @@ describe("BreakpointInterceptPanel", () => {
     });
   });
 
+  it("keeps integers beyond 2^53 exact when a JSON body is edited and forwarded", async () => {
+    const text = '{"id":1234567890123456789,"name":"a"}';
+    renderPanel(
+      createHit({
+        path: "/api",
+        requestBody: { inlineText: text, mimeType: "application/json", sizeBytes: text.length },
+        requestHeaders: [{ name: "Content-Type", value: "application/json" }],
+        url: "https://api.example.com/api",
+      }),
+    );
+
+    const requestBodyTab = screen.getAllByRole("tab", { name: "Body" })[0];
+    if (!requestBodyTab) throw new Error("Request body tab not found");
+    fireEvent.click(requestBodyTab);
+    const editor = screen.getByDisplayValue(/1234567890123456789/);
+    fireEvent.change(editor, {
+      target: { value: (editor as HTMLTextAreaElement).value.replace('"a"', '"b"') },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Forward" }));
+
+    await waitFor(() => expect(resolveBreakpoint).toHaveBeenCalled());
+    const resolution = vi.mocked(resolveBreakpoint).mock.calls[0]?.[0];
+    const forwarded = atob(resolution?.modifiedRequestBodyBase64 ?? "");
+    expect(JSON.parse(forwarded.replace("1234567890123456789", '"exact"'))).toEqual({
+      id: "exact",
+      name: "b",
+    });
+  });
+
   it("drops the previous hit's drafts when the backend releases the active hit", async () => {
     const hitA = createHit({
       host: "a.example.com",

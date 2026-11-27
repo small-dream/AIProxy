@@ -1412,6 +1412,9 @@ export const enMessages = {
         headerDescription: "Set a header on every matching request.",
         mock: "Mock Response",
         mockDescription: "Answer matching requests with a mocked JSON response.",
+        decode: "Decoded View",
+        decodeDescription:
+          "Turn encrypted responses into readable JSON in the inspector's Decoded tab.",
       },
     },
     preview: {
@@ -2377,6 +2380,23 @@ export const enMessages = {
       emptyTitle: "Inspector Workspace",
       loading: "Loading selected session detail...",
     },
+    decoded: {
+      tab: "Decoded",
+      tree: "Tree",
+      text: "Text",
+      viewMode: "Decoded view mode",
+      decodeAgain: "Decode again",
+      decoding: "Decoding with {{rule}}…",
+      showLogs: "Logs ({{count}})",
+      hideLogs: "Hide logs",
+      noDecoder:
+        "No enabled script rule decodes this message. Export decodeRequest or decodeResponse from a script rule that matches it.",
+      noResult: "{{rule}} returned no decoded value for this message.",
+      failed: "{{rule}} failed to decode this message ({{outcome}}).",
+      loadFailed: "Unable to run the decode script: {{message}}",
+      truncated: "The decoded value is {{size}}; only the first {{limit}} is shown.",
+      treeTooLarge: "The decoded JSON is too large for the tree view, so it is shown as text.",
+    },
     jsonParse: {
       requestFallback: "Unable to parse this body as JSON. Showing the original text instead.",
       responseError: "Unable to parse the response body as JSON.",
@@ -2406,6 +2426,11 @@ export const enMessages = {
     map: "Map",
     rewrite: "Rewrite",
     script: "Script",
+    showAll: "Show all",
+    collapse: "Collapse",
+    copyValue: "Copy value",
+    payloadTruncated:
+      "Truncated: only the first {{kept}} was kept (original {{original}}). Return the value from decodeRequest / decodeResponse to read it in full in the Decoded tab.",
   },
   breakpointPanel: {
     addQuery: "Add Query",

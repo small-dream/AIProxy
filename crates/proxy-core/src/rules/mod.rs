@@ -198,6 +198,44 @@ fn active_script_rules_for_stage(
         return Vec::new();
     };
 
+    // Decode-only rules (no onRequest/onResponse) never run on live traffic;
+    // running them would only record a "skipped" trace for every request.
+    matching_script_rules(
+        manager,
+        workspace_id,
+        Some(stage),
+        request.method.as_str(),
+        request.url.as_str(),
+    )
+    .into_iter()
+    .filter(|rule| rule.rule.entrypoints.has_proxy_hook())
+    .collect()
+}
+
+/// Enabled script rules whose decode hook applies to a captured message,
+/// highest priority first. Used by the inspector's Decoded view. The rule's
+/// stage setting is ignored: it selects which proxy hook runs, while decode
+/// hooks already name their stage.
+pub fn script_decoders_for(
+    manager: &ScriptManager,
+    workspace_id: &str,
+    stage: ScriptTraceStage,
+    method: &str,
+    url: &str,
+) -> Vec<CompiledScriptRule> {
+    matching_script_rules(manager, workspace_id, None, method, url)
+        .into_iter()
+        .filter(|rule| rule.rule.entrypoints.decodes(&stage))
+        .collect()
+}
+
+fn matching_script_rules(
+    manager: &ScriptManager,
+    workspace_id: &str,
+    stage: Option<&str>,
+    method: &str,
+    url: &str,
+) -> Vec<CompiledScriptRule> {
     // M10: iterate the shared snapshot by reference; clone only the surviving
     // rules. Cloning a `CompiledScriptRule` is cheap now (Arc bumps for the
     // large `compiled_code`/`source_map`/`compiled_match`).
@@ -206,8 +244,13 @@ fn active_script_rules_for_stage(
         .iter()
         .filter(|rule| rule.rule.enabled)
         .filter(|rule| rule.rule.workspace_id == workspace_id)
-        .filter(|rule| rule_stage_matches(&rule.rule.r#match.stage, stage))
-        .filter(|rule| method_matches(&rule.rule.r#match.methods, &request.method))
+        .filter(|rule| {
+            stage.is_none_or(|stage| rule_stage_matches(&rule.rule.r#match.stage, stage))
+        })
+        .filter(|rule| {
+            let methods = &rule.rule.r#match.methods;
+            methods.is_empty() || methods.iter().any(|m| m.eq_ignore_ascii_case(method))
+        })
         .filter(|rule| {
             // Use pre-compiled regex for "regex" match type; fall back to
             // pattern_matches for other match types (exact/wildcard/contains).
@@ -215,10 +258,10 @@ fn active_script_rules_for_stage(
                 Some("regex") => rule
                     .compiled_match
                     .as_ref()
-                    .is_some_and(|re| re.is_match(request.url.as_str())),
+                    .is_some_and(|re| re.is_match(url)),
                 _ => pattern_matches(
                     &rule.rule.r#match.url_pattern,
-                    request.url.as_str(),
+                    url,
                     rule.rule.r#match.match_type.as_deref(),
                 ),
             }
@@ -425,6 +468,92 @@ mod tests {
 
     // Shared stage vocabulary: blank, "both", and "either" all apply to both
     // stages; anything else must equal the current stage (case-insensitive).
+    fn script_rule(id: &str, priority: u32, source: &str) -> CompiledScriptRule {
+        aiproxy_rule_engine::compile_script_rule(aiproxy_rule_engine::ScriptRule {
+            id: id.to_string(),
+            workspace_id: "default".to_string(),
+            name: id.to_string(),
+            note: None,
+            enabled: true,
+            priority,
+            r#match: aiproxy_rule_engine::ScriptRuleMatch {
+                url_pattern: "api.example.com".to_string(),
+                methods: vec!["POST".to_string()],
+                stage: "either".to_string(),
+                match_type: None,
+            },
+            language: aiproxy_rule_engine::ScriptRuleLanguage::JavaScript,
+            source_type: aiproxy_rule_engine::ScriptRuleSourceType::Inline,
+            source_code: source.to_string(),
+            source_path: None,
+            entrypoints: aiproxy_rule_engine::ScriptEntrypoints {
+                on_request: false,
+                on_response: false,
+                decode_request: false,
+                decode_response: false,
+            },
+        })
+        .expect("script compiles")
+    }
+
+    fn rule_ids(rules: &[CompiledScriptRule]) -> Vec<&str> {
+        rules.iter().map(|rule| rule.rule.id.as_str()).collect()
+    }
+
+    #[test]
+    fn decode_only_script_rules_are_decoders_not_proxy_hooks() {
+        let manager = Arc::new(ScriptManager::new());
+        manager.set_rules(vec![
+            script_rule("hook", 10, "export function onRequest(ctx) {}"),
+            script_rule("decoder", 20, "export function decodeResponse(ctx) { return 1; }"),
+            script_rule(
+                "both",
+                5,
+                "export function onResponse(ctx) {}\nexport function decodeResponse(ctx) { return 1; }",
+            ),
+            {
+                // The stage setting picks which proxy hook runs; decode hooks
+                // already name their stage, so it must not hide them.
+                let mut rule = script_rule(
+                    "request-decoder",
+                    1,
+                    "export function decodeRequest(ctx) { return 1; }",
+                );
+                rule.rule.r#match.stage = "response".to_string();
+                rule
+            },
+        ]);
+        let url = "https://api.example.com/app/data";
+
+        let proxy_rules = matching_script_rules(&manager, "default", Some("request"), "POST", url)
+            .into_iter()
+            .filter(|rule| rule.rule.entrypoints.has_proxy_hook())
+            .collect::<Vec<_>>();
+        assert_eq!(rule_ids(&proxy_rules), ["hook", "both"]);
+
+        let decoders =
+            script_decoders_for(&manager, "default", ScriptTraceStage::Response, "post", url);
+        assert_eq!(rule_ids(&decoders), ["decoder", "both"]);
+        assert_eq!(
+            rule_ids(&script_decoders_for(
+                &manager,
+                "default",
+                ScriptTraceStage::Request,
+                "POST",
+                url
+            )),
+            ["request-decoder"]
+        );
+        assert!(
+            script_decoders_for(&manager, "default", ScriptTraceStage::Response, "GET", url)
+                .is_empty()
+        );
+        assert!(
+            script_decoders_for(&manager, "other", ScriptTraceStage::Response, "POST", url)
+                .is_empty()
+        );
+    }
+
     #[test]
     fn rule_stage_matches_accepts_blank_and_both_aliases() {
         for stage in ["", "  ", "both", "BOTH", "either", "Either"] {

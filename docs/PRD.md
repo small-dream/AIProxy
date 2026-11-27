@@ -134,7 +134,7 @@ AIProxy 是一款面向开发者、测试工程师与平台团队的跨平台代
 - HTTP/2 会话捕获与展示 — `M3 已实现`：TLS ALPN `h2` 协商后将 stream 映射为 Session，展示 pseudo headers 与 trailers，设置页提供开关可回退 HTTP/1.1
 - Protobuf body 解码与 gRPC-Web / Native gRPC 检查 — `M4 规划中`：descriptor set 导入、Raw / Hex / Decoded 视图、grpc-status / trailers 展示
 - Scenario Replay 场景回放 — `M5 规划中`：从选中 sessions 生成回放场景，支持环境变量、顺序执行、断言与失败定位
-- TypeScript 脚本化规则引擎（HTTP/HTTPS 请求与响应阶段，单文件脚本，严格沙箱，支持日志与数据提取）
+- TypeScript 脚本化规则引擎（HTTP/HTTPS 请求与响应阶段，单文件脚本，严格沙箱，支持日志与数据提取；`decodeRequest / decodeResponse` 解码 hook 在 Inspector 的「解码」标签中查看加密报文的完整明文）
 - API Collections 与环境变量（当前已实现集合、请求项、从 Session 保存、变量替换与批量执行）
 - 请求 / 响应 Diff 对比与 AI 总结（当前已实现发布硬化版：Compare 独立页面、Sessions 右键入口、OpenAI-compatible 模型配置、默认脱敏 AI payload、Body lazy diff、截断可见提示、body size guard 与 binary body 明确状态）
 - 规则模板共享

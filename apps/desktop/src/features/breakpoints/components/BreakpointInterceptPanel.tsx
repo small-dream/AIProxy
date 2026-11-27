@@ -44,6 +44,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { useStableKeyedRows } from "@/hooks/use-stable-keyed-rows";
 
 import { useI18n } from "@/i18n";
+import { reindentJsonText } from "@/lib/json-text";
 import { resolveBreakpoint } from "@/services/commands";
 import { getSyntaxColors } from "@/themes/app-theme";
 import { fontFamilies } from "@/themes/fonts";
@@ -144,7 +145,10 @@ function formatJsonText(text: string) {
   }
 
   try {
-    return { ok: true as const, text: JSON.stringify(JSON.parse(text), null, 2) };
+    JSON.parse(text);
+    // Re-indent the source: a parse/stringify round-trip would round 64-bit
+    // IDs in the body that gets forwarded.
+    return { ok: true as const, text: reindentJsonText(text, 2) };
   } catch (error) {
     return {
       ok: false as const,

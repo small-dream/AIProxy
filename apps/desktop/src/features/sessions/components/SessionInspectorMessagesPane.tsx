@@ -33,6 +33,7 @@ import {
 
 import { useI18n } from "@/i18n";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { reindentJsonText } from "@/lib/json-text";
 import { getWsConnectionStatus, injectWsMessage, listWsMessages } from "@/services/commands/ws";
 import { onWsConnectionStatus, onWsMessage } from "@/services/events";
 import { SearchableCodeBlock } from "./SessionInspectorShared";
@@ -159,10 +160,12 @@ function toHexString(text: string): string {
 
 function formatJson(text: string): string {
   try {
-    return JSON.stringify(JSON.parse(text), null, 2);
+    JSON.parse(text);
   } catch {
     return text;
   }
+  // Re-indent the source: a parse/stringify round-trip would round 64-bit IDs.
+  return reindentJsonText(text, 2);
 }
 
 export function SessionInspectorMessagesPane({ sessionId }: { sessionId: string }) {

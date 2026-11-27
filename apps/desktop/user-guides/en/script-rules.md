@@ -10,6 +10,7 @@ Use cases:
 - **Conditional filtering**: only take effect under specific conditions
 - **Dynamic mocking**: return a custom response directly without hitting the upstream
 - **Data extraction**: pull a token, ID, or status field out of a response and log it
+- **Decoded view**: turn an encrypted or encoded request / response into readable content and read it in full in the inspector's Decoded tab
 - **Debug logging**: add logging for specific requests to review script hits later
 
 ## Current capability boundaries
@@ -103,19 +104,22 @@ The script-rules page offers a few quick templates:
 - **Set Header**: add a header to a request
 - **Mock Response**: return a custom response conditionally
 - **Extract Data**: pull a field out of a response and log it
+- **Decoded View**: export `decodeResponse` to turn encrypted responses into JSON shown in the Decoded tab
 
 Start from a template, then refine the logic.
 
 ## Export convention
 
-A script may only export these two functions:
+A script may only export these functions:
 
 ```ts
 export function onRequest(ctx) {}
 export function onResponse(ctx) {}
+export function decodeRequest(ctx) {}
+export function decodeResponse(ctx) {}
 ```
 
-A rule can export just one, or both.
+A rule exports at least one of them, in any combination. `onRequest` / `onResponse` process live traffic on the proxy path; `decodeRequest` / `decodeResponse` only feed the Decoded tab (see Decoded view below).
 
 Not supported:
 
@@ -333,6 +337,31 @@ You'll see:
 - `ctx.log.*` output
 - Structured data from `ctx.extract(...)`
 
+Log data and extracted values longer than 8 lines start collapsed: click **Show all** to read the full value, or use the copy button in the top-right corner to copy the formatted text. JSON is pretty-printed automatically.
+
+A log payload or extracted value whose serialized form exceeds `8 KB` keeps only its first 8 KB, and the tab marks it as truncated with the original size.
+
+## Decoded view (decodeRequest / decodeResponse)
+
+When an API encrypts its requests or responses, export `decodeRequest` / `decodeResponse` and return the decoded content. Sessions that match the rule get a **Decoded** tab in the inspector's Request or Response area:
+
+```js
+export function decodeResponse(ctx) {
+  const body = ctx.response.getJson();
+  if (typeof body?.result !== "string") return;
+  return JSON.parse(decrypt(body.result));
+}
+```
+
+- An object or array is shown as JSON, with Tree and Text views, search, copy, and Copy Path; a string is shown as text, or as JSON when the string holds a JSON document
+- Returning `undefined` or `null` means the message has nothing to decode
+- The hook runs only when you open the Decoded tab, never while capturing, and never changes traffic; changes to `ctx.request` / `ctx.response` and `ctx.respond()` are ignored
+- It works on past sessions too; saving or toggling a script rule re-decodes open results automatically, and the refresh button decodes again on demand
+- `ctx.log.*` output is available under **Logs** in the Decoded tab
+- Matching uses the rule's URL and method conditions; the stage setting only decides whether `onRequest` / `onResponse` run and does not affect decode hooks. When several rules match, the first one by priority that returns a value wins
+
+Unlike `ctx.extract`, the Decoded view has no 8 KB per-value cap, so it can show the full decrypted payload. Imported session files do not support the Decoded view.
+
 ## Failure handling
 
 Script rules default to a **fail-open** policy.
@@ -357,6 +386,7 @@ To keep the proxy stable, scripts are bounded:
 - Max serialization size per log entry or extract value: `8 KB`
 - Per-run memory cap: `16 MB` — exceeding it fails that hook, fail-open
 - Up to 64 hooks run concurrently; excess runs wait for a free slot and are skipped when one doesn't free up in time
+- Decode hooks (`decodeRequest` / `decodeResponse`) never run on the proxy path and have their own limits: `5 s` timeout, `128 MB` memory, and up to `8 MB` of returned content shown (the rest is cut and flagged)
 
 Recommendations:
 

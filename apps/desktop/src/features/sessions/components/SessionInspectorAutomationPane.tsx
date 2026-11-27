@@ -30,6 +30,7 @@ import {
   listThrottleSessionTrace,
 } from "@/services/commands";
 import { fontFamilies } from "@/themes/fonts";
+import { TracePayloadBlock } from "./TracePayloadBlock";
 
 function outcomeColor(outcome: string): "default" | "error" | "info" | "success" | "warning" {
   if (outcome === "success") return "success";
@@ -204,22 +205,25 @@ function DiffValue({ label, value }: { label: string; value: string | undefined 
       >
         {label}
       </Typography>
-      <Typography
-        component="pre"
-        sx={{
-          bgcolor: "action.hover",
-          borderRadius: "6px",
-          fontFamily: fontFamilies.mono,
-          fontSize: 12,
-          m: 0,
-          minHeight: 34,
-          overflowX: "auto",
-          p: 1,
-          whiteSpace: "pre-wrap",
-        }}
-      >
-        {value ?? t("automationTab.emptyValue")}
-      </Typography>
+      {value === undefined ? (
+        <Typography
+          component="pre"
+          sx={{
+            bgcolor: "action.hover",
+            borderRadius: "6px",
+            color: "text.secondary",
+            fontFamily: fontFamilies.mono,
+            fontSize: 12,
+            m: 0,
+            minHeight: 34,
+            p: 1,
+          }}
+        >
+          {t("automationTab.emptyValue")}
+        </Typography>
+      ) : (
+        <TracePayloadBlock raw value={value} />
+      )}
     </Stack>
   );
 }
@@ -249,9 +253,27 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
             }}
           >
             <CodeRoundedIcon sx={{ fontSize: 18, color: "text.secondary" }} />
-            <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
-              {trace.ruleId}
-            </Typography>
+            <Box
+              sx={{
+                minWidth: 0,
+              }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                {trace.ruleName || trace.ruleId}
+              </Typography>
+              {trace.ruleName ? (
+                <Typography
+                  variant="caption"
+                  noWrap
+                  sx={{
+                    color: "text.secondary",
+                    display: "block",
+                  }}
+                >
+                  {trace.ruleId}
+                </Typography>
+              ) : null}
+            </Box>
           </Stack>
           <Stack
             direction="row"
@@ -290,21 +312,10 @@ function ScriptTraceCard({ trace, index }: { index: number; trace: ScriptSession
               </Typography>
               {entry.message && <Typography variant="body2">{entry.message}</Typography>}
               {entry.payloadJson && (
-                <Typography
-                  component="pre"
-                  sx={{
-                    borderRadius: "6px",
-                    bgcolor: "action.hover",
-                    fontFamily: fontFamilies.mono,
-                    fontSize: 12,
-                    m: 0,
-                    overflowX: "auto",
-                    p: 1,
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {entry.payloadJson}
-                </Typography>
+                <TracePayloadBlock
+                  originalBytes={entry.payloadOriginalBytes}
+                  value={entry.payloadJson}
+                />
               )}
             </Stack>
           ))}

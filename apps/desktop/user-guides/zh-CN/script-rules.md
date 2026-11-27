@@ -10,6 +10,7 @@
 - **条件过滤**：只在满足特定条件时生效
 - **动态模拟**：按条件直接返回自定义响应，不访问上游服务
 - **数据提取**：从响应中提取令牌、ID、状态字段并记录下来
+- **解码查看**：把加密或编码过的请求 / 响应解成可读内容，在检查器的「解码」标签中查看完整结果
 - **调试日志**：为特定请求打点，方便回看脚本命中情况
 
 ## 当前版本能力边界
@@ -103,19 +104,22 @@
 - **Set 消息头**：给请求加消息头
 - **模拟响应**：按条件返回自定义响应
 - **Extract Data**：从响应中提取字段并记录日志
+- **解码视图**：导出 `decodeResponse`，把加密响应解成 JSON 后在「解码」标签查看
 
 建议先从模板开始，再逐步调整逻辑。
 
 ## 脚本导出约定
 
-脚本只支持导出以下两个函数：
+脚本只支持导出以下函数：
 
 ```ts
 export function onRequest(ctx) {}
 export function onResponse(ctx) {}
+export function decodeRequest(ctx) {}
+export function decodeResponse(ctx) {}
 ```
 
-规则可以只导出其中一个，也可以两个都导出。
+规则至少导出其中一个，可以任意组合。`onRequest` / `onResponse` 在代理链路上处理实时流量；`decodeRequest` / `decodeResponse` 只用于「解码」标签，见下文的解码视图。
 
 不支持：
 
@@ -333,6 +337,31 @@ export function onResponse(ctx) {
 - `ctx.log.*` 输出的日志
 - `ctx.extract(...)` 提取出的结构化数据
 
+超过 8 行的日志数据或提取值默认折叠，点击 **展开全部** 查看完整内容，点击右上角的复制按钮复制格式化后的文本。JSON 会自动格式化。
+
+单条日志数据或提取值序列化后超过 `8 KB` 时只保留前 8 KB，值下方会提示「已截断」和原始大小。
+
+## 解码视图（decodeRequest / decodeResponse）
+
+接口的请求或响应被加密时，可以导出 `decodeRequest` / `decodeResponse`，返回解码后的内容。命中规则的会话会在检查器的请求区或响应区多出一个 **解码** 标签：
+
+```js
+export function decodeResponse(ctx) {
+  const body = ctx.response.getJson();
+  if (typeof body?.result !== "string") return;
+  return JSON.parse(decrypt(body.result));
+}
+```
+
+- 返回对象或数组时按 JSON 显示，可以在树形和文本视图之间切换，支持搜索、复制和右键复制路径；返回字符串时按文本显示，字符串本身是 JSON 时同样按 JSON 显示
+- 返回 `undefined` 或 `null` 表示这条消息不需要解码
+- 只在打开「解码」标签时执行，不在抓包时执行，也不改动任何流量；对 `ctx.request` / `ctx.response` 的修改和 `ctx.respond()` 都会被忽略
+- 对历史会话同样有效；保存或启停脚本规则后，已打开的解码结果会自动重新计算，也可以点刷新按钮重新解码
+- `ctx.log.*` 的输出可以在「解码」标签中点 **日志** 查看
+- 按规则的 URL 和方法条件匹配；阶段设置只决定 `onRequest` / `onResponse` 是否运行，不影响解码 hook。多条规则匹配时，按优先级取第一条返回了结果的规则
+
+与 `ctx.extract` 相比，解码视图没有 8 KB 的单值上限，适合查看完整的解密报文。导入的会话文件不支持解码视图。
+
 ## 失败处理机制
 
 脚本规则默认采用 **fail-open** 策略。
@@ -357,6 +386,7 @@ export function onResponse(ctx) {
 - 单条日志或提取值序列化上限：`8 KB`
 - 单次运行内存上限：`16 MB`——超出后该次 hook 失败（fail-open）
 - 最多 64 个 hook 并发执行；超出的运行等待空闲槽位，未及时等到则跳过（fail-open）
+- 解码 hook（`decodeRequest` / `decodeResponse`）不在代理链路上运行，限制单独计算：超时 `5 s`，内存 `128 MB`，返回内容最多显示 `8 MB`，超出部分截断并提示
 
 建议：
 
