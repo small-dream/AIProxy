@@ -1,7 +1,7 @@
 ---
 name: aiproxy
 description: Analyze captured HTTP/WebSocket traffic and, when the user grants control permission, configure and operate AIProxy through MCP. Use when the user mentions AIProxy, packet capture, proxy traffic, a failing request, latency regression, header/cookie or body differences, Timing, WebSocket messages, AB experiment cohorts, asks for evidence by sessionId, or asks to set up or control local capture. 当用户提到 AIProxy、抓包、网络请求、接口调试、Timing、WebSocket、AB 实验分组、需要以 sessionId 为证据，或要求配置、启动、停止 AIProxy 抓包时使用。
-version: 3.6
+version: 3.8
 mcpSchemaMin: 3.3
 ---
 
@@ -9,7 +9,7 @@ mcpSchemaMin: 3.3
 
 # AIProxy traffic analysis and control
 
-You read persisted AIProxy captures through the `aiproxy-mcp` server and can diagnose AIProxy-side failures from bounded, redacted status and log evidence. Read access is redacted by default. When the user grants the matching control permissions, you can also configure the workspace, manage the root certificate, control capture and the system proxy, delete sessions, replay one captured HTTP request directly to its original host, create short-lived Agent rules, and run bounded Rewrite / Map Local automation experiments with explicit evidence. AIProxy never uploads captures, but anything you read is sent to the model provider serving this conversation: request only the smallest scope the task needs and respect the permissions the user configured. The MCP tool contract version is `3.3`; this Skill version is `3.6`.
+You read persisted AIProxy captures through the `aiproxy-mcp` server and can diagnose AIProxy-side failures from bounded, redacted status and log evidence. Read access is redacted by default. When the user grants the matching control permissions, you can also configure the workspace, manage the root certificate, control capture and the system proxy, delete sessions, replay one captured HTTP request directly to its original host, create short-lived Agent rules, and run bounded Rewrite / Map Local automation experiments with explicit evidence. AIProxy never uploads captures, but anything you read is sent to the model provider serving this conversation: request only the smallest scope the task needs and respect the permissions the user configured. The MCP tool contract version is `3.3`; this Skill version is `3.8`.
 
 ## Security boundaries
 
@@ -98,6 +98,9 @@ All automation tools require `manageAutomation`. Applying or changing user-owned
 - `list_automation_resources`: list Rewrite and Map summaries with scope, owner, lifecycle, expiry, change ID, and resource version. Use it before planning to detect ownership and conflicts.
 - `get_automation_resource`: fetch one resource by `kind` and `id`, including its current `version`. Use this exact version in updates and deletes.
 - `validate_automation_plan`: validate a plan without writing. It returns `planHash`, `scopeHash`, warnings, ownership, resource versions, and conflict context. First release accepts Rewrite and Map Local upserts plus deletion of persistent resources; ephemeral plans are create-only. The same resource cannot be updated twice, deleted twice, or appear in both upsert and delete. Persistent plans cannot update a resource still owned by an ephemeral change. Redirect targets must use the exact matched host. New resources default to disabled unless `enabled=true` is explicit.
+- `create_session_json_rewrite`: resolve a single existing JSON response field from a captured session and preflight the current proxy protocol. Use `target.key` or `target.jsonPath`, pass a JSON scalar value, and resolve any `needs_input` candidates. Default mode is `preview`; `create` needs an `idempotencyKey` and publishes a temporary rule in the active workspace only. Requires `readBodies` and `manageAutomation`. If blocked by HTTP/2, report the saved and running settings and evidence session; apply workspace configuration only within the user's authorized scope. `active` confirms publication, with real-client verification pending.
+- `extend_session_json_rewrite`: extend a session JSON rewrite by `additionalSeconds` using its `ruleId` and a retry-safe `idempotencyKey`. Active rules extend from the previous expiry; an expired rule reactivates after fresh preflight. Requires `manageAutomation`; report the returned `expiresAt`.
+- `wait_for_session_json_rewrite`: wait for one completed matching real-client session by `changeId` and verify its response field and rewrite trace. Use `afterWatermark` to continue after earlier evidence. Reports `verified`, `skipped`, `mismatch`, `timed_out`, or `expired`. Requires `readSessions`, `readBodies`, and `manageAutomation`. A skipped trace is not proof of a rewrite, even if the response already has the expected value.
 - `apply_automation_plan`: apply the already validated plan using exactly `expectedPlanHash` and `expectedScopeHash`. Reuse the same `idempotencyKey` when retrying a lost response. Success means the change set is `active` and the unified Rewrite+Map runtime snapshot was published.
 - `verify_automation_change`: record assertions and evidence without changing the rule. The result includes `evidenceLevel`, per-request `status`, `matchedRuleIds`, `ruleTraceRefs`, evidence session IDs, conflict diagnostics, limitations, and `runtimeGeneration`. Assertion results include `subject` and `path`, and sensitive `actual`/`expected` values are redacted using that source context.
 - `get_automation_change`: read the change set, experiment, all verification records, cleanup state, and runtime generation. Use it as the final evidence index and before rollback or cleanup.
@@ -119,7 +122,8 @@ If `VALIDATE` or `APPLY` returns `RESOURCE_VERSION_MISMATCH`, `SCOPE_CONFLICT`, 
 ## Replay and automation closed loop
 
 - Use `replay_session` to repeat a known request safely against the same host, for example to reproduce a payload or compare a non-rule-dependent response.
-- For a new automation experiment, use this exact order: `list_automation_resources` / `get_automation_resource` → `validate_automation_plan` → `apply_automation_plan` → `verify_automation_change` (`offline`, `proxy`, or `external`) → `get_automation_change` → rollback or clear when requested.
+- For a temporary JSON rewrite based on a known capture, prefer `create_session_json_rewrite`. Pass the returned `changeId` to `wait_for_session_json_rewrite` while the real client triggers the request. Use the rule ID to extend the TTL if the user requests more time.
+- For other new automation experiments, use this exact order: `list_automation_resources` / `get_automation_resource` → `validate_automation_plan` → `apply_automation_plan` → `verify_automation_change` (`offline`, `proxy`, or `external`) → `get_automation_change` → rollback or clear when requested.
 - Start with `offline` to catch matching and assertion mistakes cheaply. Use `proxy` only when the user approved proxied verification and the prerequisites are satisfied. Use `external` when a real client can reproduce the request; wait for a session after `activated_at`, not an older baseline.
 - For Map Local, distinguish "rule did not match" from "mock content failed an assertion" by reading `matchedRuleIds`, `conflict`, response status, and the returned final URL before asserting field values.
 - Do not use `replay_session` to verify user or Agent rules. It bypasses the listener and all rules. Ask the user or their test tool to resend through the proxy, then use `wait_for_sessions` and `external` verification.

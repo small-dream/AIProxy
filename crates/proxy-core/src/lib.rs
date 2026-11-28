@@ -47,6 +47,9 @@ const MAX_CAPTURED_BODY_BYTES: usize = 20 * 1024 * 1024;
 /// are still correct, just possibly ordered differently.
 const UDP_ROUTE_PROBE_ADDRESS: &str = "8.8.8.8:80";
 
+/// Internal marker for controlled proxy verification requests.
+pub const AUTOMATION_VERIFICATION_HEADER: &str = "x-aiproxy-automation-verification";
+
 mod breakpoints;
 mod connect;
 mod connection;
@@ -87,11 +90,12 @@ pub use breakpoints::{
 pub use context::{ProxyConfig, ProxyManagers};
 pub use error::ProxyError;
 pub use rules::{
-    evaluate_offline, paired_rule_managers, set_json_path_from_str, DnsManager, DnsMappingRule,
-    MapManager, MapRule, MapTrace, OfflineEvaluationInput, OfflineEvaluationResult, OfflineHeader,
-    OfflineRequestInput, OfflineResponseInput, RewriteManager, RewriteRule, RewriteRuleMatch,
-    RewriteTrace, RewriteTraceEntry, ThrottleManager, ThrottleProfileData, ThrottleRuleData,
-    ThrottleRuntimeStats, ThrottleTrace,
+    evaluate_offline, paired_rule_managers, read_json_field, session_rewrite_url_matches,
+    set_json_path_from_str, supports_response_body_rewrite, validate_json_field_path, DnsManager,
+    DnsMappingRule, MapManager, MapRule, MapTrace, OfflineEvaluationInput, OfflineEvaluationResult,
+    OfflineHeader, OfflineRequestInput, OfflineResponseInput, RewriteManager, RewriteRule,
+    RewriteRuleMatch, RewriteTrace, RewriteTraceEntry, ThrottleManager, ThrottleProfileData,
+    ThrottleRuleData, ThrottleRuntimeStats, ThrottleTrace, SESSION_REWRITE_MATCH_TYPE,
 };
 pub use server::{send_direct_request, send_direct_request_bytes, start_proxy_server};
 pub use ssl_proxying::{SslProxyEntry, SslProxyingConfig, SslProxyingSettings};

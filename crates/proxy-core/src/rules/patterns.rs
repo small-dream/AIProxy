@@ -1,4 +1,23 @@
 use regex::Regex;
+use url::Url;
+
+pub const SESSION_REWRITE_MATCH_TYPE: &str = "sessionUrl";
+
+/// Exact origin and path with an order-independent subset of query parameters.
+pub fn session_rewrite_url_matches(expected: &Url, actual: &Url) -> bool {
+    expected.scheme() == actual.scheme()
+        && expected.host().is_some()
+        && expected.host() == actual.host()
+        && expected.port_or_known_default() == actual.port_or_known_default()
+        && expected.path() == actual.path()
+        && expected.query_pairs().all(|(key, value)| {
+            let mut matches = actual.query_pairs().filter(|(name, _)| *name == key);
+            matches
+                .next()
+                .is_some_and(|(_, candidate)| candidate == value)
+                && matches.next().is_none()
+        })
+}
 
 pub(crate) fn pattern_matches(pattern: &str, candidate: &str, match_type: Option<&str>) -> bool {
     let normalized = pattern.trim();
@@ -161,6 +180,26 @@ pub(crate) fn contains_matches(normalized: &str, candidate: &str) -> bool {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn session_rewrite_matches_exact_origin_path_and_single_query_values() {
+        let expected = Url::parse("https://api.example.test:8443/api/?_method=drawer").unwrap();
+        let matches = |url| session_rewrite_url_matches(&expected, &Url::parse(url).unwrap());
+
+        assert!(matches(
+            "https://api.example.test:8443/api/?timestamp=123&_method=drawer"
+        ));
+        for other in [
+            "http://api.example.test:8443/api/?_method=drawer",
+            "https://alt.api.example.test:8443/api/?_method=drawer",
+            "https://api.example.test/api/?_method=drawer",
+            "https://api.example.test:8443/api?_method=drawer",
+            "https://api.example.test:8443/api/?_method=app.launch",
+            "https://api.example.test:8443/api/?_method=drawer&_method=app.launch",
+        ] {
+            assert!(!matches(other), "{other}");
+        }
+    }
 
     // P1-7 regression: first-occurrence alignment must not steal positions a
     // later segment needs.

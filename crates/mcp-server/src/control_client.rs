@@ -416,6 +416,10 @@ fn operation_scope(operation: &ControlOperation) -> AgentGrantScope {
                 ..AgentGrantScope::default()
             }
         }
+        ControlOperation::CreateSessionJsonRewrite(params) => AgentGrantScope {
+            session_ids: vec![params.session_id.clone()],
+            ..AgentGrantScope::default()
+        },
         ControlOperation::ApplyAutomationPlan(params) => AgentGrantScope {
             workspace_id: params.plan.workspace_id.clone(),
             ..AgentGrantScope::default()
@@ -503,6 +507,18 @@ fn replay_scope_with_target(
 }
 
 fn operation_resource_policy(operation: &ControlOperation) -> Option<AgentGrantResourcePolicy> {
+    let temporary_lifetime = match operation {
+        ControlOperation::CreateSessionJsonRewrite(params) => Some(params.ttl_seconds),
+        ControlOperation::ExtendSessionJsonRewrite(params) => Some(params.additional_seconds),
+        _ => None,
+    };
+    if let Some(ttl_seconds) = temporary_lifetime {
+        return Some(AgentGrantResourcePolicy {
+            lifecycle: AutomationResourceLifecycle::Ephemeral,
+            ttl_seconds: Some(ttl_seconds),
+            cleanup: AgentGrantCleanupPolicy::AgentOwnedOnly,
+        });
+    }
     let plan = match operation {
         ControlOperation::ApplyAutomationPlan(params) => Some(&params.plan),
         ControlOperation::ValidateAutomationPlan(params) => Some(&params.plan),
@@ -643,7 +659,7 @@ pub async fn try_control(
         Err(_) => {
             return Err(ToolError::new(
                 "CONTROL_UNAVAILABLE",
-                "AIProxy is not running, so its local control channel is unavailable.",
+                "AIProxy's local Agent control channel is unavailable.",
             ))
         }
     };

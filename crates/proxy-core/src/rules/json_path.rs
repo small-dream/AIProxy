@@ -46,6 +46,30 @@ pub(crate) fn parse_json_field_path(path: &str) -> Result<Vec<JsonPathSegment>, 
                     segments.push(JsonPathSegment::Key(std::mem::take(&mut key)));
                 }
                 index += 1;
+                if let Some(quote @ ('\'' | '"')) = chars.get(index).copied() {
+                    index += 1;
+                    let mut property = String::new();
+                    while let Some(character) = chars.get(index).copied() {
+                        index += 1;
+                        if character == quote {
+                            break;
+                        }
+                        if character == '\\' {
+                            property.push(*chars.get(index).ok_or_else(|| {
+                                "body field path contains an invalid escape".to_string()
+                            })?);
+                            index += 1;
+                        } else {
+                            property.push(character);
+                        }
+                    }
+                    if chars.get(index) != Some(&']') {
+                        return Err("body field path contains an invalid quoted property".into());
+                    }
+                    segments.push(JsonPathSegment::Key(property));
+                    index += 1;
+                    continue;
+                }
                 let start = index;
                 while index < chars.len() && chars[index] != ']' {
                     index += 1;
@@ -82,6 +106,19 @@ pub(crate) fn parse_json_field_path(path: &str) -> Result<Vec<JsonPathSegment>, 
     }
 
     Ok(segments)
+}
+
+pub fn validate_json_field_path(path: &str) -> Result<(), String> {
+    parse_json_field_path(path).map(|_| ())
+}
+
+/// Look up the same single-field path used by Rewrite.
+pub fn read_json_field<'a>(
+    root: &'a serde_json::Value,
+    path: &str,
+) -> Option<&'a serde_json::Value> {
+    let segments = parse_json_field_path(path).ok()?;
+    get_json_path_value(root, &segments)
 }
 
 pub(crate) fn json_value_preview(value: &serde_json::Value) -> Option<String> {

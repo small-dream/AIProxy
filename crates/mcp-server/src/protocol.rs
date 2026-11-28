@@ -43,6 +43,7 @@ pub struct ToolMeta {
     pub redacted: bool,
     pub next_cursor: Option<String>,
     pub audit_degraded: bool,
+    pub(crate) audit_recorded_remotely: Option<bool>,
     pub latest_session_at: Option<String>,
     pub capture_status: Option<&'static str>,
     pub capture_updated_at: Option<String>,

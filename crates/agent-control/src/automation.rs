@@ -211,6 +211,47 @@ pub struct ApplyAutomationPlanParams {
     pub expected_scope_hash: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionJsonRewriteMode {
+    /// Resolve and preflight the rule without writing.
+    #[default]
+    Preview,
+    /// Publish a temporary rule if preflight succeeds.
+    Create,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateSessionJsonRewriteParams {
+    pub mode: SessionJsonRewriteMode,
+    pub session_id: String,
+    pub json_path: String,
+    pub value: Value,
+    pub match_query_keys: Option<Vec<String>>,
+    pub ttl_seconds: u64,
+    pub idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExtendSessionJsonRewriteParams {
+    /// ID returned by create_session_json_rewrite.
+    pub rule_id: String,
+    /// Additional lifetime in seconds, from 60 to 3600.
+    pub additional_seconds: u64,
+    /// A stable key, 16–128 bytes. Reuse on retry.
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WaitForSessionJsonRewriteParams {
+    pub change_id: String,
+    pub after_rowid: Option<i64>,
+    pub timeout_ms: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ListAutomationResourcesParams {

@@ -1370,7 +1370,7 @@ fn extract_fields_from_reference(
     Ok((extraction.values, extraction.truncated))
 }
 
-fn load_required_body_reference<'a>(
+pub(crate) fn load_required_body_reference<'a>(
     state: &'a AppContext,
     session_id: &'a str,
     part: BodyPart,
@@ -1830,7 +1830,7 @@ fn bounded_json_value(value: &Value) -> (Value, bool) {
     )
 }
 
-fn json_type_name(value: &Value) -> &'static str {
+pub(crate) fn json_type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
         Value::Bool(_) => "boolean",
@@ -1846,9 +1846,10 @@ pub(crate) fn render_json_path(segments: &[JsonPathSegment]) -> String {
     for segment in segments {
         match segment {
             JsonPathSegment::Key(key)
-                if key.chars().all(|character| {
-                    character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
-                }) =>
+                if !key.is_empty()
+                    && key.chars().all(|character| {
+                        character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+                    }) =>
             {
                 path.push('.');
                 path.push_str(key);
@@ -1891,7 +1892,7 @@ fn body_truncation_reasons(
     reasons
 }
 
-fn require_session_details(state: &AppContext) -> Result<(), ToolError> {
+pub(crate) fn require_session_details(state: &AppContext) -> Result<(), ToolError> {
     if state
         .capabilities()
         .is_some_and(|capabilities| capabilities.session_details)

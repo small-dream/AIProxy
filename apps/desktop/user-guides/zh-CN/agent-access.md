@@ -188,7 +188,17 @@ Agent 规则达到上限时返回 `RULE_LIMIT_EXCEEDED`；从规则页尝试修�
 - 改写重定向只能指向规则匹配主机上的 HTTP/S URL。跨主机重定向返回 `FEATURE_NOT_AVAILABLE`；即使开启“映射到其他主机”也不能绕过。
 - 首版 `Map Remote`、DNS、脚本、弱网预设 / 规则、断点、弱网 activation、global scope、跨主机重定向和跨主机映射写入均返回 `FEATURE_NOT_AVAILABLE`。
 
-推荐由 Agent 按以下顺序完成任务：
+#### 从抓包创建临时 JSON 改写
+
+有包含目标字段的抓包时，可以让 Agent 使用 `create_session_json_rewrite`。例如，指定会话 ID、字段 `hide_user_name` 和数字 `1`。这个工具需要 **读取响应体**（`readBodies`）和 **管理自动化**（`manageAutomation`）权限。默认只预览，创建时指定 `mode=create` 并提供重试可复用的 `idempotencyKey`。规则默认生效 10 分钟。
+
+匹配范围来自抓包请求，包含主机、端口、路径、HTTP 方法及可识别的路由参数。字段同名或匹配范围有歧义时，Agent 会收到候选路径或待选参数。若当前匹配流量走 HTTP/2，工具会提示响应体改写会被跳过，并报告工作区保存值和运行值。需要切换时，在工作区设置中关闭 HTTP/2 并重新启动抓包，再申请创建。
+
+`active` 表示规则已加载。让 Agent 使用 `wait_for_session_json_rewrite`，传入本次创建返回的 `changeId`，然后在真实客户端重新打开对应页面。工具要求读取会话、读取响应体和管理自动化权限。它会在最多 30 秒内检查目标规则追踪和响应字段，返回已验证、跳过、值或追踪不符、超时或规则过期。证据记录可通过 `get_automation_change` 查看。要继续检查后续请求，可以传回验证结果中的 `watermark`。
+
+需要继续调试时，使用 `extend_session_json_rewrite`，传入 `ruleId`、增加的秒数和重试时复用的 `idempotencyKey`。工具要求管理自动化权限。有效规则从原到期时间向后延长，剩余有效期最多一小时。到期的规则重新通过预检后，从新的激活时间计时，并继续使用原规则 ID。
+
+其他自动化计划按以下顺序执行：
 
 1. `list_automation_resources` / `get_automation_resource` 读取资源、所有权与当前版本。
 2. `validate_automation_plan` 生成 `planHash`、`scopeHash`、冲突摘要与 warning，不写库、不改运行时。

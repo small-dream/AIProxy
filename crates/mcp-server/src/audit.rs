@@ -111,6 +111,9 @@ pub fn is_agent_control_tool(tool: &str) -> bool {
             // Read-only automation tools (list/get/validate/get change) stay
             // audited here so they are not lost when no desktop write occurs.
             | "apply_automation_plan"
+            | "create_session_json_rewrite"
+            | "extend_session_json_rewrite"
+            | "wait_for_session_json_rewrite"
             | "verify_automation_change"
             | "rollback_automation_change"
             | "clear_agent_automation"

@@ -5,9 +5,9 @@ use std::sync::mpsc;
 
 use aiproxy_agent_control::{
     AgentCapability, AgentGrantRequestPolicy, ApplyAutomationPlanParams, AutomationPlan,
-    ClearAgentAutomationParams, GetAutomationChangeParams, GetAutomationResourceParams,
-    ListAutomationResourcesParams, RollbackAutomationChangeParams, ValidateAutomationPlanParams,
-    VerifyAutomationChangeParams,
+    ClearAgentAutomationParams, ExtendSessionJsonRewriteParams, GetAutomationChangeParams,
+    GetAutomationResourceParams, ListAutomationResourcesParams, RollbackAutomationChangeParams,
+    ValidateAutomationPlanParams, VerifyAutomationChangeParams,
 };
 use aiproxy_db::sessions::{
     insert_ws_message, upsert_session, SessionDetailRow, SessionSummaryRow, WsMessageRow,
@@ -37,6 +37,10 @@ use aiproxy_mcp::tools::compare::{
 };
 use aiproxy_mcp::tools::diagnostics::{diagnose_issue, DiagnoseIssueRequest};
 use aiproxy_mcp::tools::insights::{get_insights, GetInsightsRequest, GroupBy};
+use aiproxy_mcp::tools::session_json_rewrite::{
+    create_session_json_rewrite, extend_session_json_rewrite, wait_for_session_json_rewrite,
+    CreateSessionJsonRewriteRequest, WaitForSessionJsonRewriteRequest,
+};
 use aiproxy_mcp::tools::sessions::{
     get_session, search, wait_for_sessions, GetSessionRequest, RedactionMode,
     SearchSessionsRequest, SessionInclude, WaitForSessionsRequest,
@@ -1707,6 +1711,9 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
         "get_automation_resource",
         "validate_automation_plan",
         "apply_automation_plan",
+        "create_session_json_rewrite",
+        "extend_session_json_rewrite",
+        "wait_for_session_json_rewrite",
         "verify_automation_change",
         "get_automation_change",
         "rollback_automation_change",
@@ -1757,6 +1764,9 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
                 );
             }
             "apply_automation_plan"
+            | "create_session_json_rewrite"
+            | "extend_session_json_rewrite"
+            | "wait_for_session_json_rewrite"
             | "verify_automation_change"
             | "rollback_automation_change"
             | "clear_agent_automation" => {
@@ -1886,4 +1896,176 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     let _ = child.kill();
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(directory);
+}
+
+#[tokio::test]
+async fn session_json_rewrite_returns_candidate_paths_without_control_access() {
+    let (directory, context) = create_fixture("session_rewrite_candidates");
+    let mut config = context.config().unwrap();
+    config.permissions.manage_automation = true;
+    write_config(&context.paths.config_path, &config).unwrap();
+    insert_inline_body_session(
+        &directory,
+        "mock-drawer-response",
+        r#"{"first":{"hide_user_name":0},"other":[{"hide_user_name":1}]}"#,
+        "application/json",
+    );
+    let params = serde_json::from_value::<CreateSessionJsonRewriteRequest>(json!({
+        "mode": "create", "sessionId": "mock-drawer",
+        "target": { "key": "hide_user_name" }, "value": 1,
+        "idempotencyKey": "mock-drawer-candidates-0001"
+    }))
+    .unwrap();
+
+    let (data, _) = create_session_json_rewrite(&context, params, TEST_CALLER)
+        .await
+        .unwrap();
+
+    assert_eq!(data["status"], "needs_input");
+    assert_eq!(data["code"], "JSON_FIELD_AMBIGUOUS");
+    assert_eq!(
+        data["candidates"],
+        json!([
+            { "jsonPath": "$.first.hide_user_name", "valueType": "number", "value": 0 },
+            { "jsonPath": "$.other[0].hide_user_name", "valueType": "number", "value": 1 }
+        ])
+    );
+}
+
+#[tokio::test]
+async fn session_json_rewrite_reports_app_and_control_channel_independently() {
+    let (directory, context) = create_fixture("session_rewrite_unavailable");
+    let mut config = context.config().unwrap();
+    config.permissions.manage_automation = true;
+    write_config(&context.paths.config_path, &config).unwrap();
+    std::fs::write(
+        directory.join("agent-status.json"),
+        json!({"appRunning": true, "capturing": true, "updatedAt": chrono::Utc::now().to_rfc3339()}).to_string(),
+    ).unwrap();
+    insert_inline_body_session(
+        &directory,
+        "mock-drawer-response",
+        r#"{"mydeals_bc_v3":{"mydeals_theme_info":{"hide_user_name":0}}}"#,
+        "application/json",
+    );
+    let params = serde_json::from_value::<CreateSessionJsonRewriteRequest>(json!({
+        "sessionId": "mock-drawer", "target": { "key": "hide_user_name" }, "value": 1
+    }))
+    .unwrap();
+
+    let (data, _) = create_session_json_rewrite(&context, params, TEST_CALLER)
+        .await
+        .unwrap();
+
+    assert_eq!(data["status"], "blocked");
+    assert_eq!(data["preflight"]["appRunning"], true);
+    assert_eq!(data["preflight"]["controlAvailable"], false);
+    assert_eq!(
+        data["jsonPath"],
+        "$.mydeals_bc_v3.mydeals_theme_info.hide_user_name"
+    );
+    assert_eq!(data["baseline"]["value"], 0);
+}
+
+#[tokio::test]
+async fn session_json_rewrite_rejects_sensitive_query_discriminators() {
+    let (_, context) = create_fixture("session_rewrite_query_redaction");
+    let mut config = context.config().unwrap();
+    config.permissions.manage_automation = true;
+    write_config(&context.paths.config_path, &config).unwrap();
+    let params = serde_json::from_value::<CreateSessionJsonRewriteRequest>(json!({
+        "sessionId": "left", "target": { "key": "message" }, "value": "test",
+        "matchQueryKeys": ["token"]
+    }))
+    .unwrap();
+
+    let error = create_session_json_rewrite(&context, params, TEST_CALLER)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.code, "PERMISSION_DENIED");
+}
+
+#[tokio::test]
+async fn session_json_rewrite_explicit_path_selects_only_one_candidate() {
+    let (directory, context) = create_fixture("session_rewrite_explicit");
+    let mut config = context.config().unwrap();
+    config.permissions.manage_automation = true;
+    write_config(&context.paths.config_path, &config).unwrap();
+    insert_inline_body_session(
+        &directory,
+        "mock-drawer-response",
+        r#"{"first":{"hide_user_name":0},"other":[{"hide_user_name":1}]}"#,
+        "application/json",
+    );
+    let params = serde_json::from_value::<CreateSessionJsonRewriteRequest>(json!({
+        "sessionId": "mock-drawer",
+        "target": { "jsonPath": "$['other'][0].hide_user_name" }, "value": 0
+    }))
+    .unwrap();
+
+    let (data, _) = create_session_json_rewrite(&context, params, TEST_CALLER)
+        .await
+        .unwrap();
+
+    assert_eq!(data["status"], "blocked");
+    assert_eq!(data["preflight"]["code"], "CONTROL_UNAVAILABLE");
+    assert_eq!(data["jsonPath"], "$.other[0].hide_user_name");
+    assert_eq!(data["baseline"]["value"], 1);
+}
+
+#[tokio::test]
+async fn resume_automation_tools_enforce_control_and_body_permissions() {
+    let (_, context) = create_fixture("rewrite_lifecycle_permission");
+    let mut config = context.config().unwrap();
+    for policy in config.grant_request_policy.values_mut() {
+        *policy = AgentGrantRequestPolicy::Deny;
+    }
+    write_config(&context.paths.config_path, &config).unwrap();
+
+    let error = extend_session_json_rewrite(
+        &context,
+        ExtendSessionJsonRewriteParams {
+            rule_id: "rule-1".into(),
+            additional_seconds: 600,
+            idempotency_key: "lifecycle-permissions-1".into(),
+        },
+        TEST_CALLER,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "CONTROL_PERMISSION_DENIED");
+
+    config.permissions.manage_automation = true;
+    config.permissions.read_bodies = false;
+    write_config(&context.paths.config_path, &config).unwrap();
+    let error = wait_for_session_json_rewrite(
+        &context,
+        WaitForSessionJsonRewriteRequest {
+            change_id: "change-1".into(),
+            after_watermark: None,
+            timeout_ms: None,
+        },
+        TEST_CALLER,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "PERMISSION_DENIED");
+}
+
+#[tokio::test]
+async fn waiting_for_rewrite_evidence_rejects_invalid_session_watermark() {
+    let (_, context) = create_fixture("rewrite_lifecycle_bad_cursor");
+    let error = wait_for_session_json_rewrite(
+        &context,
+        WaitForSessionJsonRewriteRequest {
+            change_id: "change-1".into(),
+            after_watermark: Some("invalid-watermark".into()),
+            timeout_ms: Some(1000),
+        },
+        TEST_CALLER,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, "INVALID_ARGUMENT");
 }

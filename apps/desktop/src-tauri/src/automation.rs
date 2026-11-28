@@ -26,6 +26,8 @@ use tauri::Emitter;
 
 use crate::bootstrap::AppState;
 
+mod session_json_rewrite;
+
 const MAX_PLAN_ITEMS: usize = 100;
 const MAX_PLAN_BYTES: usize = 3 * 1024 * 1024;
 const MAX_ASSET_BYTES: usize = 5 * 1024 * 1024;
@@ -2203,6 +2205,15 @@ impl AppState {
         workspace_id: Option<&str>,
         pending_ephemeral_change: Option<&str>,
     ) -> Result<u64, AutomationError> {
+        self.publish_runtime(workspace_id, pending_ephemeral_change, None)
+    }
+
+    fn publish_runtime(
+        &self,
+        workspace_id: Option<&str>,
+        pending_ephemeral_change: Option<&str>,
+        activate: Option<(&str, &str)>,
+    ) -> Result<u64, AutomationError> {
         let (rewrite_rows, map_rows, metadata, mut ephemeral_changes) = {
             let conn = self.lock_db_for_ipc().map_err(AutomationError::internal)?;
             (
@@ -2276,6 +2287,7 @@ impl AppState {
                 Ok((rule, host_lock))
             })
             .collect::<Result<Vec<_>, AutomationError>>()?;
+        let mut rewrite_expiry = HashMap::new();
         for change in ephemeral_changes {
             let items = {
                 let conn = self.lock_db_for_ipc().map_err(AutomationError::internal)?;
@@ -2308,6 +2320,16 @@ impl AppState {
                             &rule.r#match.url_pattern,
                             "ephemeral rewrite urlPattern",
                         )?;
+                        if let Some(deadline) = change.expires_at.as_deref() {
+                            let deadline = chrono::DateTime::parse_from_rfc3339(deadline)
+                                .map_err(|error| {
+                                    AutomationError::internal(format!(
+                                        "invalid rewrite expiry: {error}"
+                                    ))
+                                })?
+                                .to_utc();
+                            rewrite_expiry.insert(rule.id.clone(), deadline);
+                        }
                         rewrites.retain(|candidate| candidate.0.id != rule.id);
                         rewrites.push((rule, Some(host_lock)));
                     }
@@ -2350,12 +2372,32 @@ impl AppState {
                 }
                 let previous_generation = self.read_rewrite_manager().runtime_generation();
                 let generation = previous_generation.saturating_add(1);
+                if let Some((change_id, activated_at)) = activate {
+                    let conn = self.lock_db_for_ipc().map_err(AutomationError::internal)?;
+                    automation::update_automation_change_status(
+                        &conn,
+                        change_id,
+                        "active",
+                        Some(generation),
+                        None,
+                        Some(activated_at),
+                        None,
+                    )
+                    .map_err(|error| {
+                        AutomationError::internal(format!("record rewrite activation: {error}"))
+                    })?;
+                }
                 self.read_rewrite_manager()
-                    .publish_rules_atomic(rewrites, maps, generation);
-                generation
+                    .publish_rules_atomic_with_rewrite_expiry(
+                        rewrites,
+                        maps,
+                        generation,
+                        &rewrite_expiry,
+                    );
+                Ok(generation)
             });
         let _ = workspace_id;
-        Ok(generation)
+        generation
     }
 
     fn rollback_automation_change_locked(
@@ -2808,7 +2850,7 @@ impl AppState {
             limitations.push("No target rule matched the supplied request.".to_string());
         }
         let _guard = self.automation_mutation_lock().lock().await;
-        self.ensure_change_still_active(&change.id)?;
+        self.ensure_change_still_active(change)?;
         self.ensure_verification_targets_current(change)?;
         self.persist_verification(change, params, &request_results, &evidence, &limitations)
     }
@@ -2919,7 +2961,7 @@ impl AppState {
         ];
         let _ = overall_passed;
         let _guard = self.automation_mutation_lock().lock().await;
-        self.ensure_change_still_active(&change.id)?;
+        self.ensure_change_still_active(change)?;
         self.ensure_verification_targets_current(change)?;
         self.persist_verification(change, params, &request_results, &evidence, &limitations)
     }
@@ -3072,6 +3114,7 @@ impl AppState {
                 })?,
                 &url,
             );
+            builder = builder.header(aiproxy_proxy_core::AUTOMATION_VERIFICATION_HEADER, "1");
             for header in &headers {
                 if is_proxy_verification_header(&header.name) {
                     continue;
@@ -3207,7 +3250,7 @@ impl AppState {
             });
         }
         let _guard = self.automation_mutation_lock().lock().await;
-        self.ensure_change_still_active(&change.id)?;
+        self.ensure_change_still_active(change)?;
         self.ensure_verification_targets_current(change)?;
         self.persist_verification(change, params, &request_results, &evidence, &limitations)
     }
@@ -3418,17 +3461,27 @@ impl AppState {
         })
     }
 
-    fn ensure_change_still_active(&self, change_id: &str) -> Result<(), AutomationError> {
+    fn ensure_change_still_active(
+        &self,
+        change: &AutomationChangeSetRow,
+    ) -> Result<(), AutomationError> {
         let conn = self.lock_db_for_ipc().map_err(AutomationError::internal)?;
-        let current = automation::load_automation_change_set(&conn, change_id)
+        let current = automation::load_automation_change_set(&conn, &change.id)
             .map_err(|error| AutomationError::internal(format!("load change: {error}")))?
             .ok_or_else(|| AutomationError::new("NOT_FOUND", "automation change not found"))?;
-        if current.status != "active" {
+        if current.status != "active"
+            || current.activated_at != change.activated_at
+            || current
+                .expires_at
+                .as_deref()
+                .and_then(|time| chrono::DateTime::parse_from_rfc3339(time).ok())
+                .is_some_and(|time| time <= chrono::Utc::now())
+        {
             return Err(AutomationError::new(
                 "STATE_CONFLICT",
-                "the automation change is no longer active; verification evidence was discarded",
+                "the automation activation changed or ended; verification evidence was discarded",
             )
-            .with_details(json!({ "changeId": change_id, "status": current.status })));
+            .with_details(json!({ "changeId": change.id, "status": current.status })));
         }
         Ok(())
     }
@@ -3751,16 +3804,17 @@ fn reserve_proxy_verification_slots(count: usize) -> Result<(), AutomationError>
 }
 
 fn is_proxy_verification_header(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "host"
-            | "content-length"
-            | "connection"
-            | "proxy-connection"
-            | "proxy-authorization"
-            | "transfer-encoding"
-            | "expect"
-    )
+    name.eq_ignore_ascii_case(aiproxy_proxy_core::AUTOMATION_VERIFICATION_HEADER)
+        || matches!(
+            name.to_ascii_lowercase().as_str(),
+            "host"
+                | "content-length"
+                | "connection"
+                | "proxy-connection"
+                | "proxy-authorization"
+                | "transfer-encoding"
+                | "expect"
+        )
 }
 
 async fn read_bounded_reqwest_body(
@@ -5471,15 +5525,15 @@ mod tests {
     use std::sync::Arc;
     use tempfile::TempDir;
 
-    const WORKSPACE_ID: &str = "workspace-test";
+    pub(super) const WORKSPACE_ID: &str = "workspace-test";
 
-    struct TestHarness {
-        state: AppState,
+    pub(super) struct TestHarness {
+        pub(super) state: AppState,
         body_store: Arc<BodyStore>,
         _directory: TempDir,
     }
 
-    fn test_harness() -> TestHarness {
+    pub(super) fn test_harness() -> TestHarness {
         let directory = tempfile::tempdir().unwrap();
         let conn = aiproxy_db::rusqlite::Connection::open_in_memory().unwrap();
         aiproxy_db::schema::run_migrations(&conn).unwrap();
@@ -5515,7 +5569,7 @@ mod tests {
         }
     }
 
-    fn automation_permissions() -> AutomationPermissions {
+    pub(super) fn automation_permissions() -> AutomationPermissions {
         AutomationPermissions {
             manage_automation: true,
             manage_user_automation: true,
@@ -6804,6 +6858,19 @@ mod tests {
         started_at: &str,
         timing_source: Option<&str>,
     ) {
+        let detail = session_fixture(id, started_at, timing_source);
+        let summary_row = crate::bootstrap::converters::proxy_summary_to_row(&detail.summary);
+        let detail_row =
+            crate::bootstrap::converters::proxy_detail_to_row(&detail, harness.body_store.as_ref());
+        let conn = harness.state.lock_db_for_ipc().unwrap();
+        aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+    }
+
+    pub(super) fn session_fixture(
+        id: &str,
+        started_at: &str,
+        timing_source: Option<&str>,
+    ) -> ProxySessionDetail {
         let summary = ProxySessionSummary {
             id: id.to_string(),
             method: "GET".to_string(),
@@ -6823,7 +6890,7 @@ mod tests {
             response_mime_type: Some("application/json".to_string()),
             failure: None,
         };
-        let detail = ProxySessionDetail {
+        ProxySessionDetail {
             client_address: None,
             cookies: Vec::new(),
             id: id.to_string(),
@@ -6843,7 +6910,7 @@ mod tests {
             server_ip: None,
             tls_cipher_suite: None,
             tls_protocol: None,
-            summary: summary.clone(),
+            summary,
             script_traces: Vec::new(),
             throttle_traces: Vec::new(),
             timing: None,
@@ -6852,12 +6919,7 @@ mod tests {
             h2_stream_id: None,
             via_upstream_proxy: None,
             failure: None,
-        };
-        let summary_row = crate::bootstrap::converters::proxy_summary_to_row(&summary);
-        let detail_row =
-            crate::bootstrap::converters::proxy_detail_to_row(&detail, harness.body_store.as_ref());
-        let conn = harness.state.lock_db_for_ipc().unwrap();
-        aiproxy_db::sessions::upsert_session(&conn, &summary_row, &detail_row).unwrap();
+        }
     }
 
     #[test]

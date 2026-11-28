@@ -417,12 +417,14 @@ flowchart LR
 
 范围：
 
-- 工具契约 `3.3`，共 33 个工具：10 个读取工具、2 个只读诊断工具、1 个受 `manageRules` 保护的 legacy 临时规则读取工具、12 个受权限保护的控制工具、8 个自动化工具
+- 工具契约 `3.3`，共 36 个工具：10 个读取工具、2 个只读诊断工具、1 个受 `manageRules` 保护的 legacy 临时规则读取工具、12 个受权限保护的控制工具、11 个自动化工具
 - 10 个读取工具：`list_workspaces`、`search_sessions`、`wait_for_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`、`export_session_as_curl`
 - 2 个只读诊断工具：`get_app_status` 返回应用/控制通道、抓包、证书、工作区与系统代理状态；`diagnose_ai_proxy_issue` 返回状态、受限应用日志摘要、元数据审计错误、`findings[]` 与 `nextActions[]`
 - 1 个 legacy 只读工具：`list_agent_rules` 只列内存临时 Agent 规则，不返回用户规则；与 `create_agent_rule`、`remove_agent_rules` 继续只使用旧 `manageRules` 权限
 - 12 个控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`replay_session`、`create_agent_rule`、`remove_agent_rules`
-- 8 个自动化工具：`list_automation_resources`、`get_automation_resource`、`validate_automation_plan`、`apply_automation_plan`、`verify_automation_change`、`get_automation_change`、`rollback_automation_change`、`clear_agent_automation`
+- 11 个自动化工具：`list_automation_resources`、`get_automation_resource`、`validate_automation_plan`、`apply_automation_plan`、`verify_automation_change`、`get_automation_change`、`rollback_automation_change`、`clear_agent_automation`、`create_session_json_rewrite`、`extend_session_json_rewrite`、`wait_for_session_json_rewrite`
+- 支持从已有会话预览或创建临时 JSON 响应改写。字段查找、匹配范围推导和 HTTP/2 预检在写入前完成，结果包含规则到期时间及运行时证据。
+- 会话临时改写支持按规则 ID 幂等续期，或在到期后通过预检恢复。可等待真实客户端会话，并结合改写追踪和响应 JSON 字段自动保存外部证据。
 - 权限分为旧控制权限 `controlCapture`、`controlSystemProxy`、`manageCertificates`、`deleteSessions`、`sendRequests`、`manageRules`，以及新增自动化权限 `manageAutomation`、`manageUserAutomation`、`manageScripts`、`manageCrossHostMappings`、`manageProxiedVerification`、`manageGlobalAutomation`；全部默认关闭
 - 新权限与旧授权隔离：升级不会把 `manageRules` 推导为任何新权限；配置内存契约版本为 `5`，磁盘兼容信封仍为 `2`，缺失字段按 `false` 归一化
 - 可请求临时授权的能力使用 `禁止 / 请求时询问 / 始终允许` 三态；`readSessions` 没有独立 grant 消费链路，只提供 `禁止 / 始终允许`，旧配置中的 `ask` 会归一化为 `deny`。高风险能力默认禁止；`请求时询问` 只在具体动作上申请限时授权，不能绕过静态权限、根目录、origin、TTL 或频率限制

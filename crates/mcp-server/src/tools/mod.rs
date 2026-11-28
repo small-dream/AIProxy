@@ -7,6 +7,7 @@ pub mod control;
 pub mod curl;
 pub mod diagnostics;
 pub mod insights;
+pub mod session_json_rewrite;
 pub mod sessions;
 pub(crate) mod text_search;
 pub mod websocket;
@@ -79,7 +80,9 @@ pub fn finish_success_with_summary(
     // Desktop owns action auditing for control tools: it sees every local IPC
     // request, including direct calls that bypass this sidecar. Keep sidecar
     // auditing for read tools and for non-control failures.
-    let audit_ok = is_agent_control_tool(tool)
+    let audit_ok = meta
+        .audit_recorded_remotely
+        .unwrap_or_else(|| is_agent_control_tool(tool))
         || state.record_audit(
             started,
             AuditRecord {

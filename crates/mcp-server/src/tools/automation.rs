@@ -154,7 +154,7 @@ fn invalid(message: impl Into<String>) -> ToolError {
     ToolError::new("INVALID_ARGUMENT", message)
 }
 
-fn redact_automation_value(
+pub(super) fn redact_automation_value(
     value: &mut serde_json::Value,
     path: &str,
     redactor: &Redactor,

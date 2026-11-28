@@ -27,11 +27,13 @@ pub(crate) use types::{
 };
 
 // Re-export pub(crate) functions used outside this module
-pub use json_path::set_json_path_from_str;
+pub use json_path::{read_json_field, set_json_path_from_str, validate_json_field_path};
+pub use patterns::{session_rewrite_url_matches, SESSION_REWRITE_MATCH_TYPE};
 pub use preview::{
     evaluate_offline, OfflineEvaluationInput, OfflineEvaluationResult, OfflineHeader,
     OfflineRequestInput, OfflineResponseInput,
 };
+pub use rewrite::supports_response_body_rewrite;
 mod preview;
 pub(crate) use map::{apply_map_rules, apply_map_rules_with_snapshot};
 pub(crate) use patterns::{compile_match_regex, pattern_matches};
@@ -117,10 +119,12 @@ fn active_rewrite_rules_for_snapshot(
     stage: &str,
     request: &ParsedProxyRequest,
 ) -> Vec<RewriteRule> {
+    let now = chrono::Utc::now();
     let mut compiled: Vec<&managers::CompiledRewriteRule> = snapshot
         .rewrite
         .iter()
         .filter(|cr| cr.rule.enabled)
+        .filter(|cr| cr.expires_at.is_none_or(|deadline| deadline > now))
         .filter(|cr| cr.rule.workspace_id == workspace_id)
         .filter(|cr| rule_stage_matches(&cr.rule.r#match.stage, stage))
         .filter(|cr| method_matches(&cr.rule.r#match.methods, &request.method))
@@ -133,6 +137,10 @@ fn active_rewrite_rules_for_snapshot(
                     .compiled_match
                     .as_ref()
                     .is_some_and(|re| re.is_match(request.url.as_str())),
+                Some(SESSION_REWRITE_MATCH_TYPE) => cr
+                    .session_url
+                    .as_ref()
+                    .is_some_and(|expected| session_rewrite_url_matches(expected, &request.url)),
                 _ => pattern_matches(
                     &cr.rule.r#match.url_pattern,
                     request.url.as_str(),

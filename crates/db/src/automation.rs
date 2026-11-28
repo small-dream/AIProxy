@@ -382,6 +382,28 @@ pub fn update_automation_change_status(
     Ok(())
 }
 
+/// Update the existing change when a temporary Rewrite is renewed.
+pub fn save_automation_renewal(
+    conn: &Connection,
+    change: &AutomationChangeSetRow,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE automation_change_sets SET status=?2, runtime_generation=?3,
+             activated_at=?4, reverted_at=?5, expires_at=?6, summary_json=?7 WHERE id=?1",
+        params![
+            change.id,
+            change.status,
+            change.runtime_generation.map(|value| value as i64),
+            change.activated_at,
+            change.reverted_at,
+            change.expires_at,
+            change.summary_json,
+        ],
+    )
+    .map_err(|error| DbError::query("save temporary automation renewal", error))?;
+    Ok(())
+}
+
 pub fn list_unfinished_automation_changes(
     conn: &Connection,
 ) -> Result<Vec<AutomationChangeSetRow>, DbError> {

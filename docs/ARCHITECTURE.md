@@ -385,7 +385,7 @@ TLS 证书缓存机制：
 
 职责：
 
-- 通过 `aiproxy-mcp` stdio sidecar 向 Codex、Claude Code、Cursor 暴露 33 个工具（schema `3.3`）：10 个读取工具、2 个只读诊断工具、1 个 legacy 临时规则读取工具、12 个控制工具与 8 个自动化工具
+- 通过 `aiproxy-mcp` stdio sidecar 向 Codex、Claude Code、Cursor 暴露 36 个工具（schema `3.3`）：10 个读取工具、2 个只读诊断工具、1 个 legacy 临时规则读取工具、12 个控制工具与 11 个自动化工具
 - 复用 `aiproxy-db` 的会话检索、详情、Body、WebSocket、Insights 与规则 trace 查询
 - 在 sidecar 内强制执行 Agent Access 权限、统一脱敏、字段提取、返回上限、cursor 分页与审计
 - 新增共享 crate `aiproxy-agent-control`，定义控制协议 v2、请求/响应信封、操作 DTO、临时授权模型、权限、错误码和描述文件格式
@@ -405,6 +405,8 @@ TLS 证书缓存机制：
 - `diagnose_ai_proxy_issue` 汇总状态、受限应用日志和元数据审计错误，返回 `findings[]`、`nextActions[]` 与 `evidence.evidenceStatus`；用于 AIProxy 自身故障，不替代会话读取工具
 - `replay_session` 通过 `aiproxy-agent-control` 调用桌面端现有的 `send_direct_request_bytes`，从已持久化会话恢复方法、URL、Headers 与二进制请求 Body；严格锁定原始 host，不经过代理监听端口、用户规则或 Agent 规则。为控制外部副作用，桌面端串行执行并限制为每分钟 10 次
 - 自动化写入由 `apps/desktop/src-tauri/src/automation.rs` 的 `AutomationService`（以 `AppState` 方法暴露）协调：先 validate，再准备托管资产与目标规则，最后在同一 SQLite 事务写入业务数据、ownership、change items 与 change set，随后发布统一运行时并记录 `active`
+- 会话临时 JSON 改写由 MCP sidecar 在 `readBodies` 授权下定位字段并脱敏。桌面端使用现有自动化写协调器，并持有代理生命周期锁完成 HTTP/2 预检与发布。代理核心按来源会话的 origin、路径和选定查询参数匹配，响应阶段检查过期时间并只改写目标已存在的字段。
+- 续期在同一个 SQLite 事务写入到期时间和幂等回执，再替换运行时快照中的该条改写。已过期的规则恢复时更新激活时间。等待验证在锁外查询完成会话，且在写入现有外部验证记录之前复核激活时间和资源版本。证据使用持久化的响应字段及目标 Rewrite 追踪。
 - `crates/db/src/automation.rs` 维护 `automation_resources`、`automation_change_sets`、`automation_change_items`、`automation_experiments`、`automation_verifications`；数据库是资源所有权、change 状态、实验、验证与清理状态的权威来源
 - `AppState::automation_mutation_lock` 串行化所有 workspace 的自动化写入；Rules 页 Rewrite / Map 保存与删除、legacy 临时规则发布、TTL 清理、回滚、提升和 clear 都获取同一把锁。`AgentRuleRegistry::mutation_lock` 保护 legacy 临时规则注册表
 - `crates/proxy-core` 的 `RuntimeRuleSnapshot` 将 Rewrite 与 Map 作为同一发布单元；每次成功发布递增共享 `RewriteManager::runtime_generation()`，代理请求固定使用入口 generation。只有 DB 已提交且运行时发布成功后，change set 才进入 `active`

@@ -188,7 +188,17 @@ This release supports:
 - Rewrite Redirect targets must be HTTP/S URLs on the host matched by the rule. A cross-host Redirect returns `FEATURE_NOT_AVAILABLE`; enabling **Map to other hosts** does not bypass it.
 - In this release, Map Remote, DNS, Script, Throttle Profile / Rule, Breakpoint, Throttle activation, global scope, cross-host Redirects, and cross-host mapping writes all return `FEATURE_NOT_AVAILABLE`.
 
-The recommended Agent sequence is:
+#### Create a temporary JSON rewrite from a capture
+
+Ask the Agent to use `create_session_json_rewrite` when a capture contains the target field. For example, supply a session ID, the field `hide_user_name`, and the number `1`. The tool requires **Read bodies** (`readBodies`) and **Manage automation** (`manageAutomation`). It previews by default. To create a rule, specify `mode=create` and provide an `idempotencyKey` to reuse on retries. The default lifetime is 10 minutes.
+
+The matching scope comes from the captured request and includes its host, port, path, HTTP method, and any inferred routing parameter. The tool returns choices when the field or scope is ambiguous. When current matching traffic uses HTTP/2, the tool reports that body rewriting would be skipped and shows both the saved and running settings. If needed, turn off HTTP/2 for the workspace, restart capture, and retry creation.
+
+`active` means the rule is loaded. Ask the Agent to call `wait_for_session_json_rewrite` with the returned `changeId`, then reopen the relevant screen in the real client. The tool requires Read sessions, Read bodies, and Manage automation. It checks the rule trace and captured response value within 30 seconds and reports verified, skipped, mismatch, timeout, or expiry. Read the evidence record with `get_automation_change`. Pass the returned `watermark` to check a later request.
+
+To continue debugging, call `extend_session_json_rewrite` with the `ruleId`, the number of seconds to add, and an `idempotencyKey` for retries. The tool requires Manage automation. An active rule is extended from its original expiry, with at most one hour remaining. An expired rule retains its ID and gets a new activation time after passing preflight.
+
+For other automation plans, use this sequence:
 
 1. `list_automation_resources` / `get_automation_resource` to read resources, ownership, and current versions.
 2. `validate_automation_plan` to obtain `planHash`, `scopeHash`, conflicts, and warnings without writing the database or publishing the runtime.

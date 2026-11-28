@@ -452,7 +452,11 @@ fn unavailable_status(state: &AppContext, control_error: Option<&ToolError>) -> 
             "enabled": false,
         },
         "nextSteps": [
-            "Start AIProxy to enable certificate, workspace, and proxy status checks.",
+            if capture.app_running {
+                "Restart AIProxy to restore access to its local control channel."
+            } else {
+                "Start AIProxy to enable certificate, workspace, and proxy status checks."
+            },
             "Write tools can launch AIProxy automatically when their control permission is enabled."
         ],
     })

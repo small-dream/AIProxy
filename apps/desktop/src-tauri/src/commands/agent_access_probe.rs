@@ -205,6 +205,9 @@ mod tests {
     use aiproxy_mcp::config::{write_config, AgentAccessConfig, AppPaths};
 
     fn staged_sidecar() -> Option<std::path::PathBuf> {
+        if let Some(path) = std::env::var_os("AIPROXY_TEST_SIDECAR") {
+            return Some(path.into());
+        }
         let binaries = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
         let entries = std::fs::read_dir(binaries).ok()?;
         entries.filter_map(Result::ok).find_map(|entry| {

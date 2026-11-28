@@ -209,6 +209,7 @@ pub(crate) fn is_standard_hop_by_hop_header(name: &str) -> bool {
         || name.eq_ignore_ascii_case("upgrade")
         || name.eq_ignore_ascii_case("proxy-authenticate")
         || name.eq_ignore_ascii_case("proxy-authorization")
+        || name.eq_ignore_ascii_case(crate::AUTOMATION_VERIFICATION_HEADER)
 }
 
 /// Parse the comma-separated token list carried by a `Connection` header value
@@ -264,6 +265,7 @@ where
         "upgrade",
         "proxy-authenticate",
         "proxy-authorization",
+        crate::AUTOMATION_VERIFICATION_HEADER,
     ] {
         set.insert(standard.to_string());
     }
@@ -860,6 +862,17 @@ mod tests {
         // Extra whitespace and tabs are tolerated; empty items are dropped.
         let tokens = parse_connection_tokens(b"  close  ,  ,\tUpgrade ");
         assert_eq!(tokens, vec!["close", "upgrade"]);
+    }
+
+    #[test]
+    fn controlled_verification_marker_is_local_to_the_proxy() {
+        let header = ProxyHeaderEntry {
+            name: crate::AUTOMATION_VERIFICATION_HEADER.to_owned(),
+            value: "1".to_owned(),
+            is_pseudo: None,
+        };
+        let outgoing = build_upstream_headers_from_entries(&[header]).unwrap();
+        assert!(!outgoing.contains_key(crate::AUTOMATION_VERIFICATION_HEADER));
     }
 
     #[test]

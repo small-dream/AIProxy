@@ -1,6 +1,9 @@
 use super::*;
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
 
 /// Immutable Rewrite+Map snapshot shared by both managers for the first
 /// automation release. Publishing replaces the whole value under one lock so a
@@ -36,17 +39,19 @@ impl RuleRuntime {
         )
     }
 
-    fn replace_rewrite(&self, rewrite: Vec<CompiledRewriteRule>) {
+    fn replace_rewrite(&self, rewrite: Vec<CompiledRewriteRule>) -> u64 {
         let mut guard = self
             .snapshot
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let current = Arc::clone(&guard);
+        let generation = current.generation.saturating_add(1);
         *guard = Arc::new(RuntimeRuleSnapshot {
-            generation: current.generation.saturating_add(1),
+            generation,
             rewrite: Arc::new(rewrite),
             map: Arc::clone(&current.map),
         });
+        generation
     }
 
     fn replace_map(&self, map: Vec<CompiledMapRule>) {
@@ -83,16 +88,16 @@ impl RuleRuntime {
 fn compile_rewrite_rules(rules: Vec<(RewriteRule, Option<String>)>) -> Vec<CompiledRewriteRule> {
     rules
         .into_iter()
-        .map(|(rule, host_lock)| CompiledRewriteRule {
-            compiled_match: compile_match_regex(
-                &rule.r#match.match_type,
-                &rule.r#match.url_pattern,
-            )
-            .map(Arc::new),
-            rule,
-            host_lock,
-        })
+        .map(|(rule, host_lock)| CompiledRewriteRule::new(rule, host_lock))
         .collect()
+}
+
+fn upsert_compiled_rewrite(rules: &mut Vec<CompiledRewriteRule>, rule: CompiledRewriteRule) {
+    if let Some(existing) = rules.iter_mut().find(|entry| entry.rule.id == rule.rule.id) {
+        *existing = rule;
+    } else {
+        rules.push(rule);
+    }
 }
 
 fn compile_map_rules(rules: Vec<(MapRule, Option<String>)>) -> Vec<CompiledMapRule> {
@@ -128,6 +133,27 @@ pub(crate) struct CompiledRewriteRule {
     /// Exact request host this rule may match. Agent rules set this as a
     /// defense-in-depth boundary independent of URL pattern syntax.
     pub host_lock: Option<String>,
+    pub session_url: Option<Url>,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+impl CompiledRewriteRule {
+    fn new(rule: RewriteRule, host_lock: Option<String>) -> Self {
+        let session_url = (rule.r#match.match_type.as_deref() == Some(SESSION_REWRITE_MATCH_TYPE))
+            .then(|| Url::parse(&rule.r#match.url_pattern).ok())
+            .flatten();
+        Self {
+            compiled_match: compile_match_regex(
+                &rule.r#match.match_type,
+                &rule.r#match.url_pattern,
+            )
+            .map(Arc::new),
+            rule,
+            host_lock,
+            session_url,
+            expires_at: None,
+        }
+    }
 }
 
 impl std::fmt::Debug for RewriteManager {
@@ -171,11 +197,22 @@ impl RewriteManager {
         map: Vec<(MapRule, Option<String>)>,
         generation: u64,
     ) {
-        self.runtime.publish(
-            compile_rewrite_rules(rewrite),
-            compile_map_rules(map),
-            generation,
-        );
+        self.publish_rules_atomic_with_rewrite_expiry(rewrite, map, generation, &HashMap::new());
+    }
+
+    pub fn publish_rules_atomic_with_rewrite_expiry(
+        &self,
+        rewrite: Vec<(RewriteRule, Option<String>)>,
+        map: Vec<(MapRule, Option<String>)>,
+        generation: u64,
+        expiry: &HashMap<String, DateTime<Utc>>,
+    ) {
+        let mut rewrite = compile_rewrite_rules(rewrite);
+        for entry in &mut rewrite {
+            entry.expires_at = expiry.get(&entry.rule.id).copied();
+        }
+        self.runtime
+            .publish(rewrite, compile_map_rules(map), generation);
     }
 
     pub fn list_rules(&self) -> Vec<RewriteRule> {
@@ -210,6 +247,21 @@ impl RewriteManager {
         self.store_rule(rule, HostLockUpdate::Set(host_lock.into()))
     }
 
+    /// Publish one temporary rule while keeping the rest of the shared snapshot.
+    pub fn publish_temporary_rule(
+        &self,
+        rule: RewriteRule,
+        host_lock: String,
+        expires_at: DateTime<Utc>,
+    ) -> u64 {
+        let mut compiled = CompiledRewriteRule::new(rule, Some(host_lock));
+        compiled.expires_at = Some(expires_at);
+        let current = self.runtime.snapshot();
+        let mut next = (*current.rewrite).clone();
+        upsert_compiled_rewrite(&mut next, compiled);
+        self.runtime.replace_rewrite(next)
+    }
+
     fn store_rule(&self, rule: RewriteRule, host_lock_update: HostLockUpdate) -> RewriteRule {
         let current = self.runtime.snapshot();
         let host_lock = match host_lock_update {
@@ -220,21 +272,9 @@ impl RewriteManager {
                 .find(|entry| entry.rule.id == rule.id)
                 .and_then(|entry| entry.host_lock.clone()),
         };
-        let compiled = CompiledRewriteRule {
-            compiled_match: compile_match_regex(
-                &rule.r#match.match_type,
-                &rule.r#match.url_pattern,
-            )
-            .map(Arc::new),
-            rule: rule.clone(),
-            host_lock,
-        };
+        let compiled = CompiledRewriteRule::new(rule.clone(), host_lock);
         let mut next = (*current.rewrite).clone();
-        if let Some(existing) = next.iter_mut().find(|r| r.rule.id == compiled.rule.id) {
-            *existing = compiled;
-        } else {
-            next.push(compiled);
-        }
+        upsert_compiled_rewrite(&mut next, compiled);
         self.runtime.replace_rewrite(next);
         rule
     }

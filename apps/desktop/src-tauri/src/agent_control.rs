@@ -553,7 +553,13 @@ fn execute_request(
         };
     }
     let extra_permissions = conditional_permissions(app, &request.operation);
-    let result = if request.operation.is_write() {
+    // Waiting for a captured request only acquires the automation lock when
+    // recording evidence. Keep control writes available during the wait.
+    let result = if request.operation.is_write()
+        && !matches!(
+            &request.operation,
+            ControlOperation::WaitForSessionJsonRewrite(_)
+        ) {
         if let Err(error) =
             preflight_request_with_extra(token, data_dir, &request, &extra_permissions)
         {
@@ -1052,6 +1058,18 @@ async fn dispatch(
             .apply_automation_plan(params, caller, automation_permissions)
             .await
             .and_then(to_control_value)
+            .map_err(automation_control_error),
+        ControlOperation::CreateSessionJsonRewrite(params) => state
+            .create_session_json_rewrite(params, caller, automation_permissions)
+            .await
+            .map_err(automation_control_error),
+        ControlOperation::ExtendSessionJsonRewrite(params) => state
+            .extend_session_json_rewrite(params, caller, automation_permissions)
+            .await
+            .map_err(automation_control_error),
+        ControlOperation::WaitForSessionJsonRewrite(params) => state
+            .wait_for_session_json_rewrite(params, automation_permissions)
+            .await
             .map_err(automation_control_error),
         ControlOperation::VerifyAutomationChange(params) => state
             .verify_automation_change(params, automation_permissions)

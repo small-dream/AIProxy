@@ -2806,13 +2806,13 @@ type AgentAuditLog = {
 
 ### MCP stdio tool contract
 
-`aiproxy-mcp` 当前工具契约版本为 `3.3`，共 33 个工具：
+`aiproxy-mcp` 当前工具契约版本为 `3.3`，共 36 个工具：
 
 - 10 个读取工具：`list_workspaces`、`search_sessions`、`wait_for_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`、`export_session_as_curl`。
 - 2 个只读诊断工具：`get_app_status`、`diagnose_ai_proxy_issue`。
 - 1 个受 `manageRules` 保护的 legacy 临时规则只读工具：`list_agent_rules`。
 - 12 个受权限保护的控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`replay_session`、`create_agent_rule`、`remove_agent_rules`。
-- 8 个自动化工具（4 个只读 + 4 个写工具）：`list_automation_resources`、`get_automation_resource`、`validate_automation_plan`、`apply_automation_plan`、`verify_automation_change`、`get_automation_change`、`rollback_automation_change`、`clear_agent_automation`。
+- 11 个自动化工具（4 个只读、6 个写工具及 1 个支持预览与写入的工具）：`list_automation_resources`、`get_automation_resource`、`validate_automation_plan`、`apply_automation_plan`、`verify_automation_change`、`get_automation_change`、`rollback_automation_change`、`clear_agent_automation`、`create_session_json_rewrite`、`extend_session_json_rewrite`、`wait_for_session_json_rewrite`。
 
 所有工具都声明 `title`、`description` 与 MCP annotations。读取工具为只读；配置、抓包、系统代理、证书和自动化写入关闭 `openWorldHint`；`generate_certificate`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`remove_agent_rules`、`rollback_automation_change` 与 `clear_agent_automation` 标记为破坏性；`replay_session` 标记为 `openWorldHint=true` 且非幂等，客户端应据此提示用户确认。`apply_automation_plan` 为幂等写操作，`verify_automation_change` 为非幂等写操作（代理模式会发起真实受控请求），但它不是破坏性操作。
 
@@ -2997,10 +2997,57 @@ Body 与字段提取：
 | `get_automation_resource` | `manageAutomation` | 按 `kind` + `id` 返回完整资源与当前版本；首版只支持 `rewrite` / `map`，不返回 Script 源码 |
 | `validate_automation_plan` | `manageAutomation`；如涉及用户资源还需 `manageUserAutomation` | 只校验不写库、不改规则、不发布运行时；返回 `planHash`、`scopeHash`、`canApply`、`warnings`、资源所有权与冲突摘要。首版只接受 Rewrite、Map Local 与常驻资源删除 |
 | `apply_automation_plan` | `manageAutomation`；更新 / 删除用户资源还需 `manageUserAutomation` | 校验 `expectedPlanHash` / `expectedScopeHash`，在共享写协调器内提交数据库并发布统一运行时；只有 change set 进入 `active` 才返回成功。安装实例级 `idempotencyKey` 长 16-128 字节，重试丢失响应的同一计划会返回 `idempotent=true`；对已 `reverted` / `aborted` 的 change 重放返回 `CHANGE_NOT_APPLICABLE`，需要换新的 key |
+| `create_session_json_rewrite` | `readBodies`、`manageAutomation` | 从抓包解析一个 JSON 响应字段，推导目标接口并预检 HTTP/2；`preview` 返回预览，`create` 在预检通过后发布当前工作区的临时改写 |
+| `extend_session_json_rewrite` | `manageAutomation` | 从规则原到期时间续期，或通过 HTTP/2 预检后重新激活已过期的会话改写 |
+| `wait_for_session_json_rewrite` | `readSessions`、`readBodies`、`manageAutomation` | 等待匹配的真实客户端完成会话，核对目标规则追踪及实际 JSON 字段，并持久化外部验证记录 |
 | `verify_automation_change` | `manageAutomation`；`mode=proxy` 还需 `manageProxiedVerification` | 对 `active` change 执行 `offline` / `proxy` / `external` 验证。返回 `evidenceLevel`、`runtimeGeneration`、断言结果、证据会话、规则 trace 引用、冲突诊断和 `limitations`；目标版本或 generation 已变化时不得复用旧证据 |
 | `get_automation_change` | `manageAutomation` | 返回 change set、资源 before/after 快照、实验状态、清理状态、验证记录、`runtimeGeneration` 与 `rollbackScopeHash`；回滚必须原样传回该哈希 |
 | `rollback_automation_change` | `manageAutomation`；涉及用户资源还需 `manageUserAutomation` | 只回滚常驻（`persistent`）且处于 `active` 的 change；按 change items 的资源版本与依赖检查，目标或依赖已变化返回 `ROLLBACK_CONFLICT`。无关资源的其他变化不应阻断回滚；临时资源通过 TTL / clear 处理 |
 | `clear_agent_automation` | `manageAutomation` | 只清理当前安装实例中 Agent 自有资源，`lifecycle=ephemeral|persistent|all`；首版仅支持 `workspace` scope。按所有权删除资源并终止其完整 change 历史，不恢复更早的 Agent 版本；不会删除或恢复用户资源，也不是特定 change 回滚的替代品 |
+
+#### 从抓包创建临时 JSON 改写
+
+```ts
+type CreateSessionJsonRewriteRequest = {
+  mode?: "preview" | "create";  // 默认 preview
+  sessionId: string;           // 完整 ID 或至少 8 字符的唯一前缀
+  target: { key: string } | { jsonPath: string };
+  value: string | number | boolean | null;
+  matchQueryKeys?: string[];
+  ttlSeconds?: number;         // 60–3600，默认 600
+  idempotencyKey?: string;     // create 必填，16–128 字节
+};
+```
+
+工具读取最多 8 MiB 的完整响应 JSON。字段路径必须指向一个已有标量，支持点号、数组索引和带引号的属性名。多处同名字段返回最多 10 条脱敏候选和 `hasMore`。创建的规则匹配当前工作区、协议、主机、有效端口、路径、方法及选定的查询参数。默认选取唯一的 `_method`，没有查询参数时按路径匹配。含查询参数但无法推导路由时返回 `QUERY_MATCH_REQUIRED`，可用 `matchQueryKeys` 选择参数，或显式传 `[]` 确认忽略查询参数。敏感查询参数不能参与匹配，所选参数在请求中必须各出现一次。
+
+- `data.status=ready` 返回 `match`、解析后的 `jsonPath`、脱敏的 `baseline` 和 `preflight`。
+- `data.status=needs_input` 返回 `JSON_FIELD_AMBIGUOUS` 及候选路径，或 `QUERY_MATCH_REQUIRED` 及可选查询参数。
+- `data.status=blocked` 返回可操作的 `preflight`。当当前监听实例的匹配会话使用 HTTP/2 且引擎会跳过响应体改写时，给出 `HTTP2_BODY_REWRITE_UNSUPPORTED`、`savedHttp2Enabled`、`runtimeHttp2Enabled`、`observedProtocol` 和 `evidenceSessionId`。已启用 HTTP/2 且暂无匹配 HTTP/2 证据时，返回 `HTTP2_MAY_SKIP_BODY_REWRITE` 警告。控制通道不可达时独立报告 `appRunning` 和 `controlAvailable`。
+- `data.status=active` 返回 `ruleId`、`changeId`、`activatedAt`、`expiresAt`、`runtimeGeneration` 和 `verification.status=pending`。同一工作区内用相同 key 重试相同操作会返回原规则和到期时间。不同参数复用该 key 返回 `IDEMPOTENCY_CONFLICT`。
+- 权限不足、参数无效、会话或字段不存在以及创建失败均由外层 `error` 返回。响应后续缺少该字段时，规则保留原响应并在追踪中记录跳过。
+
+#### 续期与等待验证
+
+```ts
+type ExtendSessionJsonRewriteRequest = {
+  ruleId: string;
+  additionalSeconds: number;  // 60–3600
+  idempotencyKey: string;     // 16–128 字节，同一规则内复用
+};
+
+type WaitForSessionJsonRewriteRequest = {
+  changeId: string;
+  afterWatermark?: string;    // w1:<rowid>，默认考虑本次激活后的抓包
+  timeoutMs?: number;         // 1000–30000，默认 15000
+};
+```
+
+- 续期仅处理由 `create_session_json_rewrite` 创建的 Agent 临时规则，使用该规则所属的当前工作区。有效规则从原到期时间向后延长，保留规则 ID、change ID 和激活时间。到期或应用重启清理过的规则先执行 HTTP/2 预检，通过后保留两个 ID，并从新的 `activatedAt` 计时。
+- 返回 `ruleId`、`changeId`、`previousExpiresAt`、`expiresAt`、`activatedAt`、`reactivated` 和 `idempotent`。同一规则上同键同参数重试返回原续期结果。同键不同参数返回 `IDEMPOTENCY_CONFLICT`。剩余有效期超过一小时返回 `TTL_LIMIT_EXCEEDED`。预检拦截时返回 `blocked` 和原因。
+- 验证只读取本次激活之后的匹配抓包。指定游标时还要求会话插入水位在其之后。Agent 直连重放与带有 AIProxy 内部验证标记的受控请求会被排除。有效规则在等待期间续期，当前等待会采用新的到期时间。
+- `verified` 要求目标改写追踪为成功，且响应字段的 JSON 值和类型均匹配。追踪跳过返回 `skipped`，其他证据不符返回 `mismatch`。三者返回 `sessionId`、`responseStatus`、`evidenceLevel=external`、`verificationId`、脱敏的 `assertion`、`ruleTrace` 和会话水位。未捕获可用响应字段时，`assertion.valueAvailable=false`。
+- 等待超时返回 `timed_out`。规则到期、被清理或重新激活时，针对旧激活的等待返回 `expired`。超时与失效均不写验证记录，返回原请求游标（未传时为空）。
 
 自动化计划请求形态：
 

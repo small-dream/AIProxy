@@ -9,6 +9,10 @@ use super::types::{
 use super::*;
 use serde_json::Value;
 
+pub fn supports_response_body_rewrite(is_http2: bool) -> bool {
+    !is_http2
+}
+
 pub(crate) fn method_matches(methods: &[String], method: &Method) -> bool {
     methods.is_empty()
         || methods
@@ -389,7 +393,11 @@ fn json_span_value<'a>(
     for segment in segments {
         current = match (&current.kind, segment) {
             (JsonSpanKind::Object(members), JsonPathSegment::Key(key)) => {
-                &members.iter().find(|member| member.key == *key)?.value
+                &members
+                    .iter()
+                    .rev()
+                    .find(|member| member.key == *key)?
+                    .value
             }
             (JsonSpanKind::Array(items), JsonPathSegment::Index(index)) => items.get(*index)?,
             _ => return None,
@@ -435,6 +443,7 @@ fn apply_body_field_rewrite(
     body: &[u8],
     content_encoding: Option<&HeaderValue>,
     fields: &[RewriteBodyFieldPayload],
+    existing_only: bool,
 ) -> Result<(Vec<u8>, Vec<RewriteTraceEntry>), String> {
     // Upstream bodies keep their wire encoding, so parse the decoded form: a
     // gzip/br JSON response is otherwise unparseable and a Fields rule would fail
@@ -458,6 +467,17 @@ fn apply_body_field_rewrite(
         let segments = parse_json_field_path(&field.path)?;
         let before = get_json_path_value(&json_body, &segments).and_then(json_value_preview);
         let operation = field.operation.as_deref().unwrap_or("set");
+        if existing_only && before.is_none() {
+            entries.push(trace_entry(
+                index as u32,
+                "skip",
+                Some(field.path.clone()),
+                None,
+                None,
+                Some("JSON field is absent from the response".to_string()),
+            ));
+            continue;
+        }
 
         if operation.eq_ignore_ascii_case("remove") {
             can_patch = false;
@@ -773,6 +793,7 @@ fn apply_request_action(
                     &request.body,
                     request.headers.get(CONTENT_ENCODING),
                     &fields,
+                    false,
                 )?;
                 request.body = rewritten_body;
                 entries.extend(field_entries);
@@ -1018,7 +1039,7 @@ fn apply_response_action(
                 return Ok("skipped");
             }
 
-            if is_http2 {
+            if !supports_response_body_rewrite(is_http2) {
                 entries.push(trace_entry(
                     sequence,
                     "skip",
@@ -1031,6 +1052,7 @@ fn apply_response_action(
             }
 
             let mode = payload.mode.as_deref().unwrap_or("replace");
+            let existing_only = mode == "existingFields";
             let before = body_preview(&response.response_body);
             // M3: snapshot the raw body bytes so we can detect whether this rule
             // actually mutated it. content-encoding/etag/content-md5 must only be
@@ -1038,14 +1060,25 @@ fn apply_response_action(
             // rule must not corrupt integrity headers for clients that validate
             // them (the script path was hardened this way; rewrite was not).
             let body_before = response.response_body.clone();
-            if mode.eq_ignore_ascii_case("fields") {
+            if existing_only || mode.eq_ignore_ascii_case("fields") {
                 let fields = payload.fields.unwrap_or_default();
                 let (rewritten_body, field_entries) = apply_body_field_rewrite(
                     &response.response_body,
                     response.response_headers.get(CONTENT_ENCODING),
                     &fields,
+                    existing_only,
                 )?;
-                response.replace_response_body(rewritten_body);
+                if existing_only && field_entries.iter().all(|entry| entry.kind == "skip") {
+                    entries.extend(field_entries);
+                    return Ok("skipped");
+                }
+                if !existing_only
+                    || field_entries
+                        .iter()
+                        .any(|entry| entry.before != entry.after)
+                {
+                    response.replace_response_body(rewritten_body);
+                }
                 entries.extend(field_entries);
             } else {
                 response.replace_response_body(payload.text.unwrap_or_default().into_bytes());
@@ -1062,8 +1095,10 @@ fn apply_response_action(
             // M3: only override content-type and strip integrity headers when the
             // body was actually rewritten.
             if response.response_body != body_before {
-                if let Ok(content_type) = HeaderValue::from_str(&payload.content_type) {
-                    response.response_headers.insert(CONTENT_TYPE, content_type);
+                if !existing_only {
+                    if let Ok(content_type) = HeaderValue::from_str(&payload.content_type) {
+                        response.response_headers.insert(CONTENT_TYPE, content_type);
+                    }
                 }
                 strip_plain_body_edit_headers(&mut response.response_headers);
             }

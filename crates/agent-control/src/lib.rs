@@ -80,6 +80,9 @@ pub enum ControlOperation {
     GetAutomationResource(GetAutomationResourceParams),
     ValidateAutomationPlan(ValidateAutomationPlanParams),
     ApplyAutomationPlan(ApplyAutomationPlanParams),
+    CreateSessionJsonRewrite(CreateSessionJsonRewriteParams),
+    ExtendSessionJsonRewrite(ExtendSessionJsonRewriteParams),
+    WaitForSessionJsonRewrite(WaitForSessionJsonRewriteParams),
     VerifyAutomationChange(VerifyAutomationChangeParams),
     GetAutomationChange(GetAutomationChangeParams),
     RollbackAutomationChange(RollbackAutomationChangeParams),
@@ -120,6 +123,9 @@ impl ControlOperation {
             | Self::GetAutomationResource(_)
             | Self::ValidateAutomationPlan(_)
             | Self::ApplyAutomationPlan(_)
+            | Self::CreateSessionJsonRewrite(_)
+            | Self::ExtendSessionJsonRewrite(_)
+            | Self::WaitForSessionJsonRewrite(_)
             | Self::GetAutomationChange(_)
             | Self::RollbackAutomationChange(_)
             | Self::ClearAgentAutomation(_) => vec![ControlPermission::ManageAutomation],
@@ -139,6 +145,10 @@ impl ControlOperation {
                 | Self::ListAutomationResources(_)
                 | Self::GetAutomationResource(_)
                 | Self::ValidateAutomationPlan(_)
+                | Self::CreateSessionJsonRewrite(CreateSessionJsonRewriteParams {
+                    mode: SessionJsonRewriteMode::Preview,
+                    ..
+                })
                 | Self::GetAutomationChange(_)
                 | Self::RequestAgentGrant(_)
                 | Self::ConsumeAgentGrant(_)
@@ -166,6 +176,9 @@ impl ControlOperation {
             Self::GetAutomationResource(_) => "getAutomationResource",
             Self::ValidateAutomationPlan(_) => "validateAutomationPlan",
             Self::ApplyAutomationPlan(_) => "applyAutomationPlan",
+            Self::CreateSessionJsonRewrite(_) => "createSessionJsonRewrite",
+            Self::ExtendSessionJsonRewrite(_) => "extendSessionJsonRewrite",
+            Self::WaitForSessionJsonRewrite(_) => "waitForSessionJsonRewrite",
             Self::VerifyAutomationChange(_) => "verifyAutomationChange",
             Self::GetAutomationChange(_) => "getAutomationChange",
             Self::RollbackAutomationChange(_) => "rollbackAutomationChange",
@@ -199,6 +212,9 @@ impl ControlOperation {
             Self::GetAutomationResource(_) => "get_automation_resource",
             Self::ValidateAutomationPlan(_) => "validate_automation_plan",
             Self::ApplyAutomationPlan(_) => "apply_automation_plan",
+            Self::CreateSessionJsonRewrite(_) => "create_session_json_rewrite",
+            Self::ExtendSessionJsonRewrite(_) => "extend_session_json_rewrite",
+            Self::WaitForSessionJsonRewrite(_) => "wait_for_session_json_rewrite",
             Self::VerifyAutomationChange(_) => "verify_automation_change",
             Self::GetAutomationChange(_) => "get_automation_change",
             Self::RollbackAutomationChange(_) => "rollback_automation_change",
@@ -280,6 +296,19 @@ impl ControlOperation {
                 params.plan.lifecycle,
                 params.plan.upserts.resource_count() + params.plan.deletes.len()
             ),
+            Self::CreateSessionJsonRewrite(params) => match params.mode {
+                SessionJsonRewriteMode::Preview => "Preview a session JSON response rewrite".into(),
+                SessionJsonRewriteMode::Create => {
+                    "Create a temporary session JSON response rewrite".into()
+                }
+            },
+            Self::ExtendSessionJsonRewrite(params) => format!(
+                "Extend a temporary session JSON response rewrite by {} seconds",
+                params.additional_seconds
+            ),
+            Self::WaitForSessionJsonRewrite(_) => {
+                "Wait for captured response rewrite evidence".into()
+            }
             Self::ApplyAutomationPlan(params) => format!(
                 "Apply {} automation plan to {}",
                 params.plan.lifecycle,
