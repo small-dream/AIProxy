@@ -1698,6 +1698,12 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     assert!(tools.contains(&"search_sessions".to_string()));
     assert!(tools.contains(&"get_session_body".to_string()));
     assert!(tools.contains(&"get_session_fields".to_string()));
+    let field_search = tool_values
+        .iter()
+        .find(|tool| tool["name"] == "search_session_fields")
+        .expect("field search is advertised");
+    assert_eq!(field_search["annotations"]["readOnlyHint"], true);
+    assert_eq!(field_search["annotations"]["openWorldHint"], false);
     assert!(tools.contains(&"get_app_status".to_string()));
     assert!(tools.contains(&"diagnose_ai_proxy_issue".to_string()));
     assert!(tools.contains(&"configure_workspace".to_string()));
@@ -1842,6 +1848,42 @@ fn sidecar_handles_mcp_initialize_and_tools_list() {
     assert_eq!(envelope["meta"]["latestSessionAt"], "2026-10-17T10:00:01Z");
     assert_eq!(envelope["meta"]["captureStatus"], "running");
     assert!(envelope["meta"]["captureUpdatedAt"].is_string());
+
+    writeln!(
+        stdin,
+        "{}",
+        json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "search_session_fields",
+                "arguments": {
+                    "filter": {
+                        "host": "api.example.com",
+                        "startedAfter": "2026-10-17T10:00:00Z",
+                        "startedBefore": "2026-10-17T10:00:02Z"
+                    },
+                    "part": "response",
+                    "target": {"jsonPath": "$.ab.ab_test"},
+                    "condition": {"operator": "equals", "value": "A"}
+                }
+            }
+        })
+    )
+    .unwrap();
+    let response: Value = serde_json::from_str(
+        &receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("field search response timed out"),
+    )
+    .unwrap();
+    assert_eq!(response["id"], 5);
+    let field_envelope: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(field_envelope["ok"], true);
+    assert_eq!(field_envelope["data"]["items"].as_array().unwrap().len(), 1);
+    assert_eq!(field_envelope["data"]["items"][0]["sessionId"], "left");
 
     write_config(
         &context.paths.config_path,

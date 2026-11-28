@@ -1,7 +1,7 @@
 ---
 name: aiproxy
 description: Analyze captured HTTP/WebSocket traffic and, when the user grants control permission, configure and operate AIProxy through MCP. Use when the user mentions AIProxy, packet capture, proxy traffic, a failing request, latency regression, header/cookie or body differences, Timing, WebSocket messages, AB experiment cohorts, asks for evidence by sessionId, or asks to set up or control local capture. 当用户提到 AIProxy、抓包、网络请求、接口调试、Timing、WebSocket、AB 实验分组、需要以 sessionId 为证据，或要求配置、启动、停止 AIProxy 抓包时使用。
-version: 3.8
+version: 3.10
 mcpSchemaMin: 3.3
 ---
 
@@ -9,7 +9,7 @@ mcpSchemaMin: 3.3
 
 # AIProxy traffic analysis and control
 
-You read persisted AIProxy captures through the `aiproxy-mcp` server and can diagnose AIProxy-side failures from bounded, redacted status and log evidence. Read access is redacted by default. When the user grants the matching control permissions, you can also configure the workspace, manage the root certificate, control capture and the system proxy, delete sessions, replay one captured HTTP request directly to its original host, create short-lived Agent rules, and run bounded Rewrite / Map Local automation experiments with explicit evidence. AIProxy never uploads captures, but anything you read is sent to the model provider serving this conversation: request only the smallest scope the task needs and respect the permissions the user configured. The MCP tool contract version is `3.3`; this Skill version is `3.8`.
+You read persisted AIProxy captures through the `aiproxy-mcp` server and can diagnose AIProxy-side failures from bounded, redacted status and log evidence. Read access is redacted by default. When the user grants the matching control permissions, you can also configure the workspace, manage the root certificate, control capture and the system proxy, delete sessions, replay one captured HTTP request directly to its original host, create short-lived Agent rules, and run bounded Rewrite / Map Local automation experiments with explicit evidence. AIProxy never uploads captures, but anything you read is sent to the model provider serving this conversation: request only the smallest scope the task needs and respect the permissions the user configured. The MCP tool contract version is `3.3`; this Skill version is `3.10`.
 
 ## Security boundaries
 
@@ -68,11 +68,12 @@ To stop cleanly, call `stop_capture`. It restores AIProxy's original system-prox
 - `search_sessions`: the first step for any traffic question. Narrow with `host`, `pathContains`, `queryParams`, status, method, time, or duration. `since` accepts `5m`, `2h`, `7d`. Use `compact=true` or `fields` for small payloads.
 - `get_session`: one session's summary, headers, query, cookies, timing, TLS, HTTP/2, and rule traces. Bodies are not included.
 - `get_session_body`: body metadata, selected JSON fields, text-search hits, form parameters, or a page. **`part` is required (`request` or `response`)**; the default mode is `redacted-text`. `jsonPaths` is a streaming extraction path: prefer it for every known field and use the full-body page only when the user genuinely needs the whole payload.
+- `search_session_fields`: find completed sessions by an exact JSON key or JSONPath with `exists` or typed scalar `equals`. Set `part` and a narrow metadata `filter`; the default is the last 10 minutes. Sensitive content is excluded from matching. Check `scan` and continue the same query with `meta.nextCursor` while `scan.hasMore`, even on empty pages.
 - `get_session_fields`: extracts the same JSON paths from up to 20 sessions. **`part` is also required**; use it for experiment groups, flags, or status fields.
 - `get_websocket_messages`: WebSocket messages for one session; binary payloads return metadata only.
 - `get_insights`: aggregates a scoped set (host, path, query, time via `since` or `startedAfter`, method, or status). Use `groupBy=host|path|queryParam` to find the slowest or largest endpoint or cohort.
 - `compare_sessions`: compares summary, headers, query, cookies, timing, and optionally one body. Use `jsonPaths` and `diffMode=auto|json` for structured JSON diffs.
-- `wait_for_sessions`: long-polls for up to 30 seconds for new completed sessions matching the same host/path/method/status/failure filters. Pass the previous `watermark` as `afterWatermark`; a timeout is not an error, and `notes` explains when capture is stopped or unknown.
+- `wait_for_sessions`: long-polls for up to 30 seconds in completion order. Continue with the returned `watermark` as `afterWatermark` and keep the same filters. Use `minCount` to wait for a minimum and `limit` to cap the delivered batch. A timeout can return partial results. When `cursorCompatibility=legacyReplay`, deduplicate retained history by `sessionId` and use the returned `w2` watermark.
 - `export_session_as_curl`: generates a reproducible POSIX or PowerShell cURL command without sending it. Redacted output uses environment-variable placeholders generated for that export only; captured text that merely resembles a marker remains literal. Body export is limited to text up to 64 KiB and raw mode needs `readRawBodies`.
 
 ### Permission-gated control tools

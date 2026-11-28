@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration as StdDuration, Instant};
 
 use aiproxy_db::rusqlite::OptionalExtension;
+use aiproxy_db::session_completion::{read_completion_watermark, CompletionCursor};
 use aiproxy_db::session_search::{
-    latest_completed_session_rowid, search_sessions as db_search_sessions, SessionSearchField,
+    search_completed_sessions, search_sessions as db_search_sessions, SessionSearchField,
     SessionSearchFilter, SessionSortField, SortOrder, MAX_SESSION_SEARCH_LIMIT,
 };
 use aiproxy_db::sessions::{load_session_detail, load_session_summary, SessionSummaryRow};
@@ -256,6 +257,9 @@ pub struct WaitForSessionsRequest {
     /// Minimum number of matching completed sessions before returning, 1-100.
     #[schemars(range(min = 1, max = 100))]
     pub min_count: Option<usize>,
+    /// Maximum matching sessions to return, 1-100. Defaults to minCount.
+    #[schemars(range(min = 1, max = 100))]
+    pub limit: Option<usize>,
     /// Maximum wait in milliseconds, 1000-30000; default 15000.
     #[schemars(range(min = 1000, max = 30000))]
     pub timeout_ms: Option<u64>,
@@ -429,8 +433,6 @@ pub async fn search(
             .collect(),
         sort_by: request.sort_by.into(),
         sort_order: request.sort_order.into(),
-        after_rowid: None,
-        completed_only: false,
         failed_only: request.failed_only,
         failure_kind: request.failure_kind,
         failure_origin: request.failure_origin,
@@ -445,8 +447,15 @@ pub async fn search(
     let cursor = request.cursor;
     let (page, watermark) = state
         .with_db(move |connection| {
-            let page = db_search_sessions(connection, &filter, limit, cursor.as_deref())?;
-            let watermark = latest_completed_session_rowid(connection)?;
+            // The history page and handoff watermark must observe the same commit.
+            let tx = connection.unchecked_transaction().map_err(|error| {
+                aiproxy_db::DbError::query("begin session search snapshot", error)
+            })?;
+            let page = db_search_sessions(&tx, &filter, limit, cursor.as_deref())?;
+            let watermark = read_completion_watermark(&tx)?;
+            tx.commit().map_err(|error| {
+                aiproxy_db::DbError::query("end session search snapshot", error)
+            })?;
             Ok((page, watermark))
         })
         .await?;
@@ -455,8 +464,10 @@ pub async fn search(
         .iter()
         .map(|summary| summary_to_json(summary, &redactor, false, compact, &fields))
         .collect::<Vec<Value>>();
-    let meta = ToolMeta::new(page.truncated, true, page.next_cursor)
-        .with_watermark(encode_watermark(watermark));
+    let mut meta = ToolMeta::new(page.truncated, true, page.next_cursor);
+    if let Some(watermark) = watermark {
+        meta = meta.with_watermark(watermark.encode());
+    }
     Ok((json!({ "items": items }), meta))
 }
 
@@ -493,9 +504,37 @@ pub async fn wait_for_sessions(
         ));
     }
 
-    let initial_watermark = match request.after_watermark.as_deref() {
-        Some(value) => parse_watermark(value)?,
-        None => state.with_db(latest_completed_session_rowid).await?,
+    let requested_limit = request.limit.unwrap_or(min_count);
+    if !(1..=MAX_SESSION_SEARCH_LIMIT).contains(&requested_limit) {
+        return Err(ToolError::invalid("limit must be between 1 and 100."));
+    }
+    let limit = requested_limit.min(config.limits.max_sessions);
+    if limit < min_count {
+        return Err(ToolError::invalid(
+            "limit must be greater than or equal to minCount.",
+        ));
+    }
+
+    let cursor = request
+        .after_watermark
+        .as_deref()
+        .map(parse_watermark)
+        .transpose()?;
+    let legacy_replay = cursor == Some(CompletionCursor::Legacy);
+    let latest = state
+        .with_db(read_completion_watermark)
+        .await?
+        .ok_or_else(|| {
+            ToolError::new(
+                "SCHEMA_INCOMPATIBLE",
+                "Open the current AIProxy desktop app to upgrade session completion storage.",
+            )
+        })?;
+    let initial_watermark = match cursor {
+        Some(cursor) => cursor
+            .resolve(&latest)
+            .map_err(|error| crate::protocol::map_db_error(error, false))?,
+        None => latest,
     };
     let filter = SessionSearchFilter {
         host: request.host,
@@ -507,46 +546,64 @@ pub async fn wait_for_sessions(
         status_max: request.status_max,
         mime: request.mime,
         keyword: request.keyword,
-        after_rowid: Some(initial_watermark),
-        completed_only: true,
         failed_only: request.failed_only,
         failure_kind: request.failure_kind,
         failure_origin: request.failure_origin,
         ..SessionSearchFilter::default()
     };
-    let limit = min_count.min(config.limits.max_sessions).clamp(1, 100);
-    let started = Instant::now();
-    let deadline = StdDuration::from_millis(timeout_ms);
+    let deadline = Instant::now() + StdDuration::from_millis(timeout_ms);
     let capture = state.freshness();
     let mut notes = Vec::new();
+    if legacy_replay {
+        notes.push("A legacy watermark was resumed from retained history; deduplicate results by sessionId.".to_string());
+    }
     if capture.capture_status != "running" {
         notes.push("Capture is not running, so no new traffic may arrive.".to_string());
     }
 
     loop {
         let filter_for_query = filter.clone();
+        let starting_point = initial_watermark.clone();
         let page = state
             .with_db(move |connection| {
-                db_search_sessions(connection, &filter_for_query, limit, None)
+                let latest = read_completion_watermark(connection)?.ok_or_else(|| {
+                    aiproxy_db::DbError::Validation(
+                        "Session cursor database is no longer available.".into(),
+                    )
+                })?;
+                starting_point.validate_against(&latest)?;
+                search_completed_sessions(
+                    connection,
+                    &filter_for_query,
+                    limit,
+                    starting_point.sequence(),
+                )
             })
             .await?;
-        let watermark = state.with_db(latest_completed_session_rowid).await?;
         let satisfied = page.items.len() >= min_count;
-        if satisfied || started.elapsed() >= deadline {
+        if satisfied || Instant::now() >= deadline {
+            let watermark = page
+                .items
+                .last()
+                .map(|last| initial_watermark.at(last.sequence))
+                .unwrap_or(initial_watermark)
+                .encode();
             let items = page
                 .items
                 .iter()
-                .map(|summary| summary_to_json(summary, &redactor, false, true, &[]))
+                .map(|item| summary_to_json(&item.summary, &redactor, false, true, &[]))
                 .collect::<Vec<_>>();
-            let data = json!({
+            let mut data = json!({
                 "satisfied": satisfied,
                 "timedOut": !satisfied,
                 "items": items,
-                "watermark": encode_watermark(watermark),
+                "watermark": watermark,
                 "notes": notes,
             });
-            let mut meta =
-                ToolMeta::new(false, true, None).with_watermark(encode_watermark(watermark));
+            if legacy_replay {
+                data["cursorCompatibility"] = json!("legacyReplay");
+            }
+            let mut meta = ToolMeta::new(page.has_more, true, None).with_watermark(watermark);
             if !satisfied {
                 meta = meta.with_truncated_reason(format!(
                     "wait_for_sessions timed out after {timeout_ms}ms with {} of {} required matches",
@@ -559,30 +616,13 @@ pub async fn wait_for_sessions(
         if let Some(notifier) = &notifier {
             notifier.notify(page.items.len(), min_count).await;
         }
-        tokio::time::sleep(StdDuration::from_millis(300)).await;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        tokio::time::sleep(StdDuration::from_millis(300).min(remaining)).await;
     }
 }
 
-pub(crate) fn encode_watermark(rowid: i64) -> String {
-    format!("w1:{}", rowid.max(0))
-}
-
-pub(crate) fn parse_watermark(value: &str) -> Result<i64, ToolError> {
-    let value = value.trim();
-    let Some(rowid) = value.strip_prefix("w1:") else {
-        return Err(ToolError::invalid(
-            "afterWatermark must be a watermark returned by an AIProxy tool (format w1:<rowid>).",
-        ));
-    };
-    let rowid = rowid
-        .parse::<i64>()
-        .map_err(|_| ToolError::invalid("afterWatermark contains an invalid rowid."))?;
-    if rowid < 0 {
-        return Err(ToolError::invalid(
-            "afterWatermark must not contain a negative rowid.",
-        ));
-    }
-    Ok(rowid)
+pub(crate) fn parse_watermark(value: &str) -> Result<CompletionCursor, ToolError> {
+    CompletionCursor::parse(value).map_err(|error| crate::protocol::map_db_error(error, false))
 }
 
 pub async fn get_session(
@@ -877,6 +917,14 @@ fn failure_to_json(summary: &SessionSummaryRow, redactor: &Redactor, raw: bool) 
 const MAX_SINCE_DAYS: i64 = 3_650;
 
 pub(crate) fn parse_since(value: &str) -> Result<String, ToolError> {
+    let duration = parse_since_duration(value)?;
+    Utc::now()
+        .checked_sub_signed(duration)
+        .map(|since| since.to_rfc3339_opts(SecondsFormat::Secs, true))
+        .ok_or_else(|| ToolError::invalid("since points outside the supported time range."))
+}
+
+pub(crate) fn parse_since_duration(value: &str) -> Result<Duration, ToolError> {
     let value = value.trim();
     if value.len() < 2 {
         return Err(ToolError::invalid(
@@ -915,10 +963,7 @@ pub(crate) fn parse_since(value: &str) -> Result<String, ToolError> {
         )));
     }
 
-    Utc::now()
-        .checked_sub_signed(duration)
-        .map(|since| since.to_rfc3339_opts(SecondsFormat::Secs, true))
-        .ok_or_else(|| ToolError::invalid("since points outside the supported time range."))
+    Ok(duration)
 }
 
 fn escape_like_pattern(value: &str) -> String {

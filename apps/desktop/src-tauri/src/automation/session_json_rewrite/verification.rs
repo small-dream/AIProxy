@@ -2,8 +2,10 @@ use aiproxy_agent_control::WaitForSessionJsonRewriteParams;
 use aiproxy_db::rules::{
     load_rewrite_run_entries, load_rewrite_runs_for_session, RewriteRunEntryRow, RewriteRunRow,
 };
-use aiproxy_db::rusqlite::OptionalExtension;
-use aiproxy_db::session_search::{search_sessions, SessionSearchFilter, SortOrder};
+use aiproxy_db::session_completion::{
+    read_completion_watermark, CompletionCursor, CompletionWatermark,
+};
+use aiproxy_db::session_search::{search_completed_sessions, SessionSearchFilter};
 use aiproxy_proxy_core::{read_json_field, ProxySessionDetail, AUTOMATION_VERIFICATION_HEADER};
 
 use super::*;
@@ -34,21 +36,51 @@ impl AppState {
             || params.change_id.len() > 128
             || !(1000..=30_000).contains(&params.timeout_ms)
             || params.after_rowid.is_some_and(|rowid| rowid < 0)
+            || (params.after_rowid.is_some() && params.after_watermark.is_some())
         {
             return Err(AutomationError::new(
                 "INVALID_ARGUMENT",
                 "changeId, timeoutMs, or session watermark is invalid.",
             ));
         }
-        let target = {
+        let cursor_token = params
+            .after_watermark
+            .or_else(|| params.after_rowid.map(|rowid| format!("w1:{rowid}")));
+        let cursor = cursor_token
+            .as_deref()
+            .map(CompletionCursor::parse)
+            .transpose()
+            .map_err(|error| AutomationError::new("INVALID_ARGUMENT", error.to_string()))?;
+        let legacy_replay = cursor == Some(CompletionCursor::Legacy);
+        let (target, initial_watermark) = {
             let conn = self.lock_db_for_ipc().map_err(AutomationError::internal)?;
+            let latest = read_completion_watermark(&conn)
+                .map_err(|error| {
+                    AutomationError::internal(format!("read completion watermark: {error}"))
+                })?
+                .ok_or_else(|| {
+                    AutomationError::new(
+                        "SCHEMA_INCOMPATIBLE",
+                        "Session completion storage requires a database upgrade.",
+                    )
+                })?;
+            let watermark = match cursor {
+                Some(cursor) => cursor
+                    .resolve(&latest)
+                    .map_err(|error| AutomationError::new("CURSOR_INVALID", error.to_string()))?,
+                None => latest.at(0),
+            };
             let change = load_wait_change(&conn, &params.change_id)?.ok_or_else(|| {
                 AutomationError::new("NOT_FOUND", "Temporary rewrite change not found.")
             })?;
-            load_session_rewrite_target(&conn, change)?
+            (load_session_rewrite_target(&conn, change)?, watermark)
+        };
+        let wait = RewriteEvidenceWait {
+            initial_watermark,
+            legacy_replay,
         };
         let Some(activated_at) = target.change.activated_at.as_deref().and_then(parse_time) else {
-            return Ok(wait_result(&target, "expired", params.after_rowid));
+            return Ok(wait.result(&target, "expired", None));
         };
         let filter = SessionSearchFilter {
             host: target.pattern.host_str().map(str::to_owned),
@@ -56,34 +88,32 @@ impl AppState {
             path_contains: Some(target.pattern.path().to_owned()),
             query_params: target.pattern.query_pairs().into_owned().collect(),
             started_after: Some(activated_at.to_rfc3339()),
-            after_rowid: params.after_rowid,
-            completed_only: true,
-            sort_order: SortOrder::Asc,
             ..SessionSearchFilter::default()
         };
         let deadline = tokio::time::Instant::now() + Duration::from_millis(params.timeout_ms);
-        let mut examined = HashSet::new();
+        let mut scanned_through = wait.initial_watermark.sequence();
 
         loop {
             let Some(expires_at) = self.wait_expiry(&target)? else {
-                return Ok(wait_result(&target, "expired", params.after_rowid));
+                return Ok(wait.result(&target, "expired", None));
             };
-            let mut cursor = None;
             loop {
                 let page = {
                     let conn = self.lock_db_for_ipc().map_err(AutomationError::internal)?;
-                    search_sessions(&conn, &filter, PAGE_SIZE, cursor.as_deref()).map_err(
+                    search_completed_sessions(&conn, &filter, PAGE_SIZE, scanned_through).map_err(
                         |error| {
                             AutomationError::internal(format!("search rewrite evidence: {error}"))
                         },
                     )?
                 };
-                for row in page.items {
+                for item in page.items {
+                    scanned_through = item.sequence;
+                    let row = item.summary;
                     let eligible = parse_time(&row.started_at)
                         .is_some_and(|start| start >= activated_at)
                         && Url::parse(&row.url)
                             .is_ok_and(|url| session_rewrite_url_matches(&target.pattern, &url));
-                    if !eligible || !examined.insert(row.id.clone()) {
+                    if !eligible {
                         continue;
                     }
                     let Some(detail) = self
@@ -104,21 +134,23 @@ impl AppState {
                     // candidate exists, recheck the activation before recording it.
                     let _automation = self.automation_mutation_lock().lock().await;
                     if self.wait_expiry(&target)?.is_none() {
-                        return Ok(wait_result(&target, "expired", params.after_rowid));
+                        return Ok(wait.result(&target, "expired", None));
                     }
                     self.ensure_verification_targets_current(&target.change)?;
                     return self.record_session_rewrite_verification(
                         &target,
                         &detail,
                         trace.as_ref(),
-                        params.after_rowid,
+                        &wait,
+                        item.sequence,
                     );
                 }
                 if tokio::time::Instant::now() >= deadline {
-                    return Ok(wait_result(&target, "timed_out", params.after_rowid));
+                    return Ok(wait.result(&target, "timed_out", None));
                 }
-                let Some(next) = page.next_cursor else { break };
-                cursor = Some(next);
+                if !page.has_more {
+                    break;
+                }
             }
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             let until_expiry = (expires_at - Utc::now()).to_std().unwrap_or_default();
@@ -169,14 +201,15 @@ impl AppState {
         target: &SessionRewriteTarget,
         detail: &ProxySessionDetail,
         trace: Option<&CapturedRewriteTrace>,
-        after_rowid: Option<i64>,
+        wait: &RewriteEvidenceWait,
+        sequence: i64,
     ) -> Result<Value, AutomationError> {
         let actual = captured_field(detail, &target.path);
         let equal = actual
             .as_ref()
             .is_some_and(|value| value == &target.expected);
         if self.wait_expiry(target)?.is_none() {
-            return Ok(wait_result(target, "expired", after_rowid));
+            return Ok(wait.result(target, "expired", None));
         }
         let (status, code, verification_status) = match trace
             .map(|trace| trace.run.outcome.as_str())
@@ -258,18 +291,6 @@ impl AppState {
             final_url: None,
             conflict: None,
         };
-        let watermark = {
-            let conn = self.lock_db_for_ipc().map_err(AutomationError::internal)?;
-            conn.query_row(
-                "SELECT rowid FROM session_summaries WHERE id=?1",
-                [&session_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|error| {
-                AutomationError::internal(format!("read evidence watermark: {error}"))
-            })?
-        };
         let verified = self.persist_verification(
             &target.change,
             &options,
@@ -277,7 +298,7 @@ impl AppState {
             std::slice::from_ref(&session_id),
             &["External evidence covers the captured HTTP response and its rewrite trace.".into()],
         )?;
-        let mut result = wait_result(target, status, watermark);
+        let mut result = wait.result(target, status, Some(sequence));
         result["code"] = json!(code);
         result["sessionId"] = json!(session_id);
         result["responseStatus"] = json!(detail.summary.status_code);
@@ -308,11 +329,26 @@ fn load_wait_change(
         .map_err(|error| AutomationError::internal(format!("load temporary rewrite: {error}")))
 }
 
-fn wait_result(target: &SessionRewriteTarget, status: &str, watermark: Option<i64>) -> Value {
-    json!({
-        "status": status, "ruleId": target.rule.id, "changeId": target.change.id,
-        "watermark": watermark.map(|rowid| format!("w1:{rowid}")),
-    })
+struct RewriteEvidenceWait {
+    initial_watermark: CompletionWatermark,
+    legacy_replay: bool,
+}
+
+impl RewriteEvidenceWait {
+    fn result(&self, target: &SessionRewriteTarget, status: &str, sequence: Option<i64>) -> Value {
+        let watermark = self
+            .initial_watermark
+            .at(sequence.unwrap_or(self.initial_watermark.sequence()))
+            .encode();
+        let mut result = json!({
+            "status": status, "ruleId": target.rule.id, "changeId": target.change.id,
+            "watermark": watermark,
+        });
+        if self.legacy_replay {
+            result["cursorCompatibility"] = json!("legacyReplay");
+        }
+        result
+    }
 }
 
 fn is_external_capture(detail: &ProxySessionDetail) -> bool {

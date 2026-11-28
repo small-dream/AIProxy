@@ -625,6 +625,16 @@ impl Redactor {
         None
     }
 
+    pub(crate) fn field_search_cursor_mac(&self, payload: &[u8], query: &[u8]) -> Hmac<Sha256> {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.hash_key).expect("HMAC accepts keys of any size");
+        mac.update(b"search_session_fields:v1\0");
+        mac.update(&(payload.len() as u64).to_be_bytes());
+        mac.update(payload);
+        mac.update(query);
+        mac
+    }
+
     fn pseudonym(&self, kind: &str, value: &str) -> String {
         type HmacSha256 = Hmac<Sha256>;
         let mut mac =

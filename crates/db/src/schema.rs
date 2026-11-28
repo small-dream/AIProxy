@@ -694,6 +694,7 @@ pub fn run_migrations(conn: &Connection) -> Result<(), DbError> {
     // traces too. Existing databases still carry the constraint, so rebuild the
     // two tables without it.
     migrate_rule_trace_rule_id_foreign_keys(conn)?;
+    crate::session_completion::migrate_session_completions(conn)?;
 
     Ok(())
 }
@@ -947,6 +948,67 @@ fn collapse_duplicate_global_variables(conn: &Connection) -> Result<(), DbError>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn completion_migration_backfills_old_finished_sessions_and_keeps_pending_sessions() {
+        use crate::session_completion::read_completion_watermark;
+        use crate::session_search::{search_completed_sessions, SessionSearchFilter};
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(CREATE_TABLES).unwrap();
+        for (id, finished_at, status) in [
+            ("pending", "", 0),
+            ("last", "2026-01-01T00:00:03Z", 200),
+            ("first", "2026-01-01T00:00:02Z", 200),
+        ] {
+            conn.execute(
+                "INSERT INTO session_summaries
+                   (id, method, host, path, protocol, started_at, finished_at, status_code, url)
+                 VALUES (?1, 'GET', 'api.example.test', '/', 'HTTP/1.1',
+                         '2026-01-01T00:00:00Z', ?2, ?3, 'http://api.example.test/')",
+                rusqlite::params![id, finished_at, status],
+            )
+            .unwrap();
+        }
+        assert!(read_completion_watermark(&conn).unwrap().is_none());
+
+        run_migrations(&conn).unwrap();
+        let watermark = read_completion_watermark(&conn).unwrap().unwrap();
+        let page =
+            search_completed_sessions(&conn, &SessionSearchFilter::default(), 10, 0).unwrap();
+        assert_eq!(
+            page.items
+                .into_iter()
+                .map(|item| item.summary.id)
+                .collect::<Vec<_>>(),
+            ["first", "last"],
+        );
+        run_migrations(&conn).unwrap();
+        assert_eq!(
+            read_completion_watermark(&conn).unwrap().unwrap(),
+            watermark
+        );
+
+        conn.execute(
+            "UPDATE session_summaries SET finished_at='2026-01-01T00:00:04Z',
+                failure_kind='connect_refused' WHERE id='pending'",
+            [],
+        )
+        .unwrap();
+        let page = search_completed_sessions(
+            &conn,
+            &SessionSearchFilter::default(),
+            10,
+            watermark.sequence(),
+        )
+        .unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].summary.id, "pending");
+        assert_eq!(
+            page.items[0].summary.failure_kind.as_deref(),
+            Some("connect_refused")
+        );
+    }
+
     use super::*;
 
     #[test]

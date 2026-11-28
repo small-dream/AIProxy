@@ -615,8 +615,8 @@ impl<'de> Visitor<'de> for SensitiveValueVisitor {
     }
 }
 
-struct DepthLimitedIgnoredSeed {
-    depth: usize,
+pub(super) struct DepthLimitedIgnoredSeed {
+    pub(super) depth: usize,
 }
 
 impl<'de> DeserializeSeed<'de> for DepthLimitedIgnoredSeed {

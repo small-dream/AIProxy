@@ -412,6 +412,7 @@ async fn live_http1_rewrites_only_the_matching_field_until_expiry() {
     let wait = state.wait_for_session_json_rewrite(
         WaitForSessionJsonRewriteParams {
             change_id: changed["changeId"].as_str().unwrap().to_owned(),
+            after_watermark: None,
             after_rowid: None,
             timeout_ms: 2000,
         },

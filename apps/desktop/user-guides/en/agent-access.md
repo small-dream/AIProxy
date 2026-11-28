@@ -90,6 +90,12 @@ Expand **Advanced permissions** to:
 - Add **Custom sensitive field names** for headers, query parameters, or JSON fields that need redaction; press Enter after each entry.
 - Tune **Maximum sessions per page** and **Body chunk limit** to reduce the data returned by one call.
 
+### Resume capture queries and wait for completed sessions
+
+After `search_sessions`, pass its `meta.watermark` as `afterWatermark` to `wait_for_sessions` with the same filters. Matching sessions arrive in completion order. Pass the returned watermark to continue. Use `minCount` for the desired minimum and `limit` for the maximum returned per call. A timeout may return a partial batch. An empty result preserves the starting watermark.
+
+`cursorCompatibility=legacyReplay` means an older watermark was resumed from retained history. Deduplicate by `sessionId` and continue with the new watermark. If waiting reports that the database needs an upgrade, open the current AIProxy desktop app to run the migration.
+
 ### Read large JSON on demand
 
 When the Agent already knows the target field, use `get_session_body` with `jsonPaths` (for example `$.preferences.local_premade_wizard_config_rc`) instead of paging the full body. JSON extraction is streamed: one body may be scanned up to 64 MiB and a batch field request has a 256 MiB scan budget, while only the requested fields are returned.
@@ -98,6 +104,14 @@ When the Agent already knows the target field, use `get_session_body` with `json
 - To drill down, append a child key from `valueSummary.keys[].name` to `jsonPaths`; do not page the full body to discover or retrieve a known field.
 - `textQuery` uses streaming redaction and chunked search for JSON bodies, with a 16 MiB limit. Above that limit the error points you to `jsonPaths` for the target field. Split text search from field extraction for large bodies.
 - A path returns at most 256 matches. Additional matches are withheld and reported as `resultLimit`. The extracted field payload is also capped at 960 KiB; paths that are not stored have `omittedByResultLimit=true`, so split them into smaller `jsonPaths` calls. `decodedSizeBytes` is the complete body size, while `returnedBytes` and `viewSizeBytes` describe only the extracted result.
+
+## Search sessions by JSON field
+
+Use `search_session_fields` to find completed sessions by a request or response JSON field. Narrow the search with a host, endpoint, or time `filter`. The default window is the last 10 minutes.
+
+- Use `target={"key":"hide_user_name"}` to discover concrete paths for a known key. Use `target={"jsonPath":"$.data[*].hide_user_name"}` to restrict the search to a known structure.
+- Use `condition={"operator":"exists"}` for visible fields or `condition={"operator":"equals","value":0}` for numeric zero. Pass a string to match `"0"`. The tool requires `readSessions` and `readBodies` and skips sensitive fields and redacted values.
+- Each page scans up to 100 candidates and 256 MiB of decoded content, with a 64 MiB per-body limit. If `scan.hasMore=true`, pass `meta.nextCursor` with the same search even when the current page is empty. The original time range and completion watermark stay fixed. Start a fresh search to see later completions.
 
 ## Control permissions
 

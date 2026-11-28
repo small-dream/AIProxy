@@ -90,6 +90,12 @@ Agent 可以在应用关闭时自动拉起并聚焦 AIProxy。**始终允许** �
 - 添加 **自定义敏感字段名**，补充需要脱敏的消息头、查询参数或 JSON 字段；输入后按 Enter。
 - 调整 **单页最大会话数** 与 **消息体分块上限**，限制单次返回的数据量。
 
+### 连续查询和等待新会话
+
+使用 `search_sessions` 查看历史结果后，可把 `meta.watermark` 传给 `wait_for_sessions` 的 `afterWatermark`，沿用相同的筛选条件。等待按会话完成顺序返回结果，把返回的水位传给下一轮即可继续。可用 `minCount` 设置希望等到的数量，用 `limit` 控制单次最多返回多少条。超时可能带部分结果，空结果保留起始水位。
+
+收到 `cursorCompatibility=legacyReplay` 时，表明旧水位触发了保留历史的补查。按 `sessionId` 去重，并使用结果中的新版水位继续。若等待提示数据库需要升级，打开新版 AIProxy 桌面应用完成迁移。
+
 ### 按需读取大 JSON
 
 当 Agent 已经知道目标字段时，应使用 `get_session_body` 的 `jsonPaths`（例如 `$.preferences.local_premade_wizard_config_rc`），而不是分页读取完整消息体。JSON 字段提取采用流式扫描：单个消息体最多扫描 64 MiB，批量字段读取总预算为 256 MiB，但默认只返回目标字段。
@@ -98,6 +104,14 @@ Agent 可以在应用关闭时自动拉起并聚焦 AIProxy。**始终允许** �
 - 需要继续下钻时，根据 `valueSummary.keys[].name` 拼接更具体的 `jsonPaths`，不要为了发现或读取已知字段而分页完整消息体。
 - `textQuery` 对 JSON 消息体使用流式脱敏与分块搜索，上限为 16 MiB；超过上限时会明确提示改用 `jsonPaths` 读取目标字段。大消息体的文本搜索应与字段提取拆成不同调用。
 - 单路径最多返回 256 个匹配；超限时保留已有结果并标记 `resultLimit`。单次字段载荷超过 960 KiB 时，未保存的路径带 `omittedByResultLimit=true`，应拆成更小的 `jsonPaths` 调用。`decodedSizeBytes` 是完整消息体大小，`returnedBytes` 与 `viewSizeBytes` 只描述本次提取结果。
+
+## 按 JSON 字段搜索会话
+
+用 `search_session_fields` 在已完成的会话中筛查请求或响应 JSON。先用 `filter` 缩小主机、接口或时间范围。未指定时间时默认最近 10 分钟。
+
+- 知道字段名时，用 `target={"key":"hide_user_name"}` 查出具体路径。知道结构时，用 `target={"jsonPath":"$.data[*].hide_user_name"}` 限定位置。
+- `condition={"operator":"exists"}` 查找可见字段。`condition={"operator":"equals","value":0}` 匹配数字 0，字符串 `"0"` 需传字符串。工具需要 `readSessions` 和 `readBodies`，敏感字段和被脱敏的值均不会参与匹配。
+- 每页最多扫描 100 个候选会话、256 MiB 解码内容，单个消息体上限为 64 MiB。若 `scan.hasMore=true`，即使本页没有匹配，也可传入 `meta.nextCursor` 继续相同查询。续查沿用首次查询的时间范围和完成水位，新完成的会话需重新查询。
 
 ## 控制权限
 

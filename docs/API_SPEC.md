@@ -2806,9 +2806,9 @@ type AgentAuditLog = {
 
 ### MCP stdio tool contract
 
-`aiproxy-mcp` 当前工具契约版本为 `3.3`，共 36 个工具：
+`aiproxy-mcp` 当前工具契约版本为 `3.3`，共 37 个工具：
 
-- 10 个读取工具：`list_workspaces`、`search_sessions`、`wait_for_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`、`export_session_as_curl`。
+- 11 个读取工具：`list_workspaces`、`search_sessions`、`wait_for_sessions`、`get_session`、`get_session_body`、`get_session_fields`、`search_session_fields`、`get_websocket_messages`、`get_insights`、`compare_sessions`、`export_session_as_curl`。
 - 2 个只读诊断工具：`get_app_status`、`diagnose_ai_proxy_issue`。
 - 1 个受 `manageRules` 保护的 legacy 临时规则只读工具：`list_agent_rules`。
 - 12 个受权限保护的控制工具：`configure_workspace`、`start_capture`、`stop_capture`、`set_system_proxy`、`generate_certificate`、`open_certificate_installer`、`remove_certificate_trust`、`clear_sessions`、`delete_sessions`、`replay_session`、`create_agent_rule`、`remove_agent_rules`。
@@ -2832,8 +2832,12 @@ type AgentAuditLog = {
 - 每次成功调用都会按 `limits.maxResponseBytes` 检查 `data` 的序列化大小；超限返回 `RESULT_TOO_LARGE`，`details` 包含 `resultBytes` 与 `maxResponseBytes`。调用方应减少 `limit`、改用 `compact` / `fields`，或拆分批量请求，不得静默截断后当作完整结果。
 
 - `search_sessions`：支持 `sortBy=startedAt|durationMs|sizeBytes|statusCode` 与 `sortOrder=asc|desc`；同值按 `started_at`、`id` 确定性排序。cursor v2 绑定排序字段、方向和当前排序值，不匹配时返回 `CURSOR_INVALID`。
+- `search_session_fields` 使用独立游标，契约见下文「按 JSON 字段搜索会话」。
 - `get_websocket_messages`：`direction` 大小写不敏感，接受 `clientToServer` / `serverToClient` 及 `client` / `server` / `c2s` / `s2c` 别名（统一规范化后查询）；`timestamp ASC, id ASC`，不透明 cursor。
-- `wait_for_sessions`：只轮询已完成的持久化会话，最长 30 秒，间隔 300ms；不是实时流。`afterWatermark` 省略时以调用时刻最新完成会话为起点。超时返回 `satisfied=false`、`timedOut=true`，不是工具错误；抓包未运行时 `notes` 会明确提示。分页结果与下一轮 `meta.watermark` 一起使用。
+- `wait_for_sessions` 按持久化完成顺序轮询匹配会话，最长 30 秒，每 300 毫秒轮询一次。`minCount` 默认为 1，`limit` 默认为 `minCount`。两者范围均为 1–100，受 `maxSessions` 约束，有效 `limit` 须大于等于 `minCount`。
+- 省略 `afterWatermark` 时从调用开始时的完成水位等待。成功和超时都返回 `items`、`satisfied`、`timedOut`、`watermark`、`notes`。超时可返回部分结果。水位只推进到最后一条交付结果，空结果保留起始水位。`data.watermark` 与 `meta.watermark` 一致。同一范围内续查时原样使用返回的水位。
+- `search_sessions` 在同一读快照返回历史页和完成水位，历史分页仍使用原有 `nextCursor`。完成水位使用不透明的 `w2:<databaseId>:<completionSeq>`。传入旧 `w1:<rowid>` 时补查当前数据库保留的匹配记录，返回 `cursorCompatibility=legacyReplay` 及 `w2`。过渡时按 `sessionId` 去重。来自其他数据库或超前于本库完成序号的 `w2` 返回 `CURSOR_INVALID`。
+- 桌面端升级数据库时为已完成旧会话补录完成序号，未完成会话在完成后分配。MCP 检测到未迁移的数据库时，历史搜索继续可用，完成水位为空。等待工具返回 `SCHEMA_INCOMPATIBLE` 并提示打开新版桌面应用完成迁移。
 - `export_session_as_curl`：只生成命令，不发送请求。支持 `posix` / `powershell` 转义；敏感 Header、Query 与 JSON 字段在脱敏模式下替换为环境变量占位符，二进制或超过 64 KiB 的文本 Body 直接省略并说明原因；raw 模式需要 `readRawBodies`。每次导出使用独立标记，只有本次导出生成的占位符才会渲染为环境变量；抓包文本中的相似前缀按字面量转义，环境变量名仅允许 `[A-Z0-9_]`。
 
 失败原因：
@@ -2967,7 +2971,35 @@ Body 与字段提取：
 - `get_insights` 支持 `since`（相对时长，例如 `2h`）或 `startedAfter` / `startedBefore`；两者互斥。另支持 `pathContains`、`queryParams` 和 `groupBy=host|path|queryParam`；`queryParam` 需提供 `groupQueryParam`。每组返回 `key`、`requestCount`、`errorCount`、`errorRate`、`avgDurationMs`、`p50DurationMs`、`p95DurationMs`、`totalBytes`。
 - `compare_sessions` 支持 `jsonPaths` 与 `diffMode=auto|json|text`。`diffMode=json` 对非 JSON 返回 `BODY_NOT_JSON`；任一侧 Body 扫描超过 8 MiB 返回 `BODY_TOO_LARGE`，不比较不完整内容。比较路径仍沿用 8 MiB 完整解析上限，错误提示不得建议改用 `jsonPaths` 绕过该上限。
 - `list_workspaces` 是可选工具，不是检索入口：会话全局存储、不能按 workspace 过滤。它额外返回全局 `sessionCount`、`latestSessionAt`、`latestSessionId`、`sessionScope="global"`；控制通道可用时，当前激活工作区返回真实 `runtimeStatus`，否则为 `unknown`。数据库缺少工作区列时返回 `SCHEMA_INCOMPATIBLE`。
-- 数据库 schema 滞后（更新 AIProxy 后尚未启动应用）时，`get_session`、`get_session_fields`、`get_session_body`、`compare_sessions`、`get_websocket_messages`、`list_workspaces` 返回 `SCHEMA_INCOMPATIBLE`，`message` 明确要求先打开一次 AIProxy 完成迁移；`search_sessions`、`get_insights`、`get_session(summary)` 仍可用。
+#### 按 JSON 字段搜索会话
+
+`search_session_fields` 是本地只读工具。需要 `readSessions` 和 `readBodies`，并遵循现有消息体临时授权流程。
+
+| 入参 | 约定 |
+| --- | --- |
+| `filter` | 可选。支持 `host`、`hostContains`、`pathContains`、`queryParams`、`method`、`statusMin`、`statusMax`、`protocol`、`mime`、`startedAfter`、`startedBefore`、`since`、`minDurationMs`、`maxDurationMs`、`failedOnly`、`failureKind`、`failureOrigin`。无时间条件时默认最近 10 分钟。时间戳为 RFC 3339，`since` 与 `startedAfter` 互斥。Query 参数名称和值须通过脱敏检查。 |
+| `part` | 必填，`request` 或 `response`。 |
+| `target` | 必填，二选一。`{"key":"hide_user_name"}` 按大小写精确查找任意深度的属性。`{"jsonPath":"$.data[*].hide_user_name"}` 使用属性、数组下标或数组通配符 `[*]`，兼容已有 Body 工具的 JSONPath 语法。 |
+| `condition` | 必填。`{"operator":"exists"}` 匹配可见字段，包括 `null`、对象和数组。`{"operator":"equals","value":0}` 只接受 JSON 标量，按类型比较。数字按数值匹配，`0`、`"0"`、`false` 和 `null` 分别处理。显式 `null` 可匹配，缺字段不会匹配。 |
+| `limit` | 每页最多返回的匹配会话数，默认 20，范围 1–100，同时受 `limits.maxSessions` 约束。 |
+| `cursor` | 下一页传入本工具返回的 `meta.nextCursor`，保持相同的筛选条件、`part`、`target` 和 `condition`。可调整 `limit`。 |
+
+```json
+{
+  "filter": {"queryParams":{"_method":"site.get_mydeals_drawer"},"since":"10m"},
+  "part": "response",
+  "target": {"key":"hide_user_name"},
+  "condition": {"operator":"equals","value":0},
+  "limit": 20
+}
+```
+
+- `data.items[]` 按完成序号从新到旧返回 `sessionId`、`statusCode`、`startedAt`、`finishedAt`、`matches[]` 和 `matchesTruncated`。每个匹配包含具体 `jsonPath` 和 `valueType`。可见标量带 `value`，超过 512 字节的可见字符串只带 `valueTruncated=true`。容器只返回类型。敏感字段、其子树和命中内容脱敏规则的值均从匹配中排除。单会话最多返回 20 个路径，单路径最多 1 KiB，单会话匹配载荷最多 6 KiB。超过 64 KiB 的目标字符串不参与匹配，返回截断提示。
+- `data.scan` 返回 `status`（`noCandidates`、`noMatch`、`matched` 或 `partial`）、`hasMore`、`stopReason`、`processedSessions`、`scannedSessions`、`scannedBytes` 和预算上限。`skipped` 按会话统计 `bodyUnavailable`、`nonJson`、`captureTruncated`、`bodyTooLarge`、`depthLimit` 与 `redacted`。同一会话可以包含可见匹配和被脱敏排除的字段。
+- 每页最多处理 100 个候选、扫描 256 MiB 解码内容，每个消息体最多 64 MiB。单体超限或抓包已截断时跳过并继续。单体可扫描但放不进本页剩余字节预算时，保留给下一页。达到结果、候选数、字节或响应大小预算时，`scan.stopReason` 分别为 `resultLimit`、`candidateBudget`、`byteBudget` 或 `responseBudget`。即使 `items` 为空，只要 `hasMore=true`，就可用下一页游标继续。
+- 首次查询在同一读事务固定数据库、最高完成序号和绝对时间范围。游标记录最后处理的候选位置，由带密钥的校验绑定规范化查询，且不包含字段值或 Query 参数。首次查询后才完成的会话通过开启新查询获取。跨查询、跨数据库或篡改游标返回 `CURSOR_INVALID`。此游标独立于历史列表分页和 `wait_for_sessions` 的 `w1` / `w2` 水位。
+
+- 数据库 schema 滞后（更新 AIProxy 后尚未启动应用）时，`get_session`、`get_session_fields`、`search_session_fields`、`get_session_body`、`compare_sessions`、`get_websocket_messages`、`list_workspaces` 返回 `SCHEMA_INCOMPATIBLE`，`message` 明确要求先打开一次 AIProxy 完成迁移；`search_sessions`、`get_insights`、`get_session(summary)` 仍可用。
 
 控制工具：
 
@@ -3038,16 +3070,16 @@ type ExtendSessionJsonRewriteRequest = {
 
 type WaitForSessionJsonRewriteRequest = {
   changeId: string;
-  afterWatermark?: string;    // w1:<rowid>，默认考虑本次激活后的抓包
+  afterWatermark?: string;    // 完成水位 w2，兼容 w1，默认考虑本次激活后的抓包
   timeoutMs?: number;         // 1000–30000，默认 15000
 };
 ```
 
 - 续期仅处理由 `create_session_json_rewrite` 创建的 Agent 临时规则，使用该规则所属的当前工作区。有效规则从原到期时间向后延长，保留规则 ID、change ID 和激活时间。到期或应用重启清理过的规则先执行 HTTP/2 预检，通过后保留两个 ID，并从新的 `activatedAt` 计时。
 - 返回 `ruleId`、`changeId`、`previousExpiresAt`、`expiresAt`、`activatedAt`、`reactivated` 和 `idempotent`。同一规则上同键同参数重试返回原续期结果。同键不同参数返回 `IDEMPOTENCY_CONFLICT`。剩余有效期超过一小时返回 `TTL_LIMIT_EXCEEDED`。预检拦截时返回 `blocked` 和原因。
-- 验证只读取本次激活之后的匹配抓包。指定游标时还要求会话插入水位在其之后。Agent 直连重放与带有 AIProxy 内部验证标记的受控请求会被排除。有效规则在等待期间续期，当前等待会采用新的到期时间。
+- 验证只读取本次激活之后的匹配抓包。指定游标时还要求会话完成序号在其之后。Agent 直连重放与带有 AIProxy 内部验证标记的受控请求会被排除。有效规则在等待期间续期，当前等待会采用新的到期时间。
 - `verified` 要求目标改写追踪为成功，且响应字段的 JSON 值和类型均匹配。追踪跳过返回 `skipped`，其他证据不符返回 `mismatch`。三者返回 `sessionId`、`responseStatus`、`evidenceLevel=external`、`verificationId`、脱敏的 `assertion`、`ruleTrace` 和会话水位。未捕获可用响应字段时，`assertion.valueAvailable=false`。
-- 等待超时返回 `timed_out`。规则到期、被清理或重新激活时，针对旧激活的等待返回 `expired`。超时与失效均不写验证记录，返回原请求游标（未传时为空）。
+- 等待超时返回 `timed_out`。规则到期、被清理或重新激活时，针对旧激活的等待返回 `expired`。超时与失效均不写验证记录，返回本次等待的起始完成水位。
 
 自动化计划请求形态：
 

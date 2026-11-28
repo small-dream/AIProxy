@@ -184,7 +184,7 @@ pub async fn create_session_json_rewrite(
 pub struct WaitForSessionJsonRewriteRequest {
     /// Change ID returned by create_session_json_rewrite.
     pub change_id: String,
-    /// Optional w1 session watermark. Omit to consider captures since activation.
+    /// Optional session watermark (w2 or legacy w1). Omit to consider captures since activation.
     pub after_watermark: Option<String>,
     /// Wait between 1000 and 30000 ms. Defaults to 15000.
     #[schemars(range(min = 1000, max = 30000))]
@@ -220,13 +220,13 @@ pub async fn wait_for_session_json_rewrite(
     {
         return Err(ToolError::invalid("changeId or timeoutMs is invalid."));
     }
+    if let Some(watermark) = request.after_watermark.as_deref() {
+        parse_watermark(watermark)?;
+    }
     let operation = ControlOperation::WaitForSessionJsonRewrite(WaitForSessionJsonRewriteParams {
         change_id: request.change_id.clone(),
-        after_rowid: request
-            .after_watermark
-            .as_deref()
-            .map(parse_watermark)
-            .transpose()?,
+        after_watermark: request.after_watermark,
+        after_rowid: None,
         timeout_ms,
     });
     let config = state.config()?;

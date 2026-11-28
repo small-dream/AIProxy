@@ -54,6 +54,7 @@ pub struct SchemaCapabilities {
     pub rule_traces: bool,
     pub workspaces: bool,
     pub session_failures: bool,
+    pub session_completions: bool,
 }
 
 /// Inspect the database schema without mutating it.
@@ -166,6 +167,7 @@ pub fn inspect_schema(conn: &Connection) -> Result<SchemaCapabilities, DbError> 
         rule_traces,
         workspaces,
         session_failures,
+        session_completions: crate::session_completion::completion_schema_available(conn)?,
     })
 }
 

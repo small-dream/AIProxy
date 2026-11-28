@@ -9,6 +9,7 @@ pub mod insights;
 mod numeric;
 pub mod rules;
 pub mod schema;
+pub mod session_completion;
 pub mod session_search;
 pub mod sessions;
 pub mod workspaces;

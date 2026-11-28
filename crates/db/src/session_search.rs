@@ -98,10 +98,6 @@ pub struct SessionSearchFilter {
     pub search_in: Vec<SessionSearchField>,
     pub sort_by: SessionSortField,
     pub sort_order: SortOrder,
-    /// Match summaries inserted after this opaque SQLite rowid watermark.
-    pub after_rowid: Option<i64>,
-    /// Wait-for-traffic only counts rows whose capture has finished.
-    pub completed_only: bool,
     /// Restrict results to sessions with a recorded failure.
     pub failed_only: bool,
     /// Exact failure category, for example connect_refused.
@@ -136,6 +132,97 @@ pub fn search_sessions(
     limit: usize,
     cursor: Option<&str>,
 ) -> Result<SessionSearchPage, DbError> {
+    let (rows, truncated) = query_sessions(conn, filter, limit, cursor, None)?;
+    let items: Vec<_> = rows.into_iter().map(|(summary, _)| summary).collect();
+    let next_cursor = if truncated {
+        items
+            .last()
+            .map(|row| encode_cursor(row, filter.sort_by, filter.sort_order))
+            .transpose()?
+    } else {
+        None
+    };
+    Ok(SessionSearchPage {
+        items,
+        next_cursor,
+        truncated,
+    })
+}
+
+#[derive(Debug)]
+pub struct CompletedSession {
+    pub summary: SessionSummaryRow,
+    pub sequence: i64,
+}
+
+#[derive(Debug)]
+pub struct CompletedSessionPage {
+    pub items: Vec<CompletedSession>,
+    pub has_more: bool,
+}
+
+/// Read matching sessions in commit order, reusing the historical search filters.
+pub fn search_completed_sessions(
+    conn: &Connection,
+    filter: &SessionSearchFilter,
+    limit: usize,
+    after_sequence: i64,
+) -> Result<CompletedSessionPage, DbError> {
+    search_completion_range(conn, filter, limit, CompletionRange::After(after_sequence))
+}
+
+/// Read a fixed completion snapshot newest first, optionally resuming before
+/// the last processed sequence.
+pub fn search_completion_snapshot(
+    conn: &Connection,
+    filter: &SessionSearchFilter,
+    limit: usize,
+    through_sequence: i64,
+    before_sequence: Option<i64>,
+) -> Result<CompletedSessionPage, DbError> {
+    search_completion_range(
+        conn,
+        filter,
+        limit,
+        CompletionRange::Snapshot {
+            through_sequence,
+            before_sequence,
+        },
+    )
+}
+
+#[derive(Clone, Copy)]
+enum CompletionRange {
+    After(i64),
+    Snapshot {
+        through_sequence: i64,
+        before_sequence: Option<i64>,
+    },
+}
+
+fn search_completion_range(
+    conn: &Connection,
+    filter: &SessionSearchFilter,
+    limit: usize,
+    range: CompletionRange,
+) -> Result<CompletedSessionPage, DbError> {
+    let (rows, has_more) = query_sessions(conn, filter, limit, None, Some(range))?;
+    let items = rows
+        .into_iter()
+        .map(|(summary, sequence)| CompletedSession { summary, sequence })
+        .collect();
+    Ok(CompletedSessionPage { items, has_more })
+}
+
+type SessionQueryRows = (Vec<(SessionSummaryRow, i64)>, bool);
+
+fn query_sessions(
+    conn: &Connection,
+    filter: &SessionSearchFilter,
+    limit: usize,
+    cursor: Option<&str>,
+    completion_range: Option<CompletionRange>,
+) -> Result<SessionQueryRows, DbError> {
     if let (Some(min), Some(max)) = (filter.status_min, filter.status_max) {
         if min > max {
             return Err(DbError::Validation(
@@ -164,18 +251,26 @@ pub fn search_sessions(
             &["failure_origin", "failure_kind"],
         )? && crate::connection::table_has_columns(conn, "session_details", &["failure_message"])?;
 
-    if let Some(after_rowid) = filter.after_rowid {
-        conditions.push(format!("s.rowid > ?{index}"));
-        values.push(Value::Integer(after_rowid));
-        index += 1;
-    }
-
-    if filter.completed_only {
-        conditions.push(if failures_available {
-            "s.finished_at <> '' AND (s.status_code <> 0 OR s.failure_kind IS NOT NULL)".to_string()
-        } else {
-            "s.finished_at <> '' AND s.status_code <> 0".to_string()
-        });
+    match completion_range {
+        Some(CompletionRange::After(sequence)) => {
+            conditions.push(format!("c.sequence > ?{index}"));
+            values.push(Value::Integer(sequence));
+            index += 1;
+        }
+        Some(CompletionRange::Snapshot {
+            through_sequence,
+            before_sequence,
+        }) => {
+            conditions.push(format!("c.sequence <= ?{index}"));
+            values.push(Value::Integer(through_sequence));
+            index += 1;
+            if let Some(sequence) = before_sequence {
+                conditions.push(format!("c.sequence < ?{index}"));
+                values.push(Value::Integer(sequence));
+                index += 1;
+            }
+        }
+        None => {}
     }
 
     if let Some(host) = filter
@@ -290,7 +385,13 @@ pub fn search_sessions(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        conditions.push(format!("s.started_at >= ?{index}"));
+        conditions.push(
+            if matches!(completion_range, Some(CompletionRange::Snapshot { .. })) {
+                format!("julianday(s.started_at) >= julianday(?{index})")
+            } else {
+                format!("s.started_at >= ?{index}")
+            },
+        );
         values.push(Value::Text(started_after.to_string()));
         index += 1;
     }
@@ -301,7 +402,13 @@ pub fn search_sessions(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        conditions.push(format!("s.started_at <= ?{index}"));
+        conditions.push(
+            if matches!(completion_range, Some(CompletionRange::Snapshot { .. })) {
+                format!("julianday(s.started_at) <= julianday(?{index})")
+            } else {
+                format!("s.started_at <= ?{index}")
+            },
+        );
         values.push(Value::Text(started_before.to_string()));
         index += 1;
     }
@@ -448,18 +555,31 @@ pub fn search_sessions(
     } else {
         ""
     };
-    let order_clause = match filter.sort_by.sql_column() {
-        Some(column) => format!(
-            "{column} {}, s.started_at {}, s.id {}",
-            filter.sort_order.sql(),
-            filter.sort_order.sql(),
-            filter.sort_order.sql()
-        ),
-        None => format!(
-            "s.started_at {}, s.id {}",
-            filter.sort_order.sql(),
-            filter.sort_order.sql()
-        ),
+    let (source, completion_sequence, order_clause) = if let Some(range) = completion_range {
+        let order = match range {
+            CompletionRange::After(_) => "c.sequence ASC",
+            CompletionRange::Snapshot { .. } => "c.sequence DESC",
+        };
+        (
+            "session_completions c JOIN session_summaries s ON s.id = c.session_id",
+            "c.sequence",
+            order.to_owned(),
+        )
+    } else {
+        let order_clause = match filter.sort_by.sql_column() {
+            Some(column) => format!(
+                "{column} {}, s.started_at {}, s.id {}",
+                filter.sort_order.sql(),
+                filter.sort_order.sql(),
+                filter.sort_order.sql()
+            ),
+            None => format!(
+                "s.started_at {}, s.id {}",
+                filter.sort_order.sql(),
+                filter.sort_order.sql()
+            ),
+        };
+        ("session_summaries s", "0", order_clause)
     };
     let failure_columns = if failures_available {
         "s.failure_origin, s.failure_kind,
@@ -472,8 +592,8 @@ pub fn search_sessions(
         "SELECT s.id, s.method, s.host, s.path, s.protocol, s.scheme, s.http_version,
                 s.transport_protocol, s.application_protocol, s.started_at, s.finished_at,
                 s.duration_ms, s.size_bytes, s.status_code, s.url, s.response_mime_type,
-                {failure_columns}
-         FROM session_summaries s{join_clause}{where_clause}
+                {failure_columns}, {completion_sequence} AS completion_sequence
+         FROM {source}{join_clause}{where_clause}
          ORDER BY {order_clause}
          LIMIT ?{index}"
     );
@@ -482,51 +602,17 @@ pub fn search_sessions(
     let mut statement = conn
         .prepare(&sql)
         .map_err(|error| DbError::query("prepare session search", error))?;
-    let rows: Result<Vec<SessionSummaryRow>, DbError> = statement
-        .query_map(params_from_iter(values), row_to_summary)
+    let rows: Result<Vec<_>, DbError> = statement
+        .query_map(params_from_iter(values), |row| {
+            Ok((row_to_summary(row)?, row.get("completion_sequence")?))
+        })
         .map_err(|error| DbError::query("query session search", error))?
         .map(|row| row.map_err(|error| DbError::query("decode session search row", error)))
         .collect();
     let mut rows = rows?;
-
-    let truncated = rows.len() > limit;
-    if truncated {
-        rows.truncate(limit);
-    }
-    let next_cursor = if truncated {
-        rows.last()
-            .map(|row| encode_cursor(row, filter.sort_by, filter.sort_order))
-            .transpose()?
-    } else {
-        None
-    };
-
-    Ok(SessionSearchPage {
-        items: rows,
-        next_cursor,
-        truncated,
-    })
-}
-
-/// Return the newest rowid for a completed session. `session_summaries` has
-/// TEXT PRIMARY KEY without `WITHOUT ROWID`, and updates preserve rowid, so
-/// this is a stable insertion-order watermark.
-pub fn latest_completed_session_rowid(conn: &Connection) -> Result<i64, DbError> {
-    let failure_columns =
-        crate::connection::table_has_columns(
-            conn,
-            "session_summaries",
-            &["failure_origin", "failure_kind"],
-        )? && crate::connection::table_has_columns(conn, "session_details", &["failure_message"])?;
-    let sql = if failure_columns {
-        "SELECT COALESCE(MAX(rowid), 0) FROM session_summaries
-         WHERE finished_at <> '' AND (status_code <> 0 OR failure_kind IS NOT NULL)"
-    } else {
-        "SELECT COALESCE(MAX(rowid), 0) FROM session_summaries
-         WHERE finished_at <> '' AND status_code <> 0"
-    };
-    conn.query_row(sql, [], |row| row.get::<_, i64>(0))
-        .map_err(|error| DbError::query("read session watermark", error))
+    let has_more = rows.len() > limit;
+    rows.truncate(limit);
+    Ok((rows, has_more))
 }
 
 fn encode_cursor(

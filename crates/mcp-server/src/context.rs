@@ -397,6 +397,7 @@ fn capabilities_json(capabilities: SchemaCapabilities) -> Value {
         "webSocketMessages": capabilities.websocket_messages,
         "ruleTraces": capabilities.rule_traces,
         "workspaces": capabilities.workspaces,
+        "sessionCompletions": capabilities.session_completions,
     })
 }
 
@@ -409,6 +410,7 @@ pub fn available_tools() -> Vec<&'static str> {
         "export_session_as_curl",
         "get_session_body",
         "get_session_fields",
+        "search_session_fields",
         "get_websocket_messages",
         "get_insights",
         "compare_sessions",

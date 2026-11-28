@@ -62,10 +62,11 @@ fn extension(created: &Value, key: &str) -> ExtendSessionJsonRewriteParams {
     }
 }
 
-fn wait(created: &Value, after_rowid: Option<i64>) -> WaitForSessionJsonRewriteParams {
+fn wait(created: &Value, after_watermark: Option<String>) -> WaitForSessionJsonRewriteParams {
     WaitForSessionJsonRewriteParams {
         change_id: created["changeId"].as_str().unwrap().into(),
-        after_rowid,
+        after_watermark,
+        after_rowid: None,
         timeout_ms: 1000,
     }
 }
@@ -414,10 +415,12 @@ async fn verification_cursor_ignores_preceding_captures() {
         json!(1),
     );
     state.upsert_session_async(first).await;
-    let cursor = aiproxy_db::session_search::latest_completed_session_rowid(
+    let cursor = aiproxy_db::session_completion::read_completion_watermark(
         &state.lock_db_for_ipc().unwrap(),
     )
-    .unwrap();
+    .unwrap()
+    .unwrap()
+    .encode();
     let second = evidence(
         "second-matching",
         &Utc::now().to_rfc3339(),
@@ -428,13 +431,30 @@ async fn verification_cursor_ignores_preceding_captures() {
     state.upsert_session_async(second).await;
 
     let result = state
-        .wait_for_session_json_rewrite(wait(&created, Some(cursor)), automation_permissions())
+        .wait_for_session_json_rewrite(
+            wait(&created, Some(cursor.clone())),
+            automation_permissions(),
+        )
         .await
         .unwrap();
 
     assert_eq!(result["status"], "verified");
     assert_eq!(result["sessionId"], "second-matching");
-    assert_ne!(result["watermark"], format!("w1:{cursor}"));
+    assert_ne!(result["watermark"], cursor);
+
+    let legacy = serde_json::from_value(json!({
+        "changeId": created["changeId"],
+        "afterRowid": 1000,
+        "timeoutMs": 1000,
+    }))
+    .unwrap();
+    let replay = state
+        .wait_for_session_json_rewrite(legacy, automation_permissions())
+        .await
+        .unwrap();
+    assert_eq!(replay["cursorCompatibility"], "legacyReplay");
+    assert_eq!(replay["sessionId"], "first-matching");
+    assert!(replay["watermark"].as_str().unwrap().starts_with("w2:"));
 }
 
 #[tokio::test]

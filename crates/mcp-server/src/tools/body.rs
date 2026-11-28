@@ -1,5 +1,5 @@
 use aiproxy_db::body_store::BodyStore;
-use aiproxy_db::sessions::load_session_detail;
+use aiproxy_db::rusqlite::OptionalExtension;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use schemars::JsonSchema;
@@ -18,7 +18,7 @@ use super::sessions::{lookup_session_id, require_session_id, SessionIdLookup};
 use super::text_search::{search_text, text_query_scan_limit_error, MAX_TEXT_QUERY_SCAN_BYTES};
 
 const MAX_BODY_SCAN_BYTES: usize = 8 * 1024 * 1024;
-const MAX_BATCH_JSON_SCAN_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_BATCH_JSON_SCAN_BYTES: u64 = 256 * 1024 * 1024;
 const DEFAULT_CONTEXT_BYTES: usize = 120;
 const MAX_CONTEXT_BYTES: usize = 1024;
 const MAX_BATCH_SESSIONS: usize = 20;
@@ -30,7 +30,7 @@ const MAX_FORM_VALUE_BYTES: usize = 64 * 1024;
 const MAX_FORM_TOTAL_BYTES: usize = 512 * 1024;
 const MAX_JSON_PATH_VALUE_BYTES: usize = 64 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum BodyPart {
     /// The captured request body.
@@ -1396,19 +1396,24 @@ pub(crate) fn load_body_reference(
     session_id: &str,
     part: BodyPart,
 ) -> Result<Option<StoredBodyReference>, aiproxy_db::DbError> {
-    let detail = load_session_detail(connection, session_id)?;
-    let Some(detail) = detail else {
-        return Ok(None);
+    let sql = match part {
+        BodyPart::Request => {
+            "SELECT request_body_ref FROM session_details WHERE session_summary_id=?1"
+        }
+        BodyPart::Response => {
+            "SELECT response_body_ref FROM session_details WHERE session_summary_id=?1"
+        }
     };
-    let value = match part {
-        BodyPart::Request => detail.request_body_ref,
-        BodyPart::Response => detail.response_body_ref,
-    };
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    Ok(serde_json::from_str::<StoredBodyReferenceJson>(&value)
-        .ok()
+    let mut statement = connection
+        .prepare_cached(sql)
+        .map_err(|error| aiproxy_db::DbError::query("prepare body reference lookup", error))?;
+    let value = statement
+        .query_row([session_id], |row| row.get::<_, Option<String>>(0))
+        .optional()
+        .map_err(|error| aiproxy_db::DbError::query("load body reference", error))?
+        .flatten();
+    Ok(value
+        .and_then(|value| serde_json::from_str::<StoredBodyReferenceJson>(&value).ok())
         .map(StoredBodyReference::from))
 }
 

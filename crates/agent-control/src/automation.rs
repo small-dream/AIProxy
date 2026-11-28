@@ -248,6 +248,10 @@ pub struct ExtendSessionJsonRewriteParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WaitForSessionJsonRewriteParams {
     pub change_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_watermark: Option<String>,
+    /// Compatibility with sidecars that sent a numeric w1 watermark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after_rowid: Option<i64>,
     pub timeout_ms: u64,
 }

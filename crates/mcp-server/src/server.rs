@@ -32,6 +32,7 @@ use crate::tools::control::{
 use crate::tools::curl::{export_session_as_curl, ExportSessionAsCurlRequest};
 use crate::tools::diagnostics::{diagnose_issue, DiagnoseIssueRequest};
 use crate::tools::insights::{get_insights, GetInsightsRequest};
+use crate::tools::session_field_search::{search_session_fields, SearchSessionFieldsRequest};
 use crate::tools::session_json_rewrite::{
     create_session_json_rewrite, extend_session_json_rewrite, wait_for_session_json_rewrite,
     CreateSessionJsonRewriteRequest, WaitForSessionJsonRewriteRequest,
@@ -127,7 +128,7 @@ impl AiProxyMcpServer {
         title = "Wait for sessions",
         annotations(read_only_hint = true, open_world_hint = false),
         output_schema = crate::protocol::envelope_output_schema(),
-        description = "Wait up to 30 seconds for new completed sessions matching the filters. Omit afterWatermark to start from the latest completed session at call time. Returns satisfied, timedOut, items, a watermark for the next call, and notes when capture is not running. Polling interval is 300ms; this is not a real-time stream."
+        description = "Wait up to 30 seconds for completed sessions matching the filters, in completion order. Pass the returned watermark to continue from the last delivered session. Omit afterWatermark to start at the current completion watermark. Legacy w1 watermarks replay retained matches and return a new w2 watermark. Returns satisfied, timedOut, items, a watermark for the next call, and notes when capture is not running. Polling interval is 300ms; this is not a real-time stream."
     )]
     async fn wait_for_sessions_tool(
         &self,
@@ -212,6 +213,49 @@ impl AiProxyMcpServer {
                 true,
             ),
             Err(error) => finish_error(&self.state, &context, "get_session_body", error, started),
+        }
+    }
+
+    #[tool(
+        name = "search_session_fields",
+        title = "Search session JSON fields",
+        annotations(read_only_hint = true, open_world_hint = false),
+        output_schema = crate::protocol::envelope_output_schema(),
+        description = "Find completed sessions by an exact JSON property name or JSONPath in a request or response body. Narrow with filter (defaults to the last 10 minutes). Use exists or typed scalar equals. Searches only visible values. If scan.hasMore, continue the same query with meta.nextCursor, even when items is empty."
+    )]
+    async fn search_session_fields_tool(
+        &self,
+        Parameters(request): Parameters<SearchSessionFieldsRequest>,
+        context: RequestContext<RoleServer>,
+    ) -> CallToolResult {
+        let started = Instant::now();
+        let (client_name, client_version) = client_identity(&context);
+        match search_session_fields(
+            &self.state,
+            request,
+            ControlCaller {
+                name: &client_name,
+                version: &client_version,
+            },
+        )
+        .await
+        {
+            Ok((data, meta)) => finish_success(
+                &self.state,
+                &context,
+                "search_session_fields",
+                data,
+                meta,
+                started,
+                true,
+            ),
+            Err(error) => finish_error(
+                &self.state,
+                &context,
+                "search_session_fields",
+                error,
+                started,
+            ),
         }
     }
 
